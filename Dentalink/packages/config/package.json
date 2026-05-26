@@ -1,0 +1,23 @@
+{
+  "name": "@dentalwarner/config",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./eslint/base": "./eslint/base.mjs",
+    "./prettier": "./prettier/index.cjs",
+    "./typescript/base": "./typescript/base.json"
+  },
+  "scripts": {
+    "build": "echo \"Config package has no build step\"",
+    "typecheck": "echo \"Config package has no typecheck step\"",
+    "lint": "echo \"Config package has no lint step\"",
+    "format": "prettier --write \"**/*.{js,cjs,mjs,json,md}\"",
+    "test": "echo \"Config package has no tests\""
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.0",
+    "prettier": "^3.8.3",
+    "typescript-eslint": "^8.59.4"
+  }
+}

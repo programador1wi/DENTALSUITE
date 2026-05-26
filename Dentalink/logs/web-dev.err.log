@@ -1,0 +1,23 @@
+[2m12:02:24 p.m.[22m [31m[1m[vite][22m[39m [31mInternal server error: Transform failed with 1 error:
+
+[31m[PARSE_ERROR] [0mIdentifier `surface` has already been declared
+    [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m src/features/clinical/components/tooth-detail-panel.tsx:45:3 [38;5;246m][0m
+    [38;5;246m│[0m
+ [38;5;246m45 │[0m [38;5;249m [0m[38;5;249m [0msurface[38;5;249m,[0m
+ [38;5;240m   │[0m   ───┬───  
+ [38;5;240m   │[0m      ╰───── `surface` has already been declared here
+ [38;5;240m   │[0m 
+ [38;5;246m75 │[0m [38;5;249m [0m[38;5;249m [0m[38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m[[0msurface[38;5;249m,[0m[38;5;249m [0m[38;5;249ms[0m[38;5;249me[0m[38;5;249mt[0m[38;5;249mS[0m[38;5;249mu[0m[38;5;249mr[0m[38;5;249mf[0m[38;5;249ma[0m[38;5;249mc[0m[38;5;249me[0m[38;5;249m][0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mu[0m[38;5;249ms[0m[38;5;249me[0m[38;5;249mS[0m[38;5;249mt[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249me[0m[38;5;249m([0m[38;5;249m"[0m[38;5;249m"[0m[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m   │[0m          ───┬───  
+ [38;5;240m   │[0m             ╰───── It can not be redeclared here
+[38;5;246m────╯[0m
+[39m
+  Plugin: [35mvite:oxc[39m
+  File: [36mC:/Users/X/Music/Dentalink/apps/web/src/features/clinical/components/tooth-detail-panel.tsx[39m
+      at transformWithOxc (file:///C:/Users/X/Music/Dentalink/node_modules/vite/dist/node/chunks/node.js:3339:19)
+      at TransformPluginContext.transform (file:///C:/Users/X/Music/Dentalink/node_modules/vite/dist/node/chunks/node.js:3410:26)
+      at EnvironmentPluginContainer.transform (file:///C:/Users/X/Music/Dentalink/node_modules/vite/dist/node/chunks/node.js:30271:51)
+      at async loadAndTransform (file:///C:/Users/X/Music/Dentalink/node_modules/vite/dist/node/chunks/node.js:24532:26)
+      at async viteTransformMiddleware (file:///C:/Users/X/Music/Dentalink/node_modules/vite/dist/node/chunks/node.js:24326:20)
+[2m5:09:37 p.m.[22m [31m[1m[vite][22m[39m [31m[2m(client)[22m[39m Pre-transform error: Failed to load url /src/features/clinical/pages/clinical-history-page.tsx (resolved id: C:/Users/X/Music/Dentalink/apps/web/src/features/clinical/pages/clinical-history-page.tsx) in C:/Users/X/Music/Dentalink/apps/web/src/app/routes/router.tsx. Does the file exist?
+^C

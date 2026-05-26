@@ -1,0 +1,85 @@
+
+> dentalwarner-platform@0.1.0 dev:web
+> npm run dev --workspace=@dentalwarner/web
+
+
+> @dentalwarner/web@0.1.0 dev
+> vite --port 3000 --strictPort
+
+[2m11:53:49 a.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m Re-optimizing dependencies because vite config has changed
+
+  [32m[1mVITE[22m v8.0.13[39m  [2mready in [0m[1m1211[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m3000[22m/[39m
+[2m  [32m➜[39m  [1mNetwork[22m[2m: use [22m[1m--host[22m[2m to expose[22m
+[2m[32m  ➜[39m[22m[2m  press [22m[1mh + enter[22m[2m to show help[22m
+[2m12:01:37 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-odontogram-page.tsx[22m
+[2m12:02:04 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m12:02:23 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/tooth-detail-panel.tsx[22m
+[2m12:02:34 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/tooth-detail-panel.tsx[22m
+[2m12:29:14 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-odontogram-page.tsx, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m12:29:35 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m12:30:00 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/components/ui/modal.tsx[22m
+[2m12:30:47 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m12:31:07 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-odontogram-page.tsx[22m
+[2m12:37:11 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-odontogram-page.tsx, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m12:38:13 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m12:38:21 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-odontogram-page.tsx[22m
+[2m12:50:45 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/tooth-diagnosis-modal.tsx[22m
+[2m12:51:04 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-odontogram-page.tsx[22m
+[2m12:51:24 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m1:00:08 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/tooth-diagnosis-modal.tsx[22m
+[2m1:00:27 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/features/clinical/components/tooth-diagnosis-modal.tsx[22m
+[2m1:00:51 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m1:04:35 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m1:10:11 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-documents-page.tsx, /src/features/clinical/pages/clinical-evolutions-page.tsx, /src/features/clinical/pages/clinical-history-page.tsx, /src/features/clinical/pages/clinical-periodontogram-page.tsx, /src/features/clinical/pages/clinical-prescriptions-page.tsx, /src/features/clinical/pages/clinical-odontogram-page.tsx, /src/features/clinical/components/clinical-shell.tsx[22m
+[2m1:10:21 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-documents-page.tsx, /src/features/clinical/pages/clinical-evolutions-page.tsx, /src/features/clinical/pages/clinical-history-page.tsx, /src/features/clinical/pages/clinical-periodontogram-page.tsx, /src/features/clinical/pages/clinical-prescriptions-page.tsx, /src/features/clinical/pages/clinical-odontogram-page.tsx, /src/features/clinical/components/clinical-shell.tsx[22m
+[2m1:10:42 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/tooth-diagnosis-modal.tsx[22m
+[2m1:11:33 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/tooth-action-modals.tsx[22m
+[2m1:12:36 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/tooth-action-modals.tsx[22m
+[2m1:12:51 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-odontogram-page.tsx[22m
+[2m1:21:35 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m1:21:49 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m1:22:33 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m1:22:42 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m1:26:29 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m1:35:44 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m1:36:14 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m1:39:04 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m3:34:52 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m3:35:22 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m3:35:29 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m3:41:47 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpublic/odontogram-dentalink-preview.html[22m
+[2m3:43:33 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m3:50:23 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m3:50:29 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m3:53:36 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m3:53:45 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:08:09 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:08:18 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpublic/odontogram-dentalink-preview.html[22m
+[2m4:09:46 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:09:52 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:10:18 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:12:42 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:12:47 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpublic/odontogram-dentalink-preview.html[22m
+[2m4:26:05 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:28:40 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:35:00 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:35:10 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:36:58 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2mpublic/odontogram-dentalink-preview.html[22m
+[2m4:40:36 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/odontogram-view.tsx[22m
+[2m4:40:42 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-odontogram-page.tsx[22m
+[2m4:59:21 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-documents-page.tsx, /src/features/clinical/pages/clinical-evolutions-page.tsx, /src/features/clinical/pages/clinical-history-page.tsx, /src/features/clinical/pages/clinical-periodontogram-page.tsx, /src/features/clinical/pages/clinical-prescriptions-page.tsx, /src/features/clinical/pages/clinical-odontogram-page.tsx, /src/features/clinical/components/clinical-shell.tsx[22m
+[2m4:59:27 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-documents-page.tsx, /src/features/clinical/pages/clinical-evolutions-page.tsx, /src/features/clinical/pages/clinical-history-page.tsx, /src/features/clinical/pages/clinical-periodontogram-page.tsx, /src/features/clinical/pages/clinical-prescriptions-page.tsx, /src/features/clinical/pages/clinical-odontogram-page.tsx, /src/features/clinical/components/clinical-shell.tsx[22m
+[2m4:59:37 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-history-page.tsx[22m
+[2m5:01:06 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/features/clinical/pages/clinical-history-page.tsx[22m
+[2m5:05:16 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/features/clinical/pages/clinical-history-page.tsx[22m
+[2m5:09:37 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/features/clinical/pages/clinical-history-page.tsx[22m
+[2m5:10:27 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/features/clinical/pages/clinical-history-page.tsx[22m
+[2m5:11:12 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/components/clinical-shell.tsx[22m
+[2m5:11:19 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/app/routes/router.tsx, /src/styles.css[22m
+[2m5:11:20 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [33mhmr invalidate [39m[2m/src/app/routes/router.tsx[22m Could not Fast Refresh ("router" export is incompatible). Learn more at https://github.com/vitejs/vite-plugin-react/tree/main/packages/plugin-react#consistent-components-exports
+[2m5:11:20 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/app/routes/router.tsx[22m
+[2m5:17:52 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/styles.css, /src/features/clinical/pages/clinical-medical-history-page.tsx[22m
+[2m5:19:44 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/features/clinical/pages/clinical-medical-history-page.tsx[22m
+[2m5:21:58 p.m.[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mpage reload [39m[2msrc/features/clinical/pages/clinical-medical-history-page.tsx[22m

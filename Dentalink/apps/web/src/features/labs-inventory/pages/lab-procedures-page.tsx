@@ -1,0 +1,299 @@
+import { FormEvent, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
+import { EmptyState } from "@/components/feedback/empty-state";
+import { ErrorState } from "@/components/feedback/error-state";
+import { LoadingState } from "@/components/feedback/loading-state";
+import { usePriceLists, useUpdatePriceList } from "@/features/settings/price-lists/hooks/use-price-lists";
+import type { PriceList, PriceListItem } from "@/features/settings/price-lists/services/price-lists.service";
+import { useProcedureCategories, useProcedureMutations, useProcedures } from "@/features/settings/procedures/hooks/use-procedures";
+import type { Procedure } from "@/features/settings/procedures/services/procedures.service";
+import { LabInfoBanner, LabsPrimaryAction, LabsWorkspace } from "../components/labs-workspace";
+
+type Currency = "MXN" | "USD" | "EUR";
+
+type LabProcedureForm = {
+  categoryId: string;
+  code: string;
+  name: string;
+  description: string;
+  defaultDuration: string;
+  price: string;
+  currency: Currency;
+  requiresTooth: boolean;
+  requiresSurface: boolean;
+};
+
+const emptyForm: LabProcedureForm = {
+  categoryId: "",
+  code: "",
+  name: "",
+  description: "",
+  defaultDuration: "30",
+  price: "",
+  currency: "MXN",
+  requiresTooth: false,
+  requiresSurface: false
+};
+
+function normalizeItems(items: PriceListItem[]) {
+  return items.map((item) => ({
+    procedureId: item.procedureId,
+    price: item.price,
+    currency: item.currency
+  }));
+}
+
+function replacePrice(list: PriceList, procedureId: string, price: string, currency: Currency) {
+  const current = normalizeItems(list.items);
+  const next = { procedureId, price, currency };
+  return current.some((item) => item.procedureId === procedureId)
+    ? current.map((item) => item.procedureId === procedureId ? next : item)
+    : [...current, next];
+}
+
+function money(item?: PriceListItem) {
+  if (!item) return "Sin precio";
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: item.currency,
+    maximumFractionDigits: 2
+  }).format(Number(item.price));
+}
+
+function duration(value: string) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) return 30;
+  return Math.max(5, Math.min(600, Math.round(next)));
+}
+
+export function LabProceduresPage() {
+  const [search, setSearch] = useState("");
+  const [formOpen, setFormOpen] = useState(false);
+  const [form, setForm] = useState<LabProcedureForm>(emptyForm);
+  const [editing, setEditing] = useState<Procedure | null>(null);
+  const [deactivating, setDeactivating] = useState<Procedure | null>(null);
+
+  const procedures = useProcedures(search || undefined, "true");
+  const categories = useProcedureCategories(undefined, "true");
+  const lists = usePriceLists(undefined, "true");
+  const updateList = useUpdatePriceList();
+  const procedureMutations = useProcedureMutations();
+
+  const genericList = lists.data?.find((list) => list.isDefault) ?? lists.data?.[0] ?? null;
+  const labProcedures = (procedures.data ?? []).filter((procedure) => procedure.requiresLab);
+  const priceByProcedureId = useMemo(
+    () => new Map(genericList?.items.map((item) => [item.procedureId, item]) ?? []),
+    [genericList]
+  );
+
+  const openCreate = () => {
+    setEditing(null);
+    setForm({
+      ...emptyForm,
+      categoryId: categories.data?.[0]?.id ?? ""
+    });
+    setFormOpen(true);
+  };
+
+  const openEdit = (procedure: Procedure) => {
+    const item = priceByProcedureId.get(procedure.id);
+    setEditing(procedure);
+    setForm({
+      categoryId: procedure.categoryId,
+      code: procedure.code,
+      name: procedure.name,
+      description: procedure.description ?? "",
+      defaultDuration: String(procedure.defaultDuration),
+      price: item?.price ?? "",
+      currency: item?.currency ?? "MXN",
+      requiresTooth: procedure.requiresTooth,
+      requiresSurface: procedure.requiresSurface
+    });
+    setFormOpen(true);
+  };
+
+  const persistPrice = async (procedureId: string, price: string, currency: Currency) => {
+    if (!genericList || !price.trim()) return;
+    await updateList.mutateAsync({
+      id: genericList.id,
+      payload: { items: replacePrice(genericList, procedureId, price, currency) }
+    });
+  };
+
+  const submitProcedure = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!form.categoryId || !form.code.trim() || !form.name.trim()) return;
+
+    const payload = {
+      categoryId: form.categoryId,
+      code: form.code.trim(),
+      name: form.name.trim(),
+      description: form.description.trim() || undefined,
+      defaultDuration: duration(form.defaultDuration),
+      requiresTooth: form.requiresTooth,
+      requiresSurface: form.requiresSurface,
+      requiresLab: true
+    };
+
+    const procedure = editing
+      ? await procedureMutations.updateProcedure.mutateAsync({ id: editing.id, payload })
+      : await procedureMutations.createProcedure.mutateAsync(payload);
+
+    await persistPrice(procedure.id, form.price, form.currency);
+    setFormOpen(false);
+  };
+
+  if (procedures.isError) return <ErrorState message={procedures.error.message} />;
+  if (categories.isError) return <ErrorState message={categories.error.message} />;
+  if (lists.isError) return <ErrorState message={lists.error.message} />;
+
+  return (
+    <LabsWorkspace
+      title="Procedimientos de laboratorio"
+      description="Prestaciones que se cobran al paciente y requieren trabajo de laboratorio."
+      action={<LabsPrimaryAction onClick={openCreate}>Nuevo procedimiento</LabsPrimaryAction>}
+    >
+      <div className="space-y-4">
+        <LabInfoBanner>
+          Estos precios son los que se cobraran al paciente desde el listado generico
+          {genericList ? <strong> {genericList.name}</strong> : null}.
+        </LabInfoBanner>
+
+        <div className="grid gap-3 lg:grid-cols-[minmax(260px,420px)_1fr]">
+          <Input
+            placeholder="Buscar procedimiento por codigo o nombre"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 text-sm text-slate-600">
+            <span className="font-semibold">Listado generico:</span>
+            {genericList ? genericList.name : "No hay listado activo"}
+          </div>
+        </div>
+
+        {procedures.isLoading || lists.isLoading ? (
+          <LoadingState message="Cargando procedimientos de laboratorio..." />
+        ) : !labProcedures.length ? (
+          <EmptyState title="Sin procedimientos" description="Crea un procedimiento de laboratorio para comenzar." />
+        ) : (
+          <div className="overflow-x-auto rounded-2xl border border-slate-200">
+            <table className="w-full border-collapse bg-white text-sm">
+              <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Codigo</th>
+                  <th className="px-4 py-3">Nombre</th>
+                  <th className="px-4 py-3">Categoria</th>
+                  <th className="px-4 py-3">Precio paciente generico</th>
+                  <th className="px-4 py-3">Estado</th>
+                  <th className="px-4 py-3 text-right">Opciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {labProcedures.map((procedure) => (
+                  <tr key={procedure.id} className="border-t border-slate-100">
+                    <td className="px-4 py-4 font-medium text-slate-700">{procedure.code}</td>
+                    <td className="px-4 py-4">
+                      <p className="font-semibold text-slate-900">{procedure.name}</p>
+                      {procedure.description ? <p className="text-xs text-slate-500">{procedure.description}</p> : null}
+                    </td>
+                    <td className="px-4 py-4">{procedure.category.name}</td>
+                    <td className="px-4 py-4 font-semibold text-slate-900">{money(priceByProcedureId.get(procedure.id))}</td>
+                    <td className="px-4 py-4"><Badge value="HABILITADO" tone="success" /></td>
+                    <td className="px-4 py-4">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="secondary" onClick={() => openEdit(procedure)}>Editar</Button>
+                        <Button variant="danger" onClick={() => setDeactivating(procedure)}>Deshabilitar</Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <Modal open={formOpen} title={editing ? "Editar procedimiento" : "Nuevo procedimiento de laboratorio"} onClose={() => setFormOpen(false)}>
+        <form className="space-y-3" onSubmit={submitProcedure}>
+          <label className="block text-sm font-medium text-slate-700">
+            Categoria
+            <Select value={form.categoryId} onChange={(event) => setForm((current) => ({ ...current, categoryId: event.target.value }))}>
+              <option value="">Selecciona categoria</option>
+              {categories.data?.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+            </Select>
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-sm font-medium text-slate-700">
+              Codigo
+              <Input value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} />
+            </label>
+            <label className="text-sm font-medium text-slate-700">
+              Duracion sugerida
+              <Input type="number" min="5" max="600" value={form.defaultDuration} onChange={(event) => setForm((current) => ({ ...current, defaultDuration: event.target.value }))} />
+            </label>
+          </div>
+          <label className="block text-sm font-medium text-slate-700">
+            Nombre
+            <Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Descripcion
+            <Textarea rows={2} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
+          </label>
+          <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
+            <label className="text-sm font-medium text-slate-700">
+              Precio paciente generico
+              <Input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm((current) => ({ ...current, price: event.target.value }))} />
+            </label>
+            <label className="text-sm font-medium text-slate-700">
+              Moneda
+              <Select value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value as Currency }))}>
+                <option value="MXN">MXN</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+              </Select>
+            </label>
+          </div>
+          <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+            <Flag label="Requiere diente" checked={form.requiresTooth} onChange={(requiresTooth) => setForm((current) => ({ ...current, requiresTooth }))} />
+            <Flag label="Requiere superficie" checked={form.requiresSurface} onChange={(requiresSurface) => setForm((current) => ({ ...current, requiresSurface }))} />
+          </div>
+          {!genericList ? <p className="text-sm text-amber-700">Se creara el procedimiento, pero necesitas una lista de precios activa para guardar el precio generico.</p> : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" type="button" onClick={() => setFormOpen(false)}>Cancelar</Button>
+            <Button disabled={procedureMutations.createProcedure.isPending || procedureMutations.updateProcedure.isPending || updateList.isPending}>
+              {editing ? "Actualizar" : "Crear"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deactivating)}
+        title="Deshabilitar procedimiento"
+        description={deactivating ? `Se deshabilitara ${deactivating.name} para nuevos tratamientos.` : "Se deshabilitara el procedimiento."}
+        confirmLabel={procedureMutations.deactivateProcedure.isPending ? "Deshabilitando..." : "Deshabilitar"}
+        onCancel={() => setDeactivating(null)}
+        onConfirm={() => {
+          if (!deactivating) return;
+          void procedureMutations.deactivateProcedure.mutateAsync(deactivating.id).then(() => setDeactivating(null));
+        }}
+      />
+    </LabsWorkspace>
+  );
+}
+
+function Flag({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2">
+      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      {label}
+    </label>
+  );
+}

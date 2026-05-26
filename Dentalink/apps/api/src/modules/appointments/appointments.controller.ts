@@ -1,0 +1,109 @@
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { CurrentUser } from "../../common/decorators/current-user.decorator";
+import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
+import { PermissionsGuard } from "../../common/guards/permissions.guard";
+import { AuthUser } from "../../common/types/auth-user";
+import { AppointmentQueryDto } from "./dto/appointment-query.dto";
+import {
+  AppointmentStatusReasonDto,
+  AvailabilityQueryDto,
+  CancelAppointmentDto,
+  RescheduleAppointmentDto
+} from "./dto/appointment-actions.dto";
+import { AppointmentsService } from "./appointments.service";
+import { CreateAppointmentDto } from "./dto/create-appointment.dto";
+import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
+
+@ApiTags("Appointments")
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@Controller("appointments")
+export class AppointmentsController {
+  constructor(private readonly appointmentsService: AppointmentsService) {}
+
+  @Get()
+  @RequirePermissions("appointments.read")
+  findAll(@CurrentUser() user: AuthUser, @Query() query: AppointmentQueryDto) {
+    return this.appointmentsService.findAll(user, query);
+  }
+
+  @Get("availability")
+  @RequirePermissions("appointments.read")
+  availability(@CurrentUser() user: AuthUser, @Query() query: AvailabilityQueryDto) {
+    return this.appointmentsService.availability(user, query);
+  }
+
+  @Post()
+  @RequirePermissions("appointments.create")
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateAppointmentDto) {
+    return this.appointmentsService.create(user, dto);
+  }
+
+  @Get(":id")
+  @RequirePermissions("appointments.read")
+  findOne(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.appointmentsService.findOne(user, id);
+  }
+
+  @Patch(":id")
+  @RequirePermissions("appointments.update")
+  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateAppointmentDto) {
+    return this.appointmentsService.update(user, id, dto);
+  }
+
+  @Delete(":id")
+  @RequirePermissions("appointments.cancel")
+  remove(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.appointmentsService.remove(user, id);
+  }
+
+  @Post(":id/confirm")
+  @RequirePermissions("appointments.status.update")
+  confirm(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.appointmentsService.confirm(user, id);
+  }
+
+  @Post(":id/cancel")
+  @RequirePermissions("appointments.cancel")
+  cancel(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: CancelAppointmentDto) {
+    return this.appointmentsService.cancel(user, id, dto);
+  }
+
+  @Post(":id/reschedule")
+  @RequirePermissions("appointments.update")
+  reschedule(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: RescheduleAppointmentDto) {
+    return this.appointmentsService.reschedule(user, id, dto);
+  }
+
+  @Post(":id/arrive")
+  @RequirePermissions("appointments.status.update")
+  arrive(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: AppointmentStatusReasonDto) {
+    return this.appointmentsService.arrive(user, id, dto);
+  }
+
+  @Post(":id/waiting-room")
+  @RequirePermissions("appointments.status.update")
+  waitingRoom(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: AppointmentStatusReasonDto) {
+    return this.appointmentsService.waitingRoom(user, id, dto);
+  }
+
+  @Post(":id/start")
+  @RequirePermissions("appointments.status.update")
+  start(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: AppointmentStatusReasonDto) {
+    return this.appointmentsService.start(user, id, dto);
+  }
+
+  @Post(":id/complete")
+  @RequirePermissions("appointments.status.update")
+  complete(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: AppointmentStatusReasonDto) {
+    return this.appointmentsService.complete(user, id, dto);
+  }
+
+  @Post(":id/no-show")
+  @RequirePermissions("appointments.status.update")
+  noShow(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: AppointmentStatusReasonDto) {
+    return this.appointmentsService.noShow(user, id, dto);
+  }
+}

@@ -22,6 +22,7 @@ import { DataTable } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { Tabs } from "@/components/ui/tabs";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { usePermissionsQuery } from "@/features/settings/permissions/hooks/use-permissions";
 import type { PermissionListItem } from "@/features/settings/permissions/services/permissions.service";
@@ -250,6 +251,7 @@ export function UsersPage() {
   const [contractUser, setContractUser] = useState<UserListItem | null>(null);
   const [commissionRate, setCommissionRate] = useState("");
   const [permissionSearch, setPermissionSearch] = useState("");
+  const [activeTab, setActiveTab] = useState("general");
 
   const routeStatus = searchParams.get("status") ?? "";
   const status = supportedStatuses.has(routeStatus) ? routeStatus : "";
@@ -286,6 +288,7 @@ export function UsersPage() {
     setEditing(null);
     setUserForm(emptyUserForm);
     setPermissionSearch("");
+    setActiveTab("general");
     setUserFormOpen(true);
   };
 
@@ -293,6 +296,7 @@ export function UsersPage() {
     setEditing(user);
     setUserForm(formFromUser(user));
     setPermissionSearch("");
+    setActiveTab("general");
     setUserFormOpen(true);
   };
 
@@ -300,6 +304,7 @@ export function UsersPage() {
     setEditing(null);
     setUserForm(emptyUserForm);
     setPermissionSearch("");
+    setActiveTab("general");
     setUserFormOpen(false);
   };
 
@@ -581,190 +586,235 @@ export function UsersPage() {
         size="xl"
         onClose={closeUserForm}
       >
-        <form className="space-y-4" onSubmit={submitUser}>
+        <form className="flex flex-col" onSubmit={submitUser}>
           {roles.isLoading || branches.isLoading || permissions.isLoading ? (
-            <LoadingState message="Cargando perfiles, sucursales y permisos..." />
+            <div className="mb-4">
+              <LoadingState message="Cargando perfiles, sucursales y permisos..." />
+            </div>
           ) : null}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-1 text-sm text-slate-700">
-              Nombre
-              <Input
-                required
-                value={userForm.firstName}
-                onChange={(event) =>
-                  setUserForm((current) => ({ ...current, firstName: event.target.value }))
-                }
-              />
-            </label>
-            <label className="grid gap-1 text-sm text-slate-700">
-              Apellido
-              <Input
-                required
-                value={userForm.lastName}
-                onChange={(event) => setUserForm((current) => ({ ...current, lastName: event.target.value }))}
-              />
-            </label>
-            <label className="grid gap-1 text-sm text-slate-700">
-              Correo
-              <Input
-                required={!editing}
-                disabled={Boolean(editing)}
-                type="email"
-                value={userForm.email}
-                onChange={(event) => setUserForm((current) => ({ ...current, email: event.target.value }))}
-              />
-            </label>
-            <label className="grid gap-1 text-sm text-slate-700">
-              Telefono
-              <Input
-                value={userForm.phone}
-                onChange={(event) => setUserForm((current) => ({ ...current, phone: event.target.value }))}
-              />
-            </label>
-            <label className="grid gap-1 text-sm text-slate-700">
-              {editing ? "Nueva contrasena opcional" : "Contrasena"}
-              <Input
-                required={!editing}
-                minLength={8}
-                type="password"
-                value={userForm.password}
-                onChange={(event) => setUserForm((current) => ({ ...current, password: event.target.value }))}
-              />
-            </label>
-            <label className="grid gap-1 text-sm text-slate-700">
-              Perfil
-              <Select required value={userForm.roleId} onChange={(event) => setRole(event.target.value)}>
-                <option value="">Selecciona perfil</option>
-                {(roles.data ?? []).map((role) => (
-                  <option key={role.id} value={role.id}>
-                    {role.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
+          <div className="mb-6 border-b border-slate-200 pb-1">
+            <Tabs
+              active={activeTab}
+              onChange={setActiveTab}
+              items={[
+                { key: "general", label: "Datos Personales" },
+                { key: "branches", label: "Accesos" },
+                { key: "permissions", label: "Permisos Especiales" }
+              ]}
+            />
           </div>
 
-          <section className="rounded-lg border border-slate-200 p-3">
-            <h4 className="text-sm font-semibold text-slate-900">Sucursales de acceso</h4>
-            <div className="mt-2 grid max-h-36 gap-2 overflow-auto pr-1 sm:grid-cols-2">
-              {(branches.data ?? []).map((branch) => (
-                <label key={branch.id} className="flex items-center gap-2 text-sm text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={userForm.branchIds.includes(branch.id)}
-                    onChange={() => toggleBranch(branch.id)}
+          <div className="min-h-[380px]">
+            {activeTab === "general" && (
+              <div className="grid gap-5 sm:grid-cols-2 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+                <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                  Nombre
+                  <Input
+                    required
+                    className="bg-white"
+                    value={userForm.firstName}
+                    onChange={(event) =>
+                      setUserForm((current) => ({ ...current, firstName: event.target.value }))
+                    }
                   />
-                  <span>{branch.name}</span>
                 </label>
-              ))}
-            </div>
-            <label className="mt-3 grid gap-1 text-sm text-slate-700">
-              Sucursal principal
-              <Select
-                required
-                value={userForm.primaryBranchId}
-                onChange={(event) =>
-                  setUserForm((current) => ({ ...current, primaryBranchId: event.target.value }))
-                }
-              >
-                <option value="">Selecciona sucursal</option>
-                {(branches.data ?? [])
-                  .filter((branch) => userForm.branchIds.includes(branch.id))
-                  .map((branch) => (
-                    <option key={branch.id} value={branch.id}>
-                      {branch.name}
-                    </option>
-                  ))}
-              </Select>
-            </label>
-          </section>
-
-          <section className="rounded-lg border border-slate-200 p-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-              <div>
-                <h4 className="text-sm font-semibold text-slate-900">Permisos del usuario</h4>
-                <p className="mt-1 text-xs text-slate-500">
-                  Seleccionados: {userForm.permissionIds.length} de {permissions.data?.length ?? 0}
-                </p>
+                <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                  Apellido
+                  <Input
+                    required
+                    className="bg-white"
+                    value={userForm.lastName}
+                    onChange={(event) => setUserForm((current) => ({ ...current, lastName: event.target.value }))}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                  Correo electrónico
+                  <Input
+                    required={!editing}
+                    disabled={Boolean(editing)}
+                    className="bg-white disabled:opacity-60"
+                    type="email"
+                    value={userForm.email}
+                    onChange={(event) => setUserForm((current) => ({ ...current, email: event.target.value }))}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                  Teléfono
+                  <Input
+                    className="bg-white"
+                    value={userForm.phone}
+                    onChange={(event) => setUserForm((current) => ({ ...current, phone: event.target.value }))}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                  {editing ? "Nueva contraseña (opcional)" : "Contraseña"}
+                  <Input
+                    required={!editing}
+                    minLength={8}
+                    className="bg-white"
+                    type="password"
+                    value={userForm.password}
+                    onChange={(event) => setUserForm((current) => ({ ...current, password: event.target.value }))}
+                  />
+                </label>
+                <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                  Perfil de usuario
+                  <Select required className="bg-white" value={userForm.roleId} onChange={(event) => setRole(event.target.value)}>
+                    <option value="">Selecciona perfil</option>
+                    {(roles.data ?? []).map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.name}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="secondary" onClick={applyRolePermissions}>
-                  <ShieldCheck className="h-4 w-4" />
-                  Segun perfil
-                </Button>
-                <Button type="button" size="sm" variant="secondary" onClick={setAllPermissions}>
-                  <CheckSquare className="h-4 w-4" />
-                  Marcar todos
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={clearPermissions}>
-                  <Eraser className="h-4 w-4" />
-                  Limpiar
-                </Button>
-              </div>
-            </div>
+            )}
 
-            <label className="relative mt-3 block">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                className="pl-9"
-                placeholder="Buscar permiso por modulo, nombre o codigo"
-                value={permissionSearch}
-                onChange={(event) => setPermissionSearch(event.target.value)}
-              />
-            </label>
-
-            <div className="mt-3 max-h-[360px] space-y-3 overflow-auto pr-1">
-              {groupedPermissions.length ? (
-                groupedPermissions.map((group) => (
-                  <div key={group.module} className="rounded-md border border-slate-100">
-                    <div className="flex items-center justify-between gap-3 bg-slate-50 px-3 py-2">
-                      <p className="text-xs font-semibold uppercase text-slate-500">
-                        {moduleLabels[group.module] ?? group.module}
-                      </p>
-                      <span className="text-xs text-slate-400">
-                        {
-                          group.permissions.filter((permission) => selectedPermissions.has(permission.id))
-                            .length
-                        }
-                        /{group.permissions.length}
-                      </span>
-                    </div>
-                    <div className="grid gap-1 p-2 md:grid-cols-2">
-                      {group.permissions.map((permission) => (
-                        <label
-                          key={permission.id}
-                          className="flex min-h-10 cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-sm text-slate-700 transition hover:bg-sky-50"
-                        >
-                          <input
-                            className="mt-1"
-                            type="checkbox"
-                            checked={selectedPermissions.has(permission.id)}
-                            onChange={() => togglePermission(permission.id)}
-                          />
-                          <span className="min-w-0">
-                            <span className="block font-medium leading-5 text-slate-800">
-                              {permissionDisplayName(permission)}
-                            </span>
-                            <span className="block truncate text-xs text-slate-500">
-                              {permissionHelpText(permission)}
-                            </span>
-                          </span>
-                        </label>
-                      ))}
-                    </div>
+            {activeTab === "branches" && (
+              <div className="space-y-6 bg-slate-50/50 p-4 rounded-xl border border-slate-100">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-900 mb-1">Sucursales de acceso</h4>
+                  <p className="text-xs text-slate-500 mb-4">Selecciona las sucursales donde este usuario puede operar.</p>
+                  <div className="grid gap-3 sm:grid-cols-2 max-h-48 overflow-y-auto pr-2">
+                    {(branches.data ?? []).map((branch) => (
+                      <label
+                        key={branch.id}
+                        className={`flex cursor-pointer items-center gap-3 rounded-lg border p-3 transition-colors ${
+                          userForm.branchIds.includes(branch.id)
+                            ? "border-sky-500 bg-sky-50 text-sky-900"
+                            : "border-slate-200 bg-white hover:bg-slate-50 text-slate-600"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                          checked={userForm.branchIds.includes(branch.id)}
+                          onChange={() => toggleBranch(branch.id)}
+                        />
+                        <span className="text-sm font-medium">{branch.name}</span>
+                      </label>
+                    ))}
                   </div>
-                ))
-              ) : (
-                <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
-                  No hay permisos para la busqueda actual.
-                </p>
-              )}
-            </div>
-          </section>
+                </div>
 
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={closeUserForm}>
+                <div className="border-t border-slate-200 pt-5">
+                  <label className="grid gap-1.5 text-sm font-medium text-slate-700">
+                    Sucursal principal
+                    <span className="text-xs font-normal text-slate-500 mb-1">Se usará como la predeterminada al iniciar sesión.</span>
+                    <Select
+                      required
+                      className="bg-white"
+                      value={userForm.primaryBranchId}
+                      onChange={(event) =>
+                        setUserForm((current) => ({ ...current, primaryBranchId: event.target.value }))
+                      }
+                    >
+                      <option value="">Selecciona sucursal</option>
+                      {(branches.data ?? [])
+                        .filter((branch) => userForm.branchIds.includes(branch.id))
+                        .map((branch) => (
+                          <option key={branch.id} value={branch.id}>
+                            {branch.name}
+                          </option>
+                        ))}
+                    </Select>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "permissions" && (
+              <div className="flex flex-col h-[400px]">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between bg-slate-50/50 p-3 rounded-xl border border-slate-100 mb-4">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">Permisos del usuario</h4>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Seleccionados: {userForm.permissionIds.length} de {permissions.data?.length ?? 0}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="secondary" className="bg-white" onClick={applyRolePermissions}>
+                      <ShieldCheck className="mr-1.5 h-4 w-4" />
+                      Según perfil
+                    </Button>
+                    <Button type="button" size="sm" variant="secondary" className="bg-white" onClick={setAllPermissions}>
+                      <CheckSquare className="mr-1.5 h-4 w-4" />
+                      Marcar todos
+                    </Button>
+                    <Button type="button" size="sm" variant="ghost" className="hover:bg-red-50 hover:text-red-600" onClick={clearPermissions}>
+                      <Eraser className="mr-1.5 h-4 w-4" />
+                      Limpiar
+                    </Button>
+                  </div>
+                </div>
+
+                <label className="relative mb-3 block shrink-0">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    className="pl-9"
+                    placeholder="Buscar permiso por módulo, nombre o código..."
+                    value={permissionSearch}
+                    onChange={(event) => setPermissionSearch(event.target.value)}
+                  />
+                </label>
+
+                <div className="flex-1 overflow-y-auto pr-1 space-y-4">
+                  {groupedPermissions.length ? (
+                    groupedPermissions.map((group) => (
+                      <div key={group.module} className="rounded-xl border border-slate-200 overflow-hidden">
+                        <div className="flex items-center justify-between gap-3 bg-slate-50/80 px-4 py-2.5 border-b border-slate-100">
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-600">
+                            {moduleLabels[group.module] ?? group.module}
+                          </p>
+                          <span className="text-xs font-medium text-slate-400 bg-slate-200/50 px-2 py-0.5 rounded-full">
+                            {group.permissions.filter((permission) => selectedPermissions.has(permission.id)).length}
+                            /{group.permissions.length}
+                          </span>
+                        </div>
+                        <div className="grid gap-0 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x divide-slate-100 bg-white">
+                          {group.permissions.map((permission) => (
+                            <label
+                              key={permission.id}
+                              className={`flex min-h-[3rem] cursor-pointer items-start gap-3 p-3 transition-colors ${
+                                selectedPermissions.has(permission.id) ? "bg-sky-50/30" : "hover:bg-slate-50"
+                              }`}
+                            >
+                              <div className="pt-0.5 shrink-0">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                                  checked={selectedPermissions.has(permission.id)}
+                                  onChange={() => togglePermission(permission.id)}
+                                />
+                              </div>
+                              <span className="min-w-0 flex-1">
+                                <span className={`block text-sm font-medium leading-tight ${selectedPermissions.has(permission.id) ? "text-sky-900" : "text-slate-700"}`}>
+                                  {permissionDisplayName(permission)}
+                                </span>
+                                <span className="block truncate text-xs text-slate-500 mt-0.5">
+                                  {permissionHelpText(permission)}
+                                </span>
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-center justify-center h-32 rounded-xl bg-slate-50 border border-slate-100 border-dashed">
+                      <Search className="h-6 w-6 text-slate-300 mb-2" />
+                      <p className="text-sm text-slate-500">No hay permisos para la búsqueda actual.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="mt-6 flex justify-end gap-3 border-t border-slate-100 pt-4">
+            <Button type="button" variant="ghost" onClick={closeUserForm}>
               Cancelar
             </Button>
             <Button
@@ -777,7 +827,7 @@ export function UsersPage() {
                 (!editing && userForm.password.trim().length < 8)
               }
             >
-              {editing ? "Actualizar usuario" : "Crear usuario"}
+              {editing ? "Guardar cambios" : "Crear usuario"}
             </Button>
           </div>
         </form>

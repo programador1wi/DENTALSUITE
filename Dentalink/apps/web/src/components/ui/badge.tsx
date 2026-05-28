@@ -1,14 +1,15 @@
 import { cn } from "@/lib/utils/cn";
 
-export function Badge({ value, tone = "default" }: { value: string; tone?: "default" | "success" | "warning" | "danger" }) {
+export function Badge({ value, tone = "default" }: { value: string; tone?: "default" | "success" | "warning" | "danger" | "brand" }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-md px-2 py-1 text-xs font-semibold ring-1 ring-inset",
-        tone === "default" && "bg-slate-50 text-slate-600 ring-slate-500/10",
-        tone === "success" && "bg-emerald-50 text-emerald-700 ring-emerald-600/10",
-        tone === "warning" && "bg-amber-50 text-amber-800 ring-amber-600/10",
-        tone === "danger" && "bg-rose-50 text-rose-700 ring-rose-600/10"
+        "inline-flex h-[22px] items-center rounded-[var(--radius-full)] px-[var(--space-2)] text-[var(--text-xs)] font-medium",
+        tone === "default" && "bg-[var(--status-neutral-bg)] text-[var(--status-neutral-text)]",
+        tone === "brand" && "bg-[var(--bg-brand-light)] text-[var(--text-brand-strong)]",
+        tone === "success" && "bg-[var(--status-success-bg)] text-[var(--status-success-text)]",
+        tone === "warning" && "bg-[var(--status-warning-bg)] text-[var(--status-warning-text)]",
+        tone === "danger" && "bg-[var(--status-danger-bg)] text-[var(--status-danger-text)]"
       )}
     >
       {value}

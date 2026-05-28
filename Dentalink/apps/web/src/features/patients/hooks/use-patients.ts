@@ -6,11 +6,13 @@ import {
   createPatient,
   deactivatePatient,
   getPatient,
+  getPatientsAnalysis,
   getPatientTimeline,
   listPatients,
   mergePatients,
   searchPatients,
   updatePatient,
+  type PatientAnalysisQuery,
   type PatientMedicalAlertInput,
   type PatientPayload,
   type PatientsQuery
@@ -23,7 +25,19 @@ export function usePatients(params?: PatientsQuery) {
   });
 }
 
-export function usePatientSearch(params: { q?: string; phone?: string; email?: string; documentNumber?: string }) {
+export function usePatientsAnalysis(params?: PatientAnalysisQuery) {
+  return useQuery({
+    queryKey: ["patients", "analysis", params],
+    queryFn: () => getPatientsAnalysis(params)
+  });
+}
+
+export function usePatientSearch(params: {
+  q?: string;
+  phone?: string;
+  email?: string;
+  documentNumber?: string;
+}) {
   return useQuery({
     queryKey: ["patients", "search", params],
     queryFn: () => searchPatients(params),
@@ -62,7 +76,8 @@ export function useCreatePatient() {
 export function useUpdatePatient() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: Partial<PatientPayload> }) => updatePatient(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<PatientPayload> }) =>
+      updatePatient(id, payload),
     onSuccess: (_, variables) => {
       toast.success("Paciente actualizado");
       queryClient.invalidateQueries({ queryKey: ["patients"] });
@@ -101,7 +116,8 @@ export function useAddPatientNote() {
 export function useAddPatientAlert() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: PatientMedicalAlertInput }) => addPatientAlert(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: PatientMedicalAlertInput }) =>
+      addPatientAlert(id, payload),
     onSuccess: (_, variables) => {
       toast.success("Alerta medica registrada");
       queryClient.invalidateQueries({ queryKey: ["patients", "detail", variables.id] });

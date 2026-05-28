@@ -51,11 +51,36 @@ const permissionDefinitions = [
   ["payment_methods.read", "Read payment methods", "View payment methods", "payment_methods"],
   ["payment_methods.create", "Create payment methods", "Create payment methods", "payment_methods"],
   ["payment_methods.update", "Update payment methods", "Update payment methods", "payment_methods"],
-  ["payment_methods.deactivate", "Deactivate payment methods", "Deactivate payment methods", "payment_methods"],
-  ["procedure_categories.read", "Read procedure categories", "View procedure categories", "procedure_categories"],
-  ["procedure_categories.create", "Create procedure categories", "Create procedure categories", "procedure_categories"],
-  ["procedure_categories.update", "Update procedure categories", "Update procedure categories", "procedure_categories"],
-  ["procedure_categories.deactivate", "Deactivate procedure categories", "Deactivate procedure categories", "procedure_categories"],
+  [
+    "payment_methods.deactivate",
+    "Deactivate payment methods",
+    "Deactivate payment methods",
+    "payment_methods"
+  ],
+  [
+    "procedure_categories.read",
+    "Read procedure categories",
+    "View procedure categories",
+    "procedure_categories"
+  ],
+  [
+    "procedure_categories.create",
+    "Create procedure categories",
+    "Create procedure categories",
+    "procedure_categories"
+  ],
+  [
+    "procedure_categories.update",
+    "Update procedure categories",
+    "Update procedure categories",
+    "procedure_categories"
+  ],
+  [
+    "procedure_categories.deactivate",
+    "Deactivate procedure categories",
+    "Deactivate procedure categories",
+    "procedure_categories"
+  ],
   ["procedures.read", "Read procedures", "View procedures", "procedures"],
   ["procedures.create", "Create procedures", "Create procedures", "procedures"],
   ["procedures.update", "Update procedures", "Update procedures", "procedures"],
@@ -83,16 +108,36 @@ const permissionDefinitions = [
   ["clinical.evolutions.sign", "Sign clinical evolutions", "Sign clinical evolutions", "clinical"],
   ["clinical.prescriptions.create", "Create prescriptions", "Create prescriptions", "clinical"],
   ["clinical.documents.create", "Create clinical documents", "Create clinical documents", "clinical"],
-  ["clinical.templates.manage", "Manage clinical templates", "Manage clinical document templates", "clinical"],
+  [
+    "clinical.templates.manage",
+    "Manage clinical templates",
+    "Manage clinical document templates",
+    "clinical"
+  ],
   ["clinical.odontogram.read", "Read odontogram", "View odontogram and tooth history", "clinical"],
   ["clinical.odontogram.write", "Write odontogram", "Create and update odontogram records", "clinical"],
-  ["clinical.periodontogram.read", "Read periodontogram", "View periodontal charts and comparisons", "clinical"],
+  [
+    "clinical.periodontogram.read",
+    "Read periodontogram",
+    "View periodontal charts and comparisons",
+    "clinical"
+  ],
   ["clinical.periodontogram.write", "Write periodontogram", "Create periodontal charts", "clinical"],
   ["treatment_plans.read", "Read treatment plans", "View treatment plans", "treatment_plans"],
   ["treatment_plans.create", "Create treatment plans", "Create treatment plans", "treatment_plans"],
   ["treatment_plans.update", "Update treatment plans", "Update treatment plans", "treatment_plans"],
-  ["treatment_plans.status.update", "Update treatment plan item status", "Update treatment plan item status", "treatment_plans"],
-  ["treatment_plans.alternatives.manage", "Manage treatment plan alternatives", "Manage treatment plan alternatives", "treatment_plans"],
+  [
+    "treatment_plans.status.update",
+    "Update treatment plan item status",
+    "Update treatment plan item status",
+    "treatment_plans"
+  ],
+  [
+    "treatment_plans.alternatives.manage",
+    "Manage treatment plan alternatives",
+    "Manage treatment plan alternatives",
+    "treatment_plans"
+  ],
   ["budgets.read", "Read budgets", "View budgets", "budgets"],
   ["budgets.create", "Create budgets", "Generate budgets", "budgets"],
   ["budgets.update", "Update budgets", "Update budgets", "budgets"],
@@ -104,7 +149,12 @@ const permissionDefinitions = [
   ["payments.create", "Create payments", "Register patient payments", "payments"],
   ["payments.allocate", "Allocate payments", "Allocate payments to treatment items", "payments"],
   ["payments.refund", "Refund payments", "Register payment refunds", "payments"],
-  ["payments.override.closed_cash", "Override closed cash register", "Allow receiving payments without open cash register", "payments"],
+  [
+    "payments.override.closed_cash",
+    "Override closed cash register",
+    "Allow receiving payments without open cash register",
+    "payments"
+  ],
   ["payment_links.create", "Create payment links", "Create simulated online payment links", "payments"],
   ["installments.read", "Read installments", "View installment plans and installments", "installments"],
   ["installments.create", "Create installments", "Create installment plans", "installments"],
@@ -112,20 +162,40 @@ const permissionDefinitions = [
   ["cash_register.read", "Read cash register", "View cash register shifts and balances", "cash_register"],
   ["cash_register.open", "Open cash register", "Open cash register shift", "cash_register"],
   ["cash_register.close", "Close cash register", "Close cash register shift", "cash_register"],
-  ["cash_register.close_any", "Close any cash register", "Close another user's cash register", "cash_register"],
+  [
+    "cash_register.close_any",
+    "Close any cash register",
+    "Close another user's cash register",
+    "cash_register"
+  ],
   ["cash_register.move", "Create cash movement", "Register manual cash movements", "cash_register"],
-  ["accounts_receivable.read", "Read accounts receivable", "View outstanding balances and overdue installments", "accounts_receivable"],
+  [
+    "accounts_receivable.read",
+    "Read accounts receivable",
+    "View outstanding balances and overdue installments",
+    "accounts_receivable"
+  ],
   ["collections.read", "Read collections", "View collection cases", "collections"],
   ["collections.create", "Create collections", "Create collection cases", "collections"],
   ["collections.detect", "Detect collections", "Detect overdue installments and create cases", "collections"],
   ["collections.update", "Update collections", "Update case status and assignment", "collections"],
-  ["collections.activities.create", "Create collection activities", "Register collection calls/messages", "collections"],
+  [
+    "collections.activities.create",
+    "Create collection activities",
+    "Register collection calls/messages",
+    "collections"
+  ],
   ["files.read", "Read files", "View patient files and attachments", "documents"],
   ["files.upload", "Upload files", "Upload patient files and attachments", "documents"],
   ["consent_templates.read", "Read consent templates", "View consent templates", "documents"],
   ["consent_templates.create", "Create consent templates", "Create consent templates", "documents"],
   ["consent_templates.update", "Update consent templates", "Update consent templates", "documents"],
-  ["consent_templates.deactivate", "Deactivate consent templates", "Deactivate consent templates", "documents"],
+  [
+    "consent_templates.deactivate",
+    "Deactivate consent templates",
+    "Deactivate consent templates",
+    "documents"
+  ],
   ["consents.read", "Read consents", "View generated consents", "documents"],
   ["consents.create", "Create consents", "Generate consents for patients", "documents"],
   ["consents.sign", "Sign consents", "Sign and lock consents", "documents"],
@@ -322,6 +392,30 @@ const roleDefinitions = [
     ]
   },
   {
+    name: "CEYE",
+    description: "Sterilization and clinical supply control",
+    permissionKeys: [
+      "dashboard.read",
+      "branches.read",
+      "patients.read",
+      "appointments.read",
+      "clinical.read",
+      "professionals.read",
+      "schedules.read",
+      "chairs.read",
+      "lab_providers.read",
+      "lab_orders.read",
+      "lab_orders.update",
+      "suppliers.read",
+      "inventory.read",
+      "inventory.update",
+      "inventory.movements.read",
+      "inventory.movements.create",
+      "inventory.alerts.read",
+      "reports.read"
+    ]
+  },
+  {
     name: "MANAGER",
     description: "Branch management",
     permissionKeys: [
@@ -428,6 +522,144 @@ const roleDefinitions = [
   }
 ] as const;
 
+const predefinedBranches = [
+  {
+    code: "TAPACHULA",
+    name: "Tapachula",
+    phone: "+52 962 000 1001",
+    email: "tapachula@warnersuite.local",
+    address: "Av. Central 245, Col. Centro",
+    city: "Tapachula",
+    state: "Chiapas"
+  },
+  {
+    code: "ATLIXCO",
+    name: "Atlixco",
+    phone: "+52 244 000 1002",
+    email: "atlixco@warnersuite.local",
+    address: "Blvd. Atlixco 112, Col. Centro",
+    city: "Atlixco",
+    state: "Puebla"
+  },
+  {
+    code: "CAMPECHE",
+    name: "Campeche",
+    phone: "+52 981 000 1003",
+    email: "campeche@warnersuite.local",
+    address: "Calle 59 187, Zona Centro",
+    city: "Campeche",
+    state: "Campeche"
+  },
+  {
+    code: "COMITAN",
+    name: "Comitan",
+    phone: "+52 963 000 1004",
+    email: "comitan@warnersuite.local",
+    address: "Av. Primera Sur 508, Centro",
+    city: "Comitan",
+    state: "Chiapas"
+  },
+  {
+    code: "CORDOBA_VER",
+    name: "Cordoba Veracruz",
+    phone: "+52 271 000 1005",
+    email: "cordoba@warnersuite.local",
+    address: "Av. 3 915, Centro",
+    city: "Cordoba",
+    state: "Veracruz"
+  },
+  {
+    code: "GUADALAJARA",
+    name: "Guadalajara",
+    phone: "+52 33 0000 1006",
+    email: "guadalajara@warnersuite.local",
+    address: "Av. Chapultepec 395, Americana",
+    city: "Guadalajara",
+    state: "Jalisco"
+  },
+  {
+    code: "MERIDA",
+    name: "Merida",
+    phone: "+52 999 000 1007",
+    email: "merida@warnersuite.local",
+    address: "Paseo de Montejo 278, Centro",
+    city: "Merida",
+    state: "Yucatan"
+  },
+  {
+    code: "PACHUCA",
+    name: "Pachuca",
+    phone: "+52 771 000 1008",
+    email: "pachuca@warnersuite.local",
+    address: "Blvd. Felipe Angeles 401, Centro",
+    city: "Pachuca",
+    state: "Hidalgo"
+  },
+  {
+    code: "SAN_CRISTOBAL",
+    name: "San Cristobal",
+    phone: "+52 967 000 1009",
+    email: "sancristobal@warnersuite.local",
+    address: "Real de Guadalupe 142, Centro",
+    city: "San Cristobal de las Casas",
+    state: "Chiapas"
+  },
+  {
+    code: "TONALA",
+    name: "Tonala",
+    phone: "+52 33 0000 1010",
+    email: "tonala@warnersuite.local",
+    address: "Av. Tonaltecas 510, Centro",
+    city: "Tonala",
+    state: "Jalisco"
+  },
+  {
+    code: "TUXPAN",
+    name: "Tuxpan",
+    phone: "+52 783 000 1011",
+    email: "tuxpan@warnersuite.local",
+    address: "Av. Juarez 620, Centro",
+    city: "Tuxpan",
+    state: "Veracruz"
+  },
+  {
+    code: "TUXTLA",
+    name: "Tuxtla",
+    phone: "+52 961 000 1012",
+    email: "tuxtla@warnersuite.local",
+    address: "Blvd. Belisario Dominguez 1024",
+    city: "Tuxtla Gutierrez",
+    state: "Chiapas"
+  },
+  {
+    code: "VILLAHERMOSA",
+    name: "Villahermosa",
+    phone: "+52 993 000 1013",
+    email: "villahermosa@warnersuite.local",
+    address: "Av. Universidad 336, Atasta",
+    city: "Villahermosa",
+    state: "Tabasco"
+  },
+  {
+    code: "XALAPA",
+    name: "Xalapa",
+    phone: "+52 228 000 1014",
+    email: "xalapa@warnersuite.local",
+    address: "Av. Lazaro Cardenas 891, Centro",
+    city: "Xalapa",
+    state: "Veracruz"
+  },
+  {
+    code: "DXRAY_TUXTLA",
+    name: "Dx-Ray Tuxtla",
+    phone: "+52 961 000 1015",
+    email: "dxray-tuxtla@warnersuite.local",
+    address: "Periferico Sur 120, Tuxtla",
+    city: "Tuxtla Gutierrez",
+    state: "Chiapas"
+  }
+] as const;
+
 function normalizeCode(name: string) {
   return name.toLowerCase();
 }
@@ -452,26 +684,57 @@ async function main() {
   });
 
   const defaultBranchCode = process.env.SEED_DEFAULT_BRANCH_CODE ?? "MATRIZ";
-  const branch = await prisma.branch.upsert({
-    where: {
-      organizationId_code: {
-        organizationId: organization.id,
-        code: defaultBranchCode
-      }
-    },
-    update: {
-      name: process.env.SEED_DEFAULT_BRANCH_NAME ?? "Sucursal Matriz",
-      isActive: true,
-      status: "ACTIVE"
-    },
-    create: {
-      organizationId: organization.id,
+  const defaultBranchName = process.env.SEED_DEFAULT_BRANCH_NAME ?? "Sucursal Matriz";
+
+  const branchCatalog = new Map(predefinedBranches.map((branch) => [branch.code, branch]));
+  if (!branchCatalog.has(defaultBranchCode)) {
+    branchCatalog.set(defaultBranchCode, {
       code: defaultBranchCode,
-      name: process.env.SEED_DEFAULT_BRANCH_NAME ?? "Sucursal Matriz",
-      isActive: true,
-      status: "ACTIVE"
-    }
-  });
+      name: defaultBranchName,
+      phone: "+52 000 000 0000",
+      email: `${defaultBranchCode.toLowerCase()}@warnersuite.local`,
+      address: "Direccion principal",
+      city: "Ciudad",
+      state: "Estado"
+    });
+  }
+
+  for (const branchSeed of branchCatalog.values()) {
+    await prisma.branch.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: organization.id,
+          code: branchSeed.code
+        }
+      },
+      update: {
+        name: branchSeed.name,
+        phone: branchSeed.phone,
+        email: branchSeed.email,
+        address: branchSeed.address,
+        city: branchSeed.city,
+        state: branchSeed.state,
+        country: "MX",
+        timezone: "America/Mexico_City",
+        isActive: true,
+        status: "ACTIVE"
+      },
+      create: {
+        organizationId: organization.id,
+        code: branchSeed.code,
+        name: branchSeed.name,
+        phone: branchSeed.phone,
+        email: branchSeed.email,
+        address: branchSeed.address,
+        city: branchSeed.city,
+        state: branchSeed.state,
+        country: "MX",
+        timezone: "America/Mexico_City",
+        isActive: true,
+        status: "ACTIVE"
+      }
+    });
+  }
 
   for (const [key, name, description, module] of permissionDefinitions) {
     await prisma.permission.upsert({
@@ -585,13 +848,109 @@ async function main() {
     create: { userId: admin.id, roleId: superAdminRole.id }
   });
 
-  await prisma.userBranch.upsert({
-    where: { userId_branchId: { userId: admin.id, branchId: branch.id } },
-    update: { isPrimary: true },
-    create: { userId: admin.id, branchId: branch.id, isPrimary: true }
+  const branches = await prisma.branch.findMany({
+    where: {
+      organizationId: organization.id,
+      deletedAt: null,
+      status: "ACTIVE"
+    },
+    select: { id: true, code: true }
   });
 
-  console.log(`Seed completed. Admin: ${adminEmail}`);
+  for (const assignedBranch of branches) {
+    await prisma.userBranch.upsert({
+      where: { userId_branchId: { userId: admin.id, branchId: assignedBranch.id } },
+      update: { isPrimary: assignedBranch.code === defaultBranchCode },
+      create: {
+        userId: admin.id,
+        branchId: assignedBranch.id,
+        isPrimary: assignedBranch.code === defaultBranchCode
+      }
+    });
+  }
+
+  const staffPassword = process.env.SEED_STAFF_PASSWORD ?? "Usuario123!";
+  const staffPasswordHash = await bcrypt.hash(staffPassword, 12);
+  const defaultStaffBranch = branches.find((branch) => branch.code === defaultBranchCode) ?? branches[0];
+  if (!defaultStaffBranch) {
+    throw new Error("No active branch found for staff users");
+  }
+
+  const staffDefinitions = [
+    {
+      email: "recepcion.matriz@dentalwarner.local",
+      firstName: "Recepcion",
+      lastName: "Matriz",
+      phone: "+520000000101",
+      roleName: "RECEPTIONIST"
+    },
+    {
+      email: "caja.matriz@dentalwarner.local",
+      firstName: "Caja",
+      lastName: "Matriz",
+      phone: "+520000000102",
+      roleName: "CASHIER"
+    },
+    {
+      email: "ceye.matriz@dentalwarner.local",
+      firstName: "CEYE",
+      lastName: "Matriz",
+      phone: "+520000000103",
+      roleName: "CEYE"
+    }
+  ] as const;
+
+  for (const staff of staffDefinitions) {
+    const role = await prisma.role.findUniqueOrThrow({
+      where: {
+        organizationId_name: {
+          organizationId: organization.id,
+          name: staff.roleName
+        }
+      }
+    });
+
+    const user = await prisma.user.upsert({
+      where: { email: staff.email },
+      update: {
+        organizationId: organization.id,
+        firstName: staff.firstName,
+        lastName: staff.lastName,
+        phone: staff.phone,
+        passwordHash: staffPasswordHash,
+        roleId: role.id,
+        permissionsOverride: false,
+        isActive: true,
+        status: "ACTIVE"
+      },
+      create: {
+        organizationId: organization.id,
+        firstName: staff.firstName,
+        lastName: staff.lastName,
+        email: staff.email,
+        phone: staff.phone,
+        passwordHash: staffPasswordHash,
+        roleId: role.id,
+        permissionsOverride: false,
+        isActive: true,
+        status: "ACTIVE"
+      }
+    });
+
+    await prisma.userRole.deleteMany({ where: { userId: user.id } });
+    await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
+    await prisma.userPermission.deleteMany({ where: { userId: user.id } });
+    await prisma.userBranch.deleteMany({ where: { userId: user.id } });
+    await prisma.userBranch.create({
+      data: {
+        userId: user.id,
+        branchId: defaultStaffBranch.id,
+        isPrimary: true
+      }
+    });
+  }
+
+  console.log(`Seed completed. Admin: ${adminEmail}. Staff password: ${staffPassword}`);
 }
 
 main()

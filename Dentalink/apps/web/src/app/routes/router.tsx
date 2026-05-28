@@ -1,4 +1,4 @@
-import { Navigate, Outlet, createBrowserRouter } from "react-router-dom";
+import { Navigate, Outlet, createBrowserRouter, useLocation } from "react-router-dom";
 import { PublicLayout } from "@/app/layouts/public-layout";
 import { PrivateLayout } from "@/app/layouts/private-layout";
 import { RequireAuth, RequireGuest, RequirePermissions } from "./guards";
@@ -100,6 +100,11 @@ function NotFoundPage() {
   return <Navigate to="/agenda/list" replace />;
 }
 
+function RedirectWithSearch({ to }: { to: string }) {
+  const { search } = useLocation();
+  return <Navigate to={`${to}${search}`} replace />;
+}
+
 export const router = createBrowserRouter([
   {
     element: <RequireGuest />,
@@ -152,6 +157,7 @@ export const router = createBrowserRouter([
             children: [
               { path: "/settings/online-scheduling", element: <AgendaOnlineTab /> },
               { path: "/settings/online-scheduling/express", element: <AgendaExpressTab /> },
+              { path: "/settings/schedules", element: <RedirectWithSearch to="/settings/online-scheduling/schedules" /> },
               { path: "/settings/online-scheduling/schedules", element: <OnlineSchedulesTab /> },
               { path: "/settings/online-scheduling/campaigns", element: <CampaignsTab /> },
               { path: "/settings/online-scheduling/dashboard", element: <DashboardTab /> },
@@ -193,11 +199,20 @@ export const router = createBrowserRouter([
               { path: "/patients/:id", element: <PatientDetailPage /> },
               { path: "/patients/:id/profile", element: <PatientProfilePage /> },
               { path: "/patients/:id/crm", element: <PatientCrmPage /> },
-              { path: "/patients/:id/appointments", element: <PatientAppointmentsPage /> },
-              { path: "/patients/:id/treatments", element: <PatientTreatmentsPage /> },
-              { path: "/patients/:id/treatments/new", element: <PatientTreatmentNewPage /> },
-              { path: "/patients/:id/payments", element: <PatientPaymentsPage /> }
+              { path: "/patients/:id/treatments/new", element: <PatientTreatmentNewPage /> }
             ]
+          },
+          {
+            element: <RequirePermissions required={["patients.read", "appointments.read"]} />,
+            children: [{ path: "/patients/:id/appointments", element: <PatientAppointmentsPage /> }]
+          },
+          {
+            element: <RequirePermissions required={["patients.read", "treatment_plans.read"]} />,
+            children: [{ path: "/patients/:id/treatments", element: <PatientTreatmentsPage /> }]
+          },
+          {
+            element: <RequirePermissions required={["patients.read", "payments.read"]} />,
+            children: [{ path: "/patients/:id/payments", element: <PatientPaymentsPage /> }]
           },
           {
             element: <RequirePermissions required={["files.read"]} />,

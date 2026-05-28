@@ -1,21 +1,185 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
   color-scheme: light;
+
+  --color-base-white: #ffffff;
+  --color-base-gray-50: #f8fafc;
+  --color-base-gray-100: #f1f5f9;
+  --color-base-gray-200: #e2e8f0;
+  --color-base-gray-300: #cbd5e1;
+  --color-base-slate-500: #64748b;
+  --color-base-slate-700: #334155;
+  --color-base-navy-600: #185fa5;
+  --color-base-navy-700: #0c447c;
+  --color-base-navy-900: #042c53;
+  --color-base-blue-50: #e6f1fb;
+  --color-base-blue-100: #b5d4f4;
+  --color-base-blue-400: #378add;
+  --color-base-blue-500: #185fa5;
+  --color-base-blue-600: #0c447c;
+  --color-base-page-bg: #f8fafd;
+  --color-base-emerald-500: #10b981;
+  --color-base-emerald-600: #059669;
+  --color-base-red-500: #ef4444;
+  --color-base-amber-400: #fbbf24;
+
+  --bg-page: var(--color-base-page-bg);
+  --bg-surface: var(--color-base-white);
+  --bg-subtle: var(--color-base-gray-100);
+  --bg-nav: var(--color-base-navy-900);
+  --bg-nav-item-active: rgba(55, 138, 221, 0.2);
+  --bg-brand-light: var(--color-base-blue-50);
+
+  --text-primary: var(--color-base-slate-700);
+  --text-secondary: var(--color-base-slate-500);
+  --text-inverse: var(--color-base-gray-50);
+  --text-brand: var(--color-base-blue-500);
+  --text-brand-strong: var(--color-base-navy-700);
+  --text-success: var(--color-base-emerald-500);
+  --text-danger: var(--color-base-red-500);
+  --text-warning: var(--color-base-amber-400);
+
+  --border-default: var(--color-base-gray-200);
+  --border-strong: var(--color-base-gray-300);
+  --border-brand: var(--color-base-blue-500);
+  --border-brand-light: var(--color-base-blue-100);
+
+  --action-primary: var(--color-base-emerald-500);
+  --action-primary-hover: var(--color-base-emerald-600);
+  --action-brand: var(--color-base-blue-500);
+  --action-brand-hover: var(--color-base-blue-600);
+
+  --nav-item-default-text: rgba(248, 250, 252, 0.65);
+  --nav-item-default-icon: rgba(248, 250, 252, 0.5);
+  --nav-item-hover-bg: rgba(255, 255, 255, 0.07);
+  --nav-item-active-bg: rgba(55, 138, 221, 0.2);
+  --nav-item-active-text: var(--color-base-blue-400);
+  --nav-item-active-border: var(--color-base-blue-400);
+  --nav-section-label: rgba(248, 250, 252, 0.35);
+  --nav-border-subtle: rgba(255, 255, 255, 0.08);
+  --nav-control-border: rgba(255, 255, 255, 0.15);
+  --nav-control-bg: rgba(255, 255, 255, 0.05);
+  --nav-search-bg: rgba(255, 255, 255, 0.08);
+  --nav-search-border: rgba(255, 255, 255, 0.12);
+  --nav-search-placeholder: rgba(248, 250, 252, 0.45);
+
+  --focus-ring: rgba(24, 95, 165, 0.2);
+  --backdrop-modal: rgba(4, 44, 83, 0.4);
+  --shadow-card-hover: 0 4px 12px rgba(4, 44, 83, 0.06);
+  --shadow-modal: 0 20px 60px rgba(4, 44, 83, 0.15);
+
+  --status-success-bg: #eaf3de;
+  --status-success-text: #27500a;
+  --status-warning-bg: #faeeda;
+  --status-warning-text: #633806;
+  --status-danger-bg: #fcebeb;
+  --status-danger-text: #791f1f;
+  --status-neutral-bg: var(--bg-subtle);
+  --status-neutral-text: var(--text-secondary);
+  --status-purple-bg: #eeedfe;
+  --status-purple-text: #3c3489;
+  --status-rescheduled-text: #854f0b;
+  --status-no-show-text: #a32d2d;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+
+  --font-sans: "DM Sans", system-ui, sans-serif;
+  --font-mono: "DM Mono", monospace;
+
+  --text-xs: 11px;
+  --text-sm: 13px;
+  --text-base: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --leading-xs: 1.4;
+  --leading-sm: 1.5;
+  --leading-base: 1.6;
+  --leading-lg: 1.5;
+  --leading-xl: 1.3;
+  --leading-2xl: 1.2;
+  --leading-3xl: 1.1;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-bold: 600;
+
+  --duration-instant: 80ms;
+  --duration-fast: 150ms;
+  --duration-normal: 250ms;
+  --duration-slow: 400ms;
+  --ease-default: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 body {
-  @apply m-0 bg-[#eeeeee] antialiased;
-  font-family: Arial, Helvetica, sans-serif;
+  @apply m-0 antialiased;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+@keyframes sidebar-item-in {
+  from {
+    opacity: 0;
+    transform: translateX(calc(var(--space-2) * -1));
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes patient-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scaleY(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+  }
+}
+
+.patient-preview-panel {
+  animation: patient-preview-in 220ms var(--ease-out);
+  transform-origin: top;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .patient-preview-panel {
+    animation: none;
+  }
 }
 
 #root {
   min-height: 100vh;
 }
 
-/* Custom Scrollbar Styles for Premium Look */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -26,5 +190,10 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply rounded bg-slate-200 hover:bg-slate-300;
+  border-radius: var(--radius-full);
+  background: var(--border-default);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
 }

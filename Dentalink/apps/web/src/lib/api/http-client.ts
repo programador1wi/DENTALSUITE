@@ -13,6 +13,9 @@ export const http = axios.create({
 
 http.interceptors.request.use((config) => {
   const token = authStoreApi.getState().accessToken;
+  if (config.data instanceof FormData) {
+    delete config.headers["Content-Type"];
+  }
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

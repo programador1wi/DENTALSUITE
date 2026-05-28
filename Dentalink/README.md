@@ -57,8 +57,7 @@ npm run db:seed
 5. Ejecutar API y web:
 
 ```bash
-npm run dev:api
-npm run dev:web
+npm run dev
 ```
 
 API: `http://localhost:3001/api/v1`
@@ -66,9 +65,23 @@ Web: `http://localhost:3000`
 PostgreSQL local: `localhost:55432`
 Redis local: `localhost:6379`
 
+Para levantar web y API en segundo plano con logs:
+
+```bash
+npm run dev:detached
+```
+
+Logs:
+
+- `logs/api.out.log`
+- `logs/api.err.log`
+- `logs/web.out.log`
+- `logs/web.err.log`
+
 ## Scripts principales
 
 - `npm run dev`: ejecuta web y API.
+- `npm run dev:detached`: ejecuta web y API en segundo plano y evita reiniciar puertos ya ocupados.
 - `npm run build`: compila todos los workspaces.
 - `npm run lint`: ejecuta ESLint.
 - `npm run format`: aplica Prettier.

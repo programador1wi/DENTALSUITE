@@ -1,4 +1,4 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link, useNavigate } from "react-router-dom";
@@ -10,9 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorState } from "@/components/feedback/error-state";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
-import { patientFormSchema, type PatientFormValues } from "@/lib/validations/patient";
+import { createPatientFormSchema, type PatientFormValues } from "@/lib/validations/patient";
 import { useCreatePatient } from "../hooks/use-patients";
 import { getPatientStatusLabel } from "../components/patient-status";
+import { getRequiredFormFields, getVisibleFormFields, usePatientFieldContext } from "../config/patient-field-settings";
 import type { PatientPayload, PatientStatus } from "../services/patients.service";
 
 const statusOptions: PatientStatus[] = ["NEW", "ACTIVE", "IN_TREATMENT", "INACTIVE", "DEBTOR", "COMPLETED"];
@@ -50,16 +51,36 @@ export function PatientNewPage() {
   const navigate = useNavigate();
   const createPatient = useCreatePatient();
   const branchQuery = useBranches(undefined, "ACTIVE");
+  const patientFieldConfig = usePatientFieldContext("newPatient");
+  const visibleFields = useMemo(() => getVisibleFormFields(patientFieldConfig), [patientFieldConfig]);
+  const requiredFields = useMemo(() => getRequiredFormFields(patientFieldConfig), [patientFieldConfig]);
+  const formSchema = useMemo(() => {
+    const messages: Partial<Record<keyof PatientFormValues, string>> = {};
+    requiredFields.forEach((field) => {
+      messages[field] = `${fieldLabel(field)} requerido`;
+    });
+    return createPatientFormSchema(messages);
+  }, [requiredFields]);
   const [apiError, setApiError] = useState<string | null>(null);
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
 
   const form = useForm<PatientFormValues>({
-    resolver: zodResolver(patientFormSchema),
+    resolver: zodResolver(formSchema),
     defaultValues: defaults
   });
 
   const submitDisabled = createPatient.isPending || !branchQuery.data?.length;
   const branchOptions = useMemo(() => branchQuery.data ?? [], [branchQuery.data]);
+
+  useEffect(() => {
+    for (const field of Object.keys(defaults) as Array<keyof PatientFormValues>) {
+      if (field === "branchId" || field === "firstName" || field === "lastName") continue;
+      if (visibleFields.has(field)) continue;
+
+      form.setValue(field, defaults[field], { shouldDirty: false, shouldValidate: false });
+      form.clearErrors(field);
+    }
+  }, [form, visibleFields]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     setApiError(null);
@@ -67,8 +88,8 @@ export function PatientNewPage() {
 
     const payload: PatientPayload = {
       branchId: values.branchId,
-      firstName: values.firstName,
-      lastName: values.lastName,
+      firstName: values.firstName ?? "",
+      lastName: values.lastName ?? "",
       birthDate: values.birthDate || undefined,
       gender: values.gender || undefined,
       documentType: values.documentType || undefined,
@@ -134,7 +155,7 @@ export function PatientNewPage() {
       <Card>
         <form className="space-y-4" onSubmit={onSubmit}>
           <div className="grid gap-3 md:grid-cols-3">
-            <Field label="Sucursal" error={form.formState.errors.branchId?.message}>
+            <Field label="Sucursal" required error={form.formState.errors.branchId?.message}>
               <Select {...form.register("branchId")}>
                 <option value="">Selecciona sucursal</option>
                 {branchOptions.map((branch) => (
@@ -144,58 +165,144 @@ export function PatientNewPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="Nombre" error={form.formState.errors.firstName?.message}>
+            <Field label="Nombre" required={requiredFields.has("firstName")} error={form.formState.errors.firstName?.message}>
               <Input {...form.register("firstName")} />
             </Field>
-            <Field label="Apellidos" error={form.formState.errors.lastName?.message}>
+            <Field label="Apellidos" required={requiredFields.has("lastName")} error={form.formState.errors.lastName?.message}>
               <Input {...form.register("lastName")} />
             </Field>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-4">
-            <Field label="Fecha nacimiento"><Input type="date" {...form.register("birthDate")} /></Field>
-            <Field label="Genero"><Input {...form.register("gender")} /></Field>
-            <Field label="Tipo documento"><Input {...form.register("documentType")} /></Field>
-            <Field label="Numero documento"><Input {...form.register("documentNumber")} /></Field>
-          </div>
+          {hasAnyVisible(visibleFields, ["birthDate", "gender", "documentType", "documentNumber"]) ? (
+            <div className="grid gap-3 md:grid-cols-4">
+              {visibleFields.has("birthDate") ? (
+                <Field label="Fecha nacimiento" required={requiredFields.has("birthDate")} error={form.formState.errors.birthDate?.message}>
+                  <Input type="date" {...form.register("birthDate")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("gender") ? (
+                <Field label="Genero" required={requiredFields.has("gender")} error={form.formState.errors.gender?.message}>
+                  <Input {...form.register("gender")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("documentType") ? (
+                <Field label="Tipo documento" required={requiredFields.has("documentType")} error={form.formState.errors.documentType?.message}>
+                  <Input {...form.register("documentType")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("documentNumber") ? (
+                <Field label="Numero documento" required={requiredFields.has("documentNumber")} error={form.formState.errors.documentNumber?.message}>
+                  <Input {...form.register("documentNumber")} />
+                </Field>
+              ) : null}
+            </div>
+          ) : null}
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <Field label="Telefono"><Input {...form.register("phone")} /></Field>
-            <Field label="Telefono alterno"><Input {...form.register("alternatePhone")} /></Field>
-            <Field label="Email" error={form.formState.errors.email?.message}><Input {...form.register("email")} /></Field>
-          </div>
+          {hasAnyVisible(visibleFields, ["phone", "alternatePhone", "email"]) ? (
+            <div className="grid gap-3 md:grid-cols-3">
+              {visibleFields.has("phone") ? (
+                <Field label="Telefono" required={requiredFields.has("phone")} error={form.formState.errors.phone?.message}>
+                  <Input {...form.register("phone")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("alternatePhone") ? (
+                <Field label="Telefono alterno" required={requiredFields.has("alternatePhone")} error={form.formState.errors.alternatePhone?.message}>
+                  <Input {...form.register("alternatePhone")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("email") ? (
+                <Field label="Email" required={requiredFields.has("email")} error={form.formState.errors.email?.message}>
+                  <Input {...form.register("email")} />
+                </Field>
+              ) : null}
+            </div>
+          ) : null}
 
-          <div className="grid gap-3 md:grid-cols-4">
-            <Field label="Ocupacion"><Input {...form.register("occupation")} /></Field>
-            <Field label="Referido por"><Input {...form.register("referredBy")} /></Field>
-            <Field label="Fuente"><Input {...form.register("source")} /></Field>
-            <Field label="Estado">
-              <Select {...form.register("status")}>
-                {statusOptions.map((status) => (
-                  <option key={status} value={status}>
-                    {getPatientStatusLabel(status)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
+          {hasAnyVisible(visibleFields, ["occupation", "referredBy", "source", "status"]) ? (
+            <div className="grid gap-3 md:grid-cols-4">
+              {visibleFields.has("occupation") ? (
+                <Field label="Ocupacion" required={requiredFields.has("occupation")} error={form.formState.errors.occupation?.message}>
+                  <Input {...form.register("occupation")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("referredBy") ? (
+                <Field label="Referido por" required={requiredFields.has("referredBy")} error={form.formState.errors.referredBy?.message}>
+                  <Input {...form.register("referredBy")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("source") ? (
+                <Field label="Fuente" required={requiredFields.has("source")} error={form.formState.errors.source?.message}>
+                  <Input {...form.register("source")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("status") ? (
+                <Field label="Estado" required={requiredFields.has("status")} error={form.formState.errors.status?.message}>
+                  <Select {...form.register("status")}>
+                    {statusOptions.map((status) => (
+                      <option key={status} value={status}>
+                        {getPatientStatusLabel(status)}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              ) : null}
+            </div>
+          ) : null}
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Calle"><Input {...form.register("addressStreet")} /></Field>
-            <Field label="Ciudad"><Input {...form.register("addressCity")} /></Field>
-            <Field label="Estado"><Input {...form.register("addressState")} /></Field>
-            <Field label="Pais"><Input {...form.register("addressCountry")} /></Field>
-            <Field label="Codigo postal"><Input {...form.register("addressZipCode")} /></Field>
-          </div>
+          {hasAnyVisible(visibleFields, ["addressStreet", "addressCity", "addressState", "addressCountry", "addressZipCode"]) ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {visibleFields.has("addressStreet") ? (
+                <Field label="Calle" required={requiredFields.has("addressStreet")} error={form.formState.errors.addressStreet?.message}>
+                  <Input {...form.register("addressStreet")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("addressCity") ? (
+                <Field label="Ciudad" required={requiredFields.has("addressCity")} error={form.formState.errors.addressCity?.message}>
+                  <Input {...form.register("addressCity")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("addressState") ? (
+                <Field label="Estado" required={requiredFields.has("addressState")} error={form.formState.errors.addressState?.message}>
+                  <Input {...form.register("addressState")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("addressCountry") ? (
+                <Field label="Pais" required={requiredFields.has("addressCountry")} error={form.formState.errors.addressCountry?.message}>
+                  <Input {...form.register("addressCountry")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("addressZipCode") ? (
+                <Field label="Codigo postal" required={requiredFields.has("addressZipCode")} error={form.formState.errors.addressZipCode?.message}>
+                  <Input {...form.register("addressZipCode")} />
+                </Field>
+              ) : null}
+            </div>
+          ) : null}
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <Field label="Contacto emergencia"><Input {...form.register("emergencyName")} /></Field>
-            <Field label="Relacion"><Input {...form.register("emergencyRelationship")} /></Field>
-            <Field label="Telefono emergencia"><Input {...form.register("emergencyPhone")} /></Field>
-            <Field label="Email emergencia" error={form.formState.errors.emergencyEmail?.message}>
-              <Input {...form.register("emergencyEmail")} />
-            </Field>
-          </div>
+          {hasAnyVisible(visibleFields, ["emergencyName", "emergencyRelationship", "emergencyPhone", "emergencyEmail"]) ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              {visibleFields.has("emergencyName") ? (
+                <Field label="Contacto emergencia" required={requiredFields.has("emergencyName")} error={form.formState.errors.emergencyName?.message}>
+                  <Input {...form.register("emergencyName")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("emergencyRelationship") ? (
+                <Field label="Relacion" required={requiredFields.has("emergencyRelationship")} error={form.formState.errors.emergencyRelationship?.message}>
+                  <Input {...form.register("emergencyRelationship")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("emergencyPhone") ? (
+                <Field label="Telefono emergencia" required={requiredFields.has("emergencyPhone")} error={form.formState.errors.emergencyPhone?.message}>
+                  <Input {...form.register("emergencyPhone")} />
+                </Field>
+              ) : null}
+              {visibleFields.has("emergencyEmail") ? (
+                <Field label="Email emergencia" required={requiredFields.has("emergencyEmail")} error={form.formState.errors.emergencyEmail?.message}>
+                  <Input {...form.register("emergencyEmail")} />
+                </Field>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="grid gap-3 md:grid-cols-3">
             <Field label="Alerta tipo"><Input {...form.register("alertType")} /></Field>
@@ -223,18 +330,60 @@ export function PatientNewPage() {
 
 function Field({
   label,
+  required,
   error,
   children
 }: {
   label: string;
+  required?: boolean;
   error?: string;
   children: ReactNode;
 }) {
   return (
     <label className="space-y-1 text-sm text-slate-700">
-      <span>{label}</span>
+      <span>
+        {label}
+        {required ? <span className="ml-1 text-[var(--text-danger)]">*</span> : null}
+      </span>
       {children}
       {error ? <span className="text-xs text-red-600">{error}</span> : null}
     </label>
   );
+}
+
+function hasAnyVisible(visibleFields: Set<keyof PatientFormValues>, fields: Array<keyof PatientFormValues>) {
+  return fields.some((field) => visibleFields.has(field));
+}
+
+function fieldLabel(field: keyof PatientFormValues) {
+  const labels: Record<keyof PatientFormValues, string> = {
+    branchId: "Sucursal",
+    firstName: "Nombre",
+    lastName: "Apellido",
+    birthDate: "Fecha nacimiento",
+    gender: "Genero",
+    documentType: "Tipo documento",
+    documentNumber: "Numero documento",
+    email: "Email",
+    phone: "Telefono",
+    alternatePhone: "Telefono alterno",
+    occupation: "Ocupacion",
+    referredBy: "Referido por",
+    source: "Fuente",
+    status: "Estado",
+    addressStreet: "Calle",
+    addressCity: "Ciudad",
+    addressState: "Estado",
+    addressCountry: "Pais",
+    addressZipCode: "Codigo postal",
+    emergencyName: "Contacto emergencia",
+    emergencyRelationship: "Relacion",
+    emergencyPhone: "Telefono emergencia",
+    emergencyEmail: "Email emergencia",
+    alertType: "Alerta tipo",
+    alertDescription: "Descripcion alerta",
+    alertSeverity: "Severidad"
+  };
+
+  return labels[field];
 }

@@ -24,6 +24,10 @@ export class AppointmentQueryDto extends PaginationQueryDto {
 
   @IsOptional()
   @IsString()
+  patientId?: string;
+
+  @IsOptional()
+  @IsString()
   professionalId?: string;
 
   @IsOptional()

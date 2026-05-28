@@ -8,7 +8,7 @@ export function PaymentLinksPage() {
         {/* Header Section */}
         <div className="space-y-4 mb-12">
           <h1 className="text-3xl font-bold text-slate-800 tracking-tight">
-            Pagos TPV Dentalink
+            Pagos TPV Warner Suite
           </h1>
           <p className="text-sm text-slate-600 max-w-lg mx-auto leading-relaxed">
             Desde tu plataforma cobra el monto correcto en tu TPV

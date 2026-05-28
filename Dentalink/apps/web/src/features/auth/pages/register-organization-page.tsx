@@ -31,11 +31,10 @@ export function RegisterOrganizationPage() {
       </div>
 
       <div className="text-[10px] text-zinc-400 text-center flex items-center justify-center gap-1.5 uppercase font-semibold tracking-wider pt-2 border-t border-zinc-100">
-        <span>© {new Date().getFullYear()} Dentalink+</span>
+        <span>© {new Date().getFullYear()} Warner Suite</span>
         <span>•</span>
         <span>Soporte ERP</span>
       </div>
     </div>
   );
 }
-

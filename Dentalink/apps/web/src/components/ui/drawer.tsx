@@ -10,10 +10,10 @@ export function Drawer({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/30">
-      <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white p-5 shadow-2xl">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">{title}</h3>
+    <div className="fixed inset-0 z-50 bg-[var(--backdrop-modal)] backdrop-blur-sm">
+      <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-[var(--bg-surface)] p-[var(--space-6)] shadow-[var(--shadow-modal)]">
+        <div className="mb-[var(--space-4)] flex items-center justify-between gap-[var(--space-4)]">
+          <h3 className="text-[var(--text-xl)] font-semibold leading-tight text-[var(--text-brand-strong)]">{title}</h3>
           <Button variant="secondary" onClick={onClose}>
             Cerrar
           </Button>

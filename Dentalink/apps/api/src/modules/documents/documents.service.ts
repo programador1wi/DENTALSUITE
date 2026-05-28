@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { ConsentStatus, Prisma } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import { createReadStream, type ReadStream } from "node:fs";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { resolvePagination } from "../../common/utils/pagination.util";
+import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
@@ -12,10 +17,34 @@ import {
   PatientConsentsQueryDto,
   PatientFilesQueryDto,
   SignConsentDto,
+  UploadBinaryFileAttachmentDto,
   UpdateClinicalDocumentTemplateSettingsDto,
   UpdateConsentTemplateDto,
   UploadFileAttachmentDto
 } from "./dto/documents.dto";
+
+type UploadedPatientFile = {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer?: Buffer;
+};
+
+const PATIENT_FILE_STORAGE_ROOT = resolve(process.cwd(), "storage", "patient-files");
+const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".dcm", ".dicom"]);
+const ALLOWED_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "text/plain",
+  "application/dicom"
+]);
 
 @Injectable()
 export class DocumentsService {
@@ -64,6 +93,80 @@ export class DocumentsService {
     });
 
     return created;
+  }
+
+  async uploadPatientBinaryFile(actor: AuthUser, patientId: string, dto: UploadBinaryFileAttachmentDto, file?: UploadedPatientFile) {
+    await this.ensurePatient(actor, patientId);
+    if (!file?.buffer || !file.originalname?.trim()) throw new BadRequestException("File is required");
+    if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) throw new BadRequestException("File size is not allowed");
+
+    const extension = extname(file.originalname).toLowerCase();
+    const mimeType = file.mimetype?.trim() || "application/octet-stream";
+    if (!this.isAllowedFile(extension, mimeType)) {
+      throw new BadRequestException("Unsupported file type");
+    }
+
+    const id = randomUUID();
+    const storedFileName = `${Date.now()}-${id}${extension || ".bin"}`;
+    const targetDirectory = this.getPatientFileDirectory(actor.organizationId, patientId);
+    await mkdir(targetDirectory, { recursive: true });
+    await writeFile(join(targetDirectory, storedFileName), file.buffer);
+
+    const category = dto.category?.trim() || this.inferCategory(mimeType, extension);
+    const created = await this.prisma.fileAttachment.create({
+      data: {
+        id,
+        organizationId: actor.organizationId,
+        patientId,
+        uploadedById: actor.id,
+        fileName: storedFileName,
+        originalName: file.originalname.trim(),
+        mimeType,
+        size: file.size,
+        url: `/patients/${patientId}/files/${id}/content`,
+        category
+      }
+    });
+
+    await this.audit(actor, {
+      entity: "FileAttachment",
+      entityId: created.id,
+      action: "upload",
+      after: {
+        patientId,
+        fileName: created.fileName,
+        originalName: created.originalName,
+        category: created.category
+      }
+    });
+
+    return created;
+  }
+
+  async getPatientFileContent(actor: AuthUser, patientId: string, fileId: string): Promise<{ stream: ReadStream; mimeType: string; downloadName: string }> {
+    const file = await this.prisma.fileAttachment.findFirst({
+      where: {
+        id: fileId,
+        organizationId: actor.organizationId,
+        patientId,
+        patient: { branchId: branchScope(actor) }
+      }
+    });
+    if (!file) throw new NotFoundException("File not found");
+
+    const directory = this.getPatientFileDirectory(actor.organizationId, patientId);
+    const filePath = resolve(directory, file.fileName);
+    if (!this.isPathInside(directory, filePath)) throw new BadRequestException("Invalid file path");
+
+    await stat(filePath).catch(() => {
+      throw new NotFoundException("Stored file not found");
+    });
+
+    return {
+      stream: createReadStream(filePath),
+      mimeType: file.mimeType,
+      downloadName: this.safeDownloadName(file.originalName)
+    };
   }
 
   async listConsentTemplates(actor: AuthUser, query: ConsentTemplatesQueryDto) {
@@ -302,7 +405,7 @@ export class DocumentsService {
     const consent = await this.prisma.consent.findFirst({
       where: {
         id: consentId,
-        patient: { organizationId: actor.organizationId }
+        patient: { organizationId: actor.organizationId, branchId: branchScope(actor) }
       },
       include: { signatures: true }
     });
@@ -372,7 +475,7 @@ export class DocumentsService {
     const consent = await this.prisma.consent.findFirst({
       where: {
         id: consentId,
-        patient: { organizationId: actor.organizationId }
+        patient: { organizationId: actor.organizationId, branchId: branchScope(actor) }
       },
       include: {
         patient: { select: { id: true, firstName: true, lastName: true } },
@@ -388,7 +491,7 @@ export class DocumentsService {
 
   private async ensurePatient(actor: AuthUser, patientId: string) {
     const patient = await this.prisma.patient.findFirst({
-      where: { id: patientId, organizationId: actor.organizationId, deletedAt: null }
+      where: { id: patientId, organizationId: actor.organizationId, branchId: branchScope(actor), deletedAt: null }
     });
     if (!patient) throw new NotFoundException("Patient not found");
     return patient;
@@ -400,6 +503,30 @@ export class DocumentsService {
     });
     if (!procedure) throw new NotFoundException("Procedure not found");
     return procedure;
+  }
+
+  private getPatientFileDirectory(organizationId: string, patientId: string) {
+    return resolve(PATIENT_FILE_STORAGE_ROOT, organizationId, patientId);
+  }
+
+  private isPathInside(parentPath: string, childPath: string) {
+    const segment = relative(parentPath, childPath);
+    return Boolean(segment) && !segment.startsWith("..") && !isAbsolute(segment);
+  }
+
+  private isAllowedFile(extension: string, mimeType: string) {
+    return ALLOWED_MIME_TYPES.has(mimeType) || ALLOWED_EXTENSIONS.has(extension);
+  }
+
+  private inferCategory(mimeType: string, extension: string) {
+    if (mimeType.startsWith("image/")) return "PHOTO";
+    if (mimeType === "application/dicom" || extension === ".dcm" || extension === ".dicom") return "XRAY";
+    if (mimeType === "application/pdf" || extension === ".pdf") return "DOCUMENT";
+    return "OTHER";
+  }
+
+  private safeDownloadName(fileName: string) {
+    return fileName.replace(/["\r\n\\]/g, "_");
   }
 
   private async audit(

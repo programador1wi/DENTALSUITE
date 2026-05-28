@@ -3,7 +3,12 @@ import { cn } from "@/lib/utils/cn";
 
 export function Card({ children, className }: PropsWithChildren<{ className?: string }>) {
   return (
-    <article className={cn("rounded-lg border border-zinc-200/60 bg-white p-6 shadow-[0_1px_2px_rgba(0,0,0,0.01)] transition-all duration-200", className)}>
+    <article
+      className={cn(
+        "rounded-[var(--radius-lg)] border-[0.5px] border-[var(--border-default)] bg-[var(--bg-surface)] p-[var(--space-6)] transition-[border-color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:-translate-y-px hover:border-[var(--border-strong)] hover:shadow-[var(--shadow-card-hover)]",
+        className
+      )}
+    >
       {children}
     </article>
   );

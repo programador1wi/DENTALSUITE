@@ -30,9 +30,9 @@ export class AppointmentsService {
     const range = this.resolveRange(query);
     const where: Prisma.AppointmentWhereInput = {
       organizationId: actor.organizationId,
-      startAt: { lt: range.end },
-      endAt: { gt: range.start },
+      ...(range ? { startAt: { lt: range.end }, endAt: { gt: range.start } } : {}),
       branchId: branchScope(actor, query.branchId),
+      ...(query.patientId ? { patientId: query.patientId } : {}),
       ...(query.professionalId ? { professionalId: query.professionalId } : {}),
       ...(query.chairId ? { chairId: query.chairId } : {}),
       ...(query.status ? { status: query.status as AppointmentStatus } : {}),
@@ -518,6 +518,7 @@ export class AppointmentsService {
   }
 
   private resolveRange(query: AppointmentQueryDto) {
+    if (query.patientId && !query.start && !query.end && !query.date && !query.view) return null;
     if (query.start && query.end) return { start: new Date(query.start), end: new Date(query.end) };
 
     const base = query.date ? this.parseClinicDate(query.date) : new Date();

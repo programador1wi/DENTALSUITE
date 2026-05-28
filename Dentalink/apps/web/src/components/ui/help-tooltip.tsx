@@ -15,21 +15,20 @@ export function HelpTooltip({ content, position = "top", children }: HelpTooltip
   };
 
   const arrowClasses = {
-    top: "top-full left-1/2 -translate-x-1/2 border-t-slate-900 border-x-transparent border-b-transparent",
-    bottom: "bottom-full left-1/2 -translate-x-1/2 border-b-slate-900 border-x-transparent border-t-transparent",
-    left: "left-full top-1/2 -translate-y-1/2 border-l-slate-900 border-y-transparent border-r-transparent",
-    right: "right-full top-1/2 -translate-y-1/2 border-r-slate-900 border-y-transparent border-l-transparent",
+    top: "top-full left-1/2 -translate-x-1/2 border-t-[var(--bg-nav)] border-x-transparent border-b-transparent",
+    bottom: "bottom-full left-1/2 -translate-x-1/2 border-b-[var(--bg-nav)] border-x-transparent border-t-transparent",
+    left: "left-full top-1/2 -translate-y-1/2 border-l-[var(--bg-nav)] border-y-transparent border-r-transparent",
+    right: "right-full top-1/2 -translate-y-1/2 border-r-[var(--bg-nav)] border-y-transparent border-l-transparent",
   };
 
   return (
     <div className="relative group inline-flex items-center shrink-0">
-      {/* Help Circle Button or Custom Trigger Child */}
       {children ? (
         <div className="cursor-help">{children}</div>
       ) : (
         <button
           type="button"
-          className="text-slate-400 hover:text-brand-500 transition-colors focus:outline-none p-0.5"
+          className="p-0.5 text-[var(--text-secondary)] transition-colors hover:text-[var(--text-brand)] focus:outline-none"
           aria-label="Ayuda del sistema"
         >
           <svg
@@ -48,11 +47,9 @@ export function HelpTooltip({ content, position = "top", children }: HelpTooltip
         </button>
       )}
 
-      {/* Tooltip bubble */}
       <div
-        className={`absolute z-[999] scale-95 opacity-0 pointer-events-none group-hover:scale-100 group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 w-64 p-3 bg-slate-900 text-white text-[11px] font-medium rounded-xl shadow-xl leading-relaxed select-none ${positionClasses[position]}`}
+        className={`pointer-events-none absolute z-[999] w-64 scale-95 rounded-[var(--radius-lg)] bg-[var(--bg-nav)] p-[var(--space-3)] text-[var(--text-xs)] font-medium leading-relaxed text-[var(--text-inverse)] opacity-0 shadow-[var(--shadow-modal)] transition-[opacity,transform] duration-[var(--duration-normal)] ease-[var(--ease-default)] select-none group-hover:pointer-events-auto group-hover:scale-100 group-hover:opacity-100 ${positionClasses[position]}`}
       >
-        {/* Subtle arrow */}
         <div className={`absolute border-4 border-solid ${arrowClasses[position]}`} />
         {content}
       </div>

@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, ToothProcedureStatus } from "@prisma/client";
+import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
@@ -333,7 +334,14 @@ export class ClinicalService {
         orderBy: { createdAt: "desc" }
       }),
       this.prisma.toothCondition.findMany({
-        where: { patientId, ...(toothNumber ? { toothNumber } : {}) },
+        where: {
+          patientId,
+          ...(toothNumber ? { toothNumber } : {}),
+          OR: [
+            { odontogramRecordId: null },
+            { odontogramRecord: { is: { status: { not: ToothProcedureStatus.CANCELLED } } } }
+          ]
+        },
         orderBy: { createdAt: "desc" }
       }),
       this.prisma.toothProcedure.findMany({
@@ -370,7 +378,14 @@ export class ClinicalService {
         orderBy: { createdAt: "desc" }
       }),
       this.prisma.toothCondition.findMany({
-        where: { patientId, toothNumber },
+        where: {
+          patientId,
+          toothNumber,
+          OR: [
+            { odontogramRecordId: null },
+            { odontogramRecord: { is: { status: { not: ToothProcedureStatus.CANCELLED } } } }
+          ]
+        },
         orderBy: { createdAt: "desc" }
       }),
       this.prisma.toothProcedure.findMany({
@@ -710,7 +725,7 @@ export class ClinicalService {
 
   private async ensurePatient(actor: AuthUser, patientId: string) {
     const patient = await this.prisma.patient.findFirst({
-      where: { id: patientId, organizationId: actor.organizationId, deletedAt: null }
+      where: { id: patientId, organizationId: actor.organizationId, branchId: branchScope(actor), deletedAt: null }
     });
     if (!patient) throw new NotFoundException("Patient not found");
     return patient;

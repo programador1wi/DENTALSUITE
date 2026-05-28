@@ -107,6 +107,7 @@ export type OdontogramRecord = {
 
 export type ToothCondition = {
   id: string;
+  odontogramRecordId?: string | null;
   toothNumber: string;
   surface?: string | null;
   condition: string;

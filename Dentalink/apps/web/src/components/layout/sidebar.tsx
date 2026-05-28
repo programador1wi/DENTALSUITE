@@ -1,228 +1,464 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
+import { ChevronDown, ChevronRight, Sparkles, X } from "lucide-react";
+import { useAuthStore } from "@/stores/auth.store";
+import { itemMatchesPath, type MainNavItem, type MenuItem, visibleNavigation } from "@/components/layout/navigation";
 import { cn } from "@/lib/utils/cn";
-import { usePermissions } from "@/hooks/use-permissions";
-import { useState } from "react";
 
-type NavItem = {
-  to: string;
-  label: string;
-  requiredPermission?: string;
-  icon: React.ReactNode;
-};
-
-type NavSection = {
-  title: string;
-  items: NavItem[];
-};
-
-// SVG Icon Helpers
-const icons = {
-  dashboard: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2H6a2 2 0 01-2-2v-4zM14 16a2 2 0 012-2h2a2 2 0 012 2v4a2 2 0 01-2 2h-2a2 2 0 01-2-2v-4z" />
-    </svg>
-  ),
-  agenda: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-    </svg>
-  ),
-  patients: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-    </svg>
-  ),
-  treatments: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-    </svg>
-  ),
-  budgets: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 8h6m-6 2h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-    </svg>
-  ),
-  payments: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-    </svg>
-  ),
-  cash: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M12 8H7m5 10H7m5 0h5m-5-10v10m-3-1v1m3-1h3m-3-3v3m0-6v3" />
-    </svg>
-  ),
-  settings: (
-    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-    </svg>
-  ),
-  generic: (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-    </svg>
-  )
-};
-
-const navigationSections: NavSection[] = [
-  {
-    title: "MÃ³dulos Principales",
-    items: [
-      { to: "/dashboard", label: "Dashboard", icon: icons.dashboard },
-      { to: "/agenda", label: "Agenda Citas", requiredPermission: "appointments.read", icon: icons.agenda },
-      { to: "/patients", label: "Pacientes", requiredPermission: "patients.read", icon: icons.patients }
-    ]
-  },
-  {
-    title: "Tratamientos y Finanzas",
-    items: [
-      { to: "/treatment-plans", label: "Planes ClÃ­nicos", requiredPermission: "treatment_plans.read", icon: icons.treatments },
-      { to: "/budgets", label: "Presupuestos", requiredPermission: "budgets.read", icon: icons.budgets },
-      { to: "/payments", label: "Registro de Pagos", requiredPermission: "payments.read", icon: icons.payments },
-      { to: "/cash-register", label: "Caja de Sucursal", requiredPermission: "cash_register.read", icon: icons.cash },
-      { to: "/payroll", label: "Liquidaciones", icon: icons.generic },
-      { to: "/accounts-receivable", label: "Cuentas por Cobrar", requiredPermission: "accounts_receivable.read", icon: icons.generic },
-      { to: "/installments", label: "Cuotas de Financiamiento", requiredPermission: "installments.read", icon: icons.generic },
-      { to: "/collections", label: "GestiÃ³n de Morosidad", requiredPermission: "collections.read", icon: icons.generic }
-    ]
-  },
-  {
-    title: "Laboratorio e Inventario",
-    items: [
-      { to: "/labs", label: "Laboratorios", requiredPermission: "lab_providers.read", icon: icons.generic },
-      { to: "/labs/orders", label: "Órdenes Laboratorio", requiredPermission: "lab_orders.read", icon: icons.generic },
-      { to: "/inventory", label: "Inventario", requiredPermission: "inventory.read", icon: icons.generic },
-      { to: "/inventory/movements", label: "Movimientos Stock", requiredPermission: "inventory.movements.read", icon: icons.generic }
-    ]
-  },
-  {
-    title: "Reportes",
-    items: [
-      { to: "/reports", label: "Centro de Reportes", requiredPermission: "reports.read", icon: icons.generic },
-      { to: "/reports/appointments", label: "Reporte Agenda", requiredPermission: "reports.read", icon: icons.generic },
-      { to: "/reports/patients", label: "Reporte Pacientes", requiredPermission: "reports.read", icon: icons.generic },
-      { to: "/reports/treatments", label: "Reporte Tratamientos", requiredPermission: "reports.read", icon: icons.generic },
-      { to: "/reports/financial", label: "Reporte Financiero", requiredPermission: "reports.read", icon: icons.generic },
-      { to: "/reports/professionals", label: "Reporte Profesionales", requiredPermission: "reports.read", icon: icons.generic }
-    ]
-  },
-  {
-    title: "Configuraciones",
-    items: [
-      { to: "/settings/organization", label: "OrganizaciÃ³n", requiredPermission: "settings.read", icon: icons.settings },
-      { to: "/settings/branches", label: "Sucursales", requiredPermission: "branches.read", icon: icons.generic },
-      { to: "/settings/professionals", label: "Profesionales", requiredPermission: "professionals.read", icon: icons.generic },
-      { to: "/settings/specialties", label: "Especialidades", requiredPermission: "specialties.read", icon: icons.generic },
-      { to: "/settings/online-scheduling", label: "Agenda Online", requiredPermission: "schedules.read", icon: icons.generic },
-      { to: "/settings/chairs", label: "Sillones ClÃ­nicos", requiredPermission: "chairs.read", icon: icons.generic },
-      { to: "/settings/payment-methods", label: "MÃ©todos de Pago", requiredPermission: "payment_methods.read", icon: icons.generic },
-      { to: "/settings/procedures", label: "CatÃ¡logo Procedimientos", requiredPermission: "procedures.read", icon: icons.generic },
-      { to: "/settings/price-lists", label: "Listas de Precios", requiredPermission: "price_lists.read", icon: icons.generic },
-      { to: "/settings/consent-templates", label: "Plantillas Consentimientos", requiredPermission: "consent_templates.read", icon: icons.generic },
-      { to: "/settings/profile", label: "Mi Perfil de Usuario", icon: icons.generic },
-      { to: "/settings/users", label: "Usuarios Sistema", requiredPermission: "users.read", icon: icons.generic },
-      { to: "/settings/roles", label: "Roles y Permisos", requiredPermission: "roles.read", icon: icons.generic }
-    ]
-  }
+const EMPTY_PERMISSIONS: string[] = [];
+const PRODUCT_NAME = "Warner Suite";
+const FLYOUT_PANEL_WIDTH = 560;
+const SIDEBAR_NAV_GROUPS = [
+  { key: "principal", label: "Principal", paths: ["/agenda", "/patients"] },
+  { key: "operation", label: "Operacion", paths: ["/cash-register/open", "/accounts-receivable"] },
+  { key: "management", label: "Gestion", paths: ["/settings/organization", "/reports", "/dashboard"] }
 ];
 
-export function Sidebar() {
-  const location = useLocation();
-  const { hasPermission } = usePermissions();
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
-    Configuraciones: true // Colapsado por defecto para evitar sobrecarga visual
-  });
+type FlyoutState = {
+  item: MainNavItem;
+  top: number;
+  left: number;
+  maxHeight: number;
+};
 
-  const toggleSection = (title: string) => {
-    setCollapsedSections(prev => ({
-      ...prev,
-      [title]: !prev[title]
-    }));
-  };
+function groupedChildren(children: MenuItem[]) {
+  return [
+    { key: "primary", label: "Accesos", items: children.filter((child) => !child.section) },
+    { key: "administration", label: "Administracion", items: children.filter((child) => child.section === "administration") },
+    { key: "configuration", label: "Configuracion", items: children.filter((child) => child.section === "configuration") }
+  ].filter((group) => group.items.length > 0);
+}
+
+function groupedNavigation(items: MainNavItem[]) {
+  return SIDEBAR_NAV_GROUPS.map((group) => ({
+    ...group,
+    items: items.filter((item) => group.paths.includes(item.to))
+  })).filter((group) => group.items.length > 0);
+}
+
+function NavItemContent({
+  item,
+  collapsed,
+  active,
+  index
+}: {
+  item: MainNavItem;
+  collapsed: boolean;
+  active: boolean;
+  index: number;
+}) {
+  const Icon = item.icon;
 
   return (
-    <aside className="min-h-screen w-80 bg-slate-900 text-slate-100 flex flex-col border-r border-slate-800 shrink-0">
-      {/* Brand Header */}
-      <div className="p-6 border-b border-slate-800 flex items-center gap-3">
-        <div className="w-10 h-10 rounded-xl bg-brand-500 flex items-center justify-center shadow-lg shadow-brand-500/20">
-          <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-          </svg>
-        </div>
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-brand-500">Dentalwarner Platform</p>
-          <h2 className="text-base font-bold text-white tracking-tight">Consola Corporativa</h2>
-        </div>
+    <>
+      <span
+        className={cn(
+          "absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-[var(--radius-full)] bg-[var(--nav-item-active-border)] opacity-0 transition-[opacity,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)]",
+          active && "opacity-100 shadow-[0_0_12px_rgba(55,138,221,0.55)]"
+        )}
+      />
+      <span
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--nav-control-border)] bg-[var(--nav-control-bg)] text-[var(--nav-item-default-icon)] transition-[background-color,border-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] group-hover:translate-x-0.5 group-hover:border-[rgba(255,255,255,0.22)] group-hover:bg-[rgba(255,255,255,0.1)] group-hover:text-[var(--text-inverse)]",
+          active && "border-[rgba(55,138,221,0.55)] bg-[rgba(55,138,221,0.22)] text-[var(--text-inverse)]"
+        )}
+      >
+        <Icon className="h-[18px] w-[18px]" />
+      </span>
+      {!collapsed ? (
+        <span className={cn("min-w-0 flex-1 truncate", active && "text-[var(--text-inverse)]")}>{item.label}</span>
+      ) : (
+        <span className="sr-only">{item.label}</span>
+      )}
+      <span
+        aria-hidden="true"
+        className="absolute inset-0 -z-10 rounded-[var(--radius-md)] opacity-0 transition-[opacity,transform] duration-[var(--duration-normal)] ease-[var(--ease-out)] group-hover:translate-x-1 group-hover:opacity-100"
+        style={{ transitionDelay: `${Math.min(index, 6) * 12}ms` }}
+      />
+    </>
+  );
+}
+
+function SidebarContent({
+  collapsed,
+  onDesktopFlyoutChange,
+  onNavigate,
+  onCloseMobile
+}: {
+  collapsed: boolean;
+  onDesktopFlyoutChange?: (open: boolean) => void;
+  onNavigate?: () => void;
+  onCloseMobile?: () => void;
+}) {
+  const location = useLocation();
+  const user = useAuthStore((state) => state.user);
+  const permissions = user?.permissions ?? EMPTY_PERMISSIONS;
+  const navigation = useMemo(() => visibleNavigation(permissions), [permissions]);
+  const navigationGroups = useMemo(() => groupedNavigation(navigation), [navigation]);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
+  const [flyout, setFlyout] = useState<FlyoutState | null>(null);
+  const flyoutRef = useRef<HTMLDivElement>(null);
+  const isMobileMenu = Boolean(onCloseMobile);
+
+  const closeDesktopFlyout = useCallback(() => {
+    setFlyout(null);
+    if (!isMobileMenu) onDesktopFlyoutChange?.(false);
+  }, [isMobileMenu, onDesktopFlyoutChange]);
+
+  useEffect(() => {
+    const activeParent = navigation.find((item) => item.children?.some((child) => itemMatchesPath(location.pathname, child)));
+    if (activeParent) {
+      setOpenSections((state) => (state[activeParent.to] ? state : { ...state, [activeParent.to]: true }));
+    }
+    closeDesktopFlyout();
+  }, [closeDesktopFlyout, location.pathname, navigation]);
+
+  useEffect(() => {
+    if (!isMobileMenu && collapsed) closeDesktopFlyout();
+  }, [closeDesktopFlyout, collapsed, isMobileMenu]);
+
+  useEffect(() => {
+    if (isMobileMenu) return;
+    onDesktopFlyoutChange?.(Boolean(flyout));
+  }, [flyout, isMobileMenu, onDesktopFlyoutChange]);
+
+  useEffect(() => {
+    if (!flyout || isMobileMenu) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && flyoutRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest("[data-sidebar-flyout]")) return;
+      if (target instanceof Element && target.closest("[data-sidebar-flyout-trigger]")) return;
+      closeDesktopFlyout();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeDesktopFlyout();
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", closeDesktopFlyout);
+
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", closeDesktopFlyout);
+    };
+  }, [closeDesktopFlyout, flyout, isMobileMenu]);
+
+  const toggleDesktopFlyout = useCallback((item: MainNavItem, trigger: HTMLElement) => {
+    setFlyout((current) => {
+      if (current?.item.to === item.to) {
+        onDesktopFlyoutChange?.(false);
+        return null;
+      }
+
+      const rect = trigger.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
+      const maxHeight = Math.max(260, viewportHeight - 24);
+      const estimatedHeight = Math.min(maxHeight, Math.max(260, (item.children?.length ?? 1) * 42 + 92));
+      const top = Math.min(Math.max(12, rect.top - 8), Math.max(12, viewportHeight - estimatedHeight - 12));
+      const width = Math.min(FLYOUT_PANEL_WIDTH, viewportWidth - 24);
+      const preferredLeft = rect.right + 10;
+      const left = preferredLeft + width > viewportWidth - 12 ? Math.max(12, rect.left - width - 10) : preferredLeft;
+
+      onDesktopFlyoutChange?.(true);
+      return { item, top, left, maxHeight };
+    });
+  }, [onDesktopFlyoutChange]);
+
+  const flyoutGroups = flyout?.item.children ? groupedChildren(flyout.item.children) : [];
+
+  return (
+    <aside
+      className={cn(
+        "relative flex h-full flex-col overflow-hidden bg-[var(--bg-nav)] text-[var(--text-inverse)] transition-[width,transform,box-shadow] duration-[var(--duration-normal)] ease-[var(--ease-default)]",
+        isMobileMenu ? "border-r border-[var(--nav-border-subtle)]" : "rounded-[var(--radius-md)] border border-[var(--nav-border-subtle)] shadow-[0_12px_30px_rgba(4,44,83,0.08)]",
+        collapsed ? "w-[72px]" : "w-60"
+      )}
+    >
+      <div className="relative flex h-16 items-center gap-[var(--space-3)] border-b border-[var(--nav-border-subtle)] bg-[rgba(255,255,255,0.02)] px-[var(--space-3)]">
+        <Link to="/dashboard" onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-[var(--space-3)]">
+          <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[rgba(255,255,255,0.18)] bg-[rgba(255,255,255,0.08)] text-[var(--text-base)] font-semibold text-[var(--text-inverse)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-[border-color,transform] duration-[var(--duration-normal)] ease-[var(--ease-spring)] hover:scale-105">
+            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-[var(--radius-full)] bg-[var(--action-primary)]" />
+            W
+          </span>
+          {!collapsed ? (
+            <span className="min-w-0">
+              <span className="block truncate text-[var(--text-base)] font-semibold leading-tight tracking-[0.01em]">{PRODUCT_NAME}</span>
+              <span className="flex items-center gap-[var(--space-1)] truncate text-[var(--text-xs)] font-medium text-[rgba(248,250,252,0.52)]">
+                <Sparkles className="h-3 w-3" />
+                Gestion clinica
+              </span>
+            </span>
+          ) : null}
+        </Link>
+
+        {onCloseMobile ? (
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] text-[var(--nav-item-default-text)] transition-[background-color,color] duration-[var(--duration-fast)] hover:bg-[var(--nav-item-hover-bg)] hover:text-[var(--text-inverse)] lg:hidden"
+            aria-label="Cerrar menu"
+            onClick={onCloseMobile}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : null}
       </div>
 
-      {/* Nav Scroll Area */}
-      <nav className="flex-1 overflow-y-auto px-4 py-6 space-y-7 custom-scrollbar">
-        {navigationSections.map((section) => {
-          const visibleItems = section.items.filter(
-            (item) => !item.requiredPermission || hasPermission(item.requiredPermission)
-          );
-
-          if (visibleItems.length === 0) return null;
-
-          const isCollapsed = collapsedSections[section.title];
-
-          return (
-            <div key={section.title} className="space-y-2">
-              {/* Section Divider / Title */}
-              <button
-                type="button"
-                onClick={() => toggleSection(section.title)}
-                className="w-full flex items-center justify-between text-left text-xs font-bold uppercase tracking-wider text-slate-500 px-2 py-1 hover:text-slate-300 transition"
+      <nav
+        className="relative flex-1 overflow-y-auto px-[var(--space-2)] py-[var(--space-4)]"
+        onScroll={() => {
+          if (!isMobileMenu && flyout) setFlyout(null);
+        }}
+      >
+        <div className="space-y-[var(--space-4)]">
+          {navigationGroups.map((group) => (
+            <section key={group.key} className="min-w-0">
+              <p
+                className={cn(
+                  "mb-[var(--space-2)] px-[var(--space-2)] text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--nav-section-label)]",
+                  collapsed && "sr-only"
+                )}
               >
-                <span>{section.title}</span>
-                <svg
-                  className={cn("w-3 h-3 transition-transform", isCollapsed ? "rotate-0" : "rotate-90")}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={3}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                </svg>
-              </button>
+                {group.label}
+              </p>
+              <div className={cn("space-y-1", collapsed && group.key !== "principal" && "border-t border-[var(--nav-border-subtle)] pt-[var(--space-4)]")}>
+                {group.items.map((item) => {
+                  const index = navigation.findIndex((navItem) => navItem.to === item.to);
+            const hasChildren = Boolean(item.children?.length);
+            const active = itemMatchesPath(location.pathname, item) || Boolean(item.children?.some((child) => itemMatchesPath(location.pathname, child)));
+            const open = openSections[item.to] || active;
+            const flyoutOpen = flyout?.item.to === item.to;
 
-              {/* Section Items */}
-              {!isCollapsed && (
-                <div className="space-y-1 transition-all duration-200">
-                  {visibleItems.map((item) => {
-                    const active = location.pathname === item.to || (item.to !== "/dashboard" && location.pathname.startsWith(item.to));
-                    return (
-                      <Link
-                        key={item.to}
-                        to={item.to}
-                        className={cn(
-                          "flex items-center gap-3 rounded-xl px-3 py-2.5 text-xs font-medium transition-all duration-150",
-                          active
-                            ? "bg-brand-500 text-white shadow-md shadow-brand-500/10 font-semibold scale-[1.02]"
-                            : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200"
-                        )}
-                      >
-                        <span className={cn(active ? "text-white" : "text-slate-400")}>
-                          {item.icon}
-                        </span>
-                        <span className="truncate">{item.label}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            if (!hasChildren) {
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  title={collapsed ? item.label : undefined}
+                  onClick={onNavigate}
+                  className={cn(
+                    "group relative isolate flex h-11 animate-[sidebar-item-in_var(--duration-slow)_var(--ease-out)_both] items-center gap-[var(--space-3)] rounded-[var(--radius-md)] px-[var(--space-2)] text-[var(--text-sm)] font-semibold text-[var(--nav-item-default-text)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[rgba(255,255,255,0.07)] hover:text-[var(--text-inverse)]",
+                    active && "bg-[rgba(255,255,255,0.075)] text-[var(--text-inverse)]"
+                  )}
+                  style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
+                >
+                  <NavItemContent item={item} collapsed={collapsed} active={active} index={index} />
+                </Link>
+              );
+            }
+
+            return (
+              <div key={item.to}>
+                <button
+                  type="button"
+                  title={collapsed ? item.label : undefined}
+                  data-sidebar-flyout-trigger={!isMobileMenu ? true : undefined}
+                  aria-haspopup={!isMobileMenu ? "menu" : undefined}
+                  aria-expanded={isMobileMenu ? open : flyoutOpen}
+                  onClick={(event) => {
+                    if (isMobileMenu) {
+                      setOpenSections((state) => ({ ...state, [item.to]: !open }));
+                      return;
+                    }
+                    toggleDesktopFlyout(item, event.currentTarget);
+                  }}
+                  className={cn(
+                    "group relative isolate flex h-11 w-full animate-[sidebar-item-in_var(--duration-slow)_var(--ease-out)_both] items-center gap-[var(--space-3)] rounded-[var(--radius-md)] px-[var(--space-2)] text-left text-[var(--text-sm)] font-semibold text-[var(--nav-item-default-text)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[rgba(255,255,255,0.07)] hover:text-[var(--text-inverse)]",
+                    active && "bg-[rgba(255,255,255,0.075)] text-[var(--text-inverse)]",
+                    flyoutOpen && "bg-[rgba(255,255,255,0.1)] text-[var(--text-inverse)]"
+                  )}
+                  style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
+                >
+                  <NavItemContent item={item} collapsed={collapsed} active={active} index={index} />
+                  {!collapsed ? (
+                    isMobileMenu ? (
+                      <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--nav-item-default-icon)] transition-transform duration-[var(--duration-normal)] ease-[var(--ease-spring)]", open && "rotate-180")} />
+                    ) : (
+                      <ChevronRight className={cn("h-4 w-4 shrink-0 text-[var(--nav-item-default-icon)] transition-transform duration-[var(--duration-normal)] ease-[var(--ease-spring)]", flyoutOpen && "translate-x-0.5 text-[var(--text-inverse)]")} />
+                    )
+                  ) : null}
+                </button>
+
+                {isMobileMenu && !collapsed && open ? (
+                  <div className="ml-[var(--space-5)] mt-1 animate-[sidebar-item-in_var(--duration-normal)_var(--ease-out)_both] space-y-1 border-l border-[var(--nav-border-subtle)] pl-[var(--space-2)]">
+                    {item.children?.map((child) => {
+                      const ChildIcon = child.icon;
+                      const childActive = itemMatchesPath(location.pathname, child);
+                      return (
+                        <Link
+                          key={child.to}
+                          to={child.to}
+                          onClick={onNavigate}
+                          className={cn(
+                            "flex min-h-9 items-center gap-[var(--space-2)] rounded-[var(--radius-md)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--text-sm)] font-medium text-[var(--nav-item-default-icon)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[var(--nav-item-hover-bg)]",
+                            childActive && "bg-[var(--nav-item-hover-bg)] text-[var(--nav-item-active-text)]"
+                          )}
+                        >
+                          {ChildIcon ? <ChildIcon className="h-4 w-4 shrink-0" /> : null}
+                          <span className="truncate">{child.label}</span>
+                          {child.badge ? (
+                            <span className="ml-auto rounded-[var(--radius-full)] bg-[var(--action-primary)] px-[var(--space-2)] py-0.5 text-[var(--text-xs)] font-semibold text-[var(--text-inverse)]">
+                              {child.badge}
+                            </span>
+                          ) : null}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            );
+                })}
+              </div>
+            </section>
+          ))}
+        </div>
       </nav>
-      
-      {/* Footer Info */}
-      <div className="p-4 border-t border-slate-800 text-[10px] text-slate-500 text-center">
-        VersiÃ³n 0.1.0 (Managed SaaS)
-      </div>
+
+      {!isMobileMenu && flyout && flyout.item.children?.length && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={flyoutRef}
+              role="menu"
+              data-sidebar-flyout
+              aria-label={`Opciones de ${flyout.item.label}`}
+              className="fixed z-[70] flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--nav-border-subtle)] bg-[var(--bg-nav)] text-[var(--text-inverse)] shadow-[0_18px_42px_rgba(4,44,83,0.22)]"
+              style={{
+                top: flyout.top,
+                left: flyout.left,
+                maxHeight: flyout.maxHeight,
+                width: `min(${FLYOUT_PANEL_WIDTH}px, calc(100vw - 24px))`
+              }}
+            >
+              <div className="border-b border-[var(--nav-border-subtle)] bg-[rgba(255,255,255,0.025)] px-[var(--space-4)] py-[var(--space-3)]">
+                <span className="block text-[var(--text-xs)] font-semibold uppercase tracking-widest text-[var(--nav-section-label)]">Menu rapido</span>
+                <span className="mt-0.5 block text-[var(--text-base)] font-semibold text-[var(--text-inverse)]">{flyout.item.label}</span>
+              </div>
+
+              <div className={cn("grid min-h-0 gap-[var(--space-3)] overflow-y-auto p-[var(--space-3)]", flyoutGroups.length > 1 && "grid-cols-2")}>
+                {flyoutGroups.map((group) => (
+                  <section key={group.key} className="min-w-0">
+                    {flyoutGroups.length > 1 ? (
+                      <p className="mb-[var(--space-2)] px-[var(--space-2)] text-[var(--text-xs)] font-semibold uppercase tracking-widest text-[var(--nav-section-label)]">
+                        {group.label}
+                      </p>
+                    ) : null}
+                    <div className="space-y-1">
+                      {group.items.map((child) => {
+                        const ChildIcon = child.icon;
+                        const childActive = itemMatchesPath(location.pathname, child);
+
+                        return (
+                          <Link
+                            key={child.to}
+                            to={child.to}
+                            role="menuitem"
+                            onClick={() => {
+                              closeDesktopFlyout();
+                              onNavigate?.();
+                            }}
+                            className={cn(
+                              "flex min-h-10 items-center gap-[var(--space-2)] rounded-[var(--radius-md)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--text-sm)] font-medium text-[var(--nav-item-default-text)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[rgba(255,255,255,0.07)] hover:text-[var(--text-inverse)]",
+                              childActive && "bg-[rgba(255,255,255,0.075)] text-[var(--text-inverse)]"
+                            )}
+                          >
+                            {ChildIcon ? (
+                              <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--nav-control-border)] bg-[var(--nav-control-bg)] text-[var(--nav-item-default-icon)]", childActive && "border-[rgba(55,138,221,0.55)] bg-[rgba(55,138,221,0.22)] text-[var(--text-inverse)]")}>
+                                <ChildIcon className="h-4 w-4" />
+                              </span>
+                            ) : null}
+                            <span className="min-w-0 flex-1 truncate">{child.label}</span>
+                            {child.badge ? (
+                              <span className="shrink-0 rounded-[var(--radius-full)] bg-[var(--action-primary)] px-[var(--space-2)] py-0.5 text-[var(--text-xs)] font-semibold text-[var(--text-inverse)]">
+                                {child.badge}
+                              </span>
+                            ) : null}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
+
     </aside>
   );
 }
 
+export function Sidebar({
+  mobileOpen,
+  onMobileClose
+}: {
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
+}) {
+  const [desktopExpanded, setDesktopExpanded] = useState(false);
+  const [desktopFlyoutOpen, setDesktopFlyoutOpen] = useState(false);
+  const [desktopPointerInside, setDesktopPointerInside] = useState(false);
+  const desktopFlyoutOpenRef = useRef(false);
 
+  useEffect(() => {
+    if (!desktopPointerInside && !desktopFlyoutOpen) setDesktopExpanded(false);
+  }, [desktopFlyoutOpen, desktopPointerInside]);
+
+  const handleDesktopFlyoutChange = useCallback((open: boolean) => {
+    desktopFlyoutOpenRef.current = open;
+    setDesktopFlyoutOpen(open);
+    if (open) setDesktopExpanded(true);
+  }, []);
+
+  return (
+    <>
+      <div
+        className={cn(
+          "relative z-40 hidden h-[calc(100vh-24px)] shrink-0 transition-[width] duration-[var(--duration-normal)] ease-[var(--ease-default)] lg:sticky lg:top-[var(--space-3)] lg:block",
+          desktopExpanded ? "w-60" : "w-[72px]"
+        )}
+        onMouseEnter={() => {
+          setDesktopPointerInside(true);
+          setDesktopExpanded(true);
+        }}
+        onMouseLeave={() => {
+          setDesktopPointerInside(false);
+          if (!desktopFlyoutOpenRef.current) setDesktopExpanded(false);
+        }}
+        onFocus={() => setDesktopExpanded(true)}
+        onBlur={(event) => {
+          if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+          if (desktopFlyoutOpenRef.current) return;
+          setDesktopExpanded(false);
+        }}
+      >
+        <SidebarContent collapsed={!desktopExpanded} onDesktopFlyoutChange={handleDesktopFlyoutChange} />
+      </div>
+
+      {mobileOpen ? (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <button
+            type="button"
+            className="absolute inset-0 bg-[var(--backdrop-modal)] backdrop-blur-sm"
+            aria-label="Cerrar menu"
+            onClick={onMobileClose}
+          />
+          <div className="relative h-full w-60">
+            <SidebarContent
+              collapsed={false}
+              onCloseMobile={onMobileClose}
+              onNavigate={onMobileClose}
+            />
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}

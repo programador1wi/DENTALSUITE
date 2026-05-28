@@ -15,15 +15,15 @@ export function Tabs({
   onChange: (key: string) => void;
 }) {
   return (
-    <div className="inline-flex rounded-xl bg-slate-100 p-1">
+    <div className="inline-flex rounded-[var(--radius-md)] bg-[var(--bg-subtle)] p-1">
       {items.map((item) => (
         <button
           key={item.key}
           type="button"
           onClick={() => onChange(item.key)}
           className={cn(
-            "rounded-lg px-3 py-1.5 text-sm font-medium",
-            active === item.key ? "bg-white text-slate-900 shadow" : "text-slate-600"
+            "rounded-[var(--radius-sm)] px-[var(--space-3)] py-1.5 text-[13px] font-medium transition-[background-color,color] duration-[var(--duration-fast)] ease-[var(--ease-default)]",
+            active === item.key ? "bg-[var(--bg-surface)] text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           )}
         >
           {item.label}

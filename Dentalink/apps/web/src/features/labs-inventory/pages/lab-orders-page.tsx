@@ -80,7 +80,7 @@ export function LabOrdersPage() {
     >
       <div className="space-y-4">
         <LabInfoBanner>
-          Las solicitudes se agrupan como en Dentalink: pendiente, en proceso, en revision y finalizada.
+          Las solicitudes se agrupan como en Warner Suite: pendiente, en proceso, en revision y finalizada.
         </LabInfoBanner>
 
         <div className="grid gap-3 md:grid-cols-[minmax(240px,320px)_1fr]">

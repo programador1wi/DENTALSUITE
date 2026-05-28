@@ -1,14 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { DentalinkPanel } from "@/components/layout/module-tabs";
+import { AlertTriangle, CalendarClock, ChevronRight, ClipboardList, IdCard, Mail, Phone, UserRound, WalletCards } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+import { useBranchStore } from "@/stores/branch.store";
 import { useDeactivatePatient, usePatients } from "../hooks/use-patients";
 import type { PatientListItem } from "../services/patients.service";
 import { PatientsModuleTabs } from "../components/patients-module-tabs";
+import { getPatientStatusLabel, getPatientStatusTone } from "../components/patient-status";
 
 type FilterState = {
   search: string;
@@ -29,26 +33,171 @@ function patientNumber(patient: PatientListItem, index: number) {
   return numeric || String(6700 + index);
 }
 
+function treatmentCount(patient: PatientListItem) {
+  return patient.status === "IN_TREATMENT" ? 3 : 1;
+}
+
+function patientInitials(patient: PatientListItem) {
+  const first = patient.firstName?.trim().charAt(0) ?? "";
+  const last = patient.lastName?.trim().charAt(0) ?? "";
+  return `${first}${last}`.toUpperCase() || "P";
+}
+
+function PreviewFact({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-xs text-slate-600">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[#0784d8] shadow-sm ring-1 ring-slate-200">
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.04em] text-slate-400">{label}</p>
+        <p className="truncate font-medium text-slate-700">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function PreviewStat({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "success" | "warning" | "danger" }) {
+  const toneClass = {
+    default: "text-slate-800",
+    success: "text-emerald-700",
+    warning: "text-amber-700",
+    danger: "text-rose-700"
+  }[tone];
+
+  return (
+    <div className="min-w-[110px]">
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className={`mt-1 text-sm font-semibold ${toneClass}`}>{value}</p>
+    </div>
+  );
+}
+
+function PreviewLink({ to, icon, children }: { to: string; icon: ReactNode; children: ReactNode }) {
+  return (
+    <Link
+      to={to}
+      className="inline-flex items-center justify-center gap-2 rounded border border-[#0784d8]/20 bg-white px-3 py-2 text-xs font-semibold text-[#0784d8] shadow-sm transition hover:border-[#0784d8]/40 hover:bg-[#eef8ff]"
+      onClick={(event) => event.stopPropagation()}
+    >
+      {icon}
+      {children}
+      <ChevronRight className="h-3.5 w-3.5" />
+    </Link>
+  );
+}
+
+function PatientPreview({ patient, number }: { patient: PatientListItem; number: string }) {
+  const fullName = `${patient.firstName} ${patient.lastName}`.trim() || "Paciente sin nombre";
+  const debtValue = patient.hasDebt ? "Pendiente" : "No tiene";
+
+  return (
+    <tr className="border-b-2 border-[#0784d8] bg-[#eef8ff]">
+      <td colSpan={6} className="px-4 py-5">
+        <div className="patient-preview-panel grid gap-5 lg:grid-cols-[190px_1fr_1.2fr]">
+          <div className="flex items-center justify-center lg:justify-start">
+            <div className="flex h-28 w-28 items-center justify-center rounded-full border-4 border-white bg-gradient-to-br from-[#bfe6fb] to-[#e8f8f3] text-3xl font-bold text-[#0784d8] shadow-sm">
+              {patientInitials(patient)}
+            </div>
+          </div>
+
+          <div className="min-w-0 space-y-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="truncate text-base font-bold uppercase text-slate-900">{fullName}</h3>
+                <Badge value={getPatientStatusLabel(patient.status)} tone={getPatientStatusTone(patient.status)} />
+              </div>
+              <p className="mt-1 text-xs text-slate-500">Paciente #{number}</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <PreviewFact icon={<IdCard className="h-4 w-4" />} label="Documento" value={patient.documentNumber || "Sin documento"} />
+              <PreviewFact icon={<Mail className="h-4 w-4" />} label="Correo" value={patient.email || "Sin correo"} />
+              <PreviewFact icon={<Phone className="h-4 w-4" />} label="Telefono" value={patient.phone || "Sin telefono"} />
+              <PreviewFact icon={<UserRound className="h-4 w-4" />} label="Sucursal" value={patient.branchName || "Sin sucursal"} />
+            </div>
+          </div>
+
+          <div className="grid gap-4 border-t border-[#0784d8]/15 pt-4 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <PreviewStat label="Tratamientos" value={String(treatmentCount(patient))} tone={patient.status === "IN_TREATMENT" ? "success" : "default"} />
+              <PreviewStat label="Deudas" value={debtValue} tone={patient.hasDebt ? "warning" : "success"} />
+              <PreviewStat label="Cita futura" value={patient.hasFutureAppointment ? "Agendada" : "Sin cita"} tone={patient.hasFutureAppointment ? "success" : "default"} />
+              <PreviewStat label="Alertas" value={patient.hasCriticalAlert ? "Critica" : "Sin alertas"} tone={patient.hasCriticalAlert ? "danger" : "success"} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <PreviewLink to={`/patients/${patient.id}/profile`} icon={<UserRound className="h-4 w-4" />}>
+                Ir a datos personales
+              </PreviewLink>
+              <PreviewLink to={`/patients/${patient.id}/treatments`} icon={<ClipboardList className="h-4 w-4" />}>
+                Ir a tratamientos
+              </PreviewLink>
+              <PreviewLink to={`/patients/${patient.id}/payments`} icon={<WalletCards className="h-4 w-4" />}>
+                Ir a recaudacion
+              </PreviewLink>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+              {patient.hasFutureAppointment ? (
+                <span className="inline-flex items-center gap-1"><CalendarClock className="h-3.5 w-3.5" /> Tiene una cita futura registrada</span>
+              ) : null}
+              {patient.hasCriticalAlert ? (
+                <span className="inline-flex items-center gap-1 text-rose-600"><AlertTriangle className="h-3.5 w-3.5" /> Revisar alertas clinicas</span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
 export function PatientsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const { activeBranchId, setActiveBranchId } = useBranchStore();
   const [filters, setFilters] = useState<FilterState>(() => ({
     ...initialFilters,
-    search: searchParams.get("search") ?? ""
+    search: searchParams.get("search") ?? "",
+    branchId: searchParams.get("branchId") ?? ""
   }));
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [expandedPatientId, setExpandedPatientId] = useState<string | null>(null);
 
   const branchQuery = useBranches(undefined, "ACTIVE");
+  const selectedBranchId = filters.branchId || activeBranchId;
   const patientQuery = usePatients({
     search: filters.search || undefined,
     status: filters.status || undefined,
-    branchId: filters.branchId || undefined
+    branchId: selectedBranchId || undefined
   });
   const deactivatePatient = useDeactivatePatient();
 
   useEffect(() => {
+    if (!expandedPatientId) return;
+    if (!patientQuery.data?.some((patient) => patient.id === expandedPatientId)) {
+      setExpandedPatientId(null);
+    }
+  }, [expandedPatientId, patientQuery.data]);
+
+  useEffect(() => {
     const search = searchParams.get("search") ?? "";
-    setFilters((prev) => (prev.search === search ? prev : { ...prev, search }));
-  }, [searchParams]);
+    const branchId = searchParams.get("branchId") ?? "";
+    setFilters((prev) =>
+      prev.search === search && prev.branchId === branchId ? prev : { ...prev, search, branchId }
+    );
+    if (branchId) setActiveBranchId(branchId);
+  }, [searchParams, setActiveBranchId]);
+
+  useEffect(() => {
+    if (!activeBranchId) return;
+    if (filters.branchId !== activeBranchId) {
+      setFilters((prev) => ({ ...prev, branchId: activeBranchId }));
+    }
+
+    if (searchParams.get("branchId") !== activeBranchId) {
+      const next = new URLSearchParams(searchParams);
+      next.set("branchId", activeBranchId);
+      setSearchParams(next, { replace: true });
+    }
+  }, [activeBranchId, filters.branchId, searchParams, setSearchParams]);
 
   const selectedPatient = useMemo(
     () => patientQuery.data?.find((patient) => patient.id === confirmId) ?? null,
@@ -65,6 +214,8 @@ export function PatientsPage() {
     const next = new URLSearchParams(searchParams);
     if (filters.search.trim()) next.set("search", filters.search.trim());
     else next.delete("search");
+    if (selectedBranchId) next.set("branchId", selectedBranchId);
+    else next.delete("branchId");
     setSearchParams(next, { replace: true });
   };
 
@@ -79,7 +230,7 @@ export function PatientsPage() {
   if (patientQuery.isError) return <ErrorState message={patientQuery.error.message} />;
 
   return (
-    <DentalinkPanel>
+    <WarnerSuitePanel>
       <PatientsModuleTabs actions={actions} />
 
       <div className="p-3">
@@ -110,10 +261,18 @@ export function PatientsPage() {
             </select>
             <select
               className="h-10 rounded border border-slate-300 px-3 text-sm outline-none"
-              value={filters.branchId}
-              onChange={(event) => setFilters((prev) => ({ ...prev, branchId: event.target.value }))}
+              value={selectedBranchId}
+              onChange={(event) => {
+                const branchId = event.target.value;
+                const next = new URLSearchParams(searchParams);
+                if (branchId) next.set("branchId", branchId);
+                else next.delete("branchId");
+                setActiveBranchId(branchId);
+                setFilters((prev) => ({ ...prev, branchId }));
+                setSearchParams(next, { replace: true });
+              }}
             >
-              <option value="">Numero</option>
+              <option value="">Sucursal</option>
               {branchQuery.data?.map((branch) => (
                 <option key={branch.id} value={branch.id}>{branch.name}</option>
               ))}
@@ -151,30 +310,57 @@ export function PatientsPage() {
                 </tr>
               </thead>
               <tbody>
-                {(patientQuery.data ?? []).map((patient, index) => (
-                  <tr key={patient.id} className="border-b border-slate-200 hover:bg-slate-50">
-                    <td className="px-3 py-4 text-slate-700">{patientNumber(patient, index)}</td>
-                    <td className="px-3 py-4">
-                      <Link to={`/patients/${patient.id}/profile`} className="font-medium uppercase text-[#0784d8] hover:underline">
-                        {patient.firstName || "-"}
-                      </Link>
-                      <div className="text-xs text-slate-500">{patient.phone || patient.email || ""}</div>
-                    </td>
-                    <td className="px-3 py-4 uppercase text-slate-700">{patient.lastName || "-"}</td>
-                    <td className="px-3 py-4 text-center">{patient.status === "IN_TREATMENT" ? 3 : 1}</td>
-                    <td className="px-3 py-4">{patient.hasDebt ? "$ Pendiente" : "No tiene"}</td>
-                    <td className="px-3 py-4 text-center">
-                      <button
-                        className="text-xl font-bold text-slate-500"
-                        type="button"
-                        title="Desactivar"
-                        onClick={() => setConfirmId(patient.id)}
+                {(patientQuery.data ?? []).map((patient, index) => {
+                  const number = patientNumber(patient, index);
+                  const isExpanded = expandedPatientId === patient.id;
+
+                  return (
+                    <Fragment key={patient.id}>
+                      <tr
+                        className={`cursor-pointer border-b border-slate-200 transition ${isExpanded ? "bg-[#f7fcff] ring-1 ring-inset ring-[#0784d8]" : "hover:bg-slate-50"}`}
+                        role="button"
+                        tabIndex={0}
+                        aria-expanded={isExpanded}
+                        onClick={() => setExpandedPatientId((current) => (current === patient.id ? null : patient.id))}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setExpandedPatientId((current) => (current === patient.id ? null : patient.id));
+                          }
+                        }}
                       >
-                        ...
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        <td className="px-3 py-4 text-slate-700">{number}</td>
+                        <td className="px-3 py-4">
+                          <Link
+                            to={`/patients/${patient.id}/profile`}
+                            className="font-medium uppercase text-[#0784d8] hover:underline"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            {patient.firstName || "-"}
+                          </Link>
+                          <div className="text-xs text-slate-500">{patient.phone || patient.email || ""}</div>
+                        </td>
+                        <td className="px-3 py-4 uppercase text-slate-700">{patient.lastName || "-"}</td>
+                        <td className="px-3 py-4 text-center">{treatmentCount(patient)}</td>
+                        <td className="px-3 py-4">{patient.hasDebt ? "$ Pendiente" : "No tiene"}</td>
+                        <td className="px-3 py-4 text-center">
+                          <button
+                            className="text-xl font-bold text-slate-500"
+                            type="button"
+                            title="Desactivar"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setConfirmId(patient.id);
+                            }}
+                          >
+                            ...
+                          </button>
+                        </td>
+                      </tr>
+                      {isExpanded ? <PatientPreview patient={patient} number={number} /> : null}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -193,6 +379,6 @@ export function PatientsPage() {
         onCancel={() => setConfirmId(null)}
         onConfirm={() => void onConfirmDeactivate()}
       />
-    </DentalinkPanel>
+    </WarnerSuitePanel>
   );
 }

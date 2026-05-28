@@ -1,6 +1,6 @@
 import { FormEvent, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
-import { DentalinkPanel } from "@/components/layout/module-tabs";
+import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -90,7 +90,7 @@ export function CashRegisterPage() {
   if (cashRegisters.isError) return <ErrorState message={cashRegisters.error.message} />;
 
   return (
-    <DentalinkPanel>
+    <WarnerSuitePanel>
       <div className="px-3 pt-3 text-right text-sm text-slate-500">
         Configurar medios de pago a considerar en reporteria de esta seccion
       </div>
@@ -181,7 +181,7 @@ export function CashRegisterPage() {
           </form>
         )}
       </div>
-    </DentalinkPanel>
+    </WarnerSuitePanel>
   );
 }
 

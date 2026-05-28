@@ -10,10 +10,10 @@ import {
   type UserListItem
 } from "../services/users.service";
 
-export function useUsersQuery(search?: string, status?: string) {
+export function useUsersQuery(search?: string, status?: string, branchId?: string) {
   return useQuery<UserListItem[], Error>({
-    queryKey: ["settings", "users", search, status],
-    queryFn: () => listUsers({ search, status })
+    queryKey: ["settings", "users", search, status, branchId],
+    queryFn: () => listUsers({ search, status, branchId })
   });
 }
 

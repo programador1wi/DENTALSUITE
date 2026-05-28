@@ -694,19 +694,25 @@ export class PaymentsService {
   async getPatientBalance(actor: AuthUser, patientId: string) {
     await this.ensurePatient(actor, patientId);
 
+    const billablePaymentStatus = { notIn: [PaymentStatus.REFUNDED, PaymentStatus.VOIDED] };
     const [plannedTotal, allocatedTotal, totalPayments, overdueInstallments] = await Promise.all([
       this.prisma.treatmentPlanItem.aggregate({
         _sum: { total: true },
         where: {
-          treatmentPlan: { organizationId: actor.organizationId, patientId, isAlternative: false },
+          treatmentPlan: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor), isAlternative: false },
           status: { not: TreatmentPlanItemStatus.CANCELLED }
         }
       }),
       this.prisma.paymentAllocation.aggregate({
         _sum: { amount: true },
         where: {
+          payment: {
+            organizationId: actor.organizationId,
+            patientId,
+            status: billablePaymentStatus
+          },
           treatmentPlanItem: {
-            treatmentPlan: { organizationId: actor.organizationId, patientId }
+            treatmentPlan: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor), isAlternative: false }
           }
         }
       }),
@@ -715,7 +721,7 @@ export class PaymentsService {
         where: {
           organizationId: actor.organizationId,
           patientId,
-          status: { not: PaymentStatus.REFUNDED }
+          status: billablePaymentStatus
         }
       }),
       this.prisma.installment.count({

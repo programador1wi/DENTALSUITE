@@ -5,9 +5,9 @@ import { usePermissions } from "@/hooks/use-permissions";
 const tabs = [
   { key: "profile", label: "Datos personales", permission: "patients.read" },
   { key: "clinical/history", label: "Ficha clinica", permission: "clinical.read" },
-  { key: "treatments", label: "Planes de tratamiento", permission: "patients.read" },
-  { key: "payments", label: "Facturacion y pagos", permission: "patients.read" },
-  { key: "appointments", label: "Citas", permission: "patients.read" },
+  { key: "treatments", label: "Planes de tratamiento", permission: "treatment_plans.read" },
+  { key: "payments", label: "Facturacion y pagos", permission: "payments.read" },
+  { key: "appointments", label: "Citas", permission: "appointments.read" },
   { key: "crm", label: "Gestion CRM", permission: "patients.read" },
   { key: "consents", label: "Consentimientos", permission: "consents.read" },
   { key: "files", label: "Archivos", permission: "files.read" }

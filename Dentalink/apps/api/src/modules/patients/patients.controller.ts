@@ -1,14 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Query,
-  UseGuards
-} from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
@@ -19,6 +9,7 @@ import { AddPatientAlertDto } from "./dto/add-patient-alert.dto";
 import { AddPatientNoteDto } from "./dto/add-patient-note.dto";
 import { CreatePatientDto } from "./dto/create-patient.dto";
 import { MergePatientsDto } from "./dto/merge-patients.dto";
+import { PatientAnalysisQueryDto } from "./dto/patient-analysis-query.dto";
 import { PatientQueryDto } from "./dto/patient-query.dto";
 import { UpdatePatientDto } from "./dto/update-patient.dto";
 import { PatientsService } from "./patients.service";
@@ -46,6 +37,12 @@ export class PatientsController {
     @Query("documentNumber") documentNumber?: string
   ) {
     return this.patientsService.search(user, q, phone, email, documentNumber);
+  }
+
+  @Get("analysis")
+  @RequirePermissions("patients.read")
+  analysis(@CurrentUser() user: AuthUser, @Query() query: PatientAnalysisQueryDto) {
+    return this.patientsService.analysis(user, query);
   }
 
   @Get(":id/timeline")

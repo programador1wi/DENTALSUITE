@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils/cn";
 import { ClinicalShell } from "../components/clinical-shell";
 import { useClinicalMutations, useClinicalSummary } from "../hooks/use-clinical";
 
-const NOTE_SCHEMA = "dentalink.medical-history.v1";
+const NOTE_SCHEMA = "warner-suite.medical-history.v1";
 
 type FieldState = {
   enabled: boolean;

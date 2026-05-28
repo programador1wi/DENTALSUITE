@@ -2,9 +2,9 @@ import type { PropsWithChildren } from "react";
 
 export function FormSection({ title, children }: PropsWithChildren<{ title: string }>) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h3 className="mb-4 text-base font-semibold text-slate-900">{title}</h3>
-      <div className="space-y-4">{children}</div>
+    <section className="rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-[var(--space-5)]">
+      <h3 className="mb-[var(--space-4)] text-[17px] font-semibold text-[var(--text-primary)]">{title}</h3>
+      <div className="space-y-[var(--space-4)]">{children}</div>
     </section>
   );
 }

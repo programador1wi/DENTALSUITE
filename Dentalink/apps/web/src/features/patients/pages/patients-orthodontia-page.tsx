@@ -1,4 +1,4 @@
-import { DentalinkPanel } from "@/components/layout/module-tabs";
+import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -12,7 +12,7 @@ export function PatientsOrthodontiaPage() {
   if (patients.isError) return <ErrorState message={patients.error.message} />;
 
   return (
-    <DentalinkPanel className="min-h-[720px]">
+    <WarnerSuitePanel className="min-h-[720px]">
       <PatientsModuleTabs />
       <div className="p-6">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
@@ -78,6 +78,6 @@ export function PatientsOrthodontiaPage() {
           </div>
         )}
       </div>
-    </DentalinkPanel>
+    </WarnerSuitePanel>
   );
 }

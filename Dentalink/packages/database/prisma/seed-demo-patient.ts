@@ -19,6 +19,7 @@ import {
   PaymentMethodType
 } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import bcrypt from "bcryptjs";
 import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
 import { Pool } from "pg";
@@ -41,6 +42,67 @@ function demoDateRange(hours: number, minutes: number, durationMinutes: number, 
   const startAt = demoDateAt(hours, minutes, dayOffset);
   const endAt = new Date(startAt.getTime() + durationMinutes * 60 * 1000);
   return { startAt, endAt, durationMinutes };
+}
+
+async function upsertSystemUser(input: {
+  organizationId: string;
+  branchId: string;
+  roleName: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  phone?: string;
+  passwordHash: string;
+}) {
+  const role = await prisma.role.findUniqueOrThrow({
+    where: {
+      organizationId_name: {
+        organizationId: input.organizationId,
+        name: input.roleName
+      }
+    }
+  });
+
+  const user = await prisma.user.upsert({
+    where: { email: input.email },
+    update: {
+      organizationId: input.organizationId,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      phone: input.phone,
+      passwordHash: input.passwordHash,
+      roleId: role.id,
+      permissionsOverride: false,
+      isActive: true,
+      status: "ACTIVE"
+    },
+    create: {
+      organizationId: input.organizationId,
+      firstName: input.firstName,
+      lastName: input.lastName,
+      email: input.email,
+      phone: input.phone,
+      passwordHash: input.passwordHash,
+      roleId: role.id,
+      permissionsOverride: false,
+      isActive: true,
+      status: "ACTIVE"
+    }
+  });
+
+  await prisma.userRole.deleteMany({ where: { userId: user.id } });
+  await prisma.userRole.create({ data: { userId: user.id, roleId: role.id } });
+  await prisma.userPermission.deleteMany({ where: { userId: user.id } });
+  await prisma.userBranch.deleteMany({ where: { userId: user.id } });
+  await prisma.userBranch.create({
+    data: {
+      userId: user.id,
+      branchId: input.branchId,
+      isPrimary: true
+    }
+  });
+
+  return user;
 }
 
 async function cleanOldDemoData() {
@@ -351,10 +413,7 @@ async function cleanOldDemoData() {
   await prisma.appointmentStatusHistory.deleteMany({
     where: {
       appointment: {
-        OR: [
-          { patient: { email: { endsWith: "@dentalwarner.local" } } },
-          { title: { startsWith: "[DEMO]" } }
-        ]
+        OR: [{ patient: { email: { endsWith: "@dentalwarner.local" } } }, { title: { startsWith: "[DEMO]" } }]
       }
     }
   });
@@ -363,10 +422,7 @@ async function cleanOldDemoData() {
   await prisma.appointmentNote.deleteMany({
     where: {
       appointment: {
-        OR: [
-          { patient: { email: { endsWith: "@dentalwarner.local" } } },
-          { title: { startsWith: "[DEMO]" } }
-        ]
+        OR: [{ patient: { email: { endsWith: "@dentalwarner.local" } } }, { title: { startsWith: "[DEMO]" } }]
       }
     }
   });
@@ -375,10 +431,7 @@ async function cleanOldDemoData() {
   await prisma.appointmentReminder.deleteMany({
     where: {
       appointment: {
-        OR: [
-          { patient: { email: { endsWith: "@dentalwarner.local" } } },
-          { title: { startsWith: "[DEMO]" } }
-        ]
+        OR: [{ patient: { email: { endsWith: "@dentalwarner.local" } } }, { title: { startsWith: "[DEMO]" } }]
       }
     }
   });
@@ -386,10 +439,7 @@ async function cleanOldDemoData() {
   // 34. Citas (Appointment)
   await prisma.appointment.deleteMany({
     where: {
-      OR: [
-        { patient: { email: { endsWith: "@dentalwarner.local" } } },
-        { title: { startsWith: "[DEMO]" } }
-      ]
+      OR: [{ patient: { email: { endsWith: "@dentalwarner.local" } } }, { title: { startsWith: "[DEMO]" } }]
     }
   });
 
@@ -504,7 +554,9 @@ async function main() {
     where: { organizationId: organization.id, code: defaultBranchCode }
   });
   if (!branch) {
-    throw new Error(`Sucursal no encontrada con código: ${defaultBranchCode}. Ejecuta primero el seed principal.`);
+    throw new Error(
+      `Sucursal no encontrada con código: ${defaultBranchCode}. Ejecuta primero el seed principal.`
+    );
   }
 
   // 3. Obtener el Usuario Administrador para auditorías y asignación
@@ -513,42 +565,153 @@ async function main() {
     where: { email: adminEmail }
   });
   if (!adminUser) {
-    throw new Error(`Usuario administrador no encontrado con email: ${adminEmail}. Ejecuta primero el seed principal.`);
+    throw new Error(
+      `Usuario administrador no encontrado con email: ${adminEmail}. Ejecuta primero el seed principal.`
+    );
   }
 
   // 4. Crear/Upsert Especialidades Clínicas
   console.log("Configurando especialidades de la clínica...");
+  const systemUserPassword = process.env.SEED_STAFF_PASSWORD ?? "Usuario123!";
+  const systemUserPasswordHash = await bcrypt.hash(systemUserPassword, 12);
+
+  const internalUsers = [
+    {
+      email: "recepcion.matriz@dentalwarner.local",
+      firstName: "Recepcion",
+      lastName: "Matriz",
+      phone: "+520000000101",
+      roleName: "RECEPTIONIST"
+    },
+    {
+      email: "caja.matriz@dentalwarner.local",
+      firstName: "Caja",
+      lastName: "Matriz",
+      phone: "+520000000102",
+      roleName: "CASHIER"
+    },
+    {
+      email: "ceye.matriz@dentalwarner.local",
+      firstName: "CEYE",
+      lastName: "Matriz",
+      phone: "+520000000103",
+      roleName: "CEYE"
+    }
+  ] as const;
+
+  for (const userSeed of internalUsers) {
+    await upsertSystemUser({
+      organizationId: organization.id,
+      branchId: branch.id,
+      roleName: userSeed.roleName,
+      email: userSeed.email,
+      firstName: userSeed.firstName,
+      lastName: userSeed.lastName,
+      phone: userSeed.phone,
+      passwordHash: systemUserPasswordHash
+    });
+  }
+
   const specGeneral = await prisma.specialty.upsert({
-    where: { organizationId_name: { organizationId: organization.id, name: "Odontología General y Estética" } },
+    where: {
+      organizationId_name: { organizationId: organization.id, name: "Odontología General y Estética" }
+    },
     update: {},
-    create: { organizationId: organization.id, name: "Odontología General y Estética", description: "Cuidado general y estética dental elemental" }
+    create: {
+      organizationId: organization.id,
+      name: "Odontología General y Estética",
+      description: "Cuidado general y estética dental elemental"
+    }
   });
   const specOrtodoncia = await prisma.specialty.upsert({
-    where: { organizationId_name: { organizationId: organization.id, name: "Ortodoncia y Ortopedia Maxilofacial" } },
+    where: {
+      organizationId_name: { organizationId: organization.id, name: "Ortodoncia y Ortopedia Maxilofacial" }
+    },
     update: {},
-    create: { organizationId: organization.id, name: "Ortodoncia y Ortopedia Maxilofacial", description: "Corrección de anomalías dento-faciales y brackets" }
+    create: {
+      organizationId: organization.id,
+      name: "Ortodoncia y Ortopedia Maxilofacial",
+      description: "Corrección de anomalías dento-faciales y brackets"
+    }
   });
   const specEndodoncia = await prisma.specialty.upsert({
     where: { organizationId_name: { organizationId: organization.id, name: "Endodoncia Avanzada" } },
     update: {},
-    create: { organizationId: organization.id, name: "Endodoncia Avanzada", description: "Tratamiento de conductos radiculares y conservación dental" }
+    create: {
+      organizationId: organization.id,
+      name: "Endodoncia Avanzada",
+      description: "Tratamiento de conductos radiculares y conservación dental"
+    }
   });
   const specPediatria = await prisma.specialty.upsert({
     where: { organizationId_name: { organizationId: organization.id, name: "Odontopediatría" } },
     update: {},
-    create: { organizationId: organization.id, name: "Odontopediatría", description: "Cuidado dental integral infantil y preventivo" }
+    create: {
+      organizationId: organization.id,
+      name: "Odontopediatría",
+      description: "Cuidado dental integral infantil y preventivo"
+    }
   });
   const specImplantologia = await prisma.specialty.upsert({
-    where: { organizationId_name: { organizationId: organization.id, name: "Implantología y Prótesis Oral" } },
+    where: {
+      organizationId_name: { organizationId: organization.id, name: "Implantología y Prótesis Oral" }
+    },
     update: {},
-    create: { organizationId: organization.id, name: "Implantología y Prótesis Oral", description: "Rehabilitación bucal con implantes y coronas estéticas" }
+    create: {
+      organizationId: organization.id,
+      name: "Implantología y Prótesis Oral",
+      description: "Rehabilitación bucal con implantes y coronas estéticas"
+    }
   });
 
   // 5. Configurar/Upsert Profesionales Clínicos
   console.log("Configurando profesionales de la salud...");
+  const userMendoza = await upsertSystemUser({
+    organizationId: organization.id,
+    branchId: branch.id,
+    roleName: "DENTIST",
+    email: "alejandro.mendoza@dentalwarner.local",
+    firstName: "Alejandro",
+    lastName: "Mendoza",
+    phone: "+525599887766",
+    passwordHash: systemUserPasswordHash
+  });
+  const userVega = await upsertSystemUser({
+    organizationId: organization.id,
+    branchId: branch.id,
+    roleName: "DENTIST",
+    email: "sofia.vega@dentalwarner.local",
+    firstName: "Sofia",
+    lastName: "Vega",
+    phone: "+525544332211",
+    passwordHash: systemUserPasswordHash
+  });
+  const userRuiz = await upsertSystemUser({
+    organizationId: organization.id,
+    branchId: branch.id,
+    roleName: "DENTIST",
+    email: "carlos.ruiz@dentalwarner.local",
+    firstName: "Carlos",
+    lastName: "Ruiz",
+    phone: "+525566778899",
+    passwordHash: systemUserPasswordHash
+  });
+  const userGomez = await upsertSystemUser({
+    organizationId: organization.id,
+    branchId: branch.id,
+    roleName: "DENTIST",
+    email: "laura.gomez@dentalwarner.local",
+    firstName: "Laura",
+    lastName: "Gomez",
+    phone: "+525522446688",
+    passwordHash: systemUserPasswordHash
+  });
+
   const profMendoza = await prisma.professional.upsert({
-    where: { organizationId_email: { organizationId: organization.id, email: "alejandro.mendoza@dentalwarner.local" } },
-    update: { isActive: true },
+    where: {
+      organizationId_email: { organizationId: organization.id, email: "alejandro.mendoza@dentalwarner.local" }
+    },
+    update: { isActive: true, userId: userMendoza.id },
     create: {
       organizationId: organization.id,
       firstName: "Alejandro",
@@ -558,13 +721,15 @@ async function main() {
       phone: "+525599887766",
       color: "#0284c7",
       isActive: true,
-      userId: adminUser.id
+      userId: userMendoza.id
     }
   });
 
   const profVega = await prisma.professional.upsert({
-    where: { organizationId_email: { organizationId: organization.id, email: "sofia.vega@dentalwarner.local" } },
-    update: { isActive: true },
+    where: {
+      organizationId_email: { organizationId: organization.id, email: "sofia.vega@dentalwarner.local" }
+    },
+    update: { isActive: true, userId: userVega.id },
     create: {
       organizationId: organization.id,
       firstName: "Sofía",
@@ -573,13 +738,16 @@ async function main() {
       licenseNumber: "DF-45321-O",
       phone: "+525544332211",
       color: "#ec4899", // Rosa premium
-      isActive: true
+      isActive: true,
+      userId: userVega.id
     }
   });
 
   const profRuiz = await prisma.professional.upsert({
-    where: { organizationId_email: { organizationId: organization.id, email: "carlos.ruiz@dentalwarner.local" } },
-    update: { isActive: true },
+    where: {
+      organizationId_email: { organizationId: organization.id, email: "carlos.ruiz@dentalwarner.local" }
+    },
+    update: { isActive: true, userId: userRuiz.id },
     create: {
       organizationId: organization.id,
       firstName: "Carlos",
@@ -588,13 +756,16 @@ async function main() {
       licenseNumber: "DF-88123-E",
       phone: "+525566778899",
       color: "#8b5cf6", // Violeta
-      isActive: true
+      isActive: true,
+      userId: userRuiz.id
     }
   });
 
   const profGomez = await prisma.professional.upsert({
-    where: { organizationId_email: { organizationId: organization.id, email: "laura.gomez@dentalwarner.local" } },
-    update: { isActive: true },
+    where: {
+      organizationId_email: { organizationId: organization.id, email: "laura.gomez@dentalwarner.local" }
+    },
+    update: { isActive: true, userId: userGomez.id },
     create: {
       organizationId: organization.id,
       firstName: "Laura",
@@ -603,7 +774,8 @@ async function main() {
       licenseNumber: "DF-11223-P",
       phone: "+525522446688",
       color: "#10b981", // Esmeralda
-      isActive: true
+      isActive: true,
+      userId: userGomez.id
     }
   });
 
@@ -648,29 +820,49 @@ async function main() {
   const chairAzul = await prisma.chair.upsert({
     where: { branchId_name: { branchId: branch.id, name: "Sillón Azul - Operatoria" } },
     update: { isActive: true },
-    create: { organizationId: organization.id, branchId: branch.id, name: "Sillón Azul - Operatoria", description: "Uso general de limpiezas y resinas", isActive: true }
+    create: {
+      organizationId: organization.id,
+      branchId: branch.id,
+      name: "Sillón Azul - Operatoria",
+      description: "Uso general de limpiezas y resinas",
+      isActive: true
+    }
   });
   const chairVerde = await prisma.chair.upsert({
     where: { branchId_name: { branchId: branch.id, name: "Sillón Verde - Ortodoncia" } },
     update: { isActive: true },
-    create: { organizationId: organization.id, branchId: branch.id, name: "Sillón Verde - Ortodoncia", description: "Ortodoncia activa y preventiva", isActive: true }
+    create: {
+      organizationId: organization.id,
+      branchId: branch.id,
+      name: "Sillón Verde - Ortodoncia",
+      description: "Ortodoncia activa y preventiva",
+      isActive: true
+    }
   });
   const chairNaranja = await prisma.chair.upsert({
     where: { branchId_name: { branchId: branch.id, name: "Sillón Naranja - Quirúrgico" } },
     update: { isActive: true },
-    create: { organizationId: organization.id, branchId: branch.id, name: "Sillón Naranja - Quirúrgico", description: "Endodoncia, Implantes y Cirugía menor", isActive: true }
+    create: {
+      organizationId: organization.id,
+      branchId: branch.id,
+      name: "Sillón Naranja - Quirúrgico",
+      description: "Endodoncia, Implantes y Cirugía menor",
+      isActive: true
+    }
   });
 
   // 7. Configurar Convenios (Agreements)
   console.log("Configurando convenios comerciales...");
   const agreeTepeyac = await prisma.agreement.upsert({
-    where: { organizationId_name: { organizationId: organization.id, name: "Convenio Escolar Colegio Tepeyac" } },
+    where: {
+      organizationId_name: { organizationId: organization.id, name: "Convenio Escolar Colegio Tepeyac" }
+    },
     update: { isActive: true },
     create: {
       organizationId: organization.id,
       name: "Convenio Escolar Colegio Tepeyac",
       description: "15% de descuento directo en tratamientos preventivos de pediatría",
-      discountPercent: 15.00,
+      discountPercent: 15.0,
       isActive: true
     }
   });
@@ -682,7 +874,7 @@ async function main() {
       organizationId: organization.id,
       name: "Seguro Dental MetLife",
       description: "Convenio con aseguradora MetLife - 10% de copago clínico general",
-      discountPercent: 10.00,
+      discountPercent: 10.0,
       isActive: true
     }
   });
@@ -724,52 +916,120 @@ async function main() {
   const procProfilaxis = await prisma.procedure.upsert({
     where: { organizationId_code: { organizationId: organization.id, code: "DIAG-01" } },
     update: {},
-    create: { organizationId: organization.id, categoryId: catDiag.id, code: "DIAG-01", name: "Profilaxis Dental y Limpieza Ultrasónica", defaultDuration: 30 }
+    create: {
+      organizationId: organization.id,
+      categoryId: catDiag.id,
+      code: "DIAG-01",
+      name: "Profilaxis Dental y Limpieza Ultrasónica",
+      defaultDuration: 30
+    }
   });
   const procResina = await prisma.procedure.upsert({
     where: { organizationId_code: { organizationId: organization.id, code: "REST-01" } },
     update: {},
-    create: { organizationId: organization.id, categoryId: catRestauradora.id, code: "REST-01", name: "Resina Compuesta de Fotocurado", defaultDuration: 45, requiresTooth: true, requiresSurface: true }
+    create: {
+      organizationId: organization.id,
+      categoryId: catRestauradora.id,
+      code: "REST-01",
+      name: "Resina Compuesta de Fotocurado",
+      defaultDuration: 45,
+      requiresTooth: true,
+      requiresSurface: true
+    }
   });
   const procBracketAutoligado = await prisma.procedure.upsert({
     where: { organizationId_code: { organizationId: organization.id, code: "ORT-01" } },
     update: {},
-    create: { organizationId: organization.id, categoryId: catOrto.id, code: "ORT-01", name: "Brackets Autoligados Estéticos Damon", defaultDuration: 90 }
+    create: {
+      organizationId: organization.id,
+      categoryId: catOrto.id,
+      code: "ORT-01",
+      name: "Brackets Autoligados Estéticos Damon",
+      defaultDuration: 90
+    }
   });
   const procControlOrto = await prisma.procedure.upsert({
     where: { organizationId_code: { organizationId: organization.id, code: "ORT-02" } },
     update: {},
-    create: { organizationId: organization.id, categoryId: catOrto.id, code: "ORT-02", name: "Ajuste y Control Mensual de Ortodoncia", defaultDuration: 30 }
+    create: {
+      organizationId: organization.id,
+      categoryId: catOrto.id,
+      code: "ORT-02",
+      name: "Ajuste y Control Mensual de Ortodoncia",
+      defaultDuration: 30
+    }
   });
   const procEndodonciaMolar = await prisma.procedure.upsert({
     where: { organizationId_code: { organizationId: organization.id, code: "ENDO-01" } },
     update: {},
-    create: { organizationId: organization.id, categoryId: catEndo.id, code: "ENDO-01", name: "Tratamiento de Conductos Molar (Endodoncia)", defaultDuration: 60, requiresTooth: true }
+    create: {
+      organizationId: organization.id,
+      categoryId: catEndo.id,
+      code: "ENDO-01",
+      name: "Tratamiento de Conductos Molar (Endodoncia)",
+      defaultDuration: 60,
+      requiresTooth: true
+    }
   });
   const procReconstruccionPostEndo = await prisma.procedure.upsert({
     where: { organizationId_code: { organizationId: organization.id, code: "ENDO-02" } },
     update: {},
-    create: { organizationId: organization.id, categoryId: catEndo.id, code: "ENDO-02", name: "Reconstrucción Dentaria Post-Endodontica con Poste de Fibra", defaultDuration: 45, requiresTooth: true }
+    create: {
+      organizationId: organization.id,
+      categoryId: catEndo.id,
+      code: "ENDO-02",
+      name: "Reconstrucción Dentaria Post-Endodontica con Poste de Fibra",
+      defaultDuration: 45,
+      requiresTooth: true
+    }
   });
   const procProfilaxisInfantil = await prisma.procedure.upsert({
     where: { organizationId_code: { organizationId: organization.id, code: "PED-01" } },
     update: {},
-    create: { organizationId: organization.id, categoryId: catPed.id, code: "PED-01", name: "Profilaxis Infantil y Fluoración con Barniz", defaultDuration: 30 }
+    create: {
+      organizationId: organization.id,
+      categoryId: catPed.id,
+      code: "PED-01",
+      name: "Profilaxis Infantil y Fluoración con Barniz",
+      defaultDuration: 30
+    }
   });
   const procSelladores = await prisma.procedure.upsert({
     where: { organizationId_code: { organizationId: organization.id, code: "PED-02" } },
     update: {},
-    create: { organizationId: organization.id, categoryId: catPed.id, code: "PED-02", name: "Sellador de Fosetas y Fisuras (Por Pieza)", defaultDuration: 20, requiresTooth: true }
+    create: {
+      organizationId: organization.id,
+      categoryId: catPed.id,
+      code: "PED-02",
+      name: "Sellador de Fosetas y Fisuras (Por Pieza)",
+      defaultDuration: 20,
+      requiresTooth: true
+    }
   });
   const procImplanteTitanio = await prisma.procedure.upsert({
     where: { organizationId_code: { organizationId: organization.id, code: "IMP-01" } },
     update: {},
-    create: { organizationId: organization.id, categoryId: catImpl.id, code: "IMP-01", name: "Implante Dental Biocompatible de Titanio Straumann", defaultDuration: 60, requiresTooth: true }
+    create: {
+      organizationId: organization.id,
+      categoryId: catImpl.id,
+      code: "IMP-01",
+      name: "Implante Dental Biocompatible de Titanio Straumann",
+      defaultDuration: 60,
+      requiresTooth: true
+    }
   });
   const procCoronaZirconio = await prisma.procedure.upsert({
     where: { organizationId_code: { organizationId: organization.id, code: "REHAB-02" } },
     update: {},
-    create: { organizationId: organization.id, categoryId: catImpl.id, code: "REHAB-02", name: "Corona de Zirconio Monolítico Premium (Sobre Implante)", defaultDuration: 60, requiresTooth: true, requiresLab: true }
+    create: {
+      organizationId: organization.id,
+      categoryId: catImpl.id,
+      code: "REHAB-02",
+      name: "Corona de Zirconio Monolítico Premium (Sobre Implante)",
+      defaultDuration: 60,
+      requiresTooth: true,
+      requiresLab: true
+    }
   });
 
   // 9. Configurar Lista de Precios General
@@ -777,7 +1037,12 @@ async function main() {
   const generalPriceList = await prisma.priceList.upsert({
     where: { organizationId_name: { organizationId: organization.id, name: "Lista de Precios General" } },
     update: {},
-    create: { organizationId: organization.id, name: "Lista de Precios General", description: "Tarifario estándar de la clínica", isDefault: true }
+    create: {
+      organizationId: organization.id,
+      name: "Lista de Precios General",
+      description: "Tarifario estándar de la clínica",
+      isDefault: true
+    }
   });
 
   // Limpiar precios anteriores para evitar duplicados
@@ -786,16 +1051,16 @@ async function main() {
   });
 
   const standardPrices = [
-    { procId: procProfilaxis.id, price: 500.00 },
-    { procId: procResina.id, price: 1200.00 },
-    { procId: procBracketAutoligado.id, price: 25000.00 },
-    { procId: procControlOrto.id, price: 1200.00 },
-    { procId: procEndodonciaMolar.id, price: 4500.00 },
-    { procId: procReconstruccionPostEndo.id, price: 1800.00 },
-    { procId: procProfilaxisInfantil.id, price: 600.00 },
-    { procId: procSelladores.id, price: 450.00 },
-    { procId: procImplanteTitanio.id, price: 18000.00 },
-    { procId: procCoronaZirconio.id, price: 6500.00 }
+    { procId: procProfilaxis.id, price: 500.0 },
+    { procId: procResina.id, price: 1200.0 },
+    { procId: procBracketAutoligado.id, price: 25000.0 },
+    { procId: procControlOrto.id, price: 1200.0 },
+    { procId: procEndodonciaMolar.id, price: 4500.0 },
+    { procId: procReconstruccionPostEndo.id, price: 1800.0 },
+    { procId: procProfilaxisInfantil.id, price: 600.0 },
+    { procId: procSelladores.id, price: 450.0 },
+    { procId: procImplanteTitanio.id, price: 18000.0 },
+    { procId: procCoronaZirconio.id, price: 6500.0 }
   ];
 
   await prisma.priceListItem.createMany({
@@ -816,12 +1081,22 @@ async function main() {
   const methodTarjeta = await prisma.paymentMethod.upsert({
     where: { organizationId_name: { organizationId: organization.id, name: "Tarjeta de Crédito/Débito" } },
     update: { isActive: true },
-    create: { organizationId: organization.id, name: "Tarjeta de Crédito/Débito", type: "CARD", isActive: true }
+    create: {
+      organizationId: organization.id,
+      name: "Tarjeta de Crédito/Débito",
+      type: "CARD",
+      isActive: true
+    }
   });
   const methodTransfer = await prisma.paymentMethod.upsert({
     where: { organizationId_name: { organizationId: organization.id, name: "Transferencia Interbancaria" } },
     update: { isActive: true },
-    create: { organizationId: organization.id, name: "Transferencia Interbancaria", type: "TRANSFER", isActive: true }
+    create: {
+      organizationId: organization.id,
+      name: "Transferencia Interbancaria",
+      type: "TRANSFER",
+      isActive: true
+    }
   });
 
   // ==========================================
@@ -854,10 +1129,22 @@ async function main() {
 
   // Diagnóstico Médico Juan
   await prisma.medicalHistory.create({
-    data: { patientId: patientJuan.id, bloodType: "O+", hasDiabetes: false, hasHypertension: true, notes: "Hipertensión controlada con Enalapril." }
+    data: {
+      patientId: patientJuan.id,
+      bloodType: "O+",
+      hasDiabetes: false,
+      hasHypertension: true,
+      notes: "Hipertensión controlada con Enalapril."
+    }
   });
   await prisma.patientMedicalAlert.create({
-    data: { patientId: patientJuan.id, type: "ALERGIA", description: "Alergia severa a la Penicilina", severity: "HIGH", isActive: true }
+    data: {
+      patientId: patientJuan.id,
+      type: "ALERGIA",
+      description: "Alergia severa a la Penicilina",
+      severity: "HIGH",
+      isActive: true
+    }
   });
   await prisma.allergy.create({
     data: { patientId: patientJuan.id, name: "Penicilina", reaction: "Choque anafiláctico", severity: "HIGH" }
@@ -865,24 +1152,69 @@ async function main() {
 
   // Odontograma Clínico Juan
   const record11O = await prisma.odontogramRecord.create({
-    data: { patientId: patientJuan.id, professionalId: profMendoza.id, toothNumber: "11", surface: "O", condition: "Caries", diagnosis: "Caries esmalte/dentina oclusal", status: ToothProcedureStatus.CANCELLED }
+    data: {
+      patientId: patientJuan.id,
+      professionalId: profMendoza.id,
+      toothNumber: "11",
+      surface: "O",
+      condition: "Caries",
+      diagnosis: "Caries esmalte/dentina oclusal",
+      status: ToothProcedureStatus.CANCELLED
+    }
   });
   await prisma.toothCondition.create({
-    data: { patientId: patientJuan.id, odontogramRecordId: record11O.id, toothNumber: "11", surface: "O", condition: "Caries", diagnosis: "Caries de esmalte y dentina (Oclusal)" }
+    data: {
+      patientId: patientJuan.id,
+      odontogramRecordId: record11O.id,
+      toothNumber: "11",
+      surface: "O",
+      condition: "Caries",
+      diagnosis: "Caries de esmalte y dentina (Oclusal)"
+    }
   });
 
   const record12Ausente = await prisma.odontogramRecord.create({
-    data: { patientId: patientJuan.id, professionalId: profMendoza.id, toothNumber: "12", surface: "ALL", condition: "Pieza Ausente", status: ToothProcedureStatus.CANCELLED }
+    data: {
+      patientId: patientJuan.id,
+      professionalId: profMendoza.id,
+      toothNumber: "12",
+      surface: "ALL",
+      condition: "Pieza Ausente",
+      status: ToothProcedureStatus.CANCELLED
+    }
   });
   await prisma.toothCondition.create({
-    data: { patientId: patientJuan.id, odontogramRecordId: record12Ausente.id, toothNumber: "12", surface: "ALL", condition: "Ausente" }
+    data: {
+      patientId: patientJuan.id,
+      odontogramRecordId: record12Ausente.id,
+      toothNumber: "12",
+      surface: "ALL",
+      condition: "Ausente"
+    }
   });
 
   const record36O = await prisma.odontogramRecord.create({
-    data: { patientId: patientJuan.id, professionalId: profMendoza.id, toothNumber: "36", surface: "O", condition: "TOOTH_PROCEDURE", status: ToothProcedureStatus.COMPLETED }
+    data: {
+      patientId: patientJuan.id,
+      professionalId: profMendoza.id,
+      toothNumber: "36",
+      surface: "O",
+      condition: "TOOTH_PROCEDURE",
+      status: ToothProcedureStatus.COMPLETED
+    }
   });
   const proc36 = await prisma.toothProcedure.create({
-    data: { patientId: patientJuan.id, professionalId: profMendoza.id, procedureId: procResina.id, odontogramRecordId: record36O.id, toothNumber: "36", surface: "O", diagnosis: "Caries oclusal profunda", status: ToothProcedureStatus.COMPLETED, completedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+    data: {
+      patientId: patientJuan.id,
+      professionalId: profMendoza.id,
+      procedureId: procResina.id,
+      odontogramRecordId: record36O.id,
+      toothNumber: "36",
+      surface: "O",
+      diagnosis: "Caries oclusal profunda",
+      status: ToothProcedureStatus.COMPLETED,
+      completedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    }
   });
 
   // SOAP Evolución Juan
@@ -891,7 +1223,8 @@ async function main() {
       patientId: patientJuan.id,
       professionalId: profMendoza.id,
       subjective: "Asiste a su cita para fase operatoria activa en pieza 36.",
-      objective: "Anestesia local exitosa. Aislamiento absoluto con dique de goma en 36. Cavidad oclusal limpia.",
+      objective:
+        "Anestesia local exitosa. Aislamiento absoluto con dique de goma en 36. Cavidad oclusal limpia.",
       assessment: "Caries oclusal en pieza 36 resuelta satisfactoriamente.",
       plan: "Se realiza grabado ácido, adhesivo de 5ta generación y colocación de resina compuesta por capas en 36-O. Ajuste de oclusión y pulido.",
       signedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
@@ -899,7 +1232,10 @@ async function main() {
       createdAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
     }
   });
-  await prisma.toothProcedure.update({ where: { id: proc36.id }, data: { clinicalEvolutionId: evolutionJuan.id } });
+  await prisma.toothProcedure.update({
+    where: { id: proc36.id },
+    data: { clinicalEvolutionId: evolutionJuan.id }
+  });
 
   // Plan Financiero Juan
   const planJuan = await prisma.treatmentPlan.create({
@@ -920,13 +1256,43 @@ async function main() {
   });
 
   const tpProfilaxis = await prisma.treatmentPlanItem.create({
-    data: { treatmentPlanId: planJuan.id, sectionId: secJuan.id, procedureId: procProfilaxis.id, quantity: 1, unitPrice: 500, total: 500, status: "COMPLETED", completedAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) }
+    data: {
+      treatmentPlanId: planJuan.id,
+      sectionId: secJuan.id,
+      procedureId: procProfilaxis.id,
+      quantity: 1,
+      unitPrice: 500,
+      total: 500,
+      status: "COMPLETED",
+      completedAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
+    }
   });
   const tpResina36 = await prisma.treatmentPlanItem.create({
-    data: { treatmentPlanId: planJuan.id, sectionId: secJuan.id, procedureId: procResina.id, toothNumber: "36", surface: "O", quantity: 1, unitPrice: 1200, total: 1200, status: "COMPLETED", completedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+    data: {
+      treatmentPlanId: planJuan.id,
+      sectionId: secJuan.id,
+      procedureId: procResina.id,
+      toothNumber: "36",
+      surface: "O",
+      quantity: 1,
+      unitPrice: 1200,
+      total: 1200,
+      status: "COMPLETED",
+      completedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
+    }
   });
   const tpResina11 = await prisma.treatmentPlanItem.create({
-    data: { treatmentPlanId: planJuan.id, sectionId: secJuan.id, procedureId: procResina.id, toothNumber: "11", surface: "O", quantity: 1, unitPrice: 1200, total: 1200, status: "ACCEPTED" }
+    data: {
+      treatmentPlanId: planJuan.id,
+      sectionId: secJuan.id,
+      procedureId: procResina.id,
+      toothNumber: "11",
+      surface: "O",
+      quantity: 1,
+      unitPrice: 1200,
+      total: 1200,
+      status: "ACCEPTED"
+    }
   });
 
   // Presupuesto Juan
@@ -936,9 +1302,9 @@ async function main() {
       treatmentPlanId: planJuan.id,
       patientId: patientJuan.id,
       professionalId: profMendoza.id,
-      subtotal: 2900.00,
-      discountTotal: 0.00,
-      total: 2900.00,
+      subtotal: 2900.0,
+      discountTotal: 0.0,
+      total: 2900.0,
       status: "ACCEPTED",
       acceptedAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
     }
@@ -946,9 +1312,30 @@ async function main() {
 
   await prisma.budgetItem.createMany({
     data: [
-      { budgetId: budgetJuan.id, treatmentPlanItemId: tpProfilaxis.id, description: procProfilaxis.name, quantity: 1, unitPrice: 500, total: 500 },
-      { budgetId: budgetJuan.id, treatmentPlanItemId: tpResina36.id, description: "Resina compuesta pieza 36-O", quantity: 1, unitPrice: 1200, total: 1200 },
-      { budgetId: budgetJuan.id, treatmentPlanItemId: tpResina11.id, description: "Resina compuesta pieza 11-O", quantity: 1, unitPrice: 1200, total: 1200 }
+      {
+        budgetId: budgetJuan.id,
+        treatmentPlanItemId: tpProfilaxis.id,
+        description: procProfilaxis.name,
+        quantity: 1,
+        unitPrice: 500,
+        total: 500
+      },
+      {
+        budgetId: budgetJuan.id,
+        treatmentPlanItemId: tpResina36.id,
+        description: "Resina compuesta pieza 36-O",
+        quantity: 1,
+        unitPrice: 1200,
+        total: 1200
+      },
+      {
+        budgetId: budgetJuan.id,
+        treatmentPlanItemId: tpResina11.id,
+        description: "Resina compuesta pieza 11-O",
+        quantity: 1,
+        unitPrice: 1200,
+        total: 1200
+      }
     ]
   });
 
@@ -958,9 +1345,9 @@ async function main() {
       organizationId: organization.id,
       patientId: patientJuan.id,
       treatmentPlanId: planJuan.id,
-      totalAmount: 2900.00,
-      downPayment: 900.00,
-      financedAmount: 2000.00,
+      totalAmount: 2900.0,
+      downPayment: 900.0,
+      financedAmount: 2000.0,
       numberOfInstallments: 2,
       frequency: "MONTHLY",
       startDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
@@ -975,8 +1362,8 @@ async function main() {
       patientId: patientJuan.id,
       number: 1,
       dueDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
-      amount: 1000.00,
-      paidAmount: 0.00,
+      amount: 1000.0,
+      paidAmount: 0.0,
       status: InstallmentStatus.OVERDUE
     }
   });
@@ -988,8 +1375,8 @@ async function main() {
       patientId: patientJuan.id,
       number: 2,
       dueDate: new Date(),
-      amount: 1000.00,
-      paidAmount: 0.00,
+      amount: 1000.0,
+      paidAmount: 0.0,
       status: InstallmentStatus.OVERDUE
     }
   });
@@ -1000,7 +1387,7 @@ async function main() {
       patientId: patientJuan.id,
       installmentId: instJuan1.id,
       treatmentPlanId: planJuan.id,
-      amountDue: 2000.00,
+      amountDue: 2000.0,
       daysOverdue: 30,
       status: CollectionCaseStatus.PENDING,
       assignedToId: adminUser.id,
@@ -1016,7 +1403,8 @@ async function main() {
       userId: adminUser.id,
       channel: "LLAMADA",
       result: "COMPROMISO_DE_PAGO",
-      notes: "Se conversó con Don Juan. Indica que tuvo un retraso laboral pero se compromete a liquidar los $2,000 MXN vencidos el viernes."
+      notes:
+        "Se conversó con Don Juan. Indica que tuvo un retraso laboral pero se compromete a liquidar los $2,000 MXN vencidos el viernes."
     }
   });
 
@@ -1049,17 +1437,34 @@ async function main() {
 
   // Ficha médica
   await prisma.medicalHistory.create({
-    data: { patientId: patientSofia.id, bloodType: "A+", notes: "Sin enfermedades sistémicas. Buena salud general." }
+    data: {
+      patientId: patientSofia.id,
+      bloodType: "A+",
+      notes: "Sin enfermedades sistémicas. Buena salud general."
+    }
   });
 
   // Odontograma Ortodoncia
   const teethOrto = ["13", "14", "15", "23", "24", "25"];
   for (const tooth of teethOrto) {
     const recOrto = await prisma.odontogramRecord.create({
-      data: { patientId: patientSofia.id, professionalId: profVega.id, toothNumber: tooth, surface: "ALL", condition: "Aparato de Ortodoncia Fijo", status: ToothProcedureStatus.IN_PROGRESS }
+      data: {
+        patientId: patientSofia.id,
+        professionalId: profVega.id,
+        toothNumber: tooth,
+        surface: "ALL",
+        condition: "Aparato de Ortodoncia Fijo",
+        status: ToothProcedureStatus.IN_PROGRESS
+      }
     });
     await prisma.toothCondition.create({
-      data: { patientId: patientSofia.id, odontogramRecordId: recOrto.id, toothNumber: tooth, surface: "ALL", condition: "Ortodoncia" }
+      data: {
+        patientId: patientSofia.id,
+        odontogramRecordId: recOrto.id,
+        toothNumber: tooth,
+        surface: "ALL",
+        condition: "Ortodoncia"
+      }
     });
   }
 
@@ -1082,7 +1487,16 @@ async function main() {
   });
 
   const itemBrakets = await prisma.treatmentPlanItem.create({
-    data: { treatmentPlanId: planSofia.id, sectionId: secSofia.id, procedureId: procBracketAutoligado.id, quantity: 1, unitPrice: 25000.00, total: 25000.00, status: "COMPLETED", completedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) }
+    data: {
+      treatmentPlanId: planSofia.id,
+      sectionId: secSofia.id,
+      procedureId: procBracketAutoligado.id,
+      quantity: 1,
+      unitPrice: 25000.0,
+      total: 25000.0,
+      status: "COMPLETED",
+      completedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+    }
   });
 
   // Crear Presupuesto Ortodoncia
@@ -1092,9 +1506,9 @@ async function main() {
       treatmentPlanId: planSofia.id,
       patientId: patientSofia.id,
       professionalId: profVega.id,
-      subtotal: 25000.00,
-      discountTotal: 0.00,
-      total: 25000.00,
+      subtotal: 25000.0,
+      discountTotal: 0.0,
+      total: 25000.0,
       status: "ACCEPTED",
       acceptedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
     }
@@ -1106,8 +1520,8 @@ async function main() {
       treatmentPlanItemId: itemBrakets.id,
       description: "Tratamiento Completo de Brackets Estéticos Autoligados Damon (Incluye arcos iniciales)",
       quantity: 1,
-      unitPrice: 25000.00,
-      total: 25000.00
+      unitPrice: 25000.0,
+      total: 25000.0
     }
   });
 
@@ -1117,9 +1531,9 @@ async function main() {
       organizationId: organization.id,
       patientId: patientSofia.id,
       treatmentPlanId: planSofia.id,
-      totalAmount: 25000.00,
-      downPayment: 5000.00,
-      financedAmount: 20000.00,
+      totalAmount: 25000.0,
+      downPayment: 5000.0,
+      financedAmount: 20000.0,
       numberOfInstallments: 12,
       frequency: "MONTHLY",
       startDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000),
@@ -1135,7 +1549,7 @@ async function main() {
       branchId: branch.id,
       patientId: patientSofia.id,
       receivedById: adminUser.id,
-      amount: 5000.00,
+      amount: 5000.0,
       paymentMethodId: methodTarjeta.id,
       status: "ALLOCATED",
       reference: "TRANS-ENG-SOFIA",
@@ -1144,7 +1558,7 @@ async function main() {
     }
   });
   await prisma.paymentAllocation.create({
-    data: { paymentId: paymentSofiaDown.id, treatmentPlanItemId: itemBrakets.id, amount: 5000.00 }
+    data: { paymentId: paymentSofiaDown.id, treatmentPlanItemId: itemBrakets.id, amount: 5000.0 }
   });
 
   // 12 Cuotas Mensuales de $1,666.67
@@ -1217,7 +1631,7 @@ async function main() {
         number: i,
         dueDate: new Date(Date.now() + (i - 3) * 30 * 24 * 60 * 60 * 1000),
         amount: instAmount,
-        paidAmount: 0.00,
+        paidAmount: 0.0,
         status: InstallmentStatus.PENDING
       }
     });
@@ -1302,8 +1716,10 @@ async function main() {
     data: {
       patientId: patientSofia.id,
       professionalId: profVega.id,
-      subjective: "Paciente refiere molestias leves los primeros 3 días posteriores al cambio de arcos, actualmente asintomática.",
-      objective: "Brackets completos sin desprendimientos. Apiñamiento en arcada inferior disminuyendo satisfactoriamente.",
+      subjective:
+        "Paciente refiere molestias leves los primeros 3 días posteriores al cambio de arcos, actualmente asintomática.",
+      objective:
+        "Brackets completos sin desprendimientos. Apiñamiento en arcada inferior disminuyendo satisfactoriamente.",
       assessment: "Evolución favorable conforme al plan de alineación.",
       plan: "Retiro de arcos 0.014 NiTi e instalación de arco superior e inferior de acero 0.016. Colocación de cadena elastomérica de canino a canino inferior.",
       signedAt: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
@@ -1340,15 +1756,32 @@ async function main() {
   });
 
   await prisma.medicalHistory.create({
-    data: { patientId: patientCarlos.id, bloodType: "O-", notes: "Clínicamente sano. Reporta dolor insoportable espontáneo." }
+    data: {
+      patientId: patientCarlos.id,
+      bloodType: "O-",
+      notes: "Clínicamente sano. Reporta dolor insoportable espontáneo."
+    }
   });
 
   // Registro en Odontograma de Endodoncia en Pieza 46
   const recEndo = await prisma.odontogramRecord.create({
-    data: { patientId: patientCarlos.id, professionalId: profRuiz.id, toothNumber: "46", surface: "ALL", condition: "Tratamiento de Conducto Realizado", status: ToothProcedureStatus.COMPLETED }
+    data: {
+      patientId: patientCarlos.id,
+      professionalId: profRuiz.id,
+      toothNumber: "46",
+      surface: "ALL",
+      condition: "Tratamiento de Conducto Realizado",
+      status: ToothProcedureStatus.COMPLETED
+    }
   });
   await prisma.toothCondition.create({
-    data: { patientId: patientCarlos.id, odontogramRecordId: recEndo.id, toothNumber: "46", surface: "ALL", condition: "Tratado Endodónticamente" }
+    data: {
+      patientId: patientCarlos.id,
+      odontogramRecordId: recEndo.id,
+      toothNumber: "46",
+      surface: "ALL",
+      condition: "Tratado Endodónticamente"
+    }
   });
 
   // Plan e items Carlos
@@ -1371,11 +1804,31 @@ async function main() {
   });
 
   const itemEndo = await prisma.treatmentPlanItem.create({
-    data: { treatmentPlanId: planCarlos.id, sectionId: secCarlos.id, procedureId: procEndodonciaMolar.id, toothNumber: "46", quantity: 1, unitPrice: 4500.00, total: 4500.00, status: "COMPLETED", completedAt: new Date() }
+    data: {
+      treatmentPlanId: planCarlos.id,
+      sectionId: secCarlos.id,
+      procedureId: procEndodonciaMolar.id,
+      toothNumber: "46",
+      quantity: 1,
+      unitPrice: 4500.0,
+      total: 4500.0,
+      status: "COMPLETED",
+      completedAt: new Date()
+    }
   });
 
   const itemRecon = await prisma.treatmentPlanItem.create({
-    data: { treatmentPlanId: planCarlos.id, sectionId: secCarlos.id, procedureId: procReconstruccionPostEndo.id, toothNumber: "46", quantity: 1, unitPrice: 1800.00, total: 1800.00, status: "COMPLETED", completedAt: new Date() }
+    data: {
+      treatmentPlanId: planCarlos.id,
+      sectionId: secCarlos.id,
+      procedureId: procReconstruccionPostEndo.id,
+      toothNumber: "46",
+      quantity: 1,
+      unitPrice: 1800.0,
+      total: 1800.0,
+      status: "COMPLETED",
+      completedAt: new Date()
+    }
   });
 
   // Presupuesto Carlos
@@ -1385,9 +1838,9 @@ async function main() {
       treatmentPlanId: planCarlos.id,
       patientId: patientCarlos.id,
       professionalId: profRuiz.id,
-      subtotal: 6300.00,
-      discountTotal: 0.00,
-      total: 6300.00,
+      subtotal: 6300.0,
+      discountTotal: 0.0,
+      total: 6300.0,
       status: "ACCEPTED",
       acceptedAt: new Date()
     }
@@ -1395,8 +1848,22 @@ async function main() {
 
   await prisma.budgetItem.createMany({
     data: [
-      { budgetId: budgetCarlos.id, treatmentPlanItemId: itemEndo.id, description: "Tratamiento de Conductos Molar (Endodoncia) Pieza 46", quantity: 1, unitPrice: 4500, total: 4500 },
-      { budgetId: budgetCarlos.id, treatmentPlanItemId: itemRecon.id, description: "Reconstrucción con Poste de Fibra y Resina Pieza 46", quantity: 1, unitPrice: 1800, total: 1800 }
+      {
+        budgetId: budgetCarlos.id,
+        treatmentPlanItemId: itemEndo.id,
+        description: "Tratamiento de Conductos Molar (Endodoncia) Pieza 46",
+        quantity: 1,
+        unitPrice: 4500,
+        total: 4500
+      },
+      {
+        budgetId: budgetCarlos.id,
+        treatmentPlanItemId: itemRecon.id,
+        description: "Reconstrucción con Poste de Fibra y Resina Pieza 46",
+        quantity: 1,
+        unitPrice: 1800,
+        total: 1800
+      }
     ]
   });
 
@@ -1424,8 +1891,10 @@ async function main() {
     data: {
       patientId: patientCarlos.id,
       professionalId: profRuiz.id,
-      subjective: "Paciente refiere dolor severo en cuadrante inferior derecho, no cede con analgésicos convencionales, agrava con calor.",
-      objective: "Pieza 46 con cavidad cariosa profunda. Pruebas de percusión vertical positivas. Vitalidad al frío sumamente aumentada y retardada.",
+      subjective:
+        "Paciente refiere dolor severo en cuadrante inferior derecho, no cede con analgésicos convencionales, agrava con calor.",
+      objective:
+        "Pieza 46 con cavidad cariosa profunda. Pruebas de percusión vertical positivas. Vitalidad al frío sumamente aumentada y retardada.",
       assessment: "Pulpitis Irreversible Aguda en Pieza 46.",
       plan: "Se realiza extirpación de pulpa cameral y radicular de conductos mesiales y distal. Limpieza biomecánica con limas rotatorias de NiTi e irrigación profunda con Hipoclorito al 5.25%. Obturación hermética con gutapercha termoplástica y cemento Biocerámico. Reconstrucción con poste de fibra de vidrio y resina fotocurable.",
       signedAt: new Date(),
@@ -1443,8 +1912,20 @@ async function main() {
       notes: "En caso de inflamación o dolor que no ceda al medicamento, llamar a urgencias.",
       items: {
         create: [
-          { medication: "Ketorolaco Trometamina 10mg", dosage: "1 tableta", frequency: "Cada 8 horas", duration: "3 días", instructions: "Tomar vía sublingual en caso de presentar dolor severo." },
-          { medication: "Amoxicilina 500mg (Tabletas)", dosage: "1 tableta", frequency: "Cada 8 horas", duration: "7 días", instructions: "Tomar completo para control preventivo de infección." }
+          {
+            medication: "Ketorolaco Trometamina 10mg",
+            dosage: "1 tableta",
+            frequency: "Cada 8 horas",
+            duration: "3 días",
+            instructions: "Tomar vía sublingual en caso de presentar dolor severo."
+          },
+          {
+            medication: "Amoxicilina 500mg (Tabletas)",
+            dosage: "1 tableta",
+            frequency: "Cada 8 horas",
+            duration: "7 días",
+            instructions: "Tomar completo para control preventivo de infección."
+          }
         ]
       }
     }
@@ -1480,10 +1961,23 @@ async function main() {
   const pedTeeth = ["74", "75", "84", "85"];
   for (const tooth of pedTeeth) {
     const recPed = await prisma.odontogramRecord.create({
-      data: { patientId: patientMateo.id, professionalId: profGomez.id, toothNumber: tooth, surface: "O", condition: "Sellador Preventivo Aplicado", status: ToothProcedureStatus.COMPLETED }
+      data: {
+        patientId: patientMateo.id,
+        professionalId: profGomez.id,
+        toothNumber: tooth,
+        surface: "O",
+        condition: "Sellador Preventivo Aplicado",
+        status: ToothProcedureStatus.COMPLETED
+      }
     });
     await prisma.toothCondition.create({
-      data: { patientId: patientMateo.id, odontogramRecordId: recPed.id, toothNumber: tooth, surface: "O", condition: "Sellador" }
+      data: {
+        patientId: patientMateo.id,
+        odontogramRecordId: recPed.id,
+        toothNumber: tooth,
+        surface: "O",
+        condition: "Sellador"
+      }
     });
   }
 
@@ -1514,12 +2008,12 @@ async function main() {
       sectionId: secMateo.id,
       procedureId: procProfilaxisInfantil.id,
       quantity: 1,
-      unitPrice: 600.00,
-      discount: 90.00, // 15% de $600
-      total: 510.00,
+      unitPrice: 600.0,
+      discount: 90.0, // 15% de $600
+      total: 510.0,
       status: "COMPLETED",
       agreementId: agreeTepeyac.id,
-      agreementCoverage: 90.00,
+      agreementCoverage: 90.0,
       completedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
     }
   });
@@ -1533,12 +2027,12 @@ async function main() {
         procedureId: procSelladores.id,
         toothNumber: tooth,
         quantity: 1,
-        unitPrice: 450.00,
-        discount: 67.50, // 15% de $450
-        total: 382.50,
+        unitPrice: 450.0,
+        discount: 67.5, // 15% de $450
+        total: 382.5,
         status: "COMPLETED",
         agreementId: agreeTepeyac.id,
-        agreementCoverage: 67.50,
+        agreementCoverage: 67.5,
         completedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
       }
     });
@@ -1552,9 +2046,9 @@ async function main() {
       treatmentPlanId: planMateo.id,
       patientId: patientMateo.id,
       professionalId: profGomez.id,
-      subtotal: 2400.00,
-      discountTotal: 360.00,
-      total: 2040.00,
+      subtotal: 2400.0,
+      discountTotal: 360.0,
+      total: 2040.0,
       status: "ACCEPTED",
       acceptedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
     }
@@ -1566,9 +2060,9 @@ async function main() {
       treatmentPlanItemId: tpPedProf.id,
       description: "Profilaxis Infantil y Fluoración de Alta Densidad",
       quantity: 1,
-      unitPrice: 600.00,
-      discount: 90.00,
-      total: 510.00
+      unitPrice: 600.0,
+      discount: 90.0,
+      total: 510.0
     }
   });
 
@@ -1579,9 +2073,9 @@ async function main() {
         treatmentPlanItemId: tpSelladores[idx].id,
         description: `Sellador de fosetas y fisuras preventivo en pieza ${pedTeeth[idx]}`,
         quantity: 1,
-        unitPrice: 450.00,
-        discount: 67.50,
-        total: 382.50
+        unitPrice: 450.0,
+        discount: 67.5,
+        total: 382.5
       }
     });
   }
@@ -1610,8 +2104,10 @@ async function main() {
     data: {
       patientId: patientMateo.id,
       professionalId: profGomez.id,
-      subjective: "Madre del paciente refiere que Mateo asiste para revisión de rutina. Comenta que en la escuela hay campaña de prevención.",
-      objective: "Paciente cooperador. Dentición mixta temprana sana. Ausencia de caries clínicamente activa.",
+      subjective:
+        "Madre del paciente refiere que Mateo asiste para revisión de rutina. Comenta que en la escuela hay campaña de prevención.",
+      objective:
+        "Paciente cooperador. Dentición mixta temprana sana. Ausencia de caries clínicamente activa.",
       assessment: "Paciente infantil en óptimas condiciones de salud oclusal. Riesgo cariogénico bajo-medio.",
       plan: "Se realiza profilaxis dental ultrasónica con pasta abrasiva sabor cereza, seguida de aplicación de flúor en barniz al 5%. Posteriormente se realiza grabado ácido y colocación de selladores de fosetas y fisuras fotocurables en oclusal de molares temporales 74, 75, 84 y 85. Se instruye en técnica de cepillado.",
       signedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
@@ -1627,7 +2123,7 @@ async function main() {
       branchId: branch.id,
       patientId: patientMateo.id,
       receivedById: adminUser.id,
-      amount: 2040.00,
+      amount: 2040.0,
       paymentMethodId: methodTarjeta.id,
       status: "ALLOCATED",
       reference: "TRANS-PEDIATRIA-MATEO",
@@ -1637,11 +2133,11 @@ async function main() {
   });
 
   await prisma.paymentAllocation.create({
-    data: { paymentId: paymentMateo.id, treatmentPlanItemId: tpPedProf.id, amount: 510.00 }
+    data: { paymentId: paymentMateo.id, treatmentPlanItemId: tpPedProf.id, amount: 510.0 }
   });
   for (const itemS of tpSelladores) {
     await prisma.paymentAllocation.create({
-      data: { paymentId: paymentMateo.id, treatmentPlanItemId: itemS.id, amount: 382.50 }
+      data: { paymentId: paymentMateo.id, treatmentPlanItemId: itemS.id, amount: 382.5 }
     });
   }
 
@@ -1673,22 +2169,52 @@ async function main() {
   });
 
   await prisma.medicalHistory.create({
-    data: { patientId: patientLucia.id, bloodType: "O+", notes: "Osteoporosis leve en tratamiento médico con Calcio. Clínicamente apta para cirugía." }
+    data: {
+      patientId: patientLucia.id,
+      bloodType: "O+",
+      notes: "Osteoporosis leve en tratamiento médico con Calcio. Clínicamente apta para cirugía."
+    }
   });
 
   // Odontograma Clínico Lucía
   const recImp24 = await prisma.odontogramRecord.create({
-    data: { patientId: patientLucia.id, professionalId: profRuiz.id, toothNumber: "24", surface: "ALL", condition: "Implante de Titanio Oseo integrado", status: ToothProcedureStatus.COMPLETED }
+    data: {
+      patientId: patientLucia.id,
+      professionalId: profRuiz.id,
+      toothNumber: "24",
+      surface: "ALL",
+      condition: "Implante de Titanio Oseo integrado",
+      status: ToothProcedureStatus.COMPLETED
+    }
   });
   await prisma.toothCondition.create({
-    data: { patientId: patientLucia.id, odontogramRecordId: recImp24.id, toothNumber: "24", surface: "ALL", condition: "Implante" }
+    data: {
+      patientId: patientLucia.id,
+      odontogramRecordId: recImp24.id,
+      toothNumber: "24",
+      surface: "ALL",
+      condition: "Implante"
+    }
   });
 
   const recImp25 = await prisma.odontogramRecord.create({
-    data: { patientId: patientLucia.id, professionalId: profRuiz.id, toothNumber: "25", surface: "ALL", condition: "Implante de Titanio Oseo integrado", status: ToothProcedureStatus.COMPLETED }
+    data: {
+      patientId: patientLucia.id,
+      professionalId: profRuiz.id,
+      toothNumber: "25",
+      surface: "ALL",
+      condition: "Implante de Titanio Oseo integrado",
+      status: ToothProcedureStatus.COMPLETED
+    }
   });
   await prisma.toothCondition.create({
-    data: { patientId: patientLucia.id, odontogramRecordId: recImp25.id, toothNumber: "25", surface: "ALL", condition: "Implante" }
+    data: {
+      patientId: patientLucia.id,
+      odontogramRecordId: recImp25.id,
+      toothNumber: "25",
+      surface: "ALL",
+      condition: "Implante"
+    }
   });
 
   // Plan e items Lucía
@@ -1711,19 +2237,57 @@ async function main() {
   });
 
   const itemImp24 = await prisma.treatmentPlanItem.create({
-    data: { treatmentPlanId: planLucia.id, sectionId: secLucia.id, procedureId: procImplanteTitanio.id, toothNumber: "24", quantity: 1, unitPrice: 18000.00, total: 18000.00, status: "COMPLETED", completedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) }
+    data: {
+      treatmentPlanId: planLucia.id,
+      sectionId: secLucia.id,
+      procedureId: procImplanteTitanio.id,
+      toothNumber: "24",
+      quantity: 1,
+      unitPrice: 18000.0,
+      total: 18000.0,
+      status: "COMPLETED",
+      completedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+    }
   });
 
   const itemImp25 = await prisma.treatmentPlanItem.create({
-    data: { treatmentPlanId: planLucia.id, sectionId: secLucia.id, procedureId: procImplanteTitanio.id, toothNumber: "25", quantity: 1, unitPrice: 18000.00, total: 18000.00, status: "COMPLETED", completedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000) }
+    data: {
+      treatmentPlanId: planLucia.id,
+      sectionId: secLucia.id,
+      procedureId: procImplanteTitanio.id,
+      toothNumber: "25",
+      quantity: 1,
+      unitPrice: 18000.0,
+      total: 18000.0,
+      status: "COMPLETED",
+      completedAt: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
+    }
   });
 
   const itemCor24 = await prisma.treatmentPlanItem.create({
-    data: { treatmentPlanId: planLucia.id, sectionId: secLucia.id, procedureId: procCoronaZirconio.id, toothNumber: "24", quantity: 1, unitPrice: 6500.00, total: 6500.00, status: "ACCEPTED" }
+    data: {
+      treatmentPlanId: planLucia.id,
+      sectionId: secLucia.id,
+      procedureId: procCoronaZirconio.id,
+      toothNumber: "24",
+      quantity: 1,
+      unitPrice: 6500.0,
+      total: 6500.0,
+      status: "ACCEPTED"
+    }
   });
 
   const itemCor25 = await prisma.treatmentPlanItem.create({
-    data: { treatmentPlanId: planLucia.id, sectionId: secLucia.id, procedureId: procCoronaZirconio.id, toothNumber: "25", quantity: 1, unitPrice: 6500.00, total: 6500.00, status: "ACCEPTED" }
+    data: {
+      treatmentPlanId: planLucia.id,
+      sectionId: secLucia.id,
+      procedureId: procCoronaZirconio.id,
+      toothNumber: "25",
+      quantity: 1,
+      unitPrice: 6500.0,
+      total: 6500.0,
+      status: "ACCEPTED"
+    }
   });
 
   // Presupuesto Lucía
@@ -1733,9 +2297,9 @@ async function main() {
       treatmentPlanId: planLucia.id,
       patientId: patientLucia.id,
       professionalId: profRuiz.id,
-      subtotal: 49000.00,
-      discountTotal: 0.00,
-      total: 49000.00,
+      subtotal: 49000.0,
+      discountTotal: 0.0,
+      total: 49000.0,
       status: "ACCEPTED",
       acceptedAt: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000)
     }
@@ -1743,10 +2307,38 @@ async function main() {
 
   await prisma.budgetItem.createMany({
     data: [
-      { budgetId: budgetLucia.id, treatmentPlanItemId: itemImp24.id, description: "Implante dental Straumann pieza 24", quantity: 1, unitPrice: 18000, total: 18000 },
-      { budgetId: budgetLucia.id, treatmentPlanItemId: itemImp25.id, description: "Implante dental Straumann pieza 25", quantity: 1, unitPrice: 18000, total: 18000 },
-      { budgetId: budgetLucia.id, treatmentPlanItemId: itemCor24.id, description: "Corona Zirconio monolítico sobre implante pieza 24", quantity: 1, unitPrice: 6500, total: 6500 },
-      { budgetId: budgetLucia.id, treatmentPlanItemId: itemCor25.id, description: "Corona Zirconio monolítico sobre implante pieza 25", quantity: 1, unitPrice: 6500, total: 6500 }
+      {
+        budgetId: budgetLucia.id,
+        treatmentPlanItemId: itemImp24.id,
+        description: "Implante dental Straumann pieza 24",
+        quantity: 1,
+        unitPrice: 18000,
+        total: 18000
+      },
+      {
+        budgetId: budgetLucia.id,
+        treatmentPlanItemId: itemImp25.id,
+        description: "Implante dental Straumann pieza 25",
+        quantity: 1,
+        unitPrice: 18000,
+        total: 18000
+      },
+      {
+        budgetId: budgetLucia.id,
+        treatmentPlanItemId: itemCor24.id,
+        description: "Corona Zirconio monolítico sobre implante pieza 24",
+        quantity: 1,
+        unitPrice: 6500,
+        total: 6500
+      },
+      {
+        budgetId: budgetLucia.id,
+        treatmentPlanItemId: itemCor25.id,
+        description: "Corona Zirconio monolítico sobre implante pieza 25",
+        quantity: 1,
+        unitPrice: 6500,
+        total: 6500
+      }
     ]
   });
 
@@ -1757,7 +2349,7 @@ async function main() {
       branchId: branch.id,
       patientId: patientLucia.id,
       receivedById: adminUser.id,
-      amount: 36000.00,
+      amount: 36000.0,
       paymentMethodId: methodTransfer.id,
       status: "ALLOCATED",
       reference: "TRANS-QUIRURGICO-LUCIA",
@@ -1767,10 +2359,10 @@ async function main() {
   });
 
   await prisma.paymentAllocation.create({
-    data: { paymentId: paymentLucia.id, treatmentPlanItemId: itemImp24.id, amount: 18000.00 }
+    data: { paymentId: paymentLucia.id, treatmentPlanItemId: itemImp24.id, amount: 18000.0 }
   });
   await prisma.paymentAllocation.create({
-    data: { paymentId: paymentLucia.id, treatmentPlanItemId: itemImp25.id, amount: 18000.00 }
+    data: { paymentId: paymentLucia.id, treatmentPlanItemId: itemImp25.id, amount: 18000.0 }
   });
 
   // Citas de Cirugía
@@ -1816,7 +2408,8 @@ async function main() {
     data: {
       patientId: patientLucia.id,
       professionalId: profRuiz.id,
-      subjective: "Paciente asiste para fase quirúrgica activa. Refiere estar lista, habiendo tomado el antibiótico profiláctico.",
+      subjective:
+        "Paciente asiste para fase quirúrgica activa. Refiere estar lista, habiendo tomado el antibiótico profiláctico.",
       objective: "Brecha desdentada en 24 y 25. Hueso remanente de excelente densidad.",
       assessment: "Cirugía de implantes planificada.",
       plan: "Se realiza colgajo de espesor total, fresado secuencial y colocación exitosa de 2 implantes Straumann de 4.1 x 10mm en piezas 24 y 25. Torques de inserción primaria superiores a 35 Ncm. Sutura con hilo seda 4-0.",
@@ -1853,15 +2446,27 @@ async function main() {
       sentAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
       expectedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
       receivedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-      cost: 4400.00,
+      cost: 4400.0,
       notes: "El zirconio requiere un acabado glaseado de alta translucidez A2"
     }
   });
 
   await prisma.labOrderItem.createMany({
     data: [
-      { labOrderId: labOrder.id, description: "Corona de Zirconio Monolítico sobre implante", quantity: 1, unitCost: 2200, toothNumber: "24" },
-      { labOrderId: labOrder.id, description: "Corona de Zirconio Monolítico sobre implante", quantity: 1, unitCost: 2200, toothNumber: "25" }
+      {
+        labOrderId: labOrder.id,
+        description: "Corona de Zirconio Monolítico sobre implante",
+        quantity: 1,
+        unitCost: 2200,
+        toothNumber: "24"
+      },
+      {
+        labOrderId: labOrder.id,
+        description: "Corona de Zirconio Monolítico sobre implante",
+        quantity: 1,
+        unitCost: 2200,
+        toothNumber: "25"
+      }
     ]
   });
 
@@ -1872,13 +2477,25 @@ async function main() {
   const suppDepot = await prisma.supplier.upsert({
     where: { organizationId_name: { organizationId: organization.id, name: "Dental Depot de México" } },
     update: { isActive: true },
-    create: { organizationId: organization.id, name: "Dental Depot de México", phone: "+525544992211", email: "ventas@dentaldepot.local", isActive: true }
+    create: {
+      organizationId: organization.id,
+      name: "Dental Depot de México",
+      phone: "+525544992211",
+      email: "ventas@dentaldepot.local",
+      isActive: true
+    }
   });
 
   const suppOrto = await prisma.supplier.upsert({
     where: { organizationId_name: { organizationId: organization.id, name: "Orthodontic Supply Co." } },
     update: { isActive: true },
-    create: { organizationId: organization.id, name: "Orthodontic Supply Co.", phone: "+525599008811", email: "pedidos@orthosupply.local", isActive: true }
+    create: {
+      organizationId: organization.id,
+      name: "Orthodontic Supply Co.",
+      phone: "+525599008811",
+      email: "pedidos@orthosupply.local",
+      isActive: true
+    }
   });
 
   // Artículos de Inventario en Sucursal Matriz
@@ -1889,8 +2506,8 @@ async function main() {
       sku: "INV-RES-3M",
       category: "Materiales Dentales",
       unit: "Jeringa",
-      stock: 15.00,
-      minStock: 5.00,
+      stock: 15.0,
+      minStock: 5.0,
       branchId: branch.id,
       supplierId: suppDepot.id,
       isActive: true
@@ -1904,8 +2521,8 @@ async function main() {
       sku: "INV-BRACK-AL",
       category: "Ortodoncia",
       unit: "Kit",
-      stock: 3.00, // Stock bajo, activará alerta de inventario en dashboard
-      minStock: 5.00,
+      stock: 3.0, // Stock bajo, activará alerta de inventario en dashboard
+      minStock: 5.0,
       branchId: branch.id,
       supplierId: suppOrto.id,
       isActive: true
@@ -1919,8 +2536,8 @@ async function main() {
       sku: "INV-ANES-MEP",
       category: "Farmacia y Anestésicos",
       unit: "Caja",
-      stock: 45.00,
-      minStock: 10.00,
+      stock: 45.0,
+      minStock: 10.0,
       branchId: branch.id,
       supplierId: suppDepot.id,
       isActive: true
@@ -1930,12 +2547,54 @@ async function main() {
   // Movimientos de inventario iniciales (Entradas)
   await prisma.inventoryMovement.createMany({
     data: [
-      { inventoryItemId: itemResina.id, branchId: branch.id, type: InventoryMovementType.IN, quantity: 20.00, reason: "Carga inicial de stock", createdById: adminUser.id },
-      { inventoryItemId: itemResina.id, branchId: branch.id, type: InventoryMovementType.OUT, quantity: 5.00, reason: "Consumo diario en operatoria general", createdById: adminUser.id },
-      { inventoryItemId: itemBrackets.id, branchId: branch.id, type: InventoryMovementType.IN, quantity: 4.00, reason: "Entrada por compra", createdById: adminUser.id },
-      { inventoryItemId: itemBrackets.id, branchId: branch.id, type: InventoryMovementType.OUT, quantity: 1.00, reason: "Colocación en caso de Sofia Castro", createdById: adminUser.id },
-      { inventoryItemId: itemAnestesico.id, branchId: branch.id, type: InventoryMovementType.IN, quantity: 50.00, reason: "Compra global de insumos", createdById: adminUser.id },
-      { inventoryItemId: itemAnestesico.id, branchId: branch.id, type: InventoryMovementType.OUT, quantity: 5.00, reason: "Uso en cirugías de implantes y endodoncia", createdById: adminUser.id }
+      {
+        inventoryItemId: itemResina.id,
+        branchId: branch.id,
+        type: InventoryMovementType.IN,
+        quantity: 20.0,
+        reason: "Carga inicial de stock",
+        createdById: adminUser.id
+      },
+      {
+        inventoryItemId: itemResina.id,
+        branchId: branch.id,
+        type: InventoryMovementType.OUT,
+        quantity: 5.0,
+        reason: "Consumo diario en operatoria general",
+        createdById: adminUser.id
+      },
+      {
+        inventoryItemId: itemBrackets.id,
+        branchId: branch.id,
+        type: InventoryMovementType.IN,
+        quantity: 4.0,
+        reason: "Entrada por compra",
+        createdById: adminUser.id
+      },
+      {
+        inventoryItemId: itemBrackets.id,
+        branchId: branch.id,
+        type: InventoryMovementType.OUT,
+        quantity: 1.0,
+        reason: "Colocación en caso de Sofia Castro",
+        createdById: adminUser.id
+      },
+      {
+        inventoryItemId: itemAnestesico.id,
+        branchId: branch.id,
+        type: InventoryMovementType.IN,
+        quantity: 50.0,
+        reason: "Compra global de insumos",
+        createdById: adminUser.id
+      },
+      {
+        inventoryItemId: itemAnestesico.id,
+        branchId: branch.id,
+        type: InventoryMovementType.OUT,
+        quantity: 5.0,
+        reason: "Uso en cirugías de implantes y endodoncia",
+        createdById: adminUser.id
+      }
     ]
   });
 
@@ -1951,8 +2610,8 @@ async function main() {
       branchId: branch.id,
       openedById: adminUser.id,
       closedById: adminUser.id,
-      openingAmount: 2000.00,
-      closingAmount: 7000.00,
+      openingAmount: 2000.0,
+      closingAmount: 7000.0,
       status: CashRegisterStatus.CLOSED,
       openedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 8 * 60 * 60 * 1000), // Ayer mañana
       closedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 1 * 60 * 60 * 1000) // Ayer tarde
@@ -1962,12 +2621,40 @@ async function main() {
   // Movimientos de ayer
   await prisma.cashMovement.createMany({
     data: [
-      { cashRegisterId: cashRegYesterday.id, type: CashMovementType.OPENING, amount: 2000.00, description: "Apertura de caja de ayer con saldo mínimo", createdById: adminUser.id, createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 8 * 60 * 60 * 1000) },
+      {
+        cashRegisterId: cashRegYesterday.id,
+        type: CashMovementType.OPENING,
+        amount: 2000.0,
+        description: "Apertura de caja de ayer con saldo mínimo",
+        createdById: adminUser.id,
+        createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 8 * 60 * 60 * 1000)
+      },
       // Cobro en efectivo ingresado
-      { cashRegisterId: cashRegYesterday.id, type: CashMovementType.INCOME, amount: 6500.00, description: "Ingreso por pago de prótesis dental en efectivo", createdById: adminUser.id, createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 4 * 60 * 60 * 1000) },
+      {
+        cashRegisterId: cashRegYesterday.id,
+        type: CashMovementType.INCOME,
+        amount: 6500.0,
+        description: "Ingreso por pago de prótesis dental en efectivo",
+        createdById: adminUser.id,
+        createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 4 * 60 * 60 * 1000)
+      },
       // Gasto de insumos registrado en efectivo de la caja
-      { cashRegisterId: cashRegYesterday.id, type: CashMovementType.EXPENSE, amount: 1500.00, description: "Compra urgente de fresas diamantadas a Dental Depot", createdById: adminUser.id, createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 2 * 60 * 60 * 1000) },
-      { cashRegisterId: cashRegYesterday.id, type: CashMovementType.CLOSING, amount: 7000.00, description: "Cierre diario de caja cuadradro sin faltantes", createdById: adminUser.id, createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 1 * 60 * 60 * 1000) }
+      {
+        cashRegisterId: cashRegYesterday.id,
+        type: CashMovementType.EXPENSE,
+        amount: 1500.0,
+        description: "Compra urgente de fresas diamantadas a Dental Depot",
+        createdById: adminUser.id,
+        createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 2 * 60 * 60 * 1000)
+      },
+      {
+        cashRegisterId: cashRegYesterday.id,
+        type: CashMovementType.CLOSING,
+        amount: 7000.0,
+        description: "Cierre diario de caja cuadradro sin faltantes",
+        createdById: adminUser.id,
+        createdAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 - 1 * 60 * 60 * 1000)
+      }
     ]
   });
 
@@ -1977,14 +2664,21 @@ async function main() {
       organizationId: organization.id,
       branchId: branch.id,
       openedById: adminUser.id,
-      openingAmount: 7000.00, // Arrastre del saldo de cierre de ayer
+      openingAmount: 7000.0, // Arrastre del saldo de cierre de ayer
       status: CashRegisterStatus.OPEN,
       openedAt: new Date(Date.now() - 2 * 60 * 60 * 1000) // Abierta hace 2 horas
     }
   });
 
   await prisma.cashMovement.create({
-    data: { cashRegisterId: cashRegToday.id, type: CashMovementType.OPENING, amount: 7000.00, description: "Apertura de caja diaria", createdById: adminUser.id, createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000) }
+    data: {
+      cashRegisterId: cashRegToday.id,
+      type: CashMovementType.OPENING,
+      amount: 7000.0,
+      description: "Apertura de caja diaria",
+      createdById: adminUser.id,
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000)
+    }
   });
 
   // Carlos Montes acaba de pagar la Endodoncia en efectivo hoy
@@ -1994,7 +2688,7 @@ async function main() {
       branchId: branch.id,
       patientId: patientCarlos.id,
       receivedById: adminUser.id,
-      amount: 6300.00,
+      amount: 6300.0,
       paymentMethodId: methodEfectivo.id,
       status: "ALLOCATED",
       reference: "PAGO-ENDO-EFECTIVO",
@@ -2004,10 +2698,10 @@ async function main() {
   });
 
   await prisma.paymentAllocation.create({
-    data: { paymentId: paymentCarlosCash.id, treatmentPlanItemId: itemEndo.id, amount: 4500.00 }
+    data: { paymentId: paymentCarlosCash.id, treatmentPlanItemId: itemEndo.id, amount: 4500.0 }
   });
   await prisma.paymentAllocation.create({
-    data: { paymentId: paymentCarlosCash.id, treatmentPlanItemId: itemRecon.id, amount: 1800.00 }
+    data: { paymentId: paymentCarlosCash.id, treatmentPlanItemId: itemRecon.id, amount: 1800.0 }
   });
 
   // Registrar el flujo de caja del cobro en la caja abierta de hoy
@@ -2015,7 +2709,7 @@ async function main() {
     data: {
       cashRegisterId: cashRegToday.id,
       type: CashMovementType.INCOME,
-      amount: 6300.00,
+      amount: 6300.0,
       paymentId: paymentCarlosCash.id,
       description: "Cobro en efectivo de Endodoncia - Carlos Montes",
       createdById: adminUser.id
@@ -2158,6 +2852,63 @@ async function main() {
       }
     ]
   });
+
+  console.log("Creando datos de demostracion por sucursal...");
+  const activeBranches = await prisma.branch.findMany({
+    where: {
+      organizationId: organization.id,
+      deletedAt: null,
+      status: "ACTIVE"
+    },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, code: true }
+  });
+
+  for (let index = 0; index < activeBranches.length; index++) {
+    const activeBranch = activeBranches[index];
+    const branchCode = (activeBranch.code ?? `branch-${index + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const patient = await prisma.patient.create({
+      data: {
+        organizationId: organization.id,
+        branchId: activeBranch.id,
+        firstName: "Demo",
+        lastName: `Sucursal ${activeBranch.name}`,
+        email: `demo-${branchCode}@dentalwarner.local`,
+        phone: `+5296100${String(index + 1).padStart(5, "0")}`,
+        status:
+          index % 3 === 0
+            ? PatientStatus.ACTIVE
+            : index % 3 === 1
+              ? PatientStatus.IN_TREATMENT
+              : PatientStatus.DEBTOR,
+        source: "SEED_BRANCH"
+      }
+    });
+
+    await prisma.patientNote.create({
+      data: {
+        patientId: patient.id,
+        userId: adminUser.id,
+        note: `Paciente demo asociado a la sucursal ${activeBranch.name}`,
+        isPrivate: false
+      }
+    });
+
+    await prisma.appointment.create({
+      data: {
+        organizationId: organization.id,
+        branchId: activeBranch.id,
+        patientId: patient.id,
+        professionalId: profMendoza.id,
+        specialtyId: specGeneral.id,
+        title: `[DEMO] Control inicial ${activeBranch.name}`,
+        reason: "Cita de ejemplo para validar filtro por sucursal",
+        status: AppointmentStatus.SCHEDULED,
+        ...demoDateRange(10, 0, 30, 1),
+        createdById: adminUser.id
+      }
+    });
+  }
 
   console.log("-----------------------------------------------------------------");
   console.log("¡ÉXITO! Seed premium multiespecialidad completado exitosamente.");

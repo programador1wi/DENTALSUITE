@@ -1,6 +1,6 @@
 import { CalendarClock, ChevronDown, FilePenLine, LockKeyhole, UserRound, UserRoundCheck, UsersRound } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
-import { DentalinkPanel } from "@/components/layout/module-tabs";
+import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { cn } from "@/lib/utils/cn";
 
 type UsersModuleNavProps = React.PropsWithChildren<{
@@ -36,7 +36,7 @@ export function UsersModuleNav({ actions, children, className }: UsersModuleNavP
   const blocksActive = location.pathname.startsWith("/settings/users/blocks");
 
   return (
-    <DentalinkPanel className={cn("overflow-visible", className)}>
+    <WarnerSuitePanel className={cn("overflow-visible", className)}>
       <nav className="relative z-20 flex min-h-[48px] flex-wrap items-stretch justify-between border-b border-slate-300 bg-gradient-to-b from-white to-slate-50">
         <div className="flex flex-wrap items-stretch">
           <NavLink
@@ -91,7 +91,7 @@ export function UsersModuleNav({ actions, children, className }: UsersModuleNavP
         {actions ? <div className="flex items-center gap-2 px-3 py-2">{actions}</div> : null}
       </nav>
       <div className="p-4 sm:p-5">{children}</div>
-    </DentalinkPanel>
+    </WarnerSuitePanel>
   );
 }
 

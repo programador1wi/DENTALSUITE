@@ -6,9 +6,13 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
   UseGuards
 } from "@nestjs/common";
-import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
@@ -23,11 +27,19 @@ import {
   PatientConsentsQueryDto,
   PatientFilesQueryDto,
   SignConsentDto,
+  UploadBinaryFileAttachmentDto,
   UpdateClinicalDocumentTemplateSettingsDto,
   UpdateConsentTemplateDto,
   UploadFileAttachmentDto
 } from "./dto/documents.dto";
 import { DocumentsService } from "./documents.service";
+
+type UploadedPatientFile = {
+  originalname: string;
+  mimetype: string;
+  size: number;
+  buffer?: Buffer;
+};
 
 @ApiTags("Documents")
 @ApiBearerAuth()
@@ -46,6 +58,43 @@ export class DocumentsController {
   @RequirePermissions("files.upload")
   uploadPatientFile(@CurrentUser() actor: AuthUser, @Param("patientId") patientId: string, @Body() dto: UploadFileAttachmentDto) {
     return this.service.uploadPatientFile(actor, patientId, dto);
+  }
+
+  @Post("patients/:patientId/files/upload")
+  @RequirePermissions("files.upload")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))
+  @ApiConsumes("multipart/form-data")
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        file: { type: "string", format: "binary" },
+        category: { type: "string", example: "XRAY" }
+      },
+      required: ["file"]
+    }
+  })
+  uploadPatientBinaryFile(
+    @CurrentUser() actor: AuthUser,
+    @Param("patientId") patientId: string,
+    @Body() dto: UploadBinaryFileAttachmentDto,
+    @UploadedFile() file?: UploadedPatientFile
+  ) {
+    return this.service.uploadPatientBinaryFile(actor, patientId, dto, file);
+  }
+
+  @Get("patients/:patientId/files/:fileId/content")
+  @RequirePermissions("files.read")
+  async getPatientFileContent(
+    @CurrentUser() actor: AuthUser,
+    @Param("patientId") patientId: string,
+    @Param("fileId") fileId: string
+  ) {
+    const file = await this.service.getPatientFileContent(actor, patientId, fileId);
+    return new StreamableFile(file.stream, {
+      type: file.mimeType,
+      disposition: `inline; filename="${file.downloadName}"`
+    });
   }
 
   @Get("settings/consent-templates")

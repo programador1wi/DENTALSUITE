@@ -36,7 +36,7 @@ export function OrganizationLogoSettingsPage() {
       <PageHeader
         title="Logotipo"
         description="Imagen institucional para documentos generados por la clinica."
-        helpText="Dentalink usa el logotipo en presupuestos, recetas y documentos clinicos. Usa un JPG horizontal, idealmente de 230 x 76 px."
+        helpText="Warner Suite usa el logotipo en presupuestos, recetas y documentos clinicos. Usa un JPG horizontal, idealmente de 230 x 76 px."
       />
 
       <Card className="space-y-4">

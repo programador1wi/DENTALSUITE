@@ -10,13 +10,13 @@ export function Modal({
 }: PropsWithChildren<{ open: boolean; title: string; onClose: () => void; size?: "md" | "lg" | "xl" }>) {
   if (!open) return null;
 
-  const width = size === "xl" ? "max-w-5xl" : size === "lg" ? "max-w-3xl" : "max-w-lg";
+  const width = size === "xl" ? "max-w-[800px]" : size === "lg" ? "max-w-[640px]" : "max-w-[480px]";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
-      <div className={`max-h-[90vh] w-full overflow-y-auto rounded-2xl bg-white p-5 shadow-xl ${width}`}>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">{title}</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--backdrop-modal)] p-[var(--space-4)] backdrop-blur-sm">
+      <div className={`max-h-[90vh] w-full overflow-y-auto rounded-[var(--radius-xl)] bg-[var(--bg-surface)] p-[var(--space-6)] shadow-[var(--shadow-modal)] ${width}`}>
+        <div className="mb-[var(--space-4)] flex items-center justify-between gap-[var(--space-4)]">
+          <h3 className="text-[var(--text-xl)] font-semibold leading-tight text-[var(--text-brand-strong)]">{title}</h3>
           <Button variant="secondary" onClick={onClose}>
             Cerrar
           </Button>

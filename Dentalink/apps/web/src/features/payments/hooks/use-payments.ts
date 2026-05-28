@@ -74,6 +74,7 @@ export function usePaymentsMutations() {
     queryClient.invalidateQueries({ queryKey: ["cash-register"] });
     queryClient.invalidateQueries({ queryKey: ["payment-links"] });
     queryClient.invalidateQueries({ queryKey: ["patient"] });
+    queryClient.invalidateQueries({ queryKey: ["patients"] });
   };
   const onError = (error: Error) => toast.error(error.message);
 

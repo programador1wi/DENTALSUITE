@@ -56,6 +56,7 @@ export function ClinicalOdontogramPage() {
         onOpenDiagnosis={() => openModal("diagnosis")}
         onOpenTreatment={() => openModal("procedure")}
         onOpenInformation={() => openModal("info")}
+        onCancelRecord={(odontogramRecordId) => mutations.cancelOdontogramRecord.mutate(odontogramRecordId)}
       />
 
       <ToothDiagnosisModal

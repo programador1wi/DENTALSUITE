@@ -115,7 +115,7 @@ export function PayrollSettingsPage() {
       <PageHeader
         title="Nominas"
         description="Liquidaciones activas y finalizadas por profesional."
-        helpText="Dentalink separa las liquidaciones activas de las finalizadas. Al finalizar se congela el resumen de prestaciones pagadas que pasan a pago del profesional."
+        helpText="Warner Suite separa las liquidaciones activas de las finalizadas. Al finalizar se congela el resumen de prestaciones pagadas que pasan a pago del profesional."
       />
 
       <Card className="space-y-4">

@@ -158,12 +158,97 @@ export type PatientsQuery = {
   isNew?: "true" | "false";
 };
 
+export type PatientAnalysisQuery = {
+  from?: string;
+  to?: string;
+  branchId?: string;
+};
+
+export type PatientAnalysisDistribution = {
+  label: string;
+  value: number;
+  percent: number;
+  amount?: number;
+};
+
+export type PatientAnalysisMonthlyPoint = {
+  month: string;
+  scheduledAppointments: number;
+  confirmedAppointments: number;
+  acceptedBudgets: number;
+  newPatients: number;
+};
+
+export type PatientAnalysisResponse = {
+  filters: {
+    from: string;
+    to: string;
+    branchId: string | null;
+    branchName: string;
+    updatedAt: string;
+  };
+  branchContext: {
+    name: string;
+    userCount: number;
+    users: Array<{ id: string; name: string; email: string; branchName: string }>;
+  };
+  conversion: {
+    totals: {
+      scheduledAppointments: number;
+      confirmedAppointments: number;
+      acceptedBudgets: number;
+      acceptedBudgetAmount: number;
+      confirmedRate: number;
+      acceptedRate: number;
+    };
+    funnel: Array<{
+      key: string;
+      label: string;
+      value: number;
+      percent: number;
+      color: string;
+    }>;
+    monthly: PatientAnalysisMonthlyPoint[];
+  };
+  patientData: {
+    totalPatients: number;
+    distributions: {
+      age: PatientAnalysisDistribution[];
+      gender: PatientAnalysisDistribution[];
+      delegation: PatientAnalysisDistribution[];
+      paymentMethods: PatientAnalysisDistribution[];
+      actionCategories: PatientAnalysisDistribution[];
+      appointmentStatus: PatientAnalysisDistribution[];
+      sources: PatientAnalysisDistribution[];
+      patientStatus: PatientAnalysisDistribution[];
+    };
+  };
+  globalStats: Array<{
+    key: string;
+    label: string;
+    value: number;
+    format?: "money" | "percent";
+    tone: "green" | "red" | "blue" | "amber";
+    trend: number[];
+  }>;
+};
+
 export async function listPatients(params?: PatientsQuery) {
   const { data } = await http.get<PatientListItem[]>("/patients", { params });
   return data;
 }
 
-export async function searchPatients(params: { q?: string; phone?: string; email?: string; documentNumber?: string }) {
+export async function getPatientsAnalysis(params?: PatientAnalysisQuery) {
+  const { data } = await http.get<PatientAnalysisResponse>("/patients/analysis", { params });
+  return data;
+}
+
+export async function searchPatients(params: {
+  q?: string;
+  phone?: string;
+  email?: string;
+  documentNumber?: string;
+}) {
   const { data } = await http.get<PatientListItem[]>("/patients/search", { params });
   return data;
 }

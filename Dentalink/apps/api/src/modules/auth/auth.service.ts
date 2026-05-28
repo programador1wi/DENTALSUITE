@@ -59,11 +59,36 @@ const PERMISSION_TEMPLATES = [
   ["payment_methods.read", "Read payment methods", "View payment methods", "payment_methods"],
   ["payment_methods.create", "Create payment methods", "Create payment methods", "payment_methods"],
   ["payment_methods.update", "Update payment methods", "Update payment methods", "payment_methods"],
-  ["payment_methods.deactivate", "Deactivate payment methods", "Deactivate payment methods", "payment_methods"],
-  ["procedure_categories.read", "Read procedure categories", "View procedure categories", "procedure_categories"],
-  ["procedure_categories.create", "Create procedure categories", "Create procedure categories", "procedure_categories"],
-  ["procedure_categories.update", "Update procedure categories", "Update procedure categories", "procedure_categories"],
-  ["procedure_categories.deactivate", "Deactivate procedure categories", "Deactivate procedure categories", "procedure_categories"],
+  [
+    "payment_methods.deactivate",
+    "Deactivate payment methods",
+    "Deactivate payment methods",
+    "payment_methods"
+  ],
+  [
+    "procedure_categories.read",
+    "Read procedure categories",
+    "View procedure categories",
+    "procedure_categories"
+  ],
+  [
+    "procedure_categories.create",
+    "Create procedure categories",
+    "Create procedure categories",
+    "procedure_categories"
+  ],
+  [
+    "procedure_categories.update",
+    "Update procedure categories",
+    "Update procedure categories",
+    "procedure_categories"
+  ],
+  [
+    "procedure_categories.deactivate",
+    "Deactivate procedure categories",
+    "Deactivate procedure categories",
+    "procedure_categories"
+  ],
   ["procedures.read", "Read procedures", "View procedures", "procedures"],
   ["procedures.create", "Create procedures", "Create procedures", "procedures"],
   ["procedures.update", "Update procedures", "Update procedures", "procedures"],
@@ -91,16 +116,36 @@ const PERMISSION_TEMPLATES = [
   ["clinical.evolutions.sign", "Sign clinical evolutions", "Sign clinical evolutions", "clinical"],
   ["clinical.prescriptions.create", "Create prescriptions", "Create prescriptions", "clinical"],
   ["clinical.documents.create", "Create clinical documents", "Create clinical documents", "clinical"],
-  ["clinical.templates.manage", "Manage clinical templates", "Manage clinical document templates", "clinical"],
+  [
+    "clinical.templates.manage",
+    "Manage clinical templates",
+    "Manage clinical document templates",
+    "clinical"
+  ],
   ["clinical.odontogram.read", "Read odontogram", "View odontogram and tooth history", "clinical"],
   ["clinical.odontogram.write", "Write odontogram", "Create and update odontogram records", "clinical"],
-  ["clinical.periodontogram.read", "Read periodontogram", "View periodontal charts and comparisons", "clinical"],
+  [
+    "clinical.periodontogram.read",
+    "Read periodontogram",
+    "View periodontal charts and comparisons",
+    "clinical"
+  ],
   ["clinical.periodontogram.write", "Write periodontogram", "Create periodontal charts", "clinical"],
   ["treatment_plans.read", "Read treatment plans", "View treatment plans", "treatment_plans"],
   ["treatment_plans.create", "Create treatment plans", "Create treatment plans", "treatment_plans"],
   ["treatment_plans.update", "Update treatment plans", "Update treatment plans", "treatment_plans"],
-  ["treatment_plans.status.update", "Update treatment plan item status", "Update treatment plan item status", "treatment_plans"],
-  ["treatment_plans.alternatives.manage", "Manage treatment plan alternatives", "Manage treatment plan alternatives", "treatment_plans"],
+  [
+    "treatment_plans.status.update",
+    "Update treatment plan item status",
+    "Update treatment plan item status",
+    "treatment_plans"
+  ],
+  [
+    "treatment_plans.alternatives.manage",
+    "Manage treatment plan alternatives",
+    "Manage treatment plan alternatives",
+    "treatment_plans"
+  ],
   ["budgets.read", "Read budgets", "View budgets", "budgets"],
   ["budgets.create", "Create budgets", "Generate budgets", "budgets"],
   ["budgets.update", "Update budgets", "Update budgets", "budgets"],
@@ -112,7 +157,12 @@ const PERMISSION_TEMPLATES = [
   ["payments.create", "Create payments", "Register patient payments", "payments"],
   ["payments.allocate", "Allocate payments", "Allocate payments to treatment items", "payments"],
   ["payments.refund", "Refund payments", "Register payment refunds", "payments"],
-  ["payments.override.closed_cash", "Override closed cash register", "Allow receiving payments without open cash register", "payments"],
+  [
+    "payments.override.closed_cash",
+    "Override closed cash register",
+    "Allow receiving payments without open cash register",
+    "payments"
+  ],
   ["payment_links.create", "Create payment links", "Create simulated online payment links", "payments"],
   ["installments.read", "Read installments", "View installment plans and installments", "installments"],
   ["installments.create", "Create installments", "Create installment plans", "installments"],
@@ -120,20 +170,40 @@ const PERMISSION_TEMPLATES = [
   ["cash_register.read", "Read cash register", "View cash register shifts and balances", "cash_register"],
   ["cash_register.open", "Open cash register", "Open cash register shift", "cash_register"],
   ["cash_register.close", "Close cash register", "Close cash register shift", "cash_register"],
-  ["cash_register.close_any", "Close any cash register", "Close another user's cash register", "cash_register"],
+  [
+    "cash_register.close_any",
+    "Close any cash register",
+    "Close another user's cash register",
+    "cash_register"
+  ],
   ["cash_register.move", "Create cash movement", "Register manual cash movements", "cash_register"],
-  ["accounts_receivable.read", "Read accounts receivable", "View outstanding balances and overdue installments", "accounts_receivable"],
+  [
+    "accounts_receivable.read",
+    "Read accounts receivable",
+    "View outstanding balances and overdue installments",
+    "accounts_receivable"
+  ],
   ["collections.read", "Read collections", "View collection cases", "collections"],
   ["collections.create", "Create collections", "Create collection cases", "collections"],
   ["collections.detect", "Detect collections", "Detect overdue installments and create cases", "collections"],
   ["collections.update", "Update collections", "Update case status and assignment", "collections"],
-  ["collections.activities.create", "Create collection activities", "Register collection calls/messages", "collections"],
+  [
+    "collections.activities.create",
+    "Create collection activities",
+    "Register collection calls/messages",
+    "collections"
+  ],
   ["files.read", "Read files", "View patient files and attachments", "documents"],
   ["files.upload", "Upload files", "Upload patient files and attachments", "documents"],
   ["consent_templates.read", "Read consent templates", "View consent templates", "documents"],
   ["consent_templates.create", "Create consent templates", "Create consent templates", "documents"],
   ["consent_templates.update", "Update consent templates", "Update consent templates", "documents"],
-  ["consent_templates.deactivate", "Deactivate consent templates", "Deactivate consent templates", "documents"],
+  [
+    "consent_templates.deactivate",
+    "Deactivate consent templates",
+    "Deactivate consent templates",
+    "documents"
+  ],
   ["consents.read", "Read consents", "View generated consents", "documents"],
   ["consents.create", "Create consents", "Generate consents for patients", "documents"],
   ["consents.sign", "Sign consents", "Sign and lock consents", "documents"],
@@ -164,7 +234,10 @@ const PERMISSION_TEMPLATES = [
 
 const ROLE_TEMPLATES = [
   { name: "SUPER_ADMIN", permissions: PERMISSION_TEMPLATES.map(([key]) => key) },
-  { name: "ADMIN", permissions: PERMISSION_TEMPLATES.map(([key]) => key).filter((key) => key !== "system.manage_all") },
+  {
+    name: "ADMIN",
+    permissions: PERMISSION_TEMPLATES.map(([key]) => key).filter((key) => key !== "system.manage_all")
+  },
   {
     name: "RECEPTIONIST",
     permissions: [
@@ -316,6 +389,29 @@ const ROLE_TEMPLATES = [
       "inventory.movements.read",
       "inventory.movements.create",
       "inventory.alerts.read"
+    ]
+  },
+  {
+    name: "CEYE",
+    permissions: [
+      "dashboard.read",
+      "branches.read",
+      "patients.read",
+      "appointments.read",
+      "clinical.read",
+      "professionals.read",
+      "schedules.read",
+      "chairs.read",
+      "lab_providers.read",
+      "lab_orders.read",
+      "lab_orders.update",
+      "suppliers.read",
+      "inventory.read",
+      "inventory.update",
+      "inventory.movements.read",
+      "inventory.movements.create",
+      "inventory.alerts.read",
+      "reports.read"
     ]
   },
   {
@@ -506,8 +602,16 @@ export class AuthService {
           entity: "Organization",
           entityId: organization.id,
           oldValue: Prisma.JsonNull,
-          newValue: { organizationName: organization.name, branchName: branch.name, adminEmail: createdUser.email },
-          after: { organizationName: organization.name, branchName: branch.name, adminEmail: createdUser.email },
+          newValue: {
+            organizationName: organization.name,
+            branchName: branch.name,
+            adminEmail: createdUser.email
+          },
+          after: {
+            organizationName: organization.name,
+            branchName: branch.name,
+            adminEmail: createdUser.email
+          },
           ipAddress: meta.ipAddress,
           userAgent: meta.userAgent
         }
@@ -515,19 +619,7 @@ export class AuthService {
 
       return tx.user.findUniqueOrThrow({
         where: { id: createdUser.id },
-        include: {
-          role: true,
-          roles: {
-            include: {
-              role: {
-                include: {
-                  permissions: { include: { permission: true } }
-                }
-              }
-            }
-          },
-          branches: true
-        }
+        include: this.authUserInclude()
       });
     });
 
@@ -538,19 +630,7 @@ export class AuthService {
   async login(dto: LoginDto, meta: RequestMeta) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase().trim() },
-      include: {
-        role: true,
-        roles: {
-          include: {
-            role: {
-              include: {
-                permissions: { include: { permission: true } }
-              }
-            }
-          }
-        },
-        branches: true
-      }
+      include: this.authUserInclude()
     });
 
     if (!user || !user.isActive || user.status !== "ACTIVE" || user.deletedAt) {
@@ -579,19 +659,7 @@ export class AuthService {
       },
       include: {
         user: {
-          include: {
-            role: true,
-            roles: {
-              include: {
-                role: {
-                  include: {
-                    permissions: { include: { permission: true } }
-                  }
-                }
-              }
-            },
-            branches: true
-          }
+          include: this.authUserInclude()
         }
       }
     });
@@ -606,7 +674,12 @@ export class AuthService {
       data: { revokedAt: new Date() }
     });
 
-    const tokens = await this.issueTokens(matched.userId, matched.user.email, matched.user.organizationId, meta);
+    const tokens = await this.issueTokens(
+      matched.userId,
+      matched.user.email,
+      matched.user.organizationId,
+      meta
+    );
     return { user: this.serializeUser(matched.user), ...tokens };
   }
 
@@ -631,7 +704,12 @@ export class AuthService {
     return { success: true };
   }
 
-  private async issueTokens(userId: string, email: string, organizationId: string, meta: RequestMeta): Promise<TokenPair> {
+  private async issueTokens(
+    userId: string,
+    email: string,
+    organizationId: string,
+    meta: RequestMeta
+  ): Promise<TokenPair> {
     const accessExpiresIn = this.config.get<string>("JWT_ACCESS_EXPIRES_IN") ?? "15m";
     const refreshExpiresIn = this.config.get<string>("JWT_REFRESH_EXPIRES_IN") ?? "7d";
     const refreshTokenId = randomUUID();
@@ -666,7 +744,10 @@ export class AuthService {
     return { accessToken, refreshToken, expiresIn: accessExpiresIn };
   }
 
-  private async findMatchingSession<T extends { refreshTokenHash: string }>(records: T[], plainToken: string): Promise<T | null> {
+  private async findMatchingSession<T extends { refreshTokenHash: string }>(
+    records: T[],
+    plainToken: string
+  ): Promise<T | null> {
     for (const record of records) {
       if (await bcrypt.compare(plainToken, record.refreshTokenHash)) {
         return record;
@@ -687,17 +768,30 @@ export class AuthService {
     return amount * 24 * 60 * 60 * 1000;
   }
 
-  private serializeUser(user: {
-    id: string;
-    organizationId: string;
-    email: string;
-    firstName: string;
-    lastName: string;
-    roleId: string | null;
-    role: { id: string; name: string } | null;
-    roles: { role: { id: string; name: string; permissions: { permission: { key: string; code: string | null; isActive: boolean; deletedAt: Date | null } }[] } }[];
-    branches: { branchId: string }[];
-  }) {
+  private authUserInclude() {
+    return {
+      role: {
+        include: {
+          permissions: { include: { permission: true } }
+        }
+      },
+      roles: {
+        include: {
+          role: {
+            include: {
+              permissions: { include: { permission: true } }
+            }
+          }
+        }
+      },
+      permissions: { include: { permission: true } },
+      branches: true
+    } as const;
+  }
+
+  private serializeUser(
+    user: Prisma.UserGetPayload<{ include: ReturnType<AuthService["authUserInclude"]> }>
+  ) {
     const roleNames = user.roles.map((entry) => entry.role.name);
     const roleIds = user.roles.map((entry) => entry.role.id);
 
@@ -707,12 +801,14 @@ export class AuthService {
     }
 
     const permissions = new Set<string>();
-    for (const roleEntry of user.roles) {
-      for (const permissionEntry of roleEntry.role.permissions) {
-        const permission = permissionEntry.permission;
-        if (permission.isActive && !permission.deletedAt) {
-          permissions.add(permission.key ?? permission.code ?? "");
-        }
+    const permissionEntries = user.permissionsOverride
+      ? user.permissions
+      : [...(user.role?.permissions ?? []), ...user.roles.flatMap((roleEntry) => roleEntry.role.permissions)];
+
+    for (const permissionEntry of permissionEntries) {
+      const permission = permissionEntry.permission;
+      if (permission.isActive && !permission.deletedAt) {
+        permissions.add(permission.key ?? permission.code ?? "");
       }
     }
 

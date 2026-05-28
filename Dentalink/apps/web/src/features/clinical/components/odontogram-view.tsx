@@ -14,7 +14,7 @@ function fdiLabel(tooth: string) {
   return `${tooth[0]}.${tooth[1]}`;
 }
 
-type DentalinkSymbolSource = {
+type WarnerSuiteSymbolSource = {
   toothNumber: string;
   status?: string | null;
   condition?: string | null;
@@ -22,7 +22,7 @@ type DentalinkSymbolSource = {
   procedure?: { code?: string | null; name?: string | null } | null;
 };
 
-const DENTALINK_SYMBOL_BY_MARK: Partial<Record<DiagnosisMark, string>> = {
+const WARNER_SUITE_SYMBOL_BY_MARK: Partial<Record<DiagnosisMark, string>> = {
   crown: "cor",
   "temporary-crown": "cp",
   endo: "endo",
@@ -62,7 +62,7 @@ function normalizeClinicalText(value?: string | null) {
     .toUpperCase();
 }
 
-function inferDiagnosisMark(source: DentalinkSymbolSource) {
+function inferDiagnosisMark(source: WarnerSuiteSymbolSource) {
   const exact = getDiagnosisMark(source.diagnosis ?? source.condition ?? source.procedure?.name ?? source.procedure?.code);
   if (exact) return exact;
 
@@ -87,21 +87,21 @@ function inferDiagnosisMark(source: DentalinkSymbolSource) {
   return undefined;
 }
 
-function symbolIdsFromRecords(sources: DentalinkSymbolSource[]) {
+function symbolIdsFromRecords(sources: WarnerSuiteSymbolSource[]) {
   const ids = new Set<string>();
 
   for (const record of sources) {
     if (record.status === "CANCELLED") continue;
     const mark = inferDiagnosisMark(record);
     if (!mark) continue;
-    const symbol = DENTALINK_SYMBOL_BY_MARK[mark];
+    const symbol = WARNER_SUITE_SYMBOL_BY_MARK[mark];
     if (symbol) ids.add(`${symbol}_${record.toothNumber}`);
   }
 
   return [...ids];
 }
 
-function dentalinkActivationCss(symbolIds: string[], selectedTooth: string) {
+function warnerSuiteActivationCss(symbolIds: string[], selectedTooth: string) {
   const visibleIds = [...symbolIds, selectedTooth ? `hover_${selectedTooth}` : ""].filter(Boolean);
   if (!visibleIds.length) return "";
 
@@ -117,7 +117,7 @@ function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function activateDentalinkSvgMarkup(markup: string, visibleIds: string[]) {
+function activateWarnerSuiteSvgMarkup(markup: string, visibleIds: string[]) {
   return visibleIds.reduce((current, id) => {
     const idPattern = escapeRegExp(id);
     return current
@@ -221,12 +221,12 @@ function ClinicalSvg({
   );
   const symbolIds = useMemo(() => symbolIdsFromRecords(symbolSources), [symbolSources]);
   const visibleIds = useMemo(() => [...symbolIds, selectedTooth ? `hover_${selectedTooth}` : ""].filter(Boolean), [selectedTooth, symbolIds]);
-  const activationCss = useMemo(() => dentalinkActivationCss(symbolIds, selectedTooth), [selectedTooth, symbolIds]);
-  const activatedSvgMarkup = useMemo(() => activateDentalinkSvgMarkup(svgMarkup, visibleIds), [svgMarkup, visibleIds]);
+  const activationCss = useMemo(() => warnerSuiteActivationCss(symbolIds, selectedTooth), [selectedTooth, symbolIds]);
+  const activatedSvgMarkup = useMemo(() => activateWarnerSuiteSvgMarkup(svgMarkup, visibleIds), [svgMarkup, visibleIds]);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/dentalink-odontogram-permanent.svg")
+    fetch("/warner-suite-odontogram-permanent.svg")
       .then((response) => response.text())
       .then((markup) => {
         if (!cancelled) setSvgMarkup(markup.replace(/\sstyle="width:\s*700px;?"/, ""));
@@ -241,7 +241,7 @@ function ClinicalSvg({
   }, []);
 
   return (
-    <div className="relative mx-auto h-auto w-[980px] max-w-none">
+    <div className="relative mx-auto h-auto w-full max-w-[980px]">
       {activationCss ? <style>{activationCss}</style> : null}
       {svgMarkup ? (
         <div
@@ -250,7 +250,7 @@ function ClinicalSvg({
         />
       ) : (
         <img
-          src="/dentalink-odontogram-permanent.svg"
+          src="/warner-suite-odontogram-permanent.svg"
           alt="Odontograma Internacional FDI"
           className="block h-auto w-full select-none"
           draggable={false}
@@ -341,6 +341,7 @@ export function OdontogramView({
   onOpenDiagnosis,
   onOpenTreatment,
   onOpenInformation,
+  onCancelRecord,
   showHistoryTable = true
 }: {
   selectedTooth: string;
@@ -352,28 +353,40 @@ export function OdontogramView({
   onOpenDiagnosis: () => void;
   onOpenTreatment: () => void;
   onOpenInformation: () => void;
+  onCancelRecord?: (odontogramRecordId: string) => void;
   showHistoryTable?: boolean;
 }) {
   const dentition = useOdontogramStore((state) => state.dentition);
   const activeTool = useOdontogramStore((state) => state.activeTool);
   const showOnlyDiagnosis = useOdontogramStore((state) => state.showOnlyDiagnosis);
   const setDentition = useOdontogramStore((state) => state.setDentition);
-  const setActiveTool = useOdontogramStore((state) => state.setActiveTool);
   const toggleShowOnlyDiagnosis = useOdontogramStore((state) => state.toggleShowOnlyDiagnosis);
 
-  const rows = useMemo(() => {
-    const conditionRows = (records ?? []).map((record) => ({
-      id: `record-${record.id}`,
-      date: record.createdAt,
-      tooth: fdiLabel(record.toothNumber),
-      surface: recordSurface(record.surface),
-      status: record.condition,
-      detail: record.diagnosis,
-      creator: record.professional ? `${record.professional.firstName} ${record.professional.lastName}` : "-"
-    }));
+  const activeRecords = useMemo(() => (records ?? []).filter((record) => record.status !== "CANCELLED"), [records]);
+  const activeConditions = useMemo(() => {
+    const cancelledRecordIds = new Set((records ?? []).filter((record) => record.status === "CANCELLED").map((record) => record.id));
+    return (conditions ?? []).filter((condition) => !condition.odontogramRecordId || !cancelledRecordIds.has(condition.odontogramRecordId));
+  }, [conditions, records]);
+  const activeProcedures = useMemo(() => (procedures ?? []).filter((procedure) => procedure.status !== "CANCELLED"), [procedures]);
 
-    const procedureRows = (procedures ?? []).map((procedure) => ({
+  const rows = useMemo(() => {
+    const conditionRows = activeRecords.map((record) => {
+      const isProcedureRecord = record.condition === "TOOTH_PROCEDURE" || record.condition === "TOOTH_PROCEDURE_STATUS";
+      return {
+        id: `record-${record.id}`,
+        recordId: isProcedureRecord ? "" : record.id,
+        date: record.createdAt,
+        tooth: fdiLabel(record.toothNumber),
+        surface: recordSurface(record.surface),
+        status: record.condition,
+        detail: record.diagnosis,
+        creator: record.professional ? `${record.professional.firstName} ${record.professional.lastName}` : "-"
+      };
+    });
+
+    const procedureRows = activeProcedures.map((procedure) => ({
       id: `procedure-${procedure.id}`,
+      recordId: "",
       date: procedure.createdAt,
       tooth: fdiLabel(procedure.toothNumber),
       surface: recordSurface(procedure.surface),
@@ -383,7 +396,7 @@ export function OdontogramView({
     }));
 
     return [...conditionRows, ...(showOnlyDiagnosis ? [] : procedureRows)].sort((a, b) => Number(new Date(b.date)) - Number(new Date(a.date)));
-  }, [procedures, records, showOnlyDiagnosis]);
+  }, [activeProcedures, activeRecords, showOnlyDiagnosis]);
 
   const upper = dentition === "permanent" ? PERMANENT_UPPER : TEMPORAL_UPPER;
   const lower = dentition === "permanent" ? PERMANENT_LOWER : TEMPORAL_LOWER;
@@ -463,18 +476,18 @@ export function OdontogramView({
 
       <div className="px-4 py-5">
         <p className="mb-2 text-center text-sm text-[#7a4f52]">Odontograma Internacional <span className="text-[#0879d5]">FDI</span></p>
-        <div className="overflow-x-auto">
+        <div className="w-full overflow-x-auto">
           <ClinicalSvg
             teethUpper={upper}
             teethLower={lower}
             selectedTooth={selectedTooth}
             latestByTooth={latestByTooth}
-            conditions={conditions}
-            records={records}
-            procedures={procedures}
+            conditions={activeConditions}
+            records={activeRecords}
+            procedures={activeProcedures}
             onSelectTooth={onSelectTooth}
           />
-          <div className="mt-3 flex min-w-[980px] justify-center">
+          <div className="mx-auto mt-3 flex w-full max-w-[980px] justify-center">
             <SextantsMandibleSvg />
           </div>
         </div>
@@ -516,9 +529,13 @@ export function OdontogramView({
                   </td>
                   <td className="border border-slate-200 px-3 py-3">{row.creator}</td>
                   <td className="border border-slate-200 px-3 py-3">
-                    <button type="button" className="rounded bg-orange-400 px-2 py-1 text-xs font-semibold text-white">
-                      Anular
-                    </button>
+                    {row.recordId && onCancelRecord ? (
+                      <button type="button" className="rounded bg-orange-400 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-500" onClick={() => onCancelRecord(row.recordId)}>
+                        Anular
+                      </button>
+                    ) : (
+                      <span className="text-slate-300">-</span>
+                    )}
                   </td>
                 </tr>
               ))

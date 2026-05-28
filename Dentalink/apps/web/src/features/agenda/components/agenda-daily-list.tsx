@@ -72,7 +72,11 @@ export function AgendaDailyList({
   const toggleStatus = (status: AppointmentStatus) => {
     setActiveStatuses(prev => {
       const next = new Set(prev);
-      next.has(status) ? next.delete(status) : next.add(status);
+      if (next.has(status)) {
+        next.delete(status);
+      } else {
+        next.add(status);
+      }
       return next;
     });
     setPage(1);

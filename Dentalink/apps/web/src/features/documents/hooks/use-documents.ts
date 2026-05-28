@@ -10,7 +10,9 @@ import {
   listPatientFiles,
   signConsent,
   updateConsentTemplate,
-  uploadPatientFile
+  uploadPatientBinaryFile,
+  uploadPatientFile,
+  type FileAttachment
 } from "../services/documents.service";
 
 export function usePatientFiles(patientId: string, category?: string) {
@@ -52,6 +54,13 @@ export function useDocumentsMutations() {
     queryClient.invalidateQueries({ queryKey: ["patient-consents"] });
     queryClient.invalidateQueries({ queryKey: ["consent-pdf"] });
   };
+  const upsertPatientFile = (patientId: string, file: FileAttachment) => {
+    queryClient.setQueryData<FileAttachment[]>(["patient-files", patientId, undefined], (current) => {
+      if (!current) return [file];
+      return [file, ...current.filter((item) => item.id !== file.id)];
+    });
+    queryClient.invalidateQueries({ queryKey: ["patient-files", patientId] });
+  };
   const onError = (error: Error) => toast.error(error.message);
 
   return {
@@ -73,9 +82,18 @@ export function useDocumentsMutations() {
         url: string;
         category: string;
       }) => uploadPatientFile(patientId, { fileName, originalName, mimeType, size, url, category }),
-      onSuccess: () => {
+      onSuccess: (file, variables) => {
         toast.success("Archivo registrado");
-        invalidate();
+        upsertPatientFile(variables.patientId, file);
+      },
+      onError
+    }),
+    uploadPatientBinaryFile: useMutation({
+      mutationFn: ({ patientId, file, category }: { patientId: string; file: File; category: string }) =>
+        uploadPatientBinaryFile(patientId, { file, category }),
+      onSuccess: (file, variables) => {
+        toast.success("Archivo subido");
+        upsertPatientFile(variables.patientId, file);
       },
       onError
     }),

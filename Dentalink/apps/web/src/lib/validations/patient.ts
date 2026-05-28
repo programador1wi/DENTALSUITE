@@ -2,10 +2,10 @@ import { z } from "zod";
 
 const optionalString = z.string().trim().optional().or(z.literal(""));
 
-export const patientFormSchema = z.object({
+const patientFormBaseSchema = z.object({
   branchId: z.string().min(1, "Sucursal requerida"),
-  firstName: z.string().trim().min(2, "Nombre requerido"),
-  lastName: z.string().trim().min(2, "Apellido requerido"),
+  firstName: optionalString,
+  lastName: optionalString,
   birthDate: optionalString,
   gender: optionalString,
   documentType: optionalString,
@@ -31,4 +31,38 @@ export const patientFormSchema = z.object({
   alertSeverity: optionalString
 });
 
-export type PatientFormValues = z.infer<typeof patientFormSchema>;
+export type PatientFormValues = z.infer<typeof patientFormBaseSchema>;
+
+type RequiredPatientField = keyof PatientFormValues;
+
+const defaultRequiredFields: Partial<Record<RequiredPatientField, string>> = {
+  firstName: "Nombre requerido",
+  lastName: "Apellido requerido"
+};
+
+export function createPatientFormSchema(requiredFields: Partial<Record<RequiredPatientField, string>> = defaultRequiredFields) {
+  return patientFormBaseSchema.superRefine((values, context) => {
+    const mergedRequiredFields = { ...defaultRequiredFields, ...requiredFields };
+
+    for (const [field, message] of Object.entries(mergedRequiredFields) as Array<[RequiredPatientField, string]>) {
+      const value = values[field];
+      if (typeof value === "string" && value.trim().length > 0) continue;
+
+      context.addIssue({
+        code: "custom",
+        message,
+        path: [field]
+      });
+    }
+
+    if (values.firstName?.trim() && values.firstName.trim().length < 2) {
+      context.addIssue({ code: "custom", message: "Nombre requerido", path: ["firstName"] });
+    }
+
+    if (values.lastName?.trim() && values.lastName.trim().length < 2) {
+      context.addIssue({ code: "custom", message: "Apellido requerido", path: ["lastName"] });
+    }
+  });
+}
+
+export const patientFormSchema = createPatientFormSchema();

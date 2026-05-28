@@ -21,7 +21,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: {
-        role: true,
+        role: {
+          include: {
+            permissions: { include: { permission: true } }
+          }
+        },
         roles: {
           include: {
             role: {
@@ -31,6 +35,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             }
           }
         },
+        permissions: { include: { permission: true } },
         branches: true
       }
     });
@@ -48,12 +53,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     const permissions = new Set<string>();
-    for (const roleEntry of user.roles) {
-      for (const permissionEntry of roleEntry.role.permissions) {
-        const permission = permissionEntry.permission;
-        if (permission.isActive && !permission.deletedAt) {
-          permissions.add(permission.key ?? permission.code ?? "");
-        }
+    const permissionEntries = user.permissionsOverride
+      ? user.permissions
+      : [...(user.role?.permissions ?? []), ...user.roles.flatMap((roleEntry) => roleEntry.role.permissions)];
+
+    for (const permissionEntry of permissionEntries) {
+      const permission = permissionEntry.permission;
+      if (permission.isActive && !permission.deletedAt) {
+        permissions.add(permission.key ?? permission.code ?? "");
       }
     }
 

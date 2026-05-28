@@ -7,6 +7,16 @@ export type UserListItem = {
   lastName: string;
   phone?: string | null;
   status: string;
+  permissionsOverride: boolean;
+  permissions: {
+    id: string;
+    key: string;
+    code?: string | null;
+    name: string;
+    module: string;
+    action?: string | null;
+    resource?: string | null;
+  }[];
   role: { id: string; code?: string | null; name: string } | null;
   branches: { id: string; code?: string | null; name: string; isPrimary: boolean }[];
   professional?: {
@@ -22,6 +32,7 @@ export type CreateUserPayload = {
   firstName: string;
   lastName: string;
   password: string;
+  permissionIds?: string[];
   phone?: string;
   primaryBranchId?: string;
   roleId: string;
@@ -31,7 +42,7 @@ export type UpdateUserPayload = Partial<Omit<CreateUserPayload, "email">> & {
   status?: "ACTIVE" | "INACTIVE" | "LOCKED" | "PENDING";
 };
 
-export async function listUsers(params?: { search?: string; status?: string }) {
+export async function listUsers(params?: { search?: string; status?: string; branchId?: string }) {
   const { data } = await http.get<UserListItem[]>("/users", { params });
   return data;
 }

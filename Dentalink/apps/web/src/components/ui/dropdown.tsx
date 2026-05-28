@@ -23,19 +23,19 @@ export function Dropdown({
     <div className="relative">
       <button
         type="button"
-        className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-left text-sm"
+        className="h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--text-sm)] text-[var(--text-primary)] transition-[border-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:border-[var(--border-strong)] focus:border-[var(--border-brand)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
         onClick={() => setOpen((prev) => !prev)}
       >
         {selected?.label ?? placeholder}
       </button>
 
       {open ? (
-        <div className="absolute z-20 mt-1 w-full rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+        <div className="absolute z-20 mt-1 w-full rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-[var(--space-1)] shadow-[var(--shadow-modal)]">
           {options.map((option) => (
             <button
               key={option.value}
               type="button"
-              className="block w-full rounded-lg px-2 py-1.5 text-left text-sm hover:bg-slate-100"
+              className="block w-full rounded-[var(--radius-md)] px-[var(--space-2)] py-[var(--space-2)] text-left text-[var(--text-sm)] text-[var(--text-primary)] transition-[background-color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:bg-[var(--bg-subtle)]"
               onClick={() => {
                 onChange(option.value);
                 setOpen(false);

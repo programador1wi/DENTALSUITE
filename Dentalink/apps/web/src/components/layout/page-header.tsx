@@ -10,12 +10,12 @@ export function PageHeader({
   helpText?: string;
 }) {
   return (
-    <div>
+    <div className="mb-[var(--space-6)]">
       <div className="flex items-center gap-2">
-        <h2 className="text-2xl font-semibold text-slate-900">{title}</h2>
+        <h2 className="text-[var(--text-2xl)] font-semibold leading-tight text-[var(--text-brand-strong)]">{title}</h2>
         {helpText && <HelpTooltip content={helpText} />}
       </div>
-      {description ? <p className="mt-1 text-sm text-slate-600">{description}</p> : null}
+      {description ? <p className="mt-1 text-[13px] leading-5 text-[var(--text-secondary)]">{description}</p> : null}
     </div>
   );
 }

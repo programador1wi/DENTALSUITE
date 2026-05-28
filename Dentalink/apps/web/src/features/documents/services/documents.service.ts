@@ -69,6 +69,25 @@ export async function uploadPatientFile(
   return data;
 }
 
+export async function uploadPatientBinaryFile(patientId: string, payload: { file: File; category: string }) {
+  const formData = new FormData();
+  formData.append("file", payload.file);
+  formData.append("category", payload.category);
+  const { data } = await http.post<FileAttachment>(`/patients/${patientId}/files/upload`, formData);
+  return data;
+}
+
+export async function getPatientFileBlob(file: FileAttachment) {
+  const path = normalizeFilePath(file.url);
+  const { data } = await http.get<Blob>(path, { responseType: "blob" });
+  return data;
+}
+
+function normalizeFilePath(url: string) {
+  if (url.startsWith("/api/v1/")) return url.replace("/api/v1", "");
+  return url;
+}
+
 export async function listConsentTemplates(params?: { search?: string; active?: string }) {
   const { data } = await http.get<ConsentTemplate[]>("/settings/consent-templates", { params });
   return data;

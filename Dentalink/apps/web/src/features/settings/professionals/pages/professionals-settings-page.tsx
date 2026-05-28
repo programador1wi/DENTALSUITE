@@ -275,7 +275,7 @@ export function ProfessionalsSettingsPage() {
                             Contrato
                           </Button>
                           <Link
-                            to={`/settings/schedules?professionalId=${professional.id}`}
+                            to={`/settings/online-scheduling/schedules?professionalId=${professional.id}`}
                             className="inline-flex items-center justify-center rounded-lg border border-zinc-200 bg-white px-4 py-2 text-xs font-semibold text-zinc-700 shadow-sm transition-all hover:border-zinc-300 hover:bg-zinc-50 hover:text-zinc-900"
                           >
                             Horarios

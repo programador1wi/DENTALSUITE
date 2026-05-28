@@ -1,31 +1,39 @@
 import type { ReactNode } from "react";
-import { Card } from "./card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table";
 
 type Column<T> = {
   key: keyof T;
   title: ReactNode;
+  cellClassName?: string;
+  headerClassName?: string;
   render?: (row: T) => ReactNode;
+  wrap?: boolean;
 };
 
 export function DataTable<T extends Record<string, unknown>>({
   columns,
   rows,
-  empty
+  empty,
+  tableClassName,
+  containerClassName
 }: {
   columns: Column<T>[];
   rows: T[];
   empty: ReactNode;
+  tableClassName?: string;
+  containerClassName?: string;
 }) {
   if (!rows.length) return <>{empty}</>;
 
   return (
-    <Card className="overflow-hidden p-0">
-      <Table>
+    <div>
+      <Table className={tableClassName} containerClassName={containerClassName}>
         <TableHead>
           <TableRow>
             {columns.map((column) => (
-              <TableHeader key={String(column.key)}>{column.title}</TableHeader>
+              <TableHeader key={String(column.key)} className={column.headerClassName} wrap={column.wrap}>
+                {column.title}
+              </TableHeader>
             ))}
           </TableRow>
         </TableHead>
@@ -33,7 +41,7 @@ export function DataTable<T extends Record<string, unknown>>({
           {rows.map((row, index) => (
             <TableRow key={index}>
               {columns.map((column) => (
-                <TableCell key={String(column.key)}>
+                <TableCell key={String(column.key)} className={column.cellClassName} wrap={column.wrap}>
                   {column.render ? column.render(row) : String(row[column.key] ?? "")}
                 </TableCell>
               ))}
@@ -41,6 +49,6 @@ export function DataTable<T extends Record<string, unknown>>({
           ))}
         </TableBody>
       </Table>
-    </Card>
+    </div>
   );
 }

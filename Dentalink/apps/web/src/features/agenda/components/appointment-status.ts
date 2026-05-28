@@ -19,11 +19,26 @@ export function appointmentStatusLabel(status: AppointmentStatus) {
   return labels[status] ?? status;
 }
 
-export function appointmentStatusTone(status: AppointmentStatus): "default" | "success" | "warning" | "danger" {
-  if (status === "COMPLETED" || status === "CONFIRMED") return "success";
-  if (status === "CANCELLED_BY_PATIENT" || status === "CANCELLED_BY_CLINIC" || status === "NO_SHOW") return "danger";
-  if (status === "ARRIVED" || status === "WAITING_ROOM" || status === "IN_PROGRESS" || status === "PENDING_CONFIRMATION") return "warning";
-  return "default";
+export function appointmentStatusTone(status: AppointmentStatus): "default" | "success" | "warning" | "danger" | "brand" {
+  switch (status) {
+    case "SCHEDULED":
+    case "ARRIVED":
+    case "IN_PROGRESS":
+      return "brand";
+    case "COMPLETED":
+    case "CONFIRMED":
+      return "success";
+    case "CANCELLED_BY_PATIENT":
+    case "CANCELLED_BY_CLINIC":
+    case "NO_SHOW":
+      return "danger";
+    case "WAITING_ROOM":
+    case "PENDING_CONFIRMATION":
+    case "RESCHEDULED":
+      return "warning";
+    default:
+      return "default";
+  }
 }
 
 export type StatusColorPalette = {
@@ -32,16 +47,16 @@ export type StatusColorPalette = {
 };
 
 export const appointmentColorPalette: Record<AppointmentStatus, StatusColorPalette> = {
-  SCHEDULED: { cardClass: "bg-blue-50/60 border-blue-200 text-blue-900", dotClass: "bg-blue-500" },
-  CONFIRMED: { cardClass: "bg-emerald-50/60 border-emerald-200 text-emerald-900", dotClass: "bg-emerald-500" },
-  PENDING_CONFIRMATION: { cardClass: "bg-amber-50/60 border-amber-200 text-amber-900", dotClass: "bg-amber-500" },
-  ARRIVED: { cardClass: "bg-indigo-50/60 border-indigo-200 text-indigo-900", dotClass: "bg-indigo-500" },
-  WAITING_ROOM: { cardClass: "bg-purple-50/60 border-purple-200 text-purple-900", dotClass: "bg-purple-500" },
-  IN_PROGRESS: { cardClass: "bg-cyan-50/60 border-cyan-200 text-cyan-900", dotClass: "bg-cyan-500" },
-  COMPLETED: { cardClass: "bg-slate-50/60 border-slate-200 text-slate-900", dotClass: "bg-slate-500" },
-  CANCELLED_BY_PATIENT: { cardClass: "bg-red-50/60 border-red-200 text-red-900", dotClass: "bg-red-500" },
-  CANCELLED_BY_CLINIC: { cardClass: "bg-red-50/60 border-red-200 text-red-900", dotClass: "bg-red-500" },
-  NO_SHOW: { cardClass: "bg-rose-50/60 border-rose-200 text-rose-900", dotClass: "bg-rose-500" },
-  RESCHEDULED: { cardClass: "bg-orange-50/60 border-orange-200 text-orange-900", dotClass: "bg-orange-500" },
-  BLOCKED: { cardClass: "bg-zinc-100 border-zinc-300 text-zinc-500 border-dashed opacity-80", dotClass: "bg-zinc-400" },
+  SCHEDULED: { cardClass: "bg-[var(--bg-brand-light)] border-[var(--border-brand-light)] text-[var(--text-brand-strong)]", dotClass: "bg-[var(--text-brand)]" },
+  CONFIRMED: { cardClass: "bg-[var(--status-success-bg)] border-[var(--status-success-bg)] text-[var(--status-success-text)]", dotClass: "bg-[var(--text-success)]" },
+  PENDING_CONFIRMATION: { cardClass: "bg-[var(--status-warning-bg)] border-[var(--status-warning-bg)] text-[var(--status-warning-text)]", dotClass: "bg-[var(--text-warning)]" },
+  ARRIVED: { cardClass: "bg-[var(--bg-brand-light)] border-[var(--border-brand-light)] text-[var(--text-brand)]", dotClass: "bg-[var(--text-brand)]" },
+  WAITING_ROOM: { cardClass: "bg-[var(--status-purple-bg)] border-[var(--status-purple-bg)] text-[var(--status-purple-text)]", dotClass: "bg-[var(--status-purple-text)]" },
+  IN_PROGRESS: { cardClass: "bg-[var(--bg-brand-light)] border-[var(--border-brand-light)] text-[var(--text-brand-strong)]", dotClass: "bg-[var(--text-brand)]" },
+  COMPLETED: { cardClass: "bg-[var(--status-neutral-bg)] border-[var(--border-default)] text-[var(--text-primary)]", dotClass: "bg-[var(--text-secondary)]" },
+  CANCELLED_BY_PATIENT: { cardClass: "bg-[var(--status-danger-bg)] border-[var(--status-danger-bg)] text-[var(--status-danger-text)]", dotClass: "bg-[var(--text-danger)]" },
+  CANCELLED_BY_CLINIC: { cardClass: "bg-[var(--status-danger-bg)] border-[var(--status-danger-bg)] text-[var(--status-danger-text)]", dotClass: "bg-[var(--text-danger)]" },
+  NO_SHOW: { cardClass: "bg-[var(--status-danger-bg)] border-[var(--status-danger-bg)] text-[var(--status-no-show-text)]", dotClass: "bg-[var(--status-no-show-text)]" },
+  RESCHEDULED: { cardClass: "bg-[var(--status-warning-bg)] border-[var(--status-warning-bg)] text-[var(--status-rescheduled-text)]", dotClass: "bg-[var(--status-rescheduled-text)]" },
+  BLOCKED: { cardClass: "border-dashed bg-[var(--status-neutral-bg)] border-[var(--border-strong)] text-[var(--text-secondary)] opacity-80", dotClass: "bg-[var(--text-secondary)]" },
 };

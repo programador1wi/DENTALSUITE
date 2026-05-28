@@ -60,6 +60,7 @@ export type AppointmentQuery = {
   start?: string;
   end?: string;
   branchId?: string;
+  patientId?: string;
   professionalId?: string;
   chairId?: string;
   status?: string;

@@ -90,6 +90,14 @@ export function AppointmentModal({
     () => patients.filter((patient) => !form.branchId || patient.branchId === form.branchId),
     [patients, form.branchId]
   );
+  const selectedBranch = useMemo(() => branches.find((branch) => branch.id === form.branchId), [branches, form.branchId]);
+  const selectedProfessional = useMemo(() => professionals.find((prof) => prof.id === form.professionalId), [professionals, form.professionalId]);
+  const selectedProfessionalBranch = useMemo(
+    () => selectedProfessional?.branches?.find((branch) => branch.id === form.branchId) ?? null,
+    [selectedProfessional, form.branchId]
+  );
+  const appointmentIntervalMinutes = selectedProfessionalBranch?.agendaSlotMinutes ?? selectedBranch?.agendaSlotMinutes ?? 30;
+  const defaultDuration = selectedProfessionalBranch?.defaultAppointmentDurationMinutes ?? appointmentIntervalMinutes;
 
   const submit = async () => {
     setSubmitting(true);
@@ -104,6 +112,7 @@ export function AppointmentModal({
         status: form.status,
         startAt: new Date(form.startAt).toISOString(),
         endAt: new Date(form.endAt).toISOString(),
+        durationMinutes: diffMinutes(form.startAt, form.endAt),
         notes: form.notes || undefined
       });
       onClose();
@@ -150,7 +159,7 @@ export function AppointmentModal({
           <Input
             type="datetime-local"
             value={form.startAt}
-            onChange={(event) => setForm((prev) => ({ ...prev, startAt: event.target.value, endAt: prev.endAt || addMinutesToLocalInput(event.target.value, 30) }))}
+            onChange={(event) => setForm((prev) => ({ ...prev, startAt: event.target.value, endAt: prev.endAt || addMinutesToLocalInput(event.target.value, defaultDuration) }))}
           />
           <Input type="datetime-local" value={form.endAt} onChange={(event) => setForm((prev) => ({ ...prev, endAt: event.target.value }))} />
         </div>
@@ -196,4 +205,11 @@ function addMinutesToLocalInput(value: string, minutes: number) {
   date.setMinutes(date.getMinutes() + minutes);
   const offset = date.getTimezoneOffset();
   return new Date(date.getTime() - offset * 60000).toISOString().slice(0, 16);
+}
+
+function diffMinutes(startAt: string, endAt: string) {
+  const start = new Date(startAt);
+  const end = new Date(endAt);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return undefined;
+  return Math.round((end.getTime() - start.getTime()) / 60000);
 }

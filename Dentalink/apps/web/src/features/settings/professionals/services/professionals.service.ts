@@ -10,8 +10,15 @@ export type Professional = {
   color?: string | null;
   commissionRate: string;
   isActive: boolean;
+  agendaSlotMinutes?: number | null;
+  defaultAppointmentDurationMinutes?: number | null;
   specialties: { id: string; name: string }[];
-  branches: { id: string; name: string }[];
+  branches: {
+    id: string;
+    name: string;
+    agendaSlotMinutes?: number | null;
+    defaultAppointmentDurationMinutes?: number | null;
+  }[];
 };
 
 export type ProfessionalPayload = {

@@ -7,6 +7,7 @@ import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import { CreateProfessionalDto } from "./dto/create-professional.dto";
 import { UpdateProfessionalDto } from "./dto/update-professional.dto";
+import { ConfigProfessionalDto } from "./dto/config-professional.dto";
 import { ProfessionalsService } from "./professionals.service";
 
 @ApiTags("Professionals")
@@ -44,6 +45,17 @@ export class ProfessionalsController {
   @RequirePermissions("professionals.update")
   update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateProfessionalDto) {
     return this.professionalsService.update(user, id, dto);
+  }
+
+  @Patch(":id/branches/:branchId/agenda-config")
+  @RequirePermissions("professionals.update")
+  updateAgendaConfig(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("branchId") branchId: string,
+    @Body() dto: ConfigProfessionalDto
+  ) {
+    return this.professionalsService.updateAgendaConfig(user, id, branchId, dto);
   }
 
   @Patch(":id/deactivate")

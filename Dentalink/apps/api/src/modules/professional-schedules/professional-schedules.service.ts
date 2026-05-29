@@ -35,7 +35,8 @@ export class ProfessionalSchedulesService {
       take,
       include: {
         professional: true,
-        branch: true
+        branch: true,
+        chair: true
       },
       orderBy: [{ dayOfWeek: "asc" }, { startTime: "asc" }]
     });
@@ -44,7 +45,7 @@ export class ProfessionalSchedulesService {
   async findOne(actor: AuthUser, id: string) {
     const schedule = await this.prisma.professionalSchedule.findFirst({
       where: { id, branchId: branchScope(actor), professional: { organizationId: actor.organizationId } },
-      include: { professional: true, branch: true }
+      include: { professional: true, branch: true, chair: true }
     });
 
     if (!schedule) throw new NotFoundException("Schedule not found");
@@ -52,7 +53,7 @@ export class ProfessionalSchedulesService {
   }
 
   async create(actor: AuthUser, dto: CreateProfessionalScheduleDto) {
-    await this.validateReferences(actor, dto.professionalId, dto.branchId);
+    await this.validateReferences(actor, dto.professionalId, dto.branchId, dto.chairId);
     this.validateTimeRange(dto.startTime, dto.endTime, dto.breakStartTime, dto.breakEndTime);
     await this.ensureNoOverlap(actor, {
       professionalId: dto.professionalId,
@@ -61,11 +62,20 @@ export class ProfessionalSchedulesService {
       startTime: dto.startTime,
       endTime: dto.endTime
     });
+    if (dto.chairId) {
+      await this.ensureNoChairOverlap(actor, {
+        chairId: dto.chairId,
+        dayOfWeek: dto.dayOfWeek,
+        startTime: dto.startTime,
+        endTime: dto.endTime
+      });
+    }
 
     const schedule = await this.prisma.professionalSchedule.create({
       data: {
         professionalId: dto.professionalId,
         branchId: dto.branchId,
+        chairId: dto.chairId,
         dayOfWeek: dto.dayOfWeek,
         startTime: dto.startTime,
         endTime: dto.endTime,
@@ -84,6 +94,7 @@ export class ProfessionalSchedulesService {
         after: {
           professionalId: schedule.professionalId,
           branchId: schedule.branchId,
+          chairId: schedule.chairId,
           dayOfWeek: schedule.dayOfWeek,
           startTime: schedule.startTime,
           endTime: schedule.endTime
@@ -99,26 +110,31 @@ export class ProfessionalSchedulesService {
 
     const professionalId = dto.professionalId ?? current.professionalId;
     const branchId = dto.branchId ?? current.branchId;
+    const chairId = "chairId" in dto ? dto.chairId ?? undefined : current.chairId ?? undefined;
     const dayOfWeek = dto.dayOfWeek ?? current.dayOfWeek;
     const startTime = dto.startTime ?? current.startTime;
     const endTime = dto.endTime ?? current.endTime;
-    const breakStartTime = dto.breakStartTime ?? current.breakStartTime ?? undefined;
-    const breakEndTime = dto.breakEndTime ?? current.breakEndTime ?? undefined;
+    const breakStartTime = "breakStartTime" in dto ? dto.breakStartTime ?? undefined : current.breakStartTime ?? undefined;
+    const breakEndTime = "breakEndTime" in dto ? dto.breakEndTime ?? undefined : current.breakEndTime ?? undefined;
 
-    await this.validateReferences(actor, professionalId, branchId);
+    await this.validateReferences(actor, professionalId, branchId, chairId);
     this.validateTimeRange(startTime, endTime, breakStartTime, breakEndTime);
     await this.ensureNoOverlap(actor, { professionalId, branchId, dayOfWeek, startTime, endTime }, id);
+    if (chairId && (dto.isActive ?? current.isActive)) {
+      await this.ensureNoChairOverlap(actor, { chairId, dayOfWeek, startTime, endTime }, id);
+    }
 
     await this.prisma.professionalSchedule.update({
       where: { id },
       data: {
         professionalId,
         branchId,
+        chairId: "chairId" in dto ? dto.chairId : undefined,
         dayOfWeek,
         startTime,
         endTime,
-        breakStartTime,
-        breakEndTime,
+        breakStartTime: "breakStartTime" in dto ? dto.breakStartTime : breakStartTime,
+        breakEndTime: "breakEndTime" in dto ? dto.breakEndTime : breakEndTime,
         isActive: dto.isActive
       }
     });
@@ -131,11 +147,12 @@ export class ProfessionalSchedulesService {
         entityId: id,
         action: "update",
         after: {
-          professionalId,
-          branchId,
-          dayOfWeek,
-          startTime,
-          endTime,
+            professionalId,
+            branchId,
+            chairId,
+            dayOfWeek,
+            startTime,
+            endTime,
           isActive: dto.isActive
         }
       }
@@ -148,12 +165,13 @@ export class ProfessionalSchedulesService {
     return this.update(actor, id, { isActive: false });
   }
 
-  private async validateReferences(actor: AuthUser, professionalId: string, branchId: string) {
+  private async validateReferences(actor: AuthUser, professionalId: string, branchId: string, chairId?: string) {
     const professional = await this.prisma.professional.findFirst({
       where: {
         id: professionalId,
         organizationId: actor.organizationId,
-        isActive: true
+        isActive: true,
+        branches: { some: { branchId } }
       }
     });
 
@@ -169,6 +187,19 @@ export class ProfessionalSchedulesService {
     });
 
     if (!branch) throw new BadRequestException("Invalid branchId");
+
+    if (chairId) {
+      const chair = await this.prisma.chair.findFirst({
+        where: {
+          id: chairId,
+          organizationId: actor.organizationId,
+          branchId,
+          isActive: true
+        }
+      });
+
+      if (!chair) throw new BadRequestException("Invalid chairId for selected branch");
+    }
   }
 
   private validateTimeRange(startTime: string, endTime: string, breakStartTime?: string, breakEndTime?: string) {
@@ -218,6 +249,34 @@ export class ProfessionalSchedulesService {
 
     if (overlap) {
       throw new BadRequestException("Overlapping schedule for professional and branch");
+    }
+  }
+
+  private async ensureNoChairOverlap(
+    actor: AuthUser,
+    candidate: { chairId: string; dayOfWeek: number; startTime: string; endTime: string },
+    excludeId?: string
+  ) {
+    const existing = await this.prisma.professionalSchedule.findMany({
+      where: {
+        chairId: candidate.chairId,
+        dayOfWeek: candidate.dayOfWeek,
+        isActive: true,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        professional: { organizationId: actor.organizationId }
+      }
+    });
+
+    const candidateStart = this.toMinutes(candidate.startTime);
+    const candidateEnd = this.toMinutes(candidate.endTime);
+    const overlap = existing.some((row) => {
+      const rowStart = this.toMinutes(row.startTime);
+      const rowEnd = this.toMinutes(row.endTime);
+      return candidateStart < rowEnd && candidateEnd > rowStart;
+    });
+
+    if (overlap) {
+      throw new BadRequestException("Overlapping schedule for selected chair");
     }
   }
 

@@ -40,6 +40,8 @@ export class BranchesService {
   }
 
   async create(actor: AuthUser, dto: CreateBranchDto) {
+    this.validateAgendaSettings(dto);
+
     const branch = await this.prisma.branch.create({
       data: {
         organizationId: actor.organizationId,
@@ -52,6 +54,9 @@ export class BranchesService {
         state: dto.state?.trim(),
         country: dto.country?.trim() ?? "MX",
         timezone: dto.timezone?.trim() ?? "America/Mexico_City",
+        agendaSlotMinutes: dto.agendaSlotMinutes,
+        agendaStartHour: dto.agendaStartHour,
+        agendaEndHour: dto.agendaEndHour,
         createdById: actor.id
       }
     });
@@ -82,6 +87,11 @@ export class BranchesService {
     });
     if (!current) throw new NotFoundException("Branch not found");
 
+    this.validateAgendaSettings(dto, {
+      agendaStartHour: current.agendaStartHour,
+      agendaEndHour: current.agendaEndHour
+    });
+
     const branch = await this.prisma.branch.update({
       where: { id },
       data: {
@@ -94,6 +104,9 @@ export class BranchesService {
         country: dto.country?.trim(),
         timezone: dto.timezone?.trim(),
         status: dto.status,
+        agendaSlotMinutes: dto.agendaSlotMinutes,
+        agendaStartHour: dto.agendaStartHour,
+        agendaEndHour: dto.agendaEndHour,
         updatedById: actor.id
       }
     });
@@ -127,5 +140,17 @@ export class BranchesService {
 
   private normalizeCode(code: string) {
     return code.trim().toUpperCase().replace(/[^A-Z0-9_-]+/g, "_");
+  }
+
+  private validateAgendaSettings(
+    dto: Pick<CreateBranchDto | UpdateBranchDto, "agendaStartHour" | "agendaEndHour">,
+    current?: { agendaStartHour: number; agendaEndHour: number }
+  ) {
+    const startHour = dto.agendaStartHour ?? current?.agendaStartHour ?? 8;
+    const endHour = dto.agendaEndHour ?? current?.agendaEndHour ?? 19;
+
+    if (endHour <= startHour) {
+      throw new BadRequestException("agendaEndHour must be greater than agendaStartHour");
+    }
   }
 }

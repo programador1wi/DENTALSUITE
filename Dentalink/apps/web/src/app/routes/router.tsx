@@ -34,6 +34,7 @@ import { UsersPage } from "@/features/settings/users/pages/users-page";
 import { AccessUsersBlockPage, AgendaUsersBlockPage } from "@/features/settings/users/pages/users-blocks-page";
 import { UsersBulkContractsPage } from "@/features/settings/users/pages/users-bulk-contracts-page";
 import { RolesPage } from "@/features/settings/roles/pages/roles-page";
+import { RoleDetailPage } from "@/features/settings/roles/pages/role-detail-page";
 import { OrganizationSettingsPage } from "@/features/settings/organization/pages/organization-settings-page";
 import { OrganizationLogoSettingsPage } from "@/features/settings/organization/pages/organization-logo-settings-page";
 import { BranchesSettingsPage } from "@/features/settings/branches/pages/branches-settings-page";
@@ -343,7 +344,8 @@ export const router = createBrowserRouter([
             element: <RequirePermissions required={["roles.read"]} />,
             children: [
               { path: "/settings/roles", element: <RolesPage /> },
-              { path: "/settings/users/profiles", element: <RolesPage /> }
+              { path: "/settings/users/profiles", element: <RolesPage /> },
+              { path: "/settings/roles/:id", element: <RoleDetailPage /> }
             ]
           }
         ]

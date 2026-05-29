@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Eye, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -56,7 +57,18 @@ export function RolesPage() {
               rows={roles.data}
               empty={<EmptyState title="Sin perfiles" description="No hay perfiles para los filtros seleccionados." />}
               columns={[
-                { key: "name", title: "Nombre" },
+                {
+                  key: "name",
+                  title: "Nombre",
+                  render: (row) => (
+                    <Link
+                      to={`/settings/roles/${row.id}`}
+                      className="font-medium text-sky-600 hover:text-sky-800 hover:underline transition-colors"
+                    >
+                      {row.name}
+                    </Link>
+                  )
+                },
                 { key: "code", title: "Codigo" },
                 { key: "permissions", title: "Permisos", render: (row) => String(row.permissions.length) },
                 {
@@ -70,22 +82,32 @@ export function RolesPage() {
                   key: "id",
                   title: "Acciones",
                   render: (row) => (
-                    <Button
-                      type="button"
-                      variant="danger"
-                      title={
-                        row.isSystem
-                          ? "Los perfiles del sistema no se pueden eliminar."
-                          : row.isActive
-                            ? "Eliminar perfil"
-                            : "El perfil ya esta inactivo."
-                      }
-                      disabled={row.isSystem || !row.isActive || deactivateRole.isPending}
-                      onClick={() => setRemoving(row)}
-                    >
-                      <Trash2 className="mr-1.5 h-4 w-4" />
-                      Eliminar
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to={`/settings/roles/${row.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:border-sky-300 hover:text-sky-700 transition-colors"
+                      >
+                        <Eye className="h-3.5 w-3.5" />
+                        Ver permisos
+                      </Link>
+                      <Button
+                        type="button"
+                        variant="danger"
+                        size="sm"
+                        title={
+                          row.isSystem
+                            ? "Los perfiles del sistema no se pueden eliminar."
+                            : row.isActive
+                              ? "Eliminar perfil"
+                              : "El perfil ya esta inactivo."
+                        }
+                        disabled={row.isSystem || !row.isActive || deactivateRole.isPending}
+                        onClick={() => setRemoving(row)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Eliminar
+                      </Button>
+                    </div>
                   )
                 }
               ]}

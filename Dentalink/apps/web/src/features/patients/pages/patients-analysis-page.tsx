@@ -156,8 +156,8 @@ function TrendChart({ data }: { data: PatientAnalysisResponse["conversion"]["mon
       <h3 className="mb-4 text-center text-[14px] font-bold text-slate-800">
         Conversion de pacientes a traves del tiempo
       </h3>
-      <div className="h-[290px] border border-slate-200 bg-white p-3">
-        <ResponsiveContainer width="100%" height="100%">
+      <div className="h-[290px] min-w-0 border border-slate-200 bg-white p-3">
+        <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
           <LineChart data={data} margin={{ top: 10, right: 20, left: -8, bottom: 0 }}>
             <CartesianGrid stroke="#e5e7eb" vertical />
             <XAxis
@@ -217,9 +217,9 @@ function DistributionDonut({ title, data }: { title: string; data: PatientAnalys
   return (
     <div className="min-w-0">
       <h3 className="mb-2 text-center text-[13px] font-semibold text-slate-700">{title}</h3>
-      <div className="h-[122px]">
+      <div className="h-[122px] min-w-0">
         {total > 0 ? (
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
             <PieChart>
               <Pie
                 data={data}

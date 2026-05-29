@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -12,11 +11,20 @@ import type { PatientListItem } from "@/features/patients/services/patients.serv
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useChairs } from "@/features/settings/chairs/hooks/use-chairs";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
+import { useSchedules } from "@/features/settings/schedules/hooks/use-schedules";
 import { useBranchStore } from "@/stores/branch.store";
 import { useAuthStore } from "@/stores/auth.store";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { RotateCcw } from "lucide-react";
 import { AppointmentModal } from "../components/appointment-modal";
+import {
+  AppointmentCommentModal,
+  AppointmentDurationModal,
+  AppointmentEmailModal,
+  AppointmentHistoryModal,
+  AppointmentStatusModal,
+  type AppointmentEmailMode
+} from "../components/appointment-action-modals";
 import { AvailabilityPicker } from "../components/availability-picker";
 import { CalendarView } from "../components/calendar-view";
 import { AgendaDailyList } from "../components/agenda-daily-list";
@@ -31,7 +39,8 @@ import {
   useCreateAppointment,
   useUpdateAppointment
 } from "../hooks/use-appointments";
-import type { Appointment, AppointmentPayload } from "../services/appointments.service";
+import type { Appointment, AppointmentPayload, AppointmentStatus } from "../services/appointments.service";
+import type { AppointmentMenuAction } from "../components/appointment-actions-menu";
 
 export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "list" }) {
   const [searchParams] = useSearchParams();
@@ -48,6 +57,11 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const [canceling, setCanceling] = useState<Appointment | null>(null);
   const [rescheduling, setRescheduling] = useState<Appointment | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [durationEditing, setDurationEditing] = useState<Appointment | null>(null);
+  const [commenting, setCommenting] = useState<Appointment | null>(null);
+  const [statusChanging, setStatusChanging] = useState<Appointment | null>(null);
+  const [historyViewing, setHistoryViewing] = useState<Appointment | null>(null);
+  const [emailAction, setEmailAction] = useState<{ appointment: Appointment; mode: AppointmentEmailMode } | null>(null);
 
   const branches = useBranches(undefined, "ACTIVE");
 
@@ -56,10 +70,30 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     [branches.data, user?.branchIds]
   );
 
+  const activeBranch = useMemo(
+    () => (assignedBranches ?? []).find((branch) => branch.id === activeBranchId) ?? null,
+    [assignedBranches, activeBranchId]
+  );
+
   const professionals = useProfessionals(undefined, "true");
   const chairs = useChairs(undefined, "true");
   const patients = usePatients({});
   const prefillPatient = usePatient(prefillPatientId);
+
+  const selectedProfessional = useMemo(
+    () => (professionals.data ?? []).find((p) => p.id === professionalId) ?? null,
+    [professionals.data, professionalId]
+  );
+
+  const selectedProfessionalBranch = useMemo(
+    () => selectedProfessional?.branches?.find((b) => b.id === activeBranchId) ?? null,
+    [selectedProfessional, activeBranchId]
+  );
+
+  const agendaSlotMinutes = selectedProfessionalBranch?.agendaSlotMinutes ?? activeBranch?.agendaSlotMinutes ?? 30;
+  const defaultAppointmentDurationMinutes = selectedProfessionalBranch?.defaultAppointmentDurationMinutes ?? agendaSlotMinutes;
+  const agendaStartHour = activeBranch?.agendaStartHour ?? 8;
+  const agendaEndHour = activeBranch?.agendaEndHour ?? 19;
 
   const visibleProfessionals = useMemo(
     () => (professionals.data ?? []).filter((professional) => !activeBranchId || professional.branches.some((branch) => branch.id === activeBranchId)),
@@ -72,6 +106,12 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const appointmentsView = view === "list" ? "day" : view;
   const appointmentsDate = view === "week" ? getWeekStartDateInput(date) : date;
   const appointments = useAppointments({ date: appointmentsDate, view: appointmentsView, branchId: activeBranchId || undefined, professionalId: professionalId || undefined, chairId: chairId || undefined, status: status || undefined });
+  const schedules = useSchedules({
+    branchId: activeBranchId || undefined,
+    professionalId: professionalId || undefined,
+    dayOfWeek: view === "day" ? String(getDayOfWeek(date)) : undefined,
+    active: "true"
+  });
   const createAppointment = useCreateAppointment();
   const updateAppointment = useUpdateAppointment();
   const actions = useAppointmentActions();
@@ -170,6 +210,65 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     setStatus("");
   };
 
+  const handleAppointmentMenuAction = (appointment: Appointment, action: AppointmentMenuAction) => {
+    switch (action) {
+      case "requestDataEmail":
+        setEmailAction({ appointment, mode: "dataRequest" });
+        break;
+      case "modifyDuration":
+        setDurationEditing(appointment);
+        break;
+      case "addComment":
+        setCommenting(appointment);
+        break;
+      case "changeDate":
+        setRescheduling(appointment);
+        break;
+      case "changeStatus":
+        setStatusChanging(appointment);
+        break;
+      case "notifyEmail":
+        setEmailAction({ appointment, mode: "notification" });
+        break;
+      case "viewHistory":
+        setHistoryViewing(appointment);
+        break;
+      case "cancel":
+        setCanceling(appointment);
+        break;
+    }
+  };
+
+  const updateAppointmentFromAction = async (id: string, payload: Partial<AppointmentPayload>) => {
+    await updateAppointment.mutateAsync({ id, payload });
+  };
+
+  const changeAppointmentStatus = async (id: string, nextStatus: AppointmentStatus) => {
+    switch (nextStatus) {
+      case "CONFIRMED":
+        await actions.confirm.mutateAsync(id);
+        break;
+      case "ARRIVED":
+        await actions.arrive.mutateAsync(id);
+        break;
+      case "WAITING_ROOM":
+        await actions.waitingRoom.mutateAsync(id);
+        break;
+      case "IN_PROGRESS":
+        await actions.start.mutateAsync(id);
+        break;
+      case "COMPLETED":
+        await actions.complete.mutateAsync(id);
+        break;
+      case "NO_SHOW":
+        await actions.noShow.mutateAsync(id);
+        break;
+      default:
+        await updateAppointment.mutateAsync({ id, payload: { status: nextStatus } });
+        break;
+    }
+  };
+
   if (appointments.isLoading) return <LoadingState message="Cargando agenda..." />;
   if (appointments.isError) return <ErrorState message={appointments.error.message} />;
 
@@ -179,8 +278,9 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
 
       <AgendaToolbar 
         view={view} 
+        date={date}
         totalAppointments={appointments.data?.length ?? 0}
-        onCreateClick={() => openCreate()} 
+        onDateChange={setDate}
         onGoToday={() => setDate(toDateInputValue(new Date()))}
         onPrint={() => window.print()}
         onEmail={() => {
@@ -189,11 +289,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
       />
 
       <Card>
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-7">
-          <div className="flex items-center gap-1.5 w-full">
-            <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} className="flex-1" />
-            <HelpTooltip content="Permite cambiar la fecha de visualización de la agenda para consultar citas pasadas, presentes o futuras en tiempo real." />
-          </div>
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           <div className="flex items-center gap-1.5 w-full">
             <BranchFilter value={activeBranchId} branches={assignedBranches} onChange={setActiveBranchId} />
             <HelpTooltip content="Filtra la agenda para mostrar las citas y sillones exclusivos de esta sucursal. Los clínicos solo pueden alternar entre sus sucursales asignadas." />
@@ -253,6 +349,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
           onStart={(id) => void actions.start.mutate(id)}
           onComplete={(id) => void actions.complete.mutate(id)}
           onNoShow={(id) => void actions.noShow.mutate(id)}
+          onMenuAction={handleAppointmentMenuAction}
         />
       ) : view === "day" ? (
         <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
@@ -263,6 +360,10 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
             professionals={visibleProfessionals}
             selectedProfessionalId={professionalId}
             selectedBranchId={activeBranchId}
+            daySlotMinutes={agendaSlotMinutes}
+            dayStartHour={agendaStartHour}
+            dayEndHour={agendaEndHour}
+            schedules={schedules.data ?? []}
             onSelectProfessional={setProfessionalId}
             onCreateClick={() => openCreate()}
             onCreateSlotClick={(slot) => openCreate(slot)}
@@ -275,13 +376,14 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
             onStart={(id) => void actions.start.mutate(id)}
             onComplete={(id) => void actions.complete.mutate(id)}
             onNoShow={(id) => void actions.noShow.mutate(id)}
+            onMenuAction={handleAppointmentMenuAction}
           />
           <AvailabilityPicker
             branchId={activeBranchId}
             professionalId={professionalId}
             chairId={chairId || undefined}
             date={date}
-            durationMinutes="30"
+            durationMinutes={String(defaultAppointmentDurationMinutes)}
             onSelectSlot={(slot) =>
               openCreate({
                 branchId: activeBranchId,
@@ -301,6 +403,10 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
           professionals={visibleProfessionals}
           selectedProfessionalId={professionalId}
           selectedBranchId={activeBranchId}
+          daySlotMinutes={agendaSlotMinutes}
+          dayStartHour={agendaStartHour}
+          dayEndHour={agendaEndHour}
+          schedules={schedules.data ?? []}
           onSelectProfessional={setProfessionalId}
           onCreateClick={() => openCreate()}
           onCreateSlotClick={(slot) => openCreate(slot)}
@@ -313,6 +419,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
           onStart={(id) => void actions.start.mutate(id)}
           onComplete={(id) => void actions.complete.mutate(id)}
           onNoShow={(id) => void actions.noShow.mutate(id)}
+          onMenuAction={handleAppointmentMenuAction}
         />
       )}
 
@@ -341,6 +448,30 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
           await actions.reschedule.mutateAsync({ id, startAt, endAt, reason });
         }}
       />
+      <AppointmentDurationModal
+        appointment={durationEditing}
+        onClose={() => setDurationEditing(null)}
+        onConfirm={updateAppointmentFromAction}
+      />
+      <AppointmentCommentModal
+        appointment={commenting}
+        onClose={() => setCommenting(null)}
+        onConfirm={updateAppointmentFromAction}
+      />
+      <AppointmentStatusModal
+        appointment={statusChanging}
+        onClose={() => setStatusChanging(null)}
+        onConfirm={changeAppointmentStatus}
+      />
+      <AppointmentEmailModal
+        appointment={emailAction?.appointment ?? null}
+        mode={emailAction?.mode ?? "notification"}
+        onClose={() => setEmailAction(null)}
+      />
+      <AppointmentHistoryModal
+        appointment={historyViewing}
+        onClose={() => setHistoryViewing(null)}
+      />
     </div>
   );
 }
@@ -359,4 +490,9 @@ function getWeekStartDateInput(value: string) {
   const diff = weekDay === 0 ? -6 : 1 - weekDay;
   date.setDate(date.getDate() + diff);
   return toDateInputValue(date);
+}
+
+function getDayOfWeek(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day, 0, 0, 0, 0).getDay();
 }

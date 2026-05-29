@@ -259,6 +259,11 @@ model Branch {
   state                 String?
   country               String?                @default("MX")
   timezone              String?                @default("America/Mexico_City")
+  /// Agenda configuration per branch (minutes per slot, visible start/end hours).
+  /// Defaults match typical clinics (08:00–19:00 with 30 minute slots).
+  agendaSlotMinutes     Int                    @default(30)
+  agendaStartHour       Int                    @default(8)
+  agendaEndHour         Int                    @default(19)
   isActive              Boolean                @default(true)
   code                  String?
   status                BranchStatus           @default(ACTIVE)
@@ -564,12 +569,14 @@ model ProfessionalSpecialty {
 }
 
 model ProfessionalBranch {
-  professionalId String
-  branchId       String
-  isPrimary      Boolean      @default(false)
-  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  createdAt      DateTime     @default(now())
+  professionalId                     String
+  branchId                           String
+  isPrimary                          Boolean      @default(false)
+  agendaSlotMinutes                  Int?
+  defaultAppointmentDurationMinutes  Int?
+  professional                       Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  branch                             Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdAt                          DateTime     @default(now())
 
   @@id([professionalId, branchId])
   @@index([branchId])
@@ -581,6 +588,8 @@ model ProfessionalSchedule {
   professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
   branchId       String
   branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  chairId        String?
+  chair          Chair?       @relation(fields: [chairId], references: [id], onDelete: SetNull)
   dayOfWeek      Int
   startTime      String
   endTime        String
@@ -591,6 +600,7 @@ model ProfessionalSchedule {
   updatedAt      DateTime     @updatedAt
 
   @@index([professionalId, branchId, dayOfWeek, isActive])
+  @@index([chairId, dayOfWeek, isActive])
 }
 
 model Chair {
@@ -602,6 +612,7 @@ model Chair {
   name           String
   description    String?
   isActive       Boolean       @default(true)
+  schedules      ProfessionalSchedule[]
   appointments   Appointment[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt

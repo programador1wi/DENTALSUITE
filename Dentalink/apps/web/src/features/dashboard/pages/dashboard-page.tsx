@@ -113,8 +113,8 @@ export function DashboardPage() {
       <div className="grid gap-5 md:grid-cols-2">
         <Card className="p-6">
           <h3 className="mb-[var(--space-6)] text-[var(--text-lg)] font-semibold text-[var(--text-brand-strong)]">Ingresos vs Pendientes (Mensual)</h3>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-72 min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <BarChart
                 data={[
                   { name: "Ene", ingresos: 4000, pendientes: 2400 },
@@ -140,8 +140,8 @@ export function DashboardPage() {
 
         <Card className="p-6">
           <h3 className="mb-[var(--space-6)] text-[var(--text-lg)] font-semibold text-[var(--text-brand-strong)]">Citas Mensuales</h3>
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
+          <div className="h-72 min-w-0">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <LineChart
                 data={[
                   { name: "Ene", citas: 120 },
@@ -166,4 +166,3 @@ export function DashboardPage() {
     </div>
   );
 }
-

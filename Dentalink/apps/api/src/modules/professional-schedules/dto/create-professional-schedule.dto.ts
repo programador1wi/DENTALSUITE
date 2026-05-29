@@ -7,6 +7,10 @@ export class CreateProfessionalScheduleDto {
   @IsString()
   branchId!: string;
 
+  @IsOptional()
+  @IsString()
+  chairId?: string;
+
   @IsInt()
   @IsIn([0, 1, 2, 3, 4, 5, 6])
   dayOfWeek!: number;

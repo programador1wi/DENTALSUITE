@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { AppointmentStatus, Prisma } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
@@ -84,20 +84,22 @@ export class AppointmentsService {
     const startAt = new Date(dto.startAt);
     const endAt = new Date(dto.endAt);
     const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
+    const chairId = dto.chairId ?? (await this.defaultChairForSchedule(actor, dto.branchId, dto.professionalId, startAt));
 
     this.validateDates(startAt, endAt, durationMinutes);
+    await this.validateDurationSlotEnforcement(actor, dto.branchId, dto.professionalId, durationMinutes);
     await this.validateReferences(actor, {
       branchId: dto.branchId,
       patientId: dto.patientId,
       professionalId: dto.professionalId,
-      chairId: dto.chairId,
+      chairId,
       specialtyId: dto.specialtyId,
       status
     });
     await this.enforceSchedulingRules(actor, {
       branchId: dto.branchId,
       professionalId: dto.professionalId,
-      chairId: dto.chairId,
+      chairId,
       startAt,
       endAt,
       status
@@ -110,7 +112,7 @@ export class AppointmentsService {
           branchId: dto.branchId,
           patientId: dto.patientId,
           professionalId: dto.professionalId,
-          chairId: dto.chairId,
+          chairId,
           specialtyId: dto.specialtyId,
           treatmentPlanId: dto.treatmentPlanId,
           title: dto.title.trim(),
@@ -136,26 +138,33 @@ export class AppointmentsService {
   async update(actor: AuthUser, id: string, dto: UpdateAppointmentDto) {
     const current = await this.findOne(actor, id);
     const status = (dto.status ?? current.status) as AppointmentStatus;
+    const branchId = dto.branchId ?? current.branchId;
+    const professionalId = dto.professionalId ?? current.professionalId;
     const startAt = dto.startAt ? new Date(dto.startAt) : current.startAt;
     const endAt = dto.endAt ? new Date(dto.endAt) : current.endAt;
     const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
-    assertBranchAccess(actor, dto.branchId ?? current.branchId);
+    const keepCurrentChair = current.chairId && branchId === current.branchId && professionalId === current.professionalId;
+    const chairId =
+      dto.chairId ??
+      (keepCurrentChair ? current.chairId ?? undefined : await this.defaultChairForSchedule(actor, branchId, professionalId, startAt));
+    assertBranchAccess(actor, branchId);
 
     this.validateDates(startAt, endAt, durationMinutes);
+    await this.validateDurationSlotEnforcement(actor, branchId, professionalId, durationMinutes);
     await this.validateReferences(actor, {
-      branchId: dto.branchId ?? current.branchId,
+      branchId,
       patientId: dto.patientId ?? current.patientId ?? undefined,
-      professionalId: dto.professionalId ?? current.professionalId,
-      chairId: dto.chairId ?? current.chairId ?? undefined,
+      professionalId,
+      chairId,
       specialtyId: dto.specialtyId ?? current.specialtyId ?? undefined,
       status
     });
     await this.enforceSchedulingRules(
       actor,
       {
-        branchId: dto.branchId ?? current.branchId,
-        professionalId: dto.professionalId ?? current.professionalId,
-        chairId: dto.chairId ?? current.chairId ?? undefined,
+        branchId,
+        professionalId,
+        chairId,
         startAt,
         endAt,
         status
@@ -170,7 +179,7 @@ export class AppointmentsService {
           branchId: dto.branchId,
           patientId: dto.patientId,
           professionalId: dto.professionalId,
-          chairId: dto.chairId,
+          chairId,
           specialtyId: dto.specialtyId,
           treatmentPlanId: dto.treatmentPlanId,
           title: dto.title?.trim(),
@@ -216,6 +225,7 @@ export class AppointmentsService {
     const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
 
     this.validateDates(startAt, endAt, durationMinutes);
+    await this.validateDurationSlotEnforcement(actor, current.branchId, current.professionalId, durationMinutes);
     await this.enforceSchedulingRules(
       actor,
       {
@@ -272,8 +282,13 @@ export class AppointmentsService {
     const date = this.parseClinicDate(query.date);
     if (Number.isNaN(date.getTime())) throw new BadRequestException("Invalid date");
 
-    const duration = query.durationMinutes ? Number(query.durationMinutes) : 30;
+    const agendaConfig = await this.resolveAgendaConfig(actor, query.branchId, query.professionalId);
+    const slotMinutes = agendaConfig.agendaSlotMinutes;
+    const duration = query.durationMinutes ? Number(query.durationMinutes) : agendaConfig.defaultAppointmentDurationMinutes;
     if (!Number.isInteger(duration) || duration < 5) throw new BadRequestException("Invalid durationMinutes");
+    if (duration % slotMinutes !== 0) {
+      throw new BadRequestException(`durationMinutes must be a multiple of slot granularity (${slotMinutes} minutes)`);
+    }
 
     await this.validateReferences(actor, {
       branchId: query.branchId,
@@ -306,7 +321,7 @@ export class AppointmentsService {
     });
 
     const slots: { startAt: Date; endAt: Date; available: boolean }[] = [];
-    for (let cursor = new Date(dayStart); cursor.getTime() + duration * 60000 <= dayEnd.getTime(); cursor = new Date(cursor.getTime() + 15 * 60000)) {
+    for (let cursor = new Date(dayStart); cursor.getTime() + duration * 60000 <= dayEnd.getTime(); cursor = new Date(cursor.getTime() + slotMinutes * 60000)) {
       const endAt = new Date(cursor.getTime() + duration * 60000);
       const inBreak = this.isInsideBreak(cursor, endAt, date, schedule.breakStartTime, schedule.breakEndTime);
       const overlaps = busy.some((item) => this.overlaps(cursor, endAt, item.startAt, item.endAt));
@@ -465,6 +480,12 @@ export class AppointmentsService {
     if (this.isInsideBreak(input.startAt, input.endAt, input.startAt, schedule.breakStartTime, schedule.breakEndTime)) {
       throw new BadRequestException("Appointment overlaps professional break");
     }
+
+    const agendaConfig = await this.resolveAgendaConfig(actor, input.branchId, input.professionalId);
+    const minutesFromScheduleStart = this.diffMinutes(scheduleStart, input.startAt);
+    if (minutesFromScheduleStart % agendaConfig.agendaSlotMinutes !== 0) {
+      throw new BadRequestException(`Appointment startAt must align to professional slot minutes (${agendaConfig.agendaSlotMinutes} minutes)`);
+    }
   }
 
   private async busyAppointments(
@@ -540,8 +561,24 @@ export class AppointmentsService {
       patient: true,
       professional: true,
       chair: true,
-      specialty: true
+      specialty: true,
+      createdBy: { select: { id: true, firstName: true, lastName: true } }
     } satisfies Prisma.AppointmentInclude;
+  }
+
+  private async defaultChairForSchedule(actor: AuthUser, branchId: string, professionalId: string, startAt: Date) {
+    const schedule = await this.prisma.professionalSchedule.findFirst({
+      where: {
+        professionalId,
+        branchId,
+        dayOfWeek: startAt.getDay(),
+        isActive: true,
+        professional: { organizationId: actor.organizationId }
+      },
+      select: { chairId: true }
+    });
+
+    return schedule?.chairId ?? undefined;
   }
 
   private diffMinutes(startAt: Date, endAt: Date) {
@@ -569,5 +606,38 @@ export class AppointmentsService {
 
   private overlaps(startA: Date, endA: Date, startB: Date, endB: Date) {
     return startA < endB && endA > startB;
+  }
+
+  private async validateDurationSlotEnforcement(actor: AuthUser, branchId: string, professionalId: string, durationMinutes: number) {
+    const agendaConfig = await this.resolveAgendaConfig(actor, branchId, professionalId);
+    if (durationMinutes % agendaConfig.agendaSlotMinutes !== 0) {
+      throw new BadRequestException(`Appointment duration must be a multiple of professional slot minutes (${agendaConfig.agendaSlotMinutes} minutes)`);
+    }
+  }
+
+  private async resolveAgendaConfig(actor: AuthUser, branchId: string, professionalId: string) {
+    assertBranchAccess(actor, branchId);
+
+    const assignment = await this.prisma.professionalBranch.findFirst({
+      where: {
+        professionalId,
+        branchId,
+        professional: { organizationId: actor.organizationId, isActive: true },
+        branch: { organizationId: actor.organizationId, status: "ACTIVE", deletedAt: null }
+      },
+      select: {
+        agendaSlotMinutes: true,
+        defaultAppointmentDurationMinutes: true,
+        branch: { select: { agendaSlotMinutes: true } }
+      }
+    });
+
+    if (!assignment) throw new BadRequestException("Invalid professionalId for selected branch");
+
+    const agendaSlotMinutes = assignment.agendaSlotMinutes ?? assignment.branch.agendaSlotMinutes;
+    return {
+      agendaSlotMinutes,
+      defaultAppointmentDurationMinutes: assignment.defaultAppointmentDurationMinutes ?? agendaSlotMinutes
+    };
   }
 }

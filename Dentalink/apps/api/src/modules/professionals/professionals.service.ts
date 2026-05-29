@@ -5,6 +5,7 @@ import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import { CreateProfessionalDto } from "./dto/create-professional.dto";
 import { UpdateProfessionalDto } from "./dto/update-professional.dto";
+import { ConfigProfessionalDto } from "./dto/config-professional.dto";
 
 @Injectable()
 export class ProfessionalsService {
@@ -43,7 +44,12 @@ export class ProfessionalsService {
     return rows.map((row) => ({
       ...row,
       specialties: row.specialties.map((item) => item.specialty),
-      branches: row.branches.map((item) => item.branch)
+      branches: row.branches.map((item) => ({
+        ...item.branch,
+        agendaSlotMinutes: item.agendaSlotMinutes ?? item.branch.agendaSlotMinutes,
+        defaultAppointmentDurationMinutes:
+          item.defaultAppointmentDurationMinutes ?? item.agendaSlotMinutes ?? item.branch.agendaSlotMinutes
+      }))
     }));
   }
 
@@ -62,7 +68,12 @@ export class ProfessionalsService {
     return {
       ...professional,
       specialties: professional.specialties.map((item) => item.specialty),
-      branches: professional.branches.map((item) => item.branch)
+      branches: professional.branches.map((item) => ({
+        ...item.branch,
+        agendaSlotMinutes: item.agendaSlotMinutes ?? item.branch.agendaSlotMinutes,
+        defaultAppointmentDurationMinutes:
+          item.defaultAppointmentDurationMinutes ?? item.agendaSlotMinutes ?? item.branch.agendaSlotMinutes
+      }))
     };
   }
 
@@ -172,6 +183,56 @@ export class ProfessionalsService {
 
   async deactivate(actor: AuthUser, id: string) {
     return this.update(actor, id, { isActive: false });
+  }
+
+  async updateAgendaConfig(actor: AuthUser, id: string, branchId: string, dto: ConfigProfessionalDto) {
+    await this.findOne(actor, id);
+
+    if (!actor.branchIds.includes(branchId)) throw new BadRequestException("Invalid branchId");
+
+    const assignment = await this.prisma.professionalBranch.findFirst({
+      where: {
+        professionalId: id,
+        branchId,
+        professional: { organizationId: actor.organizationId },
+        branch: { organizationId: actor.organizationId, status: "ACTIVE", deletedAt: null }
+      },
+      include: { branch: true }
+    });
+
+    if (!assignment) throw new BadRequestException("Professional is not assigned to this branch");
+
+    const slotMinutes = dto.agendaSlotMinutes ?? assignment.agendaSlotMinutes ?? assignment.branch.agendaSlotMinutes;
+    const defaultDuration = dto.defaultAppointmentDurationMinutes ?? assignment.defaultAppointmentDurationMinutes ?? slotMinutes;
+    if (defaultDuration % slotMinutes !== 0) {
+      throw new BadRequestException("defaultAppointmentDurationMinutes must be a multiple of agendaSlotMinutes");
+    }
+
+    await this.prisma.professionalBranch.update({
+      where: { professionalId_branchId: { professionalId: id, branchId } },
+      data: {
+        agendaSlotMinutes: dto.agendaSlotMinutes,
+        defaultAppointmentDurationMinutes: dto.defaultAppointmentDurationMinutes
+      }
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        organizationId: actor.organizationId,
+        actorUserId: actor.id,
+        entity: "ProfessionalBranch",
+        entityId: `${id}:${branchId}`,
+        action: "update_agenda_config",
+        after: {
+          professionalId: id,
+          branchId,
+          agendaSlotMinutes: dto.agendaSlotMinutes,
+          defaultAppointmentDurationMinutes: dto.defaultAppointmentDurationMinutes
+        }
+      }
+    });
+
+    return this.findOne(actor, id);
   }
 
   private async validateForeignKeys(actor: AuthUser, userId?: string, specialtyIds?: string[], branchIds?: string[]) {

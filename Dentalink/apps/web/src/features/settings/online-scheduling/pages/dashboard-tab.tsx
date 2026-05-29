@@ -104,8 +104,8 @@ export function DashboardTab() {
                   ))}
                 </div>
               </div>
-              <div className="relative flex h-64 flex-col justify-center">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="relative flex h-64 min-w-0 flex-col justify-center">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <LineChart
                     data={[
                       { date: "Abr 23", visitas: 400, citas: 240 },

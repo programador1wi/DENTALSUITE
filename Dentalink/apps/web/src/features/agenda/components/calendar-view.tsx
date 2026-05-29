@@ -1,36 +1,19 @@
 import { EmptyState } from "@/components/feedback/empty-state";
 import type { Appointment } from "../services/appointments.service";
 import type { Professional } from "@/features/settings/professionals/services/professionals.service";
+import type { Schedule } from "@/features/settings/schedules/services/schedules.service";
 import { CalendarDays, Clock, Plus, UserRound } from "lucide-react";
 
 import { AppointmentCard } from "./appointment-card";
+import type { AppointmentMenuAction } from "./appointment-actions-menu";
 
 function dayKey(value: string) {
   return toDateInputValue(new Date(value));
 }
 
-const TIME_SLOTS = [
-  "08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "12:00", "12:30",
-  "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30",
-  "18:00", "18:30", "19:00", "19:30", "20:00"
-];
-
-const WEEK_START_HOUR = 8;
-const WEEK_END_HOUR = 20;
-const WEEK_SLOT_MINUTES = 20;
-const WEEK_SLOT_HEIGHT = 36;
-const WEEK_TIME_SLOTS = buildTimeSlots(WEEK_START_HOUR, WEEK_END_HOUR, WEEK_SLOT_MINUTES);
-
-const getAppointmentSlotKey = (appointment: Appointment) => {
-  try {
-    const date = new Date(appointment.startAt);
-    const hrs = String(date.getHours()).padStart(2, "0");
-    const mins = date.getMinutes() >= 30 ? "30" : "00";
-    return `${hrs}:${mins}`;
-  } catch {
-    return "";
-  }
-};
+const DEFAULT_DAY_START_HOUR = 8;
+const DEFAULT_DAY_END_HOUR = 19;
+const DEFAULT_DAY_SLOT_MINUTES = 30;
 
 export function CalendarView({
   appointments,
@@ -39,6 +22,10 @@ export function CalendarView({
   professionals = [],
   selectedProfessionalId = "",
   selectedBranchId = "",
+  daySlotMinutes = DEFAULT_DAY_SLOT_MINUTES,
+  dayStartHour = DEFAULT_DAY_START_HOUR,
+  dayEndHour = DEFAULT_DAY_END_HOUR,
+  schedules = [],
   onSelectProfessional,
   onCreateClick,
   onCreateSlotClick,
@@ -50,7 +37,8 @@ export function CalendarView({
   onWaitingRoom,
   onStart,
   onComplete,
-  onNoShow
+  onNoShow,
+  onMenuAction
 }: {
   appointments: Appointment[];
   date: string;
@@ -58,6 +46,10 @@ export function CalendarView({
   professionals?: Professional[];
   selectedProfessionalId?: string;
   selectedBranchId?: string;
+  daySlotMinutes?: number;
+  dayStartHour?: number;
+  dayEndHour?: number;
+  schedules?: Schedule[];
   onSelectProfessional?: (professionalId: string) => void;
   onCreateClick?: () => void;
   onCreateSlotClick?: (slot: { professionalId: string; branchId?: string; startAt: string; endAt: string }) => void;
@@ -70,7 +62,14 @@ export function CalendarView({
   onStart: (id: string) => void;
   onComplete: (id: string) => void;
   onNoShow: (id: string) => void;
+  onMenuAction?: (appointment: Appointment, action: AppointmentMenuAction) => void;
 }) {
+  const normalizedDaySlotMinutes = clampInt(daySlotMinutes, 5, 60, DEFAULT_DAY_SLOT_MINUTES);
+  const normalizedDayStartHour = clampInt(dayStartHour, 0, 23, DEFAULT_DAY_START_HOUR);
+  const normalizedDayEndHour = clampInt(dayEndHour, 0, 23, DEFAULT_DAY_END_HOUR);
+  const dayTimeSlots = buildTimeSlots(normalizedDayStartHour, normalizedDayEndHour, normalizedDaySlotMinutes, { endExclusive: true });
+  const daySlotHeight = getAgendaSlotHeight(normalizedDaySlotMinutes);
+
   if (view === "week") {
     const weekStart = getWeekStart(parseDateInput(date));
     const days = Array.from({ length: 7 }, (_, index) => {
@@ -176,7 +175,7 @@ export function CalendarView({
       acc[key] = [...(acc[key] ?? []), appointment];
       return acc;
     }, {});
-    const totalTimelineHeight = WEEK_TIME_SLOTS.length * WEEK_SLOT_HEIGHT;
+    const totalTimelineHeight = dayTimeSlots.length * daySlotHeight;
 
     return (
       <div className="w-full rounded-xl border border-zinc-200/70 bg-white shadow-sm">
@@ -236,11 +235,11 @@ export function CalendarView({
               style={{ gridTemplateColumns: "72px repeat(7, minmax(128px, 1fr))" }}
             >
               <div className="sticky left-0 z-20 border-r border-zinc-200 bg-zinc-50/80">
-                {WEEK_TIME_SLOTS.map((time) => (
+                {dayTimeSlots.map((time) => (
                   <div
                     key={time}
                     className="flex items-start justify-center border-b border-zinc-200/70 pt-1 text-[10px] font-medium text-zinc-500"
-                    style={{ height: WEEK_SLOT_HEIGHT }}
+                    style={{ height: daySlotHeight }}
                   >
                     {time}
                   </div>
@@ -249,6 +248,13 @@ export function CalendarView({
 
               {days.map((day) => {
                 const dayAppointments = appointmentsByDay[day.key] ?? [];
+                const dayBreaks = schedules.filter(
+                  (schedule) =>
+                    schedule.professionalId === selectedProfessional.id &&
+                    schedule.dayOfWeek === day.date.getDay() &&
+                    schedule.breakStartTime &&
+                    schedule.breakEndTime
+                );
 
                 return (
                   <div
@@ -256,7 +262,7 @@ export function CalendarView({
                     className="relative border-r border-zinc-200 bg-white last:border-r-0"
                     style={{ height: totalTimelineHeight }}
                   >
-                    {WEEK_TIME_SLOTS.map((time, index) => (
+                    {dayTimeSlots.map((time, index) => (
                       <button
                         key={time}
                         type="button"
@@ -265,14 +271,14 @@ export function CalendarView({
                             onCreateSlotClick({
                               professionalId: selectedProfessional.id,
                               branchId: selectedBranchId || undefined,
-                              ...slotRange(day.key, time)
+                              ...slotRange(day.key, time, normalizedDaySlotMinutes)
                             });
                             return;
                           }
                           onCreateClick?.();
                         }}
                         className="group absolute left-0 right-0 border-b border-zinc-100/90 transition-colors hover:bg-cyan-50/40"
-                        style={{ top: index * WEEK_SLOT_HEIGHT, height: WEEK_SLOT_HEIGHT }}
+                        style={{ top: index * daySlotHeight, height: daySlotHeight }}
                       >
                         <span className="pointer-events-none absolute inset-1 flex items-center justify-center rounded-md text-cyan-700 opacity-0 transition-opacity group-hover:opacity-100">
                           <Plus className="h-3.5 w-3.5" />
@@ -281,7 +287,12 @@ export function CalendarView({
                     ))}
 
                     {dayAppointments.map((appointment) => {
-                      const placement = getWeekAppointmentPlacement(appointment);
+                      const placement = getAppointmentPlacement(appointment, {
+                        startHour: normalizedDayStartHour,
+                        endHour: normalizedDayEndHour,
+                        slotMinutes: normalizedDaySlotMinutes,
+                        slotHeight: daySlotHeight
+                      });
 
                       return (
                         <div
@@ -294,20 +305,44 @@ export function CalendarView({
                             right: 0
                           }}
                         >
-                          <AppointmentCard
-                            appointment={appointment}
-                            compact={true}
-                            onEdit={onEdit}
-                            onCancel={onCancel}
-                            onReschedule={onReschedule}
-                            onConfirm={onConfirm}
-                            onArrive={onArrive}
-                            onWaitingRoom={onWaitingRoom}
-                            onStart={onStart}
-                            onComplete={onComplete}
-                            onNoShow={onNoShow}
-                          />
+                          {appointment.status === "BLOCKED" ? (
+                            <BlockedAppointmentBlock appointment={appointment} compact={true} onEdit={onEdit} />
+                          ) : (
+                            <AppointmentCard
+                              appointment={appointment}
+                              compact={true}
+                              onEdit={onEdit}
+                              onCancel={onCancel}
+                              onReschedule={onReschedule}
+                              onConfirm={onConfirm}
+                              onArrive={onArrive}
+                              onWaitingRoom={onWaitingRoom}
+                              onStart={onStart}
+                              onComplete={onComplete}
+                              onNoShow={onNoShow}
+                              onMenuAction={onMenuAction}
+                            />
+                          )}
                         </div>
+                      );
+                    })}
+
+                    {dayBreaks.map((schedule) => {
+                      const placement = getTimeRangePlacement(schedule.breakStartTime!, schedule.breakEndTime!, {
+                        startHour: normalizedDayStartHour,
+                        endHour: normalizedDayEndHour,
+                        slotMinutes: normalizedDaySlotMinutes,
+                        slotHeight: daySlotHeight
+                      });
+                      if (!placement) return null;
+
+                      return (
+                        <BreakBlock
+                          key={schedule.id}
+                          top={placement.top}
+                          height={placement.height}
+                          range={`${schedule.breakStartTime} - ${schedule.breakEndTime}`}
+                        />
                       );
                     })}
                   </div>
@@ -322,6 +357,7 @@ export function CalendarView({
 
   // --- DAY VIEW: MULTI-PROFESSIONAL COLUMN GRID (SaaS Premium Redesign) ---
   if (view === "day") {
+    const appointmentsForDate = appointments.filter((appointment) => dayKey(appointment.startAt) === date);
     const activeProfessionals = selectedProfessionalId
       ? professionals.filter((p) => p.id === selectedProfessionalId)
       : professionals;
@@ -329,8 +365,8 @@ export function CalendarView({
     // Fallback to active appointment professionals if the list is empty
     const displayProfessionals = activeProfessionals.length > 0
       ? activeProfessionals
-      : Array.from(new Set(appointments.map((a) => a.professionalId))).map((id) => {
-          const app = appointments.find((a) => a.professionalId === id);
+      : Array.from(new Set(appointmentsForDate.map((a) => a.professionalId))).map((id) => {
+          const app = appointmentsForDate.find((a) => a.professionalId === id);
           return {
             id,
             firstName: app?.professional?.firstName || "Doctor",
@@ -359,15 +395,7 @@ export function CalendarView({
       );
     }
 
-    // Map appointments by professionalId and slotKey for constant-time lookups
-    const appMap: Record<string, Appointment[]> = {};
-    appointments.forEach((app) => {
-      const slotKey = getAppointmentSlotKey(app);
-      if (slotKey) {
-        const mapKey = `${app.professionalId}:${slotKey}`;
-        appMap[mapKey] = [...(appMap[mapKey] ?? []), app];
-      }
-    });
+    const dayTimelineHeight = dayTimeSlots.length * daySlotHeight;
 
     return (
       <div className="w-full space-y-4">
@@ -386,8 +414,8 @@ export function CalendarView({
                 
                 {/* Hourly grid lines indicators */}
                 <div className="flex-1 divide-y divide-zinc-100/60">
-                  {TIME_SLOTS.map((time) => (
-                    <div key={time} className="h-20 flex items-center justify-center text-center shrink-0">
+                  {dayTimeSlots.map((time) => (
+                    <div key={time} className="flex items-center justify-center text-center shrink-0" style={{ height: daySlotHeight }}>
                       <span className="text-[10px] font-medium text-zinc-400 tracking-tight">
                         {time}
                       </span>
@@ -399,8 +427,17 @@ export function CalendarView({
               {/* Columns list for each active professional */}
               <div className="flex flex-1 divide-x divide-zinc-200/40">
                 {displayProfessionals.map((prof) => {
-                  const profApps = appointments.filter((a) => a.professionalId === prof.id);
+                  const profApps = appointmentsForDate
+                    .filter((a) => a.professionalId === prof.id)
+                    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
                   const profAppsCount = profApps.length;
+                  const profBreaks = schedules.filter(
+                    (schedule) =>
+                      schedule.professionalId === prof.id &&
+                      schedule.dayOfWeek === parseDateInput(date).getDay() &&
+                      schedule.breakStartTime &&
+                      schedule.breakEndTime
+                  );
 
                   return (
                     <div key={prof.id} className="flex-1 min-w-[220px] flex flex-col">
@@ -420,59 +457,89 @@ export function CalendarView({
                       </div>
 
                       {/* Timeline Slots under this doctor */}
-                      <div className="flex-1 divide-y divide-zinc-200/30 bg-zinc-50/5">
-                        {TIME_SLOTS.map((time) => {
-                          const mapKey = `${prof.id}:${time}`;
-                          const slotApps = appMap[mapKey] ?? [];
+                      <div className="relative flex-1 bg-zinc-50/5" style={{ height: dayTimelineHeight }}>
+                        {dayTimeSlots.map((time, index) => (
+                          <button
+                            key={time}
+                            type="button"
+                            onClick={() => {
+                              if (onCreateSlotClick) {
+                                onCreateSlotClick({
+                                  professionalId: prof.id,
+                                  branchId: selectedBranchId || undefined,
+                                  ...slotRange(date, time, normalizedDaySlotMinutes)
+                                });
+                                return;
+                              }
+                              onCreateClick?.();
+                            }}
+                            className="group/slot absolute left-0 right-0 border-b border-zinc-200/30 p-1 transition-colors duration-150 hover:bg-zinc-50/70"
+                            style={{ top: index * daySlotHeight, height: daySlotHeight }}
+                          >
+                            <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-transparent text-[10px] font-medium text-zinc-400/80 opacity-0 transition-opacity duration-150 group-hover/slot:opacity-100 group-hover/slot:text-zinc-600">
+                              <Plus className="h-3.5 w-3.5" />
+                              <span>Disponible</span>
+                            </span>
+                          </button>
+                        ))}
+
+                        {profApps.map((app) => {
+                          const placement = getAppointmentPlacement(app, {
+                            startHour: normalizedDayStartHour,
+                            endHour: normalizedDayEndHour,
+                            slotMinutes: normalizedDaySlotMinutes,
+                            slotHeight: daySlotHeight
+                          });
 
                           return (
-                            <div key={time} className="h-20 p-1 relative group">
-                              {slotApps.length > 0 ? (
-                                <div className="space-y-1 h-full">
-                                  {slotApps.map((app) => (
-                                    <div key={app.id} className="h-full">
-                                      <AppointmentCard
-                                        appointment={app}
-                                        compact={true}
-                                        onEdit={onEdit}
-                                        onCancel={onCancel}
-                                        onReschedule={onReschedule}
-                                        onConfirm={onConfirm}
-                                        onArrive={onArrive}
-                                        onWaitingRoom={onWaitingRoom}
-                                        onStart={onStart}
-                                        onComplete={onComplete}
-                                        onNoShow={onNoShow}
-                                      />
-                                    </div>
-                                  ))}
-                                </div>
+                            <div
+                              key={app.id}
+                              className="absolute z-10 px-1 py-0.5"
+                              style={{
+                                top: placement.top,
+                                height: placement.height,
+                                left: 0,
+                                right: 0
+                              }}
+                            >
+                              {app.status === "BLOCKED" ? (
+                                <BlockedAppointmentBlock appointment={app} compact={true} onEdit={onEdit} />
                               ) : (
-                                /* Interactive Glassmorphic Hover Free Slot */
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (onCreateSlotClick) {
-                                      onCreateSlotClick({
-                                        professionalId: prof.id,
-                                        branchId: selectedBranchId || undefined,
-                                        ...slotRange(date, time)
-                                      });
-                                      return;
-                                    }
-                                    onCreateClick?.();
-                                  }}
-                                  className="w-full h-full rounded-lg border border-transparent hover:bg-zinc-50/70 flex items-center justify-center transition-all duration-150 group/slot"
-                                >
-                                  <span className="text-[10px] font-medium text-zinc-400/80 group-hover/slot:text-zinc-600 flex items-center gap-1 opacity-0 group-hover/slot:opacity-100 transition-opacity duration-150">
-                                    <svg className="h-3.5 w-3.5 stroke-[1.5]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                                    </svg>
-                                    <span>Disponible</span>
-                                  </span>
-                                </button>
+                                <AppointmentCard
+                                  appointment={app}
+                                  compact={true}
+                                  onEdit={onEdit}
+                                  onCancel={onCancel}
+                                  onReschedule={onReschedule}
+                                  onConfirm={onConfirm}
+                                  onArrive={onArrive}
+                                  onWaitingRoom={onWaitingRoom}
+                                  onStart={onStart}
+                                  onComplete={onComplete}
+                                  onNoShow={onNoShow}
+                                  onMenuAction={onMenuAction}
+                                />
                               )}
                             </div>
+                          );
+                        })}
+
+                        {profBreaks.map((schedule) => {
+                          const placement = getTimeRangePlacement(schedule.breakStartTime!, schedule.breakEndTime!, {
+                            startHour: normalizedDayStartHour,
+                            endHour: normalizedDayEndHour,
+                            slotMinutes: normalizedDaySlotMinutes,
+                            slotHeight: daySlotHeight
+                          });
+                          if (!placement) return null;
+
+                          return (
+                            <BreakBlock
+                              key={schedule.id}
+                              top={placement.top}
+                              height={placement.height}
+                              range={`${schedule.breakStartTime} - ${schedule.breakEndTime}`}
+                            />
                           );
                         })}
                       </div>
@@ -517,6 +584,7 @@ export function CalendarView({
                 onStart={onStart}
                 onComplete={onComplete}
                 onNoShow={onNoShow}
+                onMenuAction={onMenuAction}
               />
             ))}
           </div>
@@ -526,11 +594,57 @@ export function CalendarView({
   );
 }
 
-function slotRange(date: string, time: string) {
+function BlockedAppointmentBlock({
+  appointment,
+  compact,
+  onEdit
+}: {
+  appointment: Appointment;
+  compact?: boolean;
+  onEdit: (appointment: Appointment) => void;
+}) {
+  const range = `${formatDisplayTime(appointment.startAt)} - ${formatDisplayTime(appointment.endAt)}`;
+
+  return (
+    <button
+      type="button"
+      onClick={() => onEdit(appointment)}
+      title={`${appointment.title} ${range}`}
+      className="flex h-full w-full flex-col justify-center overflow-hidden rounded-[var(--radius-sm)] border border-sky-300/80 px-2 py-1 text-left text-sky-950 shadow-sm transition-[border-color,box-shadow] hover:border-sky-400 hover:shadow-[var(--shadow-card-hover)]"
+      style={{
+        backgroundColor: "#eff6ff",
+        backgroundImage: "repeating-linear-gradient(135deg, rgba(14, 116, 144, 0.18) 0, rgba(14, 116, 144, 0.18) 1px, transparent 1px, transparent 6px)"
+      }}
+    >
+      <span className="truncate text-[10px] font-semibold uppercase tracking-[0.08em]">{compact ? "Bloqueo" : "Horario bloqueado"}</span>
+      <span className="truncate text-[11px] font-semibold">{appointment.title || "Bloqueo programado"}</span>
+      <span className="truncate text-[10px] font-medium text-sky-800">{range}</span>
+    </button>
+  );
+}
+
+function BreakBlock({ top, height, range }: { top: number; height: number; range: string }) {
+  return (
+    <div
+      className="absolute left-1 right-1 z-20 flex select-none items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-amber-200/80 bg-amber-50/80 px-2 text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800 shadow-sm"
+      style={{
+        top,
+        height,
+        backgroundImage:
+          "repeating-linear-gradient(135deg, rgba(217, 119, 6, 0.14) 0, rgba(217, 119, 6, 0.14) 1px, transparent 1px, transparent 7px)"
+      }}
+      title={`Horario de comida ${range}`}
+    >
+      <span className="truncate">Comida {range}</span>
+    </div>
+  );
+}
+
+function slotRange(date: string, time: string, durationMinutes = DEFAULT_DAY_SLOT_MINUTES) {
   const [year, month, day] = date.split("-").map(Number);
   const [hours, minutes] = time.split(":").map(Number);
   const start = new Date(year, month - 1, day, hours, minutes, 0, 0);
-  const end = new Date(start.getTime() + 30 * 60 * 1000);
+  const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
   return { startAt: start.toISOString(), endAt: end.toISOString() };
 }
 
@@ -577,9 +691,16 @@ function capitalize(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function buildTimeSlots(startHour: number, endHour: number, stepMinutes: number) {
+function buildTimeSlots(
+  startHour: number,
+  endHour: number,
+  stepMinutes: number,
+  options?: { endExclusive?: boolean }
+) {
   const slots: string[] = [];
-  for (let minutes = startHour * 60; minutes <= endHour * 60; minutes += stepMinutes) {
+  const endMinutes = endHour * 60;
+  const endExclusive = options?.endExclusive ?? false;
+  for (let minutes = startHour * 60; endExclusive ? minutes < endMinutes : minutes <= endMinutes; minutes += stepMinutes) {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     slots.push(`${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`);
@@ -587,15 +708,57 @@ function buildTimeSlots(startHour: number, endHour: number, stepMinutes: number)
   return slots;
 }
 
-function getWeekAppointmentPlacement(appointment: Appointment) {
+function getAppointmentPlacement(
+  appointment: Appointment,
+  config: { startHour: number; endHour: number; slotMinutes: number; slotHeight: number }
+) {
   const start = new Date(appointment.startAt);
   const end = new Date(appointment.endAt);
-  const timelineStart = WEEK_START_HOUR * 60;
-  const timelineEnd = WEEK_END_HOUR * 60;
+  const timelineStart = config.startHour * 60;
+  const timelineEnd = config.endHour * 60;
   const startMinutes = Math.max(timelineStart, start.getHours() * 60 + start.getMinutes());
-  const endMinutes = Math.min(timelineEnd + WEEK_SLOT_MINUTES, end.getHours() * 60 + end.getMinutes());
-  const top = ((startMinutes - timelineStart) / WEEK_SLOT_MINUTES) * WEEK_SLOT_HEIGHT + 2;
-  const height = Math.max(28, ((endMinutes - startMinutes) / WEEK_SLOT_MINUTES) * WEEK_SLOT_HEIGHT - 4);
+  const endMinutes = Math.min(timelineEnd, end.getHours() * 60 + end.getMinutes());
+  const top = ((startMinutes - timelineStart) / config.slotMinutes) * config.slotHeight + 2;
+  const height = Math.max(20, ((endMinutes - startMinutes) / config.slotMinutes) * config.slotHeight - 4);
 
   return { top, height };
+}
+
+function getTimeRangePlacement(
+  startTime: string,
+  endTime: string,
+  config: { startHour: number; endHour: number; slotMinutes: number; slotHeight: number }
+) {
+  const timelineStart = config.startHour * 60;
+  const timelineEnd = config.endHour * 60;
+  const startMinutes = Math.max(timelineStart, timeToMinutes(startTime));
+  const endMinutes = Math.min(timelineEnd, timeToMinutes(endTime));
+  if (endMinutes <= startMinutes) return null;
+
+  const top = ((startMinutes - timelineStart) / config.slotMinutes) * config.slotHeight + 2;
+  const height = Math.max(20, ((endMinutes - startMinutes) / config.slotMinutes) * config.slotHeight - 4);
+
+  return { top, height };
+}
+
+function formatDisplayTime(value: string) {
+  return new Date(value).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function clampInt(value: number, min: number, max: number, fallback: number) {
+  if (!Number.isFinite(value)) return fallback;
+  const normalized = Math.trunc(value);
+  if (normalized < min || normalized > max) return fallback;
+  return normalized;
+}
+
+function getAgendaSlotHeight(slotMinutes: number) {
+  if (slotMinutes <= 10) return 24;
+  if (slotMinutes <= 20) return 38;
+  return 56;
+}
+
+function timeToMinutes(value: string) {
+  const [hours, minutes] = value.split(":").map(Number);
+  return hours * 60 + minutes;
 }

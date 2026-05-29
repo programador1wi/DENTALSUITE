@@ -60,10 +60,17 @@ export function LoginPage() {
           <article className="relative overflow-hidden rounded-[24px] border border-white/70 bg-white/72 p-6 shadow-[0_35px_100px_-45px_rgba(2,6,23,0.45)] backdrop-blur-xl sm:p-8">
             <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-sky-500 via-cyan-500 to-orange-500" />
 
-            <div className="mb-6 space-y-2">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-zinc-500">ERP Dental</p>
-              <h2 className="text-2xl font-semibold tracking-tight text-zinc-900">Iniciar sesion</h2>
-              <p className="text-sm text-zinc-600">Usa tus credenciales autorizadas para entrar al sistema.</p>
+            <div className="mb-6 space-y-4">
+              <div className="flex flex-col items-center gap-2 text-center">
+                <div className="flex h-24 w-24 shrink-0 items-center justify-center rounded-2xl bg-white p-2 shadow-[0_8px_30px_rgba(6,121,200,0.15)]">
+                  <img src="/logo-2.png" alt="Warner Suite Logo" className="h-full w-full object-contain" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold tracking-tight text-zinc-900">Iniciar sesión</h2>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-600">ERP Dental · Warner Suite</p>
+                </div>
+              </div>
+              <p className="text-center text-sm text-zinc-500">Usa tus credenciales autorizadas para entrar al sistema.</p>
             </div>
 
             <LoginForm />

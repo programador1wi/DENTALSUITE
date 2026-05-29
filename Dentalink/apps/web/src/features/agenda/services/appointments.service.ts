@@ -32,10 +32,47 @@ export type Appointment = {
   notes?: string | null;
   cancellationReason?: string | null;
   branch: { id: string; name: string };
-  patient?: { id: string; firstName: string; lastName: string; phone?: string | null } | null;
+  patient?: { id: string; firstName: string; lastName: string; phone?: string | null; email?: string | null } | null;
   professional: { id: string; firstName: string; lastName: string; color?: string | null };
   chair?: { id: string; name: string } | null;
   specialty?: { id: string; name: string } | null;
+  createdBy?: { id: string; firstName: string; lastName: string } | null;
+  statusHistory?: AppointmentStatusHistory[];
+  appointmentNotes?: AppointmentNote[];
+  reminders?: AppointmentReminder[];
+};
+
+export type AppointmentStatusHistory = {
+  id: string;
+  appointmentId: string;
+  previousStatus?: AppointmentStatus | null;
+  newStatus: AppointmentStatus;
+  changedById: string;
+  changedBy?: { id: string; firstName: string; lastName: string } | null;
+  reason?: string | null;
+  createdAt: string;
+};
+
+export type AppointmentNote = {
+  id: string;
+  appointmentId: string;
+  userId: string;
+  user?: { id: string; firstName: string; lastName: string } | null;
+  note: string;
+  isPrivate: boolean;
+  createdAt: string;
+};
+
+export type AppointmentReminder = {
+  id: string;
+  appointmentId: string;
+  channel: string;
+  scheduledAt: string;
+  sentAt?: string | null;
+  status: string;
+  errorMessage?: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type AppointmentPayload = {

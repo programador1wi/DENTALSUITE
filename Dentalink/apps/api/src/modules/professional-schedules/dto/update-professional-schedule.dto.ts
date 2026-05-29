@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, ValidateIf } from "class-validator";
 
 export class UpdateProfessionalScheduleDto {
   @IsOptional()
@@ -8,6 +8,11 @@ export class UpdateProfessionalScheduleDto {
   @IsOptional()
   @IsString()
   branchId?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  chairId?: string | null;
 
   @IsOptional()
   @IsInt()
@@ -23,12 +28,14 @@ export class UpdateProfessionalScheduleDto {
   endTime?: string;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  breakStartTime?: string;
+  breakStartTime?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
-  breakEndTime?: string;
+  breakEndTime?: string | null;
 
   @IsOptional()
   @IsBoolean()

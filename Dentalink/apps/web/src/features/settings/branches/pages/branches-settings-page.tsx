@@ -35,12 +35,34 @@ export function BranchesSettingsPage() {
         { key: "city", label: "Ciudad", type: "text" },
         { key: "state", label: "Estado", type: "text" },
         { key: "country", label: "Pais", type: "text" },
-        { key: "timezone", label: "Timezone", type: "text" }
+        { key: "timezone", label: "Timezone", type: "text" },
+        {
+          key: "agendaSlotMinutes",
+          label: "Intervalo agenda",
+          type: "select",
+          options: [
+            { label: "10 minutos", value: "10" },
+            { label: "20 minutos", value: "20" },
+            { label: "30 minutos", value: "30" }
+          ]
+        },
+        { key: "agendaStartHour", label: "Inicio agenda (hora)", type: "number" },
+        { key: "agendaEndHour", label: "Fin agenda (hora)", type: "number" }
       ]}
       columns={[
         { key: "code", title: "Codigo" },
         { key: "name", title: "Nombre" },
         { key: "city", title: "Ciudad" },
+        {
+          key: "agendaSlotMinutes",
+          title: "Intervalo",
+          render: (row) => `${row.agendaSlotMinutes ?? 30} min`
+        },
+        {
+          key: "agendaStartHour",
+          title: "Agenda",
+          render: (row) => `${formatHour(row.agendaStartHour ?? 8)} - ${formatHour(row.agendaEndHour ?? 19)}`
+        },
         {
           key: "status",
           title: "Estado",
@@ -51,6 +73,12 @@ export function BranchesSettingsPage() {
         create: async (payload) => createBranch.mutateAsync(payload as never),
         update: async (id, payload) => updateBranch.mutateAsync({ id, payload: payload as never }),
         deactivate: async (id) => deactivateBranch.mutateAsync(id),
+        mapToPayload: (form) => ({
+          ...form,
+          agendaSlotMinutes: form.agendaSlotMinutes === "" ? undefined : Number(form.agendaSlotMinutes),
+          agendaStartHour: form.agendaStartHour === "" ? undefined : Number(form.agendaStartHour),
+          agendaEndHour: form.agendaEndHour === "" ? undefined : Number(form.agendaEndHour)
+        }),
         mapToForm: (row) => ({
           code: row.code,
           name: row.name,
@@ -60,10 +88,17 @@ export function BranchesSettingsPage() {
           state: row.state ?? "",
           country: "MX",
           timezone: "America/Mexico_City",
+          agendaSlotMinutes: row.agendaSlotMinutes ?? 30,
+          agendaStartHour: row.agendaStartHour ?? 8,
+          agendaEndHour: row.agendaEndHour ?? 19,
           status: row.status
         }),
         getId: (row) => row.id
       }}
     />
   );
+}
+
+function formatHour(hour: number) {
+  return `${String(hour).padStart(2, "0")}:00`;
 }

@@ -560,6 +560,16 @@ async function main() {
   }
 
   // 3. Obtener el Usuario Administrador para auditorías y asignación
+  const activeBranches = await prisma.branch.findMany({
+    where: {
+      organizationId: organization.id,
+      deletedAt: null,
+      status: "ACTIVE"
+    },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, code: true }
+  });
+
   const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "admin@dentalwarner.local";
   const adminUser = await prisma.user.findUnique({
     where: { email: adminEmail }
@@ -596,6 +606,20 @@ async function main() {
       lastName: "Matriz",
       phone: "+520000000103",
       roleName: "CEYE"
+    },
+    {
+      email: "coordinacion.px@dentalwarner.local",
+      firstName: "Coordinacion",
+      lastName: "PX",
+      phone: "+520000000104",
+      roleName: "RECEPTIONIST"
+    },
+    {
+      email: "recepcion.tarde@dentalwarner.local",
+      firstName: "Recepcion",
+      lastName: "Turno Tarde",
+      phone: "+520000000105",
+      roleName: "RECEPTIONIST"
     }
   ] as const;
 
@@ -790,28 +814,38 @@ async function main() {
     ]
   });
 
-  // Asignar Profesionales a Sucursal Matriz
+  // Asignar profesionales a todas las sucursales activas para que la agenda tenga datos visibles en cada filtro.
   const profs = [profMendoza, profVega, profRuiz, profGomez];
-  for (const prof of profs) {
-    await prisma.professionalBranch.create({
-      data: { professionalId: prof.id, branchId: branch.id, isPrimary: true }
-    });
+  for (const activeBranch of activeBranches) {
+    for (const prof of profs) {
+      await prisma.professionalBranch.create({
+        data: {
+          professionalId: prof.id,
+          branchId: activeBranch.id,
+          isPrimary: activeBranch.id === branch.id,
+          agendaSlotMinutes: prof.id === profMendoza.id ? 20 : null,
+          defaultAppointmentDurationMinutes: prof.id === profMendoza.id ? 20 : null
+        }
+      });
+    }
   }
 
   console.log("Configurando horarios activos para agenda y disponibilidad...");
   const workingDays = [1, 2, 3, 4, 5, 6];
   await prisma.professionalSchedule.createMany({
-    data: profs.flatMap((prof) =>
-      workingDays.map((dayOfWeek) => ({
-        professionalId: prof.id,
-        branchId: branch.id,
-        dayOfWeek,
-        startTime: dayOfWeek === 6 ? "09:00" : "08:00",
-        endTime: dayOfWeek === 6 ? "14:00" : "20:00",
-        breakStartTime: dayOfWeek === 6 ? null : "14:00",
-        breakEndTime: dayOfWeek === 6 ? null : "15:00",
-        isActive: true
-      }))
+    data: activeBranches.flatMap((activeBranch) =>
+      profs.flatMap((prof) =>
+        workingDays.map((dayOfWeek) => ({
+          professionalId: prof.id,
+          branchId: activeBranch.id,
+          dayOfWeek,
+          startTime: dayOfWeek === 6 ? "09:00" : "08:00",
+          endTime: dayOfWeek === 6 ? "14:00" : "20:00",
+          breakStartTime: dayOfWeek === 6 ? null : "14:00",
+          breakEndTime: dayOfWeek === 6 ? null : "15:00",
+          isActive: true
+        }))
+      )
     )
   });
 
@@ -2729,7 +2763,7 @@ async function main() {
         title: "[DEMO] Valoracion general - Juan",
         reason: "Revision inicial y diagnostico",
         status: AppointmentStatus.SCHEDULED,
-        ...demoDateRange(8, 30, 30),
+        ...demoDateRange(8, 20, 40),
         createdById: adminUser.id
       },
       {
@@ -2768,7 +2802,7 @@ async function main() {
         title: "[DEMO] Profilaxis y resina - Juan",
         reason: "Paciente en sala de espera",
         status: AppointmentStatus.WAITING_ROOM,
-        ...demoDateRange(11, 30, 45),
+        ...demoDateRange(11, 20, 40),
         createdById: adminUser.id
       },
       {
@@ -2821,7 +2855,7 @@ async function main() {
         reason: "Reagendara por telefono",
         status: AppointmentStatus.CANCELLED_BY_PATIENT,
         cancellationReason: "Paciente solicito cancelar",
-        ...demoDateRange(16, 0, 30),
+        ...demoDateRange(16, 0, 40),
         createdById: adminUser.id
       },
       {
@@ -2853,17 +2887,174 @@ async function main() {
     ]
   });
 
-  console.log("Creando datos de demostracion por sucursal...");
-  const activeBranches = await prisma.branch.findMany({
-    where: {
-      organizationId: organization.id,
-      deletedAt: null,
-      status: "ACTIVE"
+  console.log("Sembrando PX de llegada por motivos dentales...");
+  const walkInSeeds = [
+    {
+      firstName: "Mariana",
+      lastName: "Rios",
+      email: "mariana.rios.px@dentalwarner.local",
+      phone: "+525500001201",
+      gender: "FEMALE",
+      age: 34,
+      occupation: "Contadora",
+      source: "WALK_IN",
+      status: PatientStatus.NEW,
+      professionalId: profMendoza.id,
+      chairId: chairAzul.id,
+      specialtyId: specGeneral.id,
+      title: "[DEMO] Llegada PX - dolor molar",
+      reason: "Dolor espontaneo en molar inferior derecho y sensibilidad al frio",
+      notes: "PX llega sin cita previa. Refiere dolor 8/10 desde anoche; prioridad de valoracion general.",
+      appointmentStatus: AppointmentStatus.ARRIVED,
+      range: demoDateRange(10, 0, 40)
     },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, code: true }
-  });
+    {
+      firstName: "Hector",
+      lastName: "Salinas",
+      email: "hector.salinas.px@dentalwarner.local",
+      phone: "+525500001202",
+      gender: "MALE",
+      age: 41,
+      occupation: "Chofer",
+      source: "URGENCIA_TELEFONICA",
+      status: PatientStatus.IN_TREATMENT,
+      professionalId: profRuiz.id,
+      chairId: chairNaranja.id,
+      specialtyId: specEndodoncia.id,
+      title: "[DEMO] Urgencia PX - posible endodoncia",
+      reason: "Dolor pulsante, inflamacion localizada y molestia a la percusion en pieza 46",
+      notes: "PX canalizado a endodoncia. Se inicia valoracion de urgencia y control de dolor.",
+      appointmentStatus: AppointmentStatus.IN_PROGRESS,
+      range: demoDateRange(8, 0, 60)
+    },
+    {
+      firstName: "Valeria",
+      lastName: "Nava",
+      email: "valeria.nava.px@dentalwarner.local",
+      phone: "+525500001203",
+      gender: "FEMALE",
+      age: 29,
+      occupation: "Chef",
+      source: "RECOMENDACION",
+      status: PatientStatus.ACTIVE,
+      professionalId: profVega.id,
+      chairId: chairVerde.id,
+      specialtyId: specOrtodoncia.id,
+      title: "[DEMO] Llegada PX - bracket desprendido",
+      reason: "Bracket inferior desprendido con molestia en mucosa",
+      notes: "PX en sala de espera. Se agenda control corto para reposicionar bracket y retirar molestia.",
+      appointmentStatus: AppointmentStatus.WAITING_ROOM,
+      range: demoDateRange(10, 30, 30)
+    },
+    {
+      firstName: "Rosa",
+      lastName: "Beltran",
+      email: "rosa.beltran.px@dentalwarner.local",
+      phone: "+525500001204",
+      gender: "FEMALE",
+      age: 52,
+      occupation: "Comerciante",
+      source: "WALK_IN",
+      status: PatientStatus.NEW,
+      professionalId: profGomez.id,
+      chairId: null,
+      specialtyId: specPediatria.id,
+      title: "[DEMO] Llegada PX - sangrado de encias",
+      reason: "Sangrado gingival al cepillado y movilidad leve referida",
+      notes: "PX llega para valoracion periodontal inicial. Se registra triage y signos de inflamacion gingival.",
+      appointmentStatus: AppointmentStatus.ARRIVED,
+      range: demoDateRange(10, 30, 30)
+    },
+    {
+      firstName: "Omar",
+      lastName: "Cabrera",
+      email: "omar.cabrera.px@dentalwarner.local",
+      phone: "+525500001205",
+      gender: "MALE",
+      age: 47,
+      occupation: "Arquitecto",
+      source: "GOOGLE_BUSINESS",
+      status: PatientStatus.ACTIVE,
+      professionalId: profRuiz.id,
+      chairId: chairNaranja.id,
+      specialtyId: specImplantologia.id,
+      title: "[DEMO] Llegada PX - corona floja",
+      reason: "Corona sobre implante con movilidad y molestia al masticar",
+      notes: "PX llega por urgencia protesica. Se revisara torque, oclusion y estado periimplantario.",
+      appointmentStatus: AppointmentStatus.ARRIVED,
+      range: demoDateRange(10, 0, 60)
+    }
+  ];
 
+  for (const seed of walkInSeeds) {
+    const birthDate = new Date();
+    birthDate.setFullYear(birthDate.getFullYear() - seed.age);
+
+    const patient = await prisma.patient.create({
+      data: {
+        organizationId: organization.id,
+        branchId: branch.id,
+        firstName: seed.firstName,
+        lastName: seed.lastName,
+        birthDate,
+        gender: seed.gender,
+        email: seed.email,
+        phone: seed.phone,
+        occupation: seed.occupation,
+        source: seed.source,
+        referredBy: "Llegada a recepcion",
+        status: seed.status
+      }
+    });
+
+    await prisma.patientNote.create({
+      data: {
+        patientId: patient.id,
+        userId: adminUser.id,
+        note: seed.notes,
+        isPrivate: false
+      }
+    });
+
+    const appointment = await prisma.appointment.create({
+      data: {
+        organizationId: organization.id,
+        branchId: branch.id,
+        patientId: patient.id,
+        professionalId: seed.professionalId,
+        chairId: seed.chairId,
+        specialtyId: seed.specialtyId,
+        title: seed.title,
+        reason: seed.reason,
+        status: seed.appointmentStatus,
+        ...seed.range,
+        notes: seed.notes,
+        createdById: adminUser.id,
+        updatedById: adminUser.id
+      }
+    });
+
+    await prisma.appointmentStatusHistory.create({
+      data: {
+        appointmentId: appointment.id,
+        previousStatus: null,
+        newStatus: seed.appointmentStatus,
+        changedById: adminUser.id,
+        reason: seed.reason
+      }
+    });
+
+    await prisma.appointmentNote.create({
+      data: {
+        appointmentId: appointment.id,
+        userId: adminUser.id,
+        note: seed.notes,
+        isPrivate: false
+      }
+    });
+  }
+
+  console.log("Creando datos de demostracion por sucursal...");
   for (let index = 0; index < activeBranches.length; index++) {
     const activeBranch = activeBranches[index];
     const branchCode = (activeBranch.code ?? `branch-${index + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -2894,25 +3085,62 @@ async function main() {
       }
     });
 
-    await prisma.appointment.create({
-      data: {
-        organizationId: organization.id,
-        branchId: activeBranch.id,
-        patientId: patient.id,
-        professionalId: profMendoza.id,
-        specialtyId: specGeneral.id,
-        title: `[DEMO] Control inicial ${activeBranch.name}`,
+    const branchAppointments = [
+      {
+        title: `[DEMO] Valoracion dental ${activeBranch.name}`,
+        reason: "Paciente llega por sensibilidad dental y revision inicial",
+        status: AppointmentStatus.COMPLETED,
+        range: demoDateRange(10, 0, 40, -1)
+      },
+      {
+        title: `[DEMO] PX en agenda ${activeBranch.name}`,
+        reason: "Dolor dental localizado y diagnostico de urgencia",
+        status: AppointmentStatus.ARRIVED,
+        range: demoDateRange(12, 0, 40, 0)
+      },
+      {
+        title: `[DEMO] Control programado ${activeBranch.name}`,
         reason: "Cita de ejemplo para validar filtro por sucursal",
         status: AppointmentStatus.SCHEDULED,
-        ...demoDateRange(10, 0, 30, 1),
-        createdById: adminUser.id
+        range: demoDateRange(10, 0, 40, 1)
       }
-    });
+    ];
+
+    for (const appointmentSeed of branchAppointments) {
+      const appointment = await prisma.appointment.create({
+        data: {
+          organizationId: organization.id,
+          branchId: activeBranch.id,
+          patientId: patient.id,
+          professionalId: profMendoza.id,
+          specialtyId: specGeneral.id,
+          title: appointmentSeed.title,
+          reason: appointmentSeed.reason,
+          status: appointmentSeed.status,
+          ...appointmentSeed.range,
+          createdById: adminUser.id,
+          updatedById: adminUser.id
+        }
+      });
+
+      await prisma.appointmentStatusHistory.create({
+        data: {
+          appointmentId: appointment.id,
+          previousStatus: null,
+          newStatus: appointmentSeed.status,
+          changedById: adminUser.id,
+          reason: appointmentSeed.reason
+        }
+      });
+    }
   }
 
   console.log("-----------------------------------------------------------------");
   console.log("¡ÉXITO! Seed premium multiespecialidad completado exitosamente.");
-  console.log("5 Pacientes insertados/limpiados:");
+  console.log("10 Pacientes demo insertados/limpiados:");
+  console.log("  Incluye 5 pacientes base y 5 PX de llegada por motivos dentales.");
+  console.log("  PX llegada: dolor molar, endodoncia, bracket desprendido, sangrado gingival y corona floja.");
+  console.log("  Usuarios extra: coordinacion.px@dentalwarner.local y recepcion.tarde@dentalwarner.local.");
   console.log("  1. Juan Demostración: General y Mora activa ($2,000 MXN vencidos).");
   console.log("  2. Sofía Castro: Ortodoncia Estética Damon ($25,000 MXN, Plan de cuotas activo).");
   console.log("  3. Carlos Montes: Endodoncia de Urgencia en 46 ($6,300 MXN, Pagado hoy en efectivo).");

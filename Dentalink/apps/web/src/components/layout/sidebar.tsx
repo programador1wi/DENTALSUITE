@@ -152,7 +152,6 @@ function SidebarContent({
   const toggleDesktopFlyout = useCallback((item: MainNavItem, trigger: HTMLElement) => {
     setFlyout((current) => {
       if (current?.item.to === item.to) {
-        onDesktopFlyoutChange?.(false);
         return null;
       }
 
@@ -166,10 +165,9 @@ function SidebarContent({
       const preferredLeft = rect.right + 10;
       const left = preferredLeft + width > viewportWidth - 12 ? Math.max(12, rect.left - width - 10) : preferredLeft;
 
-      onDesktopFlyoutChange?.(true);
       return { item, top, left, maxHeight };
     });
-  }, [onDesktopFlyoutChange]);
+  }, []);
 
   const flyoutGroups = flyout?.item.children ? groupedChildren(flyout.item.children) : [];
 
@@ -183,10 +181,9 @@ function SidebarContent({
     >
       <div className="relative flex h-16 items-center gap-[var(--space-3)] border-b border-[var(--nav-border-subtle)] bg-[rgba(255,255,255,0.02)] px-[var(--space-3)]">
         <Link to="/dashboard" onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-[var(--space-3)]">
-          <span className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[rgba(255,255,255,0.18)] bg-[rgba(255,255,255,0.08)] text-[var(--text-base)] font-semibold text-[var(--text-inverse)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] transition-[border-color,transform] duration-[var(--duration-normal)] ease-[var(--ease-spring)] hover:scale-105">
-            <span className="absolute -right-1 -top-1 h-2 w-2 rounded-[var(--radius-full)] bg-[var(--action-primary)]" />
-            W
-          </span>
+          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white p-1 shadow-[0_2px_10px_rgba(0,0,0,0.1)] transition-transform duration-[var(--duration-normal)] hover:scale-105">
+            <img src="/logo-2.png" alt="Warner Suite Logo" className="h-full w-full object-contain" />
+          </div>
           {!collapsed ? (
             <span className="min-w-0">
               <span className="block truncate text-[var(--text-base)] font-semibold leading-tight tracking-[0.01em]">{PRODUCT_NAME}</span>

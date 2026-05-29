@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import { appointmentColorPalette, appointmentStatusLabel } from "./appointment-status";
+import { AppointmentActionsMenu, type AppointmentMenuAction } from "./appointment-actions-menu";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,7 @@ type ActionHandlers = {
   onStart: (id: string) => void;
   onComplete: (id: string) => void;
   onNoShow: (id: string) => void;
+  onMenuAction?: (appointment: Appointment, action: AppointmentMenuAction) => void;
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────────
@@ -360,7 +362,7 @@ function PaginationBtn({
 
 // ─── Row sub-component ────────────────────────────────────────────────────────
 
-function AgendaListRow({ appointment, onEdit, onCancel, onReschedule, onConfirm, onArrive, onWaitingRoom, onStart, onComplete, onNoShow }: { appointment: Appointment } & ActionHandlers) {
+function AgendaListRow({ appointment, onEdit, onCancel, onReschedule, onConfirm, onArrive, onWaitingRoom, onStart, onComplete, onNoShow, onMenuAction }: { appointment: Appointment } & ActionHandlers) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -462,7 +464,31 @@ function AgendaListRow({ appointment, onEdit, onCancel, onReschedule, onConfirm,
             </button>
           )}
 
-          <div className="relative" ref={menuRef}>
+          <AppointmentActionsMenu
+            appointment={appointment}
+            triggerVariant="list"
+            placement="auto"
+            onAction={(action) => {
+              if (action === "changeDate") {
+                onReschedule(appointment);
+                return;
+              }
+
+              if (action === "cancel") {
+                onCancel(appointment);
+                return;
+              }
+
+              if (!onMenuAction && (action === "modifyDuration" || action === "addComment" || action === "changeStatus")) {
+                onEdit(appointment);
+                return;
+              }
+
+              onMenuAction?.(appointment, action);
+            }}
+          />
+
+          <div className="hidden" ref={menuRef}>
             <button
               type="button"
               onClick={() => setMenuOpen(v => !v)}

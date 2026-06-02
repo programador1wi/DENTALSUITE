@@ -3,6 +3,10 @@ import { http } from "@/lib/api/http-client";
 export type Branch = {
   id: string;
   code: string;
+  brandId?: string | null;
+  brand?: { id: string; name: string; code: string } | null;
+  zoneId?: string | null;
+  zone?: { id: string; name: string; code: string } | null;
   name: string;
   phone?: string | null;
   email?: string | null;
@@ -17,6 +21,8 @@ export type Branch = {
 export type BranchPayload = {
   code: string;
   name: string;
+  brandId?: string | null;
+  zoneId?: string | null;
   phone?: string;
   email?: string;
   city?: string;

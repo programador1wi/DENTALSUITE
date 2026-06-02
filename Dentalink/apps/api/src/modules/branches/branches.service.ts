@@ -28,12 +28,19 @@ export class BranchesService {
         : {})
     };
 
-    return this.prisma.branch.findMany({ where, skip, take, orderBy: { name: "asc" } });
+    return this.prisma.branch.findMany({
+      where,
+      include: { brand: true, zone: true },
+      skip,
+      take,
+      orderBy: { name: "asc" }
+    });
   }
 
   async findOne(actor: AuthUser, id: string) {
     const branch = await this.prisma.branch.findFirst({
-      where: { id: { equals: id, in: actor.branchIds }, deletedAt: null, ...this.organizationScope(actor) }
+      where: { id: { equals: id, in: actor.branchIds }, deletedAt: null, ...this.organizationScope(actor) },
+      include: { brand: true, zone: true }
     });
     if (!branch) throw new NotFoundException("Branch not found");
     return branch;
@@ -41,10 +48,13 @@ export class BranchesService {
 
   async create(actor: AuthUser, dto: CreateBranchDto) {
     this.validateAgendaSettings(dto);
+    await this.validateBranchScope(actor, dto.brandId, dto.zoneId);
 
     const branch = await this.prisma.branch.create({
       data: {
         organizationId: actor.organizationId,
+        brandId: dto.brandId,
+        zoneId: dto.zoneId,
         code: this.normalizeCode(dto.code),
         name: dto.name.trim(),
         phone: dto.phone?.trim(),
@@ -91,10 +101,13 @@ export class BranchesService {
       agendaStartHour: current.agendaStartHour,
       agendaEndHour: current.agendaEndHour
     });
+    await this.validateBranchScope(actor, dto.brandId, dto.zoneId);
 
     const branch = await this.prisma.branch.update({
       where: { id },
       data: {
+        brandId: dto.brandId,
+        zoneId: dto.zoneId,
         name: dto.name?.trim(),
         phone: dto.phone?.trim(),
         email: dto.email?.toLowerCase().trim(),
@@ -151,6 +164,22 @@ export class BranchesService {
 
     if (endHour <= startHour) {
       throw new BadRequestException("agendaEndHour must be greater than agendaStartHour");
+    }
+  }
+
+  private async validateBranchScope(actor: AuthUser, brandId?: string | null, zoneId?: string | null) {
+    if (brandId) {
+      const brand = await this.prisma.branchBrand.findFirst({
+        where: { id: brandId, organizationId: actor.organizationId, isActive: true }
+      });
+      if (!brand) throw new BadRequestException("Invalid brandId");
+    }
+
+    if (zoneId) {
+      const zone = await this.prisma.branchZone.findFirst({
+        where: { id: zoneId, organizationId: actor.organizationId, isActive: true }
+      });
+      if (!zone) throw new BadRequestException("Invalid zoneId");
     }
   }
 }

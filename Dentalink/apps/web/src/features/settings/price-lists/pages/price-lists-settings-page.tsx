@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Check, MapPin, Pencil, Save, Settings, Tags, Trash2, X } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,28 +14,29 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { Tabs } from "@/components/ui/tabs";
-import {
-  useProcedureCategories,
-  useProcedureMutations,
-  useProcedures
-} from "@/features/settings/procedures/hooks/use-procedures";
-import type {
-  Procedure,
-  ProcedureCategory
-} from "@/features/settings/procedures/services/procedures.service";
+import { useProcedureMutations } from "@/features/settings/procedures/hooks/use-procedures";
+import { useUpdateBranch } from "@/features/settings/branches/hooks/use-branches";
+import type { Procedure } from "@/features/settings/procedures/services/procedures.service";
 import {
   useCreatePriceList,
   useDeactivatePriceList,
+  usePriceListAvailabilityMatrix,
+  usePriceListCategoryMutations,
   usePriceLists,
+  useUpdatePriceListBranchAssignments,
   useUpdatePriceList
 } from "../hooks/use-price-lists";
 import type {
+  BranchPriceListAssignmentPayload,
   PriceList,
+  PriceListAvailabilityMatrix,
+  PriceListCategory,
   PriceListItem,
-  PriceListPayload
+  PriceListPayload,
+  PriceListScopeType
 } from "../services/price-lists.service";
 
-type PriceSection = "list" | "clinical" | "lab";
+type PriceSection = "clinical" | "availability";
 type Currency = "MXN" | "USD" | "EUR";
 
 type ListForm = {
@@ -43,22 +45,33 @@ type ListForm = {
   isDefault: boolean;
 };
 
-type PriceForm = {
-  procedure: Procedure;
-  price: string;
-  currency: Currency;
-};
+type PriceProcedure = Pick<
+  Procedure,
+  | "id"
+  | "categoryId"
+  | "displayId"
+  | "code"
+  | "name"
+  | "description"
+  | "defaultDuration"
+  | "requiresTooth"
+  | "requiresSurface"
+  | "requiresLab"
+  | "isActive"
+>;
 
-type ProcedureForm = {
-  code: string;
+type CategoryForm = {
   name: string;
   description: string;
-  defaultDuration: string;
-  requiresTooth: boolean;
-  requiresSurface: boolean;
-  requiresLab: boolean;
+  sortOrder: string;
+};
+
+type ProductRowForm = {
+  code: string;
+  name: string;
+  allowsDiscount: boolean;
   price: string;
-  currency: Currency;
+  labCost: string;
 };
 
 const emptyListForm: ListForm = {
@@ -67,34 +80,45 @@ const emptyListForm: ListForm = {
   isDefault: false
 };
 
-const emptyProcedureForm: ProcedureForm = {
+const emptyProductRowForm: ProductRowForm = {
   code: "",
   name: "",
-  description: "",
-  defaultDuration: "30",
-  requiresTooth: false,
-  requiresSurface: false,
-  requiresLab: false,
+  allowsDiscount: false,
   price: "",
-  currency: "MXN"
+  labCost: "0"
+};
+
+const emptyCategoryForm: CategoryForm = {
+  name: "",
+  description: "",
+  sortOrder: "0"
 };
 
 function normalizeItems(items: PriceListItem[]) {
   return items.map((item) => ({
     procedureId: item.procedureId,
+    priceListCategoryId: item.priceListCategoryId ?? undefined,
     price: item.price,
+    labCost: item.labCost,
+    allowsDiscount: item.allowsDiscount,
     currency: item.currency
   }));
 }
 
-function replaceItem(list: PriceList, procedureId: string, price: string, currency: Currency) {
-  const item = { procedureId, price, currency };
+function replaceItem(
+  list: PriceList,
+  priceListCategoryId: string,
+  procedureId: string,
+  price: string,
+  labCost: string,
+  allowsDiscount: boolean,
+  currency: Currency = "MXN"
+) {
+  const item = { procedureId, priceListCategoryId, price, labCost, allowsDiscount, currency };
   const present = list.items.some((current) => current.procedureId === procedureId);
   if (!present) return [...normalizeItems(list.items), item];
 
-  return normalizeItems(list.items).map((current) =>
-    current.procedureId === procedureId ? item : current
-  );
+  return normalizeItems(list.items).map((current) => (current.procedureId === procedureId ? item : current));
 }
 
 function removeItem(list: PriceList, procedureId: string) {
@@ -110,67 +134,71 @@ function money(value?: string, currency: Currency = "MXN") {
   }).format(Number(value));
 }
 
-function categoryMatchesSection(
-  category: ProcedureCategory,
-  procedures: Procedure[],
-  section: PriceSection,
-  search: string
-) {
-  const normalizedSearch = search.trim().toLowerCase();
-  const sectionProcedures = procedures.filter((procedure) => {
-    if (procedure.categoryId !== category.id) return false;
-    if (section === "clinical") return !procedure.requiresLab;
-    if (section === "lab") return procedure.requiresLab;
-    return true;
-  });
+function procedureMatchesSearch(procedure: PriceProcedure, normalizedSearch: string) {
+  if (!normalizedSearch) return true;
+  return [procedure.code, procedure.name, procedure.description ?? ""]
+    .join(" ")
+    .toLowerCase()
+    .includes(normalizedSearch);
+}
 
-  if (!normalizedSearch) return section === "list" || sectionProcedures.length > 0;
+function proceduresForPriceCategory(category: PriceListCategory) {
+  const byId = new Map<string, PriceProcedure>();
+  category.items.forEach((item) => byId.set(item.procedureId, item.procedure));
+  return [...byId.values()];
+}
+
+function categoryMatchesSearch(category: PriceListCategory, search: string) {
+  const normalizedSearch = search.trim().toLowerCase();
+  const procedures = proceduresForPriceCategory(category);
+
+  if (!normalizedSearch) return true;
   if (category.name.toLowerCase().includes(normalizedSearch)) return true;
 
-  return sectionProcedures.some((procedure) =>
-    [procedure.code, procedure.name, procedure.description ?? ""]
-      .join(" ")
-      .toLowerCase()
-      .includes(normalizedSearch)
-  );
+  return procedures.some((procedure) => procedureMatchesSearch(procedure, normalizedSearch));
 }
 
-function isVisibleProcedure(procedure: Procedure, section: PriceSection) {
-  if (section === "clinical") return !procedure.requiresLab;
-  if (section === "lab") return procedure.requiresLab;
-  return true;
+function asSortOrder(value: string) {
+  const sortOrder = Number(value);
+  if (!Number.isFinite(sortOrder)) return 0;
+  return Math.max(0, Math.round(sortOrder));
 }
 
-function asDuration(value: string) {
-  const duration = Number(value);
-  if (!Number.isFinite(duration)) return 30;
-  return Math.min(600, Math.max(5, Math.round(duration)));
+function decimalInput(value: string, fallback = "0") {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount < 0) return fallback;
+  return amount.toFixed(2);
 }
 
 export function PriceListsSettingsPage() {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
-  const [section, setSection] = useState<PriceSection>("list");
+  const [section, setSection] = useState<PriceSection>("clinical");
   const [selectedListId, setSelectedListId] = useState("");
   const [listForm, setListForm] = useState<ListForm>(emptyListForm);
   const [listModalMode, setListModalMode] = useState<"create" | "edit" | null>(null);
-  const [priceForm, setPriceForm] = useState<PriceForm | null>(null);
-  const [procedureForm, setProcedureForm] = useState<ProcedureForm>(emptyProcedureForm);
-  const [procedureModalOpen, setProcedureModalOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<ProcedureCategory | null>(null);
-  const [categoryName, setCategoryName] = useState("");
-  const [deactivateCategory, setDeactivateCategory] = useState<ProcedureCategory | null>(null);
+  const [productForm, setProductForm] = useState<ProductRowForm>(emptyProductRowForm);
+  const [addingProduct, setAddingProduct] = useState(false);
+  const [editingProcedureId, setEditingProcedureId] = useState<string | null>(null);
+  const [categoryForm, setCategoryForm] = useState<CategoryForm>(emptyCategoryForm);
+  const [categoryModalMode, setCategoryModalMode] = useState<"create" | "edit" | null>(null);
+  const [editingCategory, setEditingCategory] = useState<PriceListCategory | null>(null);
+  const [deactivateCategory, setDeactivateCategory] = useState<PriceListCategory | null>(null);
   const [deactivateList, setDeactivateList] = useState<PriceList | null>(null);
-  const [removePriceFor, setRemovePriceFor] = useState<Procedure | null>(null);
+  const [removePriceFor, setRemovePriceFor] = useState<PriceProcedure | null>(null);
 
   const categoryId = params.get("category") ?? "";
   const lists = usePriceLists(undefined, "true");
-  const categories = useProcedureCategories(undefined, "true");
-  const catalogProcedures = useProcedures(search || undefined, "true");
-  const categoryProcedures = useProcedures(search || undefined, "true", categoryId || undefined);
+  const availabilityMatrix = usePriceListAvailabilityMatrix();
+  const selectedList = lists.data?.find((list) => list.id === selectedListId) ?? null;
+  const selectedCategory = selectedList?.categories.find((category) => category.id === categoryId) ?? null;
   const createList = useCreatePriceList();
   const updateList = useUpdatePriceList();
+  const updateBranch = useUpdateBranch();
+  const updateBranchAssignments = useUpdatePriceListBranchAssignments();
   const deactivatePriceList = useDeactivatePriceList();
+  const categoryMutations = usePriceListCategoryMutations();
   const procedureMutations = useProcedureMutations();
 
   useEffect(() => {
@@ -180,14 +208,19 @@ export function PriceListsSettingsPage() {
     }
   }, [lists.data, selectedListId]);
 
-  const selectedList = lists.data?.find((list) => list.id === selectedListId) ?? null;
-  const selectedCategory = categories.data?.find((category) => category.id === categoryId) ?? null;
-  const sectionProcedures = (categoryProcedures.data ?? []).filter((procedure) =>
-    isVisibleProcedure(procedure, section)
-  );
-  const filteredCategories = (categories.data ?? []).filter((category) =>
-    categoryMatchesSection(category, catalogProcedures.data ?? [], section, search)
-  );
+  useEffect(() => {
+    if (!categoryId || !selectedList || selectedCategory) return;
+    const next = new URLSearchParams(params);
+    next.delete("category");
+    setParams(next);
+  }, [categoryId, params, selectedCategory, selectedList, setParams]);
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const sectionProcedures = selectedCategory
+    ? proceduresForPriceCategory(selectedCategory)
+        .filter((procedure) => procedureMatchesSearch(procedure, normalizedSearch))
+    : [];
+  const filteredCategories = (selectedList?.categories ?? []).filter((category) => categoryMatchesSearch(category, search));
   const priceByProcedureId = useMemo(
     () => new Map(selectedList?.items.map((item) => [item.procedureId, item]) ?? []),
     [selectedList]
@@ -228,6 +261,23 @@ export function PriceListsSettingsPage() {
     setListModalMode("edit");
   };
 
+  const openCreateCategory = () => {
+    if (!selectedList) return;
+    setEditingCategory(null);
+    setCategoryForm(emptyCategoryForm);
+    setCategoryModalMode("create");
+  };
+
+  const openEditCategory = (category: PriceListCategory) => {
+    setEditingCategory(category);
+    setCategoryForm({
+      name: category.name,
+      description: category.description ?? "",
+      sortOrder: String(category.sortOrder)
+    });
+    setCategoryModalMode("edit");
+  };
+
   const submitList = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!listForm.name.trim()) return;
@@ -256,50 +306,105 @@ export function PriceListsSettingsPage() {
     setListModalMode(null);
   };
 
-  const submitPrice = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!priceForm || !selectedList || Number(priceForm.price) < 0) return;
-    await persistItems(replaceItem(selectedList, priceForm.procedure.id, priceForm.price, priceForm.currency));
-    setPriceForm(null);
+  const cancelProductEdit = () => {
+    setAddingProduct(false);
+    setEditingProcedureId(null);
+    setProductForm(emptyProductRowForm);
   };
 
-  const submitProcedure = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (!selectedCategory || !procedureForm.code.trim() || !procedureForm.name.trim()) return;
+  const openAddProduct = () => {
+    setEditingProcedureId(null);
+    setProductForm(emptyProductRowForm);
+    setAddingProduct(true);
+  };
 
-    const created = await procedureMutations.createProcedure.mutateAsync({
-      categoryId: selectedCategory.id,
-      code: procedureForm.code.trim(),
-      name: procedureForm.name.trim(),
-      description: procedureForm.description.trim() || undefined,
-      defaultDuration: asDuration(procedureForm.defaultDuration),
-      requiresTooth: procedureForm.requiresTooth,
-      requiresSurface: procedureForm.requiresSurface,
-      requiresLab: procedureForm.requiresLab
+  const openEditProduct = (procedure: PriceProcedure) => {
+    const item = priceByProcedureId.get(procedure.id);
+    setAddingProduct(false);
+    setEditingProcedureId(procedure.id);
+    setProductForm({
+      code: procedure.code,
+      name: procedure.name,
+      allowsDiscount: item?.allowsDiscount ?? false,
+      price: item?.price ?? "0",
+      labCost: item?.labCost ?? "0"
     });
+  };
 
-    if (selectedList && procedureForm.price.trim()) {
-      await persistItems(replaceItem(selectedList, created.id, procedureForm.price, procedureForm.currency));
-    }
+  const saveProduct = async () => {
+    if (!selectedList || !selectedCategory?.procedureCategoryId) return;
+    if (!productForm.code.trim() || !productForm.name.trim()) return;
 
-    setProcedureForm(emptyProcedureForm);
-    setProcedureModalOpen(false);
+    const payload = {
+      categoryId: selectedCategory.procedureCategoryId,
+      code: productForm.code.trim(),
+      name: productForm.name.trim(),
+      defaultDuration: 30,
+      requiresTooth: false,
+      requiresSurface: false,
+      requiresLab: Number(productForm.labCost) > 0
+    };
+
+    const procedure = editingProcedureId
+      ? await procedureMutations.updateProcedure.mutateAsync({ id: editingProcedureId, payload })
+      : await procedureMutations.createProcedure.mutateAsync(payload);
+
+    const current = priceByProcedureId.get(procedure.id);
+    await persistItems(
+      replaceItem(
+        selectedList,
+        selectedCategory.id,
+        procedure.id,
+        decimalInput(productForm.price),
+        decimalInput(productForm.labCost),
+        productForm.allowsDiscount,
+        current?.currency ?? "MXN"
+      )
+    );
+
+    cancelProductEdit();
+  };
+
+  const updateBranchScope = async (branchId: string, payload: { brandId?: string | null; zoneId?: string | null }) => {
+    await updateBranch.mutateAsync({ id: branchId, payload });
+    await availabilityMatrix.refetch();
+  };
+
+  const saveBranchAvailability = async (assignments: BranchPriceListAssignmentPayload[]) => {
+    if (!selectedList) return;
+    await updateBranchAssignments.mutateAsync({ id: selectedList.id, assignments });
   };
 
   const submitCategory = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!editingCategory || !categoryName.trim()) return;
-    await procedureMutations.updateCategory.mutateAsync({
-      id: editingCategory.id,
-      payload: { name: categoryName.trim() }
-    });
+    if (!selectedList || !categoryForm.name.trim()) return;
+
+    const payload = {
+      name: categoryForm.name.trim(),
+      description: categoryForm.description.trim() || undefined,
+      sortOrder: asSortOrder(categoryForm.sortOrder)
+    };
+
+    if (categoryModalMode === "create") {
+      await categoryMutations.createCategory.mutateAsync({
+        priceListId: selectedList.id,
+        payload
+      });
+    }
+
+    if (categoryModalMode === "edit" && editingCategory) {
+      await categoryMutations.updateCategory.mutateAsync({
+        priceListId: selectedList.id,
+        categoryId: editingCategory.id,
+        payload
+      });
+    }
+
+    setCategoryModalMode(null);
     setEditingCategory(null);
   };
 
   if (lists.isError) return <ErrorState message={lists.error.message} />;
-  if (categories.isError) return <ErrorState message={categories.error.message} />;
-  if (catalogProcedures.isError) return <ErrorState message={catalogProcedures.error.message} />;
-  if (categoryProcedures.isError) return <ErrorState message={categoryProcedures.error.message} />;
 
   return (
     <div className="space-y-4">
@@ -313,11 +418,17 @@ export function PriceListsSettingsPage() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between px-5 pt-4">
           <Tabs
             active={section}
-            onChange={(next) => setSection(next as PriceSection)}
+            onChange={(next) => {
+              if (next === "lab") {
+                navigate("/labs");
+                return;
+              }
+              setSection(next as PriceSection);
+            }}
             items={[
-              { key: "list", label: "Listado de precios" },
               { key: "clinical", label: "Acciones clinicas" },
-              { key: "lab", label: "Laboratorio" }
+              { key: "lab", label: "Laboratorio" },
+              { key: "availability", label: "Sucursales" }
             ]}
           />
           <div className="flex flex-wrap items-center gap-2">
@@ -332,11 +443,16 @@ export function PriceListsSettingsPage() {
           <div className="grid gap-3 xl:grid-cols-[minmax(240px,320px)_1fr_auto]">
             <label className="text-sm font-medium text-slate-700">
               Listado activo
-              <Select value={selectedListId} onChange={(event) => setSelectedListId(event.target.value)} className="mt-1">
+              <Select
+                value={selectedListId}
+                onChange={(event) => setSelectedListId(event.target.value)}
+                className="mt-1"
+              >
                 {!lists.data?.length ? <option value="">Sin listados</option> : null}
                 {lists.data?.map((list) => (
                   <option key={list.id} value={list.id}>
-                    {list.name}{list.isDefault ? " (default)" : ""}
+                    {list.name}
+                    {list.isDefault ? " (default)" : ""}
                   </option>
                 ))}
               </Select>
@@ -356,7 +472,11 @@ export function PriceListsSettingsPage() {
               <Button variant="secondary" onClick={openEditList} disabled={!selectedList}>
                 Editar listado
               </Button>
-              <Button variant="danger" onClick={() => setDeactivateList(selectedList)} disabled={!selectedList || !selectedList.isActive}>
+              <Button
+                variant="danger"
+                onClick={() => setDeactivateList(selectedList)}
+                disabled={!selectedList || !selectedList.isActive}
+              >
                 Desactivar
               </Button>
             </div>
@@ -364,168 +484,173 @@ export function PriceListsSettingsPage() {
 
           {selectedList ? (
             <div className="flex flex-wrap gap-2 text-sm text-slate-600">
-              <Badge value={selectedList.isDefault ? "LISTA DEFAULT" : "LISTA ACTIVA"} tone={selectedList.isDefault ? "success" : "default"} />
-              <span className="rounded-full bg-slate-100 px-3 py-1">{selectedList.items.length} precios configurados</span>
-              {selectedList.description ? <span className="rounded-full bg-slate-100 px-3 py-1">{selectedList.description}</span> : null}
+              <Badge
+                value={selectedList.isDefault ? "LISTA DEFAULT" : "LISTA ACTIVA"}
+                tone={selectedList.isDefault ? "success" : "default"}
+              />
+              <span className="rounded-full bg-slate-100 px-3 py-1">
+                {selectedList.items.length} precios configurados
+              </span>
+              <span className="rounded-full bg-slate-100 px-3 py-1">
+                {selectedList.categories.length} categorias del arancel
+              </span>
+              {selectedList.description ? (
+                <span className="rounded-full bg-slate-100 px-3 py-1">{selectedList.description}</span>
+              ) : null}
             </div>
           ) : null}
         </div>
       </Card>
 
-      {lists.isLoading || categories.isLoading ? <LoadingState message="Cargando catalogo de precios..." /> : null}
+      {lists.isLoading ? <LoadingState message="Cargando catalogo de precios..." /> : null}
 
-      {!lists.isLoading && !selectedList ? (
-        <EmptyState title="Sin listado activo" description="Crea un listado para configurar precios de prestaciones." />
+      {section === "availability" ? (
+        <PriceListAvailability
+          selectedList={selectedList}
+          matrix={availabilityMatrix.data}
+          loading={availabilityMatrix.isLoading}
+          saving={updateBranchAssignments.isPending || updateBranch.isPending}
+          onSave={saveBranchAvailability}
+          onBranchScopeChange={updateBranchScope}
+        />
+      ) : !lists.isLoading && !selectedList ? (
+        <EmptyState
+          title="Sin listado activo"
+          description="Crea un listado para configurar precios de prestaciones."
+        />
       ) : selectedCategory ? (
         <CategoryDetail
           category={selectedCategory}
           list={selectedList}
           prices={priceByProcedureId}
           procedures={sectionProcedures}
-          loading={categoryProcedures.isLoading}
-          section={section}
+          loading={false}
           onBack={closeCategory}
-          onNewProcedure={() => {
-            setProcedureForm((current) => ({
-              ...current,
-              requiresLab: section === "lab"
-            }));
-            setProcedureModalOpen(true);
-          }}
-          onEditPrice={(procedure) => {
-            const item = priceByProcedureId.get(procedure.id);
-            setPriceForm({
-              procedure,
-              price: item?.price ?? "",
-              currency: item?.currency ?? "MXN"
-            });
-          }}
+          productForm={productForm}
+          addingProduct={addingProduct}
+          editingProcedureId={editingProcedureId}
+          savingProduct={
+            procedureMutations.createProcedure.isPending ||
+            procedureMutations.updateProcedure.isPending ||
+            updateList.isPending
+          }
+          onAddProduct={openAddProduct}
+          onEditProduct={openEditProduct}
+          onCancelProduct={cancelProductEdit}
+          onSaveProduct={saveProduct}
+          onProductFormChange={setProductForm}
           onRemovePrice={setRemovePriceFor}
         />
       ) : (
         <CategoryList
           categories={filteredCategories}
-          procedures={catalogProcedures.data ?? []}
-          loading={catalogProcedures.isLoading}
-          section={section}
+          loading={false}
+          onCreate={openCreateCategory}
           onOpen={openCategory}
-          onEdit={(category) => {
-            setEditingCategory(category);
-            setCategoryName(category.name);
-          }}
+          onEdit={openEditCategory}
           onDeactivate={setDeactivateCategory}
         />
       )}
 
-      <Modal open={Boolean(listModalMode)} title={listModalMode === "edit" ? "Editar listado" : "Nuevo listado"} onClose={() => setListModalMode(null)}>
+      <Modal
+        open={Boolean(listModalMode)}
+        title={listModalMode === "edit" ? "Editar listado" : "Nuevo listado"}
+        onClose={() => setListModalMode(null)}
+      >
         <form className="space-y-3" onSubmit={submitList}>
           <label className="block text-sm font-medium text-slate-700">
             Nombre
-            <Input value={listForm.name} onChange={(event) => setListForm((current) => ({ ...current, name: event.target.value }))} />
+            <Input
+              value={listForm.name}
+              onChange={(event) => setListForm((current) => ({ ...current, name: event.target.value }))}
+            />
           </label>
           <label className="block text-sm font-medium text-slate-700">
             Descripcion
-            <Textarea rows={3} value={listForm.description} onChange={(event) => setListForm((current) => ({ ...current, description: event.target.value }))} />
+            <Textarea
+              rows={3}
+              value={listForm.description}
+              onChange={(event) =>
+                setListForm((current) => ({ ...current, description: event.target.value }))
+              }
+            />
           </label>
           <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
             <input
               type="checkbox"
               checked={listForm.isDefault}
-              onChange={(event) => setListForm((current) => ({ ...current, isDefault: event.target.checked }))}
+              onChange={(event) =>
+                setListForm((current) => ({ ...current, isDefault: event.target.checked }))
+              }
             />
             Usar como listado default
           </label>
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" type="button" onClick={() => setListModalMode(null)}>Cancelar</Button>
-            <Button disabled={createList.isPending || updateList.isPending}>{listModalMode === "edit" ? "Actualizar" : "Crear"}</Button>
+            <Button variant="secondary" type="button" onClick={() => setListModalMode(null)}>
+              Cancelar
+            </Button>
+            <Button disabled={createList.isPending || updateList.isPending}>
+              {listModalMode === "edit" ? "Actualizar" : "Crear"}
+            </Button>
           </div>
         </form>
       </Modal>
 
-      <Modal open={Boolean(priceForm)} title="Precio de prestacion" onClose={() => setPriceForm(null)}>
-        {priceForm ? (
-          <form className="space-y-3" onSubmit={submitPrice}>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-500">{priceForm.procedure.code}</p>
-              <p className="font-semibold text-slate-900">{priceForm.procedure.name}</p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
-              <label className="text-sm font-medium text-slate-700">
-                Precio final
-                <Input type="number" min="0" step="0.01" value={priceForm.price} onChange={(event) => setPriceForm((current) => current ? ({ ...current, price: event.target.value }) : current)} />
-              </label>
-              <label className="text-sm font-medium text-slate-700">
-                Moneda
-                <Select value={priceForm.currency} onChange={(event) => setPriceForm((current) => current ? ({ ...current, currency: event.target.value as Currency }) : current)}>
-                  <option value="MXN">MXN</option>
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                </Select>
-              </label>
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" type="button" onClick={() => setPriceForm(null)}>Cancelar</Button>
-              <Button disabled={!priceForm.price.trim() || updateList.isPending}>Guardar precio</Button>
-            </div>
-          </form>
-        ) : null}
-      </Modal>
-
-      <Modal open={procedureModalOpen} title="Nueva prestacion" onClose={() => setProcedureModalOpen(false)}>
-        <form className="space-y-3" onSubmit={submitProcedure}>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-sm font-medium text-slate-700">
-              Codigo
-              <Input value={procedureForm.code} onChange={(event) => setProcedureForm((current) => ({ ...current, code: event.target.value }))} />
-            </label>
-            <label className="text-sm font-medium text-slate-700">
-              Duracion sugerida
-              <Input type="number" min="5" max="600" value={procedureForm.defaultDuration} onChange={(event) => setProcedureForm((current) => ({ ...current, defaultDuration: event.target.value }))} />
-            </label>
-          </div>
-          <label className="block text-sm font-medium text-slate-700">
-            Nombre
-            <Input value={procedureForm.name} onChange={(event) => setProcedureForm((current) => ({ ...current, name: event.target.value }))} />
-          </label>
-          <label className="block text-sm font-medium text-slate-700">
-            Descripcion
-            <Textarea rows={2} value={procedureForm.description} onChange={(event) => setProcedureForm((current) => ({ ...current, description: event.target.value }))} />
-          </label>
-          <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
-            <label className="text-sm font-medium text-slate-700">
-              Precio en este listado
-              <Input type="number" min="0" step="0.01" value={procedureForm.price} onChange={(event) => setProcedureForm((current) => ({ ...current, price: event.target.value }))} />
-            </label>
-            <label className="text-sm font-medium text-slate-700">
-              Moneda
-              <Select value={procedureForm.currency} onChange={(event) => setProcedureForm((current) => ({ ...current, currency: event.target.value as Currency }))}>
-                <option value="MXN">MXN</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-              </Select>
-            </label>
-          </div>
-          <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-3">
-            <Checkbox label="Requiere diente" checked={procedureForm.requiresTooth} onChange={(requiresTooth) => setProcedureForm((current) => ({ ...current, requiresTooth }))} />
-            <Checkbox label="Requiere superficie" checked={procedureForm.requiresSurface} onChange={(requiresSurface) => setProcedureForm((current) => ({ ...current, requiresSurface }))} />
-            <Checkbox label="Requiere laboratorio" checked={procedureForm.requiresLab} onChange={(requiresLab) => setProcedureForm((current) => ({ ...current, requiresLab }))} />
-          </div>
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" type="button" onClick={() => setProcedureModalOpen(false)}>Cancelar</Button>
-            <Button disabled={procedureMutations.createProcedure.isPending}>Crear prestacion</Button>
-          </div>
-        </form>
-      </Modal>
-
-      <Modal open={Boolean(editingCategory)} title="Editar categoria" onClose={() => setEditingCategory(null)}>
+      <Modal
+        open={Boolean(categoryModalMode)}
+        title={categoryModalMode === "edit" ? "Editar categoria del arancel" : "Crear categoria"}
+        onClose={() => {
+          setCategoryModalMode(null);
+          setEditingCategory(null);
+        }}
+      >
         <form className="space-y-3" onSubmit={submitCategory}>
           <label className="block text-sm font-medium text-slate-700">
             Nombre
-            <Input value={categoryName} onChange={(event) => setCategoryName(event.target.value)} />
+            <Input
+              value={categoryForm.name}
+              onChange={(event) => setCategoryForm((current) => ({ ...current, name: event.target.value }))}
+            />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Descripcion
+            <Textarea
+              rows={3}
+              value={categoryForm.description}
+              onChange={(event) =>
+                setCategoryForm((current) => ({ ...current, description: event.target.value }))
+              }
+            />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Orden
+            <Input
+              type="number"
+              min="0"
+              value={categoryForm.sortOrder}
+              onChange={(event) =>
+                setCategoryForm((current) => ({ ...current, sortOrder: event.target.value }))
+              }
+            />
           </label>
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" type="button" onClick={() => setEditingCategory(null)}>Cancelar</Button>
-            <Button disabled={procedureMutations.updateCategory.isPending}>Actualizar</Button>
+            <Button
+              variant="secondary"
+              type="button"
+              onClick={() => {
+                setCategoryModalMode(null);
+                setEditingCategory(null);
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              disabled={
+                categoryMutations.createCategory.isPending || categoryMutations.updateCategory.isPending
+              }
+            >
+              {categoryModalMode === "edit" ? "Actualizar" : "Crear categoria"}
+            </Button>
           </div>
         </form>
       </Modal>
@@ -533,19 +658,33 @@ export function PriceListsSettingsPage() {
       <ConfirmDialog
         open={Boolean(deactivateCategory)}
         title="Desactivar categoria"
-        description={deactivateCategory ? `Se desactivara la categoria ${deactivateCategory.name}.` : "Se desactivara la categoria."}
-        confirmLabel={procedureMutations.deactivateCategory.isPending ? "Desactivando..." : "Desactivar"}
+        description={
+          deactivateCategory
+            ? `Se desactivara la categoria ${deactivateCategory.name}.`
+            : "Se desactivara la categoria."
+        }
+        confirmLabel={categoryMutations.deactivateCategory.isPending ? "Desactivando..." : "Desactivar"}
         onCancel={() => setDeactivateCategory(null)}
         onConfirm={() => {
-          if (!deactivateCategory) return;
-          void procedureMutations.deactivateCategory.mutateAsync(deactivateCategory.id).then(() => setDeactivateCategory(null));
+          if (!selectedList || !deactivateCategory) return;
+          void categoryMutations.deactivateCategory
+            .mutateAsync({
+              priceListId: selectedList.id,
+              categoryId: deactivateCategory.id
+            })
+            .then(() => {
+              if (categoryId === deactivateCategory.id) closeCategory();
+              setDeactivateCategory(null);
+            });
         }}
       />
 
       <ConfirmDialog
         open={Boolean(deactivateList)}
         title="Desactivar listado"
-        description={deactivateList ? `Se desactivara el listado ${deactivateList.name}.` : "Se desactivara el listado."}
+        description={
+          deactivateList ? `Se desactivara el listado ${deactivateList.name}.` : "Se desactivara el listado."
+        }
         confirmLabel={deactivatePriceList.isPending ? "Desactivando..." : "Desactivar"}
         onCancel={() => setDeactivateList(null)}
         onConfirm={() => {
@@ -559,9 +698,13 @@ export function PriceListsSettingsPage() {
 
       <ConfirmDialog
         open={Boolean(removePriceFor)}
-        title="Quitar precio"
-        description={removePriceFor ? `Se quitara el precio de ${removePriceFor.name} en el listado seleccionado.` : "Se quitara el precio."}
-        confirmLabel={updateList.isPending ? "Quitando..." : "Quitar"}
+        title="Eliminar producto"
+        description={
+          removePriceFor
+            ? `Se eliminara ${removePriceFor.name} de la categoria del arancel seleccionado.`
+            : "Se eliminara el producto."
+        }
+        confirmLabel={updateList.isPending ? "Eliminando..." : "Eliminar"}
         onCancel={() => setRemovePriceFor(null)}
         onConfirm={() => {
           if (!selectedList || !removePriceFor) return;
@@ -572,69 +715,327 @@ export function PriceListsSettingsPage() {
   );
 }
 
+function PriceListAvailability({
+  selectedList,
+  matrix,
+  loading,
+  saving,
+  onSave,
+  onBranchScopeChange
+}: {
+  selectedList: PriceList | null;
+  matrix?: PriceListAvailabilityMatrix;
+  loading: boolean;
+  saving: boolean;
+  onSave: (assignments: BranchPriceListAssignmentPayload[]) => Promise<void>;
+  onBranchScopeChange: (branchId: string, payload: { brandId?: string | null; zoneId?: string | null }) => Promise<void>;
+}) {
+  const [brandId, setBrandId] = useState("");
+  const [zoneId, setZoneId] = useState("");
+  const [search, setSearch] = useState("");
+  const [rows, setRows] = useState<Record<string, { enabled: boolean; type: PriceListScopeType; isDefault: boolean }>>({});
 
+  useEffect(() => {
+    if (!selectedList || !matrix?.branches) {
+      setRows({});
+      return;
+    }
+
+    setRows(
+      Object.fromEntries(
+        matrix.branches.map((branch) => {
+          const assignment = branch.priceLists.find((item) => item.priceListId === selectedList.id);
+          return [
+            branch.id,
+            {
+              enabled: Boolean(assignment?.isActive),
+              type: assignment?.type ?? inferScopeType(selectedList.name),
+              isDefault: assignment?.isDefault ?? false
+            }
+          ];
+        })
+      )
+    );
+  }, [matrix?.branches, selectedList]);
+
+  if (loading) return <LoadingState message="Cargando sucursales y aranceles..." />;
+
+  if (!selectedList) {
+    return (
+      <EmptyState
+        title="Selecciona un arancel"
+        description="Elige un listado de precios para configurar en que sucursales estara disponible."
+      />
+    );
+  }
+
+  const branches = matrix?.branches ?? [];
+  const filteredBranches = branches.filter((branch) => {
+    const normalizedSearch = search.trim().toLowerCase();
+    const matchesBrand = !brandId || branch.brandId === brandId;
+    const matchesZone = !zoneId || branch.zoneId === zoneId;
+    const matchesSearch =
+      !normalizedSearch ||
+      [branch.name, branch.code, branch.brand?.name ?? "", branch.zone?.name ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedSearch);
+    return matchesBrand && matchesZone && matchesSearch;
+  });
+  const enabledCount = branches.filter((branch) => rows[branch.id]?.enabled).length;
+  const defaultCount = branches.filter((branch) => rows[branch.id]?.isDefault).length;
+
+  const updateRow = (branchId: string, next: Partial<{ enabled: boolean; type: PriceListScopeType; isDefault: boolean }>) => {
+    setRows((current) => {
+      const previous = current[branchId] ?? { enabled: false, type: inferScopeType(selectedList.name), isDefault: false };
+      const merged = { ...previous, ...next };
+      if (!merged.enabled) merged.isDefault = false;
+      if (merged.isDefault) merged.enabled = true;
+      return { ...current, [branchId]: merged };
+    });
+  };
+
+  const submit = async () => {
+    await onSave(
+      branches.map((branch) => ({
+        branchId: branch.id,
+        enabled: rows[branch.id]?.enabled ?? false,
+        type: rows[branch.id]?.type ?? inferScopeType(selectedList.name),
+        isDefault: rows[branch.id]?.isDefault ?? false
+      }))
+    );
+  };
+
+  return (
+    <Card className="overflow-hidden p-0">
+      <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-brand-700">
+              <Tags className="h-4 w-4" />
+              Disponibilidad por sucursal
+            </div>
+            <h2 className="text-lg font-semibold text-slate-900">{selectedList.name}</h2>
+            <p className="text-sm text-slate-500">
+              Habilita este arancel solo en las sucursales que deben tomar precios desde este listado.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-sm">
+            <span className="rounded-full bg-white px-3 py-1 font-medium text-slate-700 ring-1 ring-slate-200">
+              {enabledCount} sucursales habilitadas
+            </span>
+            <span className="rounded-full bg-white px-3 py-1 font-medium text-slate-700 ring-1 ring-slate-200">
+              {defaultCount} default
+            </span>
+            <Button onClick={() => void submit()} disabled={saving}>
+              <Save className="h-4 w-4" />
+              {saving ? "Guardando..." : "Guardar cambios"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <label className="text-sm font-medium text-slate-700">
+            Marca
+            <Select className="mt-1" value={brandId} onChange={(event) => setBrandId(event.target.value)}>
+              <option value="">Todas las marcas</option>
+              {(matrix?.brands ?? []).map((brand) => (
+                <option key={brand.id} value={brand.id}>{brand.name}</option>
+              ))}
+            </Select>
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Zona
+            <Select className="mt-1" value={zoneId} onChange={(event) => setZoneId(event.target.value)}>
+              <option value="">Todas las zonas</option>
+              {(matrix?.zones ?? []).map((zone) => (
+                <option key={zone.id} value={zone.id}>{zone.name}</option>
+              ))}
+            </Select>
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Buscar
+            <Input
+              className="mt-1"
+              placeholder="Sucursal, codigo, marca o zona"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </label>
+        </div>
+      </div>
+
+      {!filteredBranches.length ? (
+        <div className="p-5">
+          <EmptyState title="Sin sucursales" description="Ajusta los filtros para ver sucursales disponibles." />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead className="bg-white text-left text-xs font-bold uppercase tracking-wider text-slate-500">
+              <tr>
+                <th className="min-w-[260px] px-4 py-3">Sucursal</th>
+                <th className="w-[210px] px-4 py-3">Marca</th>
+                <th className="w-[170px] px-4 py-3">Zona</th>
+                <th className="w-[120px] px-4 py-3">Disponible</th>
+                <th className="w-[150px] px-4 py-3">Tipo</th>
+                <th className="w-[110px] px-4 py-3">Default</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredBranches.map((branch) => {
+                const row = rows[branch.id] ?? { enabled: false, type: inferScopeType(selectedList.name), isDefault: false };
+                return (
+                  <tr key={branch.id} className="border-t border-slate-100 hover:bg-slate-50">
+                    <td className="px-4 py-3">
+                      <div className="flex items-start gap-2">
+                        <MapPin className="mt-0.5 h-4 w-4 text-slate-400" />
+                        <div>
+                          <p className="font-semibold text-slate-900">{branch.name}</p>
+                          <p className="text-xs text-slate-500">{branch.code}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Select
+                        value={branch.brandId ?? ""}
+                        onChange={(event) => void onBranchScopeChange(branch.id, { brandId: event.target.value || null })}
+                      >
+                        <option value="">Sin marca</option>
+                        {(matrix?.brands ?? []).map((brand) => (
+                          <option key={brand.id} value={brand.id}>{brand.name}</option>
+                        ))}
+                      </Select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <Select
+                        value={branch.zoneId ?? ""}
+                        onChange={(event) => void onBranchScopeChange(branch.id, { zoneId: event.target.value || null })}
+                      >
+                        <option value="">Sin zona</option>
+                        {(matrix?.zones ?? []).map((zone) => (
+                          <option key={zone.id} value={zone.id}>{zone.name}</option>
+                        ))}
+                      </Select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={row.enabled}
+                        onChange={(event) => updateRow(branch.id, { enabled: event.target.checked })}
+                        className="h-4 w-4"
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <Select
+                        value={row.type}
+                        disabled={!row.enabled}
+                        onChange={(event) => updateRow(branch.id, { type: event.target.value as PriceListScopeType })}
+                      >
+                        <option value="BASE">Base</option>
+                        <option value="POLIZA">Poliza</option>
+                        <option value="ADICIONAL">Adicional</option>
+                      </Select>
+                    </td>
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={row.isDefault}
+                        disabled={!row.enabled}
+                        onChange={(event) => updateRow(branch.id, { isDefault: event.target.checked })}
+                        className="h-4 w-4"
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function inferScopeType(name: string): PriceListScopeType {
+  const normalized = name.toUpperCase();
+  if (normalized.includes("POLIZA")) return "POLIZA";
+  if (normalized.includes("BASE")) return "BASE";
+  return "ADICIONAL";
+}
 
 function CategoryList({
   categories,
-  procedures,
   loading,
-  section,
+  onCreate,
   onOpen,
   onEdit,
   onDeactivate
 }: {
-  categories: ProcedureCategory[];
-  procedures: Procedure[];
+  categories: PriceListCategory[];
   loading: boolean;
-  section: PriceSection;
+  onCreate: () => void;
   onOpen: (id: string) => void;
-  onEdit: (category: ProcedureCategory) => void;
-  onDeactivate: (category: ProcedureCategory) => void;
+  onEdit: (category: PriceListCategory) => void;
+  onDeactivate: (category: PriceListCategory) => void;
 }) {
   return (
     <Card className="overflow-hidden p-0">
-      <div className="border-b border-slate-200 px-5 py-4">
-        <h2 className="text-base font-semibold text-slate-900">Categorias de prestaciones</h2>
-        <p className="text-sm text-slate-500">
-          Entra a una categoria para ver sus prestaciones y ajustar precios del listado seleccionado.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Categorias del arancel</h2>
+          <p className="text-sm text-slate-500">Estas categorias pertenecen solo al listado seleccionado.</p>
+        </div>
+        <Button onClick={onCreate}>Crear categoria</Button>
       </div>
       {loading ? (
-        <div className="p-5"><LoadingState message="Buscando prestaciones..." /></div>
+        <div className="p-5">
+          <LoadingState message="Buscando prestaciones..." />
+        </div>
       ) : !categories.length ? (
-        <div className="p-5"><EmptyState title="Sin categorias" description="No hay categorias que coincidan con la busqueda." /></div>
+        <div className="p-5">
+          <EmptyState
+            title="Sin categorias"
+            description="Crea una categoria para este arancel o ajusta la busqueda."
+          />
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-5 py-3">Categoria</th>
-                <th className="px-5 py-3">Tipo visible</th>
                 <th className="px-5 py-3">Prestaciones</th>
                 <th className="px-5 py-3 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {categories.map((category) => {
-                const visibleProcedures = procedures.filter((procedure) =>
-                  procedure.categoryId === category.id && isVisibleProcedure(procedure, section)
-                );
+                const visibleProcedures = proceduresForPriceCategory(category);
                 return (
                   <tr key={category.id} className="border-t border-slate-100 hover:bg-slate-50">
                     <td className="px-5 py-4">
-                      <button type="button" className="font-semibold text-brand-700 hover:underline" onClick={() => onOpen(category.id)}>
+                      <button
+                        type="button"
+                        className="font-semibold text-brand-700 hover:underline"
+                        onClick={() => onOpen(category.id)}
+                      >
                         {category.name}
                       </button>
-                    </td>
-                    <td className="px-5 py-4">
-                      {section === "lab" ? "Laboratorio" : section === "clinical" ? "Accion clinica" : "Clinica y laboratorio"}
+                      {category.description ? (
+                        <p className="mt-1 text-xs text-slate-500">{category.description}</p>
+                      ) : null}
                     </td>
                     <td className="px-5 py-4">{visibleProcedures.length || "-"}</td>
                     <td className="px-5 py-4">
                       <div className="flex justify-end gap-2">
                         <Button onClick={() => onOpen(category.id)}>Entrar</Button>
-                        <Button variant="secondary" onClick={() => onEdit(category)}>Editar</Button>
-                        <Button variant="danger" onClick={() => onDeactivate(category)}>Desactivar</Button>
+                        <Button variant="secondary" onClick={() => onEdit(category)}>
+                          Editar
+                        </Button>
+                        <Button variant="danger" onClick={() => onDeactivate(category)}>
+                          Desactivar
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -654,91 +1055,154 @@ function CategoryDetail({
   prices,
   procedures,
   loading,
-  section,
   onBack,
-  onNewProcedure,
-  onEditPrice,
+  productForm,
+  addingProduct,
+  editingProcedureId,
+  savingProduct,
+  onAddProduct,
+  onEditProduct,
+  onCancelProduct,
+  onSaveProduct,
+  onProductFormChange,
   onRemovePrice
 }: {
-  category: ProcedureCategory;
+  category: PriceListCategory;
   list: PriceList | null;
   prices: Map<string, PriceListItem>;
-  procedures: Procedure[];
+  procedures: PriceProcedure[];
   loading: boolean;
-  section: PriceSection;
   onBack: () => void;
-  onNewProcedure: () => void;
-  onEditPrice: (procedure: Procedure) => void;
-  onRemovePrice: (procedure: Procedure) => void;
+  productForm: ProductRowForm;
+  addingProduct: boolean;
+  editingProcedureId: string | null;
+  savingProduct: boolean;
+  onAddProduct: () => void;
+  onEditProduct: (procedure: PriceProcedure) => void;
+  onCancelProduct: () => void;
+  onSaveProduct: () => void;
+  onProductFormChange: (value: ProductRowForm) => void;
+  onRemovePrice: (procedure: PriceProcedure) => void;
 }) {
+  const editing = Boolean(addingProduct || editingProcedureId);
+
   return (
     <Card className="overflow-hidden p-0">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
         <div>
-          <button type="button" className="mb-2 text-sm font-semibold text-brand-700 hover:underline" onClick={onBack}>
+          <button
+            type="button"
+            className="mb-2 text-sm font-semibold text-brand-700 hover:underline"
+            onClick={onBack}
+          >
             Volver a categorias
           </button>
           <h2 className="text-lg font-semibold text-slate-900">
             {list?.name ?? "Listado"} / {category.name}
           </h2>
-          <p className="text-sm text-slate-500">
-            {section === "lab" ? "Prestaciones de laboratorio" : section === "clinical" ? "Acciones clinicas" : "Prestaciones del catalogo"}
-          </p>
+          <p className="text-sm text-slate-500">Acciones clinicas</p>
         </div>
-        <Button onClick={onNewProcedure}>Nueva prestacion</Button>
+        <Button onClick={onAddProduct} disabled={!category.procedureCategoryId || editing}>
+          Agregar producto
+        </Button>
       </div>
 
       {loading ? (
-        <div className="p-5"><LoadingState message="Cargando prestaciones..." /></div>
-      ) : !procedures.length ? (
-        <div className="p-5"><EmptyState title="Sin prestaciones" description="Crea una prestacion o cambia el filtro visible." /></div>
+        <div className="p-5">
+          <LoadingState message="Cargando prestaciones..." />
+        </div>
+      ) : !procedures.length && !addingProduct ? (
+        <div className="p-5">
+          <EmptyState
+            title="Sin productos"
+            description="Agrega un producto para este arancel o ajusta la busqueda."
+          />
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full border-collapse text-sm">
             <thead className="bg-white text-left text-xs font-bold uppercase tracking-wider text-slate-500">
               <tr>
-                <th className="px-5 py-3">Codigo</th>
-                <th className="px-5 py-3">Nombre</th>
-                <th className="px-5 py-3">Precio final</th>
-                <th className="px-5 py-3">Laboratorio</th>
-                <th className="px-5 py-3">Reglas clinicas</th>
+                <th className="w-[120px] px-4 py-3">ID</th>
+                <th className="w-[120px] px-4 py-3">Codigo</th>
+                <th className="min-w-[260px] px-4 py-3">Nombre</th>
+                <th className="w-[150px] px-4 py-3">Permite descuento</th>
+                <th className="w-[150px] px-4 py-3">Precio final</th>
+                <th className="w-[160px] px-4 py-3">Costo Laboratorio</th>
                 <th className="px-5 py-3 text-right">Opciones</th>
               </tr>
             </thead>
             <tbody>
               {procedures.map((procedure) => {
                 const price = prices.get(procedure.id);
+                if (editingProcedureId === procedure.id) {
+                  return (
+                    <ProductEditRow
+                      key={procedure.id}
+                      idLabel={String(procedure.displayId)}
+                      form={productForm}
+                      saving={savingProduct}
+                      onChange={onProductFormChange}
+                      onSave={onSaveProduct}
+                      onCancel={onCancelProduct}
+                    />
+                  );
+                }
+
                 return (
                   <tr key={procedure.id} className="border-t border-slate-100">
-                    <td className="px-5 py-4 font-medium text-slate-700">{procedure.code}</td>
-                    <td className="px-5 py-4">
-                      <p className="font-semibold text-slate-900">{procedure.name}</p>
-                      {procedure.description ? <p className="text-xs text-slate-500">{procedure.description}</p> : null}
+                    <td className="px-4 py-3 font-mono text-xs text-slate-500">{procedure.displayId}</td>
+                    <td className="px-4 py-3 font-medium text-slate-700">{procedure.code}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-900">{procedure.name}</td>
+                    <td className="px-4 py-3">{price?.allowsDiscount ? "Si" : "No"}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-900">
+                      {money(price?.price, price?.currency)}
                     </td>
-                    <td className="px-5 py-4">
-                      <span className={price ? "font-semibold text-slate-900" : "text-amber-700"}>
-                        {money(price?.price, price?.currency)}
-                      </span>
+                    <td className="px-4 py-3 font-semibold text-slate-900">
+                      {money(price?.labCost, price?.currency)}
                     </td>
-                    <td className="px-5 py-4">{procedure.requiresLab ? "Requiere" : "No"}</td>
-                    <td className="px-5 py-4">
-                      <div className="flex flex-wrap gap-1">
-                        {procedure.requiresTooth ? <Badge value="DIENTE" tone="default" /> : null}
-                        {procedure.requiresSurface ? <Badge value="SUPERFICIE" tone="default" /> : null}
-                        {!procedure.requiresTooth && !procedure.requiresSurface ? <span className="text-slate-400">Sin regla dental</span> : null}
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <div className="flex justify-end gap-2">
-                        <Button onClick={() => onEditPrice(procedure)}>{price ? "Editar precio" : "Asignar precio"}</Button>
-                        <Button variant="secondary" onClick={() => onRemovePrice(procedure)} disabled={!price}>
-                          Quitar precio
+                    <td className="px-5 py-3">
+                      <div className="flex justify-end gap-1.5">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-8 w-8 px-0"
+                          title="Editar producto"
+                          onClick={() => onEditProduct(procedure)}
+                          disabled={editing}
+                        >
+                          <Pencil className="h-4 w-4" />
                         </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          className="h-8 w-8 px-0"
+                          title="Eliminar producto"
+                          onClick={() => onRemovePrice(procedure)}
+                          disabled={!price}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                        <Link to="/settings/procedures" title="Configurar en catalogo">
+                          <Button variant="secondary" size="sm" className="h-8 w-8 px-0">
+                            <Settings className="h-4 w-4" />
+                          </Button>
+                        </Link>
                       </div>
                     </td>
                   </tr>
                 );
               })}
+              {addingProduct ? (
+                <ProductEditRow
+                  idLabel="-"
+                  form={productForm}
+                  saving={savingProduct}
+                  onChange={onProductFormChange}
+                  onSave={onSaveProduct}
+                  onCancel={onCancelProduct}
+                />
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -747,11 +1211,88 @@ function CategoryDetail({
   );
 }
 
-function Checkbox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+function ProductEditRow({
+  idLabel,
+  form,
+  saving,
+  onChange,
+  onSave,
+  onCancel
+}: {
+  idLabel: string;
+  form: ProductRowForm;
+  saving: boolean;
+  onChange: (value: ProductRowForm) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
   return (
-    <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2">
-      <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
-      {label}
-    </label>
+    <tr className="border-t border-brand-200 bg-emerald-50/40">
+      <td className="px-4 py-3 font-mono text-xs text-slate-500">{idLabel}</td>
+      <td className="px-4 py-3">
+        <Input
+          value={form.code}
+          onChange={(event) => onChange({ ...form, code: event.target.value })}
+          className="h-8"
+        />
+      </td>
+      <td className="px-4 py-3">
+        <Input
+          value={form.name}
+          onChange={(event) => onChange({ ...form, name: event.target.value })}
+          className="h-8"
+        />
+      </td>
+      <td className="px-4 py-3">
+        <input
+          type="checkbox"
+          checked={form.allowsDiscount}
+          onChange={(event) => onChange({ ...form, allowsDiscount: event.target.checked })}
+        />
+      </td>
+      <td className="px-4 py-3">
+        <Input
+          type="number"
+          min="0"
+          step="0.01"
+          value={form.price}
+          onChange={(event) => onChange({ ...form, price: event.target.value })}
+          className="h-8"
+        />
+      </td>
+      <td className="px-4 py-3">
+        <Input
+          type="number"
+          min="0"
+          step="0.01"
+          value={form.labCost}
+          onChange={(event) => onChange({ ...form, labCost: event.target.value })}
+          className="h-8"
+        />
+      </td>
+      <td className="px-5 py-3">
+        <div className="flex justify-end gap-1.5">
+          <Button
+            size="sm"
+            className="h-8 w-8 px-0"
+            title="Guardar producto"
+            onClick={onSave}
+            disabled={saving || !form.code.trim() || !form.name.trim()}
+          >
+            <Check className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            className="h-8 w-8 px-0"
+            title="Cancelar"
+            onClick={onCancel}
+            disabled={saving}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </td>
+    </tr>
   );
 }

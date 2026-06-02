@@ -27,6 +27,7 @@ import {
   ListLabProvidersQueryDto,
   ListSuppliersQueryDto,
   UpdateInventoryItemDto,
+  UpdateLabProcedureAssignmentsDto,
   UpdateLabOrderCostDto,
   UpdateLabOrderStatusDto,
   UpdateLabProviderDto,
@@ -63,6 +64,22 @@ export class LabsInventoryController {
   @RequirePermissions("lab_providers.deactivate")
   deactivateLabProvider(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
     return this.service.deactivateLabProvider(actor, id);
+  }
+
+  @Get("labs/procedure-assignments")
+  @RequirePermissions("lab_providers.read")
+  listLabProcedureAssignments(@CurrentUser() actor: AuthUser) {
+    return this.service.listLabProcedureAssignments(actor);
+  }
+
+  @Patch("labs/procedures/:procedureId/assignments")
+  @RequirePermissions("lab_providers.update")
+  updateLabProcedureAssignments(
+    @CurrentUser() actor: AuthUser,
+    @Param("procedureId") procedureId: string,
+    @Body() dto: UpdateLabProcedureAssignmentsDto
+  ) {
+    return this.service.updateLabProcedureAssignments(actor, procedureId, dto);
   }
 
   @Get("labs/orders")

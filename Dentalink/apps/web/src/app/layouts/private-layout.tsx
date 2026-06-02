@@ -31,9 +31,9 @@ export function PrivateLayout({ children }: PropsWithChildren) {
   return (
     <div className="min-h-screen bg-[var(--bg-page)] p-[var(--space-2)] text-[var(--text-primary)] lg:flex lg:gap-[var(--space-3)] lg:p-[var(--space-3)]">
       <Sidebar mobileOpen={sidebarOpen} onMobileClose={() => setSidebarOpen(false)} />
-      <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-3)]">
+      <div className="flex min-w-0 flex-1 flex-col gap-[var(--space-3)] overflow-x-hidden">
         <Header onMenuClick={() => setSidebarOpen((value) => !value)} mobileOpen={sidebarOpen} />
-        <main className="mx-auto w-full max-w-[1536px] px-[var(--space-2)] pb-[var(--space-6)] pt-[var(--space-3)] md:px-[var(--space-6)]">
+        <main className="mx-auto w-full max-w-[1536px] min-w-0 px-[var(--space-2)] pb-[var(--space-6)] pt-[var(--space-3)] md:px-[var(--space-6)]">
           {children}
         </main>
       </div>

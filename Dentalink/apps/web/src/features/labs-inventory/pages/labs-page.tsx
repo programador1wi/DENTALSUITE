@@ -17,13 +17,15 @@ type ProviderForm = {
   phone: string;
   email: string;
   address: string;
+  details: string;
 };
 
 const emptyProvider: ProviderForm = {
   name: "",
   phone: "",
   email: "",
-  address: ""
+  address: "",
+  details: ""
 };
 
 export function LabsPage({ enabledOnly = false }: { enabledOnly?: boolean }) {
@@ -47,7 +49,8 @@ export function LabsPage({ enabledOnly = false }: { enabledOnly?: boolean }) {
       name: provider.name,
       phone: provider.phone ?? "",
       email: provider.email ?? "",
-      address: provider.address ?? ""
+      address: provider.address ?? "",
+      details: provider.details ?? ""
     });
     setFormOpen(true);
   };
@@ -60,7 +63,8 @@ export function LabsPage({ enabledOnly = false }: { enabledOnly?: boolean }) {
       name: providerForm.name.trim(),
       phone: providerForm.phone.trim() || undefined,
       email: providerForm.email.trim() || undefined,
-      address: providerForm.address.trim() || undefined
+      address: providerForm.address.trim() || undefined,
+      details: providerForm.details.trim() || undefined
     };
 
     if (editing) {
@@ -115,6 +119,7 @@ export function LabsPage({ enabledOnly = false }: { enabledOnly?: boolean }) {
                     <td className="px-4 py-4">
                       <p className="font-semibold text-slate-900">{provider.name}</p>
                       {provider.address ? <p className="text-xs text-slate-500">{provider.address}</p> : null}
+                      {provider.details ? <p className="mt-1 max-w-xl text-xs text-slate-500">{provider.details}</p> : null}
                     </td>
                     <td className="px-4 py-4">{provider.phone || "-"}</td>
                     <td className="px-4 py-4">{provider.email || "-"}</td>
@@ -155,7 +160,21 @@ export function LabsPage({ enabledOnly = false }: { enabledOnly?: boolean }) {
           </div>
           <label className="block text-sm font-medium text-slate-700">
             Direccion
-            <Textarea rows={3} value={providerForm.address} onChange={(event) => setProviderForm((current) => ({ ...current, address: event.target.value }))} />
+            <Textarea
+              className="min-h-12"
+              rows={2}
+              value={providerForm.address}
+              onChange={(event) => setProviderForm((current) => ({ ...current, address: event.target.value }))}
+            />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Detalles
+            <Textarea
+              className="min-h-20"
+              rows={3}
+              value={providerForm.details}
+              onChange={(event) => setProviderForm((current) => ({ ...current, details: event.target.value }))}
+            />
           </label>
           <div className="flex justify-end gap-2">
             <Button variant="secondary" type="button" onClick={() => setFormOpen(false)}>Cancelar</Button>

@@ -7,7 +7,6 @@ export type UserListItem = {
   lastName: string;
   phone?: string | null;
   status: string;
-  permissionsOverride: boolean;
   permissions: {
     id: string;
     key: string;
@@ -32,7 +31,6 @@ export type CreateUserPayload = {
   firstName: string;
   lastName: string;
   password: string;
-  permissionIds?: string[];
   phone?: string;
   primaryBranchId?: string;
   roleId: string;

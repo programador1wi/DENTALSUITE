@@ -7,6 +7,14 @@ export class UpdateBranchDto {
 
   @IsOptional()
   @IsString()
+  brandId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  zoneId?: string | null;
+
+  @IsOptional()
+  @IsString()
   phone?: string;
 
   @IsOptional()

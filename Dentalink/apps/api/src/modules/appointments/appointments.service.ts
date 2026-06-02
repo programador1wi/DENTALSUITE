@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { AppointmentStatus, Prisma } from "@prisma/client";
+import { AppointmentStatus, Prisma, ProfessionalBranchStatus } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
@@ -87,14 +87,15 @@ export class AppointmentsService {
     const chairId = dto.chairId ?? (await this.defaultChairForSchedule(actor, dto.branchId, dto.professionalId, startAt));
 
     this.validateDates(startAt, endAt, durationMinutes);
-    await this.validateDurationSlotEnforcement(actor, dto.branchId, dto.professionalId, durationMinutes);
+    await this.validateDurationSlotEnforcement(actor, dto.branchId, dto.professionalId, durationMinutes, startAt);
     await this.validateReferences(actor, {
       branchId: dto.branchId,
       patientId: dto.patientId,
       professionalId: dto.professionalId,
       chairId,
       specialtyId: dto.specialtyId,
-      status
+      status,
+      startAt
     });
     await this.enforceSchedulingRules(actor, {
       branchId: dto.branchId,
@@ -150,14 +151,15 @@ export class AppointmentsService {
     assertBranchAccess(actor, branchId);
 
     this.validateDates(startAt, endAt, durationMinutes);
-    await this.validateDurationSlotEnforcement(actor, branchId, professionalId, durationMinutes);
+    await this.validateDurationSlotEnforcement(actor, branchId, professionalId, durationMinutes, startAt);
     await this.validateReferences(actor, {
       branchId,
       patientId: dto.patientId ?? current.patientId ?? undefined,
       professionalId,
       chairId,
       specialtyId: dto.specialtyId ?? current.specialtyId ?? undefined,
-      status
+      status,
+      startAt
     });
     await this.enforceSchedulingRules(
       actor,
@@ -225,7 +227,7 @@ export class AppointmentsService {
     const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
 
     this.validateDates(startAt, endAt, durationMinutes);
-    await this.validateDurationSlotEnforcement(actor, current.branchId, current.professionalId, durationMinutes);
+    await this.validateDurationSlotEnforcement(actor, current.branchId, current.professionalId, durationMinutes, startAt);
     await this.enforceSchedulingRules(
       actor,
       {
@@ -282,7 +284,7 @@ export class AppointmentsService {
     const date = this.parseClinicDate(query.date);
     if (Number.isNaN(date.getTime())) throw new BadRequestException("Invalid date");
 
-    const agendaConfig = await this.resolveAgendaConfig(actor, query.branchId, query.professionalId);
+    const agendaConfig = await this.resolveAgendaConfig(actor, query.branchId, query.professionalId, date);
     const slotMinutes = agendaConfig.agendaSlotMinutes;
     const duration = query.durationMinutes ? Number(query.durationMinutes) : agendaConfig.defaultAppointmentDurationMinutes;
     if (!Number.isInteger(duration) || duration < 5) throw new BadRequestException("Invalid durationMinutes");
@@ -295,7 +297,8 @@ export class AppointmentsService {
       professionalId: query.professionalId,
       chairId: query.chairId,
       status: AppointmentStatus.SCHEDULED,
-      requirePatient: false
+      requirePatient: false,
+      startAt: date
     });
 
     const dayOfWeek = date.getDay();
@@ -364,6 +367,7 @@ export class AppointmentsService {
       specialtyId?: string;
       status: AppointmentStatus;
       requirePatient?: boolean;
+      startAt?: Date;
     }
   ) {
     if (input.requirePatient !== false && input.status !== AppointmentStatus.BLOCKED && !input.patientId) {
@@ -380,7 +384,18 @@ export class AppointmentsService {
         id: input.professionalId,
         organizationId: actor.organizationId,
         isActive: true,
-        branches: { some: { branchId: input.branchId } }
+        branches: {
+          some: {
+            branchId: input.branchId,
+            status: ProfessionalBranchStatus.ACTIVE,
+            ...(input.startAt
+              ? {
+                  startsAt: { lte: input.startAt },
+                  OR: [{ endsAt: null }, { endsAt: { gt: input.startAt } }]
+                }
+              : {})
+          }
+        }
       }
     });
     if (!professional) throw new BadRequestException("Invalid professionalId for selected branch");
@@ -481,7 +496,7 @@ export class AppointmentsService {
       throw new BadRequestException("Appointment overlaps professional break");
     }
 
-    const agendaConfig = await this.resolveAgendaConfig(actor, input.branchId, input.professionalId);
+    const agendaConfig = await this.resolveAgendaConfig(actor, input.branchId, input.professionalId, input.startAt);
     const minutesFromScheduleStart = this.diffMinutes(scheduleStart, input.startAt);
     if (minutesFromScheduleStart % agendaConfig.agendaSlotMinutes !== 0) {
       throw new BadRequestException(`Appointment startAt must align to professional slot minutes (${agendaConfig.agendaSlotMinutes} minutes)`);
@@ -608,20 +623,29 @@ export class AppointmentsService {
     return startA < endB && endA > startB;
   }
 
-  private async validateDurationSlotEnforcement(actor: AuthUser, branchId: string, professionalId: string, durationMinutes: number) {
-    const agendaConfig = await this.resolveAgendaConfig(actor, branchId, professionalId);
+  private async validateDurationSlotEnforcement(
+    actor: AuthUser,
+    branchId: string,
+    professionalId: string,
+    durationMinutes: number,
+    at?: Date
+  ) {
+    const agendaConfig = await this.resolveAgendaConfig(actor, branchId, professionalId, at);
     if (durationMinutes % agendaConfig.agendaSlotMinutes !== 0) {
       throw new BadRequestException(`Appointment duration must be a multiple of professional slot minutes (${agendaConfig.agendaSlotMinutes} minutes)`);
     }
   }
 
-  private async resolveAgendaConfig(actor: AuthUser, branchId: string, professionalId: string) {
+  private async resolveAgendaConfig(actor: AuthUser, branchId: string, professionalId: string, at = new Date()) {
     assertBranchAccess(actor, branchId);
 
     const assignment = await this.prisma.professionalBranch.findFirst({
       where: {
         professionalId,
         branchId,
+        status: ProfessionalBranchStatus.ACTIVE,
+        startsAt: { lte: at },
+        OR: [{ endsAt: null }, { endsAt: { gt: at } }],
         professional: { organizationId: actor.organizationId, isActive: true },
         branch: { organizationId: actor.organizationId, status: "ACTIVE", deletedAt: null }
       },

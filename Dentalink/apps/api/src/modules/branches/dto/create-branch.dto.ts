@@ -9,6 +9,14 @@ export class CreateBranchDto {
 
   @IsOptional()
   @IsString()
+  brandId?: string;
+
+  @IsOptional()
+  @IsString()
+  zoneId?: string;
+
+  @IsOptional()
+  @IsString()
   phone?: string;
 
   @IsOptional()

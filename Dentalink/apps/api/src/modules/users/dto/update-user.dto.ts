@@ -23,11 +23,6 @@ export class UpdateUserDto {
   password?: string;
 
   @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  permissionIds?: string[];
-
-  @IsOptional()
   @IsIn(["ACTIVE", "INACTIVE", "LOCKED", "PENDING"])
   status?: "ACTIVE" | "INACTIVE" | "LOCKED" | "PENDING";
 

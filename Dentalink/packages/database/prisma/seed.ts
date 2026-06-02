@@ -524,130 +524,158 @@ const roleDefinitions = [
 
 const predefinedBranches = [
   {
-    code: "TAPACHULA",
-    name: "Tapachula",
-    phone: "+52 962 000 1001",
-    email: "tapachula@warnersuite.local",
-    address: "Av. Central 245, Col. Centro",
-    city: "Tapachula",
-    state: "Chiapas"
-  },
-  {
-    code: "ATLIXCO",
-    name: "Atlixco",
-    phone: "+52 244 000 1002",
-    email: "atlixco@warnersuite.local",
-    address: "Blvd. Atlixco 112, Col. Centro",
-    city: "Atlixco",
-    state: "Puebla"
-  },
-  {
-    code: "CAMPECHE",
-    name: "Campeche",
-    phone: "+52 981 000 1003",
-    email: "campeche@warnersuite.local",
-    address: "Calle 59 187, Zona Centro",
-    city: "Campeche",
-    state: "Campeche"
-  },
-  {
-    code: "COMITAN",
-    name: "Comitan",
-    phone: "+52 963 000 1004",
-    email: "comitan@warnersuite.local",
-    address: "Av. Primera Sur 508, Centro",
-    city: "Comitan",
-    state: "Chiapas"
-  },
-  {
-    code: "CORDOBA_VER",
-    name: "Cordoba Veracruz",
-    phone: "+52 271 000 1005",
-    email: "cordoba@warnersuite.local",
-    address: "Av. 3 915, Centro",
-    city: "Cordoba",
-    state: "Veracruz"
-  },
-  {
-    code: "GUADALAJARA",
-    name: "Guadalajara",
-    phone: "+52 33 0000 1006",
-    email: "guadalajara@warnersuite.local",
-    address: "Av. Chapultepec 395, Americana",
-    city: "Guadalajara",
-    state: "Jalisco"
-  },
-  {
-    code: "MERIDA",
-    name: "Merida",
-    phone: "+52 999 000 1007",
-    email: "merida@warnersuite.local",
-    address: "Paseo de Montejo 278, Centro",
-    city: "Merida",
-    state: "Yucatan"
-  },
-  {
-    code: "PACHUCA",
-    name: "Pachuca",
-    phone: "+52 771 000 1008",
-    email: "pachuca@warnersuite.local",
-    address: "Blvd. Felipe Angeles 401, Centro",
-    city: "Pachuca",
-    state: "Hidalgo"
-  },
-  {
-    code: "SAN_CRISTOBAL",
-    name: "San Cristobal",
-    phone: "+52 967 000 1009",
-    email: "sancristobal@warnersuite.local",
-    address: "Real de Guadalupe 142, Centro",
-    city: "San Cristobal de las Casas",
-    state: "Chiapas"
-  },
-  {
-    code: "TONALA",
-    name: "Tonala",
-    phone: "+52 33 0000 1010",
-    email: "tonala@warnersuite.local",
-    address: "Av. Tonaltecas 510, Centro",
-    city: "Tonala",
-    state: "Jalisco"
-  },
-  {
-    code: "TUXPAN",
-    name: "Tuxpan",
-    phone: "+52 783 000 1011",
-    email: "tuxpan@warnersuite.local",
-    address: "Av. Juarez 620, Centro",
-    city: "Tuxpan",
-    state: "Veracruz"
-  },
-  {
     code: "TUXTLA",
-    name: "Tuxtla",
+    name: "Dental + Suc. Tuxtla",
     phone: "+52 961 000 1012",
     email: "tuxtla@warnersuite.local",
     address: "Blvd. Belisario Dominguez 1024",
     city: "Tuxtla Gutierrez",
-    state: "Chiapas"
+    state: "Chiapas",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "TAPACHULA",
+    name: "Dental + Suc. Tapachula",
+    phone: "+52 962 000 1001",
+    email: "tapachula@warnersuite.local",
+    address: "Av. Central 245, Col. Centro",
+    city: "Tapachula",
+    state: "Chiapas",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "ATLIXCO",
+    name: "Dental + Suc. Atlixco",
+    phone: "+52 244 000 1002",
+    email: "atlixco@warnersuite.local",
+    address: "Blvd. Atlixco 112, Col. Centro",
+    city: "Atlixco",
+    state: "Puebla",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "CAMPECHE",
+    name: "Dental + Suc. Campeche",
+    phone: "+52 981 000 1003",
+    email: "campeche@warnersuite.local",
+    address: "Calle 59 187, Zona Centro",
+    city: "Campeche",
+    state: "Campeche",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "COMITAN",
+    name: "Dental + Suc. Comitán",
+    phone: "+52 963 000 1004",
+    email: "comitan@warnersuite.local",
+    address: "Av. Primera Sur 508, Centro",
+    city: "Comitán",
+    state: "Chiapas",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "CORDOBA_VER",
+    name: "Dental + Suc. Córdoba Veracruz",
+    phone: "+52 271 000 1005",
+    email: "cordoba@warnersuite.local",
+    address: "Av. 3 915, Centro",
+    city: "Córdoba",
+    state: "Veracruz",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "GUADALAJARA",
+    name: "Dental + Suc. Guadalajara",
+    phone: "+52 33 0000 1006",
+    email: "guadalajara@warnersuite.local",
+    address: "Av. Chapultepec 395, Americana",
+    city: "Guadalajara",
+    state: "Jalisco",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "MERIDA",
+    name: "Dental + Suc. Mérida",
+    phone: "+52 999 000 1007",
+    email: "merida@warnersuite.local",
+    address: "Paseo de Montejo 278, Centro",
+    city: "Mérida",
+    state: "Yucatán",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "PACHUCA",
+    name: "Dental + Suc. Pachuca",
+    phone: "+52 771 000 1008",
+    email: "pachuca@warnersuite.local",
+    address: "Blvd. Felipe Angeles 401, Centro",
+    city: "Pachuca",
+    state: "Hidalgo",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "SAN_CRISTOBAL",
+    name: "Dental + Suc. San Cristóbal",
+    phone: "+52 967 000 1009",
+    email: "sancristobal@warnersuite.local",
+    address: "Real de Guadalupe 142, Centro",
+    city: "San Cristóbal de las Casas",
+    state: "Chiapas",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "TONALA",
+    name: "Dental + Suc. Tonalá",
+    phone: "+52 33 0000 1010",
+    email: "tonala@warnersuite.local",
+    address: "Av. Tonaltecas 510, Centro",
+    city: "Tonalá",
+    state: "Jalisco",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "TUXPAN",
+    name: "Dental + Suc. Tuxpan",
+    phone: "+52 783 000 1011",
+    email: "tuxpan@warnersuite.local",
+    address: "Av. Juarez 620, Centro",
+    city: "Tuxpan",
+    state: "Veracruz",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
   },
   {
     code: "VILLAHERMOSA",
-    name: "Villahermosa",
+    name: "Dental + Suc. Villahermosa",
     phone: "+52 993 000 1013",
     email: "villahermosa@warnersuite.local",
     address: "Av. Universidad 336, Atasta",
     city: "Villahermosa",
-    state: "Tabasco"
+    state: "Tabasco",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
   },
   {
     code: "XALAPA",
-    name: "Xalapa",
+    name: "Dental + Suc. Xalapa",
     phone: "+52 228 000 1014",
     email: "xalapa@warnersuite.local",
     address: "Av. Lazaro Cardenas 891, Centro",
     city: "Xalapa",
-    state: "Veracruz"
+    state: "Veracruz",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
   },
   {
     code: "DXRAY_TUXTLA",
@@ -656,7 +684,304 @@ const predefinedBranches = [
     email: "dxray-tuxtla@warnersuite.local",
     address: "Periferico Sur 120, Tuxtla",
     city: "Tuxtla Gutierrez",
-    state: "Chiapas"
+    state: "Chiapas",
+    brandCode: "DX_RAY",
+    zoneCode: "SUR"
+  },
+  {
+    code: "AGUASCALIENTES",
+    name: "Dental + Suc. Aguascalientes",
+    phone: "+52 000 000 1016",
+    email: "aguascalientes@warnersuite.local",
+    address: "Sucursal Aguascalientes",
+    city: "Aguascalientes",
+    state: "Aguascalientes",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "CANCUN",
+    name: "Dental + Suc. Cancún",
+    phone: "+52 000 000 1017",
+    email: "cancun@warnersuite.local",
+    address: "Sucursal Cancún",
+    city: "Cancún",
+    state: "Quintana Roo",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "CONDESA",
+    name: "Dental + Suc. Condesa",
+    phone: "+52 000 000 1018",
+    email: "condesa@warnersuite.local",
+    address: "Sucursal Condesa",
+    city: "Ciudad de México",
+    state: "Ciudad de México",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "DURANGO",
+    name: "Dental + Suc. Durango",
+    phone: "+52 000 000 1019",
+    email: "durango@warnersuite.local",
+    address: "Sucursal Durango",
+    city: "Durango",
+    state: "Durango",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "LEON",
+    name: "Dental + Suc. León",
+    phone: "+52 000 000 1020",
+    email: "leon@warnersuite.local",
+    address: "Sucursal León",
+    city: "León",
+    state: "Guanajuato",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "LEON_VALLE",
+    name: "Dental + Suc. León Valle",
+    phone: "+52 000 000 1021",
+    email: "leon-valle@warnersuite.local",
+    address: "Sucursal León Valle",
+    city: "León",
+    state: "Guanajuato",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "MEXICALI",
+    name: "Dental + Suc. Mexicali",
+    phone: "+52 000 000 1022",
+    email: "mexicali@warnersuite.local",
+    address: "Sucursal Mexicali",
+    city: "Mexicali",
+    state: "Baja California",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "PLAYA_DEL_CARMEN",
+    name: "Dental + Suc. Playa Del Carmen",
+    phone: "+52 000 000 1023",
+    email: "playa-del-carmen@warnersuite.local",
+    address: "Sucursal Playa Del Carmen",
+    city: "Playa Del Carmen",
+    state: "Quintana Roo",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "PUERTO_VALLARTA",
+    name: "Dental + Suc. Puerto Vallarta",
+    phone: "+52 000 000 1024",
+    email: "puerto-vallarta@warnersuite.local",
+    address: "Sucursal Puerto Vallarta",
+    city: "Puerto Vallarta",
+    state: "Jalisco",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "SAN_LUIS_POTOSI",
+    name: "Dental + Suc. San Luis Potosí",
+    phone: "+52 000 000 1025",
+    email: "san-luis-potosi@warnersuite.local",
+    address: "Sucursal San Luis Potosí",
+    city: "San Luis Potosí",
+    state: "San Luis Potosí",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "SAN_LUIS_RIO",
+    name: "Dental + Suc. San Luis Río",
+    phone: "+52 000 000 1026",
+    email: "san-luis-rio@warnersuite.local",
+    address: "Sucursal San Luis Río",
+    city: "San Luis Río",
+    state: "Sonora",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "NORTE"
+  },
+  {
+    code: "JWARNER_9NA_SUR",
+    name: "Dental J.Warner 9na Sur",
+    phone: "+52 000 000 1027",
+    email: "jwarner-9na-sur@warnersuite.local",
+    address: "9na Sur",
+    city: "Tuxtla Gutierrez",
+    state: "Chiapas",
+    brandCode: "DENTAL_JWARNER",
+    zoneCode: "SUR"
+  },
+  {
+    code: "REAL_DEL_BOSQUE",
+    name: "Dental + Real Del Bosque",
+    phone: "+52 000 000 1028",
+    email: "real-del-bosque@warnersuite.local",
+    address: "Real Del Bosque",
+    city: "Tuxtla Gutierrez",
+    state: "Chiapas",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "LAURELES",
+    name: "Dental + Suc Laureles",
+    phone: "+52 000 000 1029",
+    email: "laureles@warnersuite.local",
+    address: "Sucursal Laureles",
+    city: "Tuxtla Gutierrez",
+    state: "Chiapas",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "VILLAFLORES",
+    name: "Dental + Suc. Villaflores",
+    phone: "+52 000 000 1030",
+    email: "villaflores@warnersuite.local",
+    address: "Sucursal Villaflores",
+    city: "Villaflores",
+    state: "Chiapas",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  },
+  {
+    code: "JWARNER_ESPECIALIDADES_TUXTLA",
+    name: "Dental J.Warner Especialidades Tuxtla",
+    phone: "+52 000 000 1031",
+    email: "jwarner-especialidades-tuxtla@warnersuite.local",
+    address: "Especialidades Tuxtla",
+    city: "Tuxtla Gutierrez",
+    state: "Chiapas",
+    brandCode: "DENTAL_JWARNER",
+    zoneCode: "SUR"
+  },
+  {
+    code: "JWARNER_PAULINO_NAVARRO",
+    name: "Dental J.Warner Paulino Navarro",
+    phone: "+52 000 000 1032",
+    email: "jwarner-paulino-navarro@warnersuite.local",
+    address: "Paulino Navarro",
+    city: "Tuxtla Gutierrez",
+    state: "Chiapas",
+    brandCode: "DENTAL_JWARNER",
+    zoneCode: "SUR"
+  },
+  {
+    code: "JWARNER_VILLAHERMOSA",
+    name: "Dental J.Warner Villahermosa",
+    phone: "+52 000 000 1033",
+    email: "jwarner-villahermosa@warnersuite.local",
+    address: "Sucursal Villahermosa",
+    city: "Villahermosa",
+    state: "Tabasco",
+    brandCode: "DENTAL_JWARNER",
+    zoneCode: "SUR"
+  },
+  {
+    code: "PACHUCA_SELECT",
+    name: "Dental+ Pachuca Select",
+    phone: "+52 000 000 1034",
+    email: "pachuca-select@warnersuite.local",
+    address: "Pachuca Select",
+    city: "Pachuca",
+    state: "Hidalgo",
+    brandCode: "DENTAL_PLUS",
+    zoneCode: "SUR"
+  }
+] as const;
+
+const predefinedBranchBrands = [
+  { code: "DENTAL_PLUS", name: "Dental+" },
+  { code: "DX_RAY", name: "Dx-Ray" },
+  { code: "DENTAL_JWARNER", name: "Dental J.Warner" }
+] as const;
+
+const predefinedBranchZones = [
+  { code: "NORTE", name: "Norte" },
+  { code: "SUR", name: "Sur" }
+] as const;
+
+const baseArancelCategories = [
+  "APARATOLOGIA 2026",
+  "CIRUGIA 2026",
+  "ENDODONCIA 2026",
+  "ESTETICO 2026",
+  "ESTUDIOS DENTALES 2026",
+  "EXODONCIA 2026",
+  "ODONTOPEDIATRIA 2026",
+  "OPERATORIA 2026",
+  "ORTODONCIA 2026",
+  "PERIODONCIA 2026",
+  "POLIZA DENTAL 2026",
+  "PREVENTIVO BASICO 2026",
+  "PRODUCTOR GUM 2026",
+  "PROMOCION INTERNA 2026",
+  "PROTESIS FIJA 20266",
+  "PROTESIS REMOVIBLE 20266",
+  "REDES SOCIALES 2026"
+] as const;
+
+const polizaDentalCategories = [
+  "APARATOLOGIA 2026",
+  "CIRUGIA 2026",
+  "ENDODONCIA 2026",
+  "ESTETICO 2026",
+  "ESTUDIOS DENTALES 2026",
+  "EXODONCIA 2026",
+  "ODONTOPEDIATRIA 2026",
+  "OPERATORIA",
+  "ORTODONCIA 2026",
+  "PERIODONCIA2026",
+  "POLIZA DENTAL 2026",
+  "PREVENTIVO BASICO 2026",
+  "PRODUCTOS GUM 2026",
+  "PROMOCIONES INTERNAS 2026",
+  "PROTESIS FIJA 20266",
+  "PROTESIS REMOVIBLE 20266",
+  "REDES SOCIALES 2026"
+] as const;
+
+const seededPriceLists = [
+  {
+    name: "ARANCEL BASE SUR 2026",
+    description: "Arancel base para sucursales zona Sur 2026",
+    zoneCode: "SUR",
+    type: "BASE",
+    isDefault: true,
+    categories: baseArancelCategories
+  },
+  {
+    name: "POLIZA DENTAL SUR 2026",
+    description: "Poliza dental para sucursales zona Sur 2026",
+    zoneCode: "SUR",
+    type: "POLIZA",
+    isDefault: false,
+    categories: polizaDentalCategories
+  },
+  {
+    name: "ARANCEL BASE NORTE 2026",
+    description: "Arancel base para sucursales zona Norte 2026",
+    zoneCode: "NORTE",
+    type: "BASE",
+    isDefault: false,
+    categories: baseArancelCategories
+  },
+  {
+    name: "POLIZA DENTAL NORTE 2026",
+    description: "Poliza dental para sucursales zona Norte 2026",
+    zoneCode: "NORTE",
+    type: "POLIZA",
+    isDefault: false,
+    categories: polizaDentalCategories
   }
 ] as const;
 
@@ -683,10 +1008,10 @@ async function main() {
     }
   });
 
-  const defaultBranchCode = process.env.SEED_DEFAULT_BRANCH_CODE ?? "MATRIZ";
-  const defaultBranchName = process.env.SEED_DEFAULT_BRANCH_NAME ?? "Sucursal Matriz";
-
   const branchCatalog = new Map(predefinedBranches.map((branch) => [branch.code, branch]));
+  const requestedDefaultBranchCode = process.env.SEED_DEFAULT_BRANCH_CODE ?? "TUXTLA";
+  const defaultBranchCode = branchCatalog.has(requestedDefaultBranchCode) ? requestedDefaultBranchCode : "TUXTLA";
+  const defaultBranchName = process.env.SEED_DEFAULT_BRANCH_NAME ?? "Dental + Suc. Tuxtla";
   if (!branchCatalog.has(defaultBranchCode)) {
     branchCatalog.set(defaultBranchCode, {
       code: defaultBranchCode,
@@ -699,7 +1024,77 @@ async function main() {
     });
   }
 
+  const activeBranchCodes = [...branchCatalog.keys()];
+  await prisma.userBranch.deleteMany({
+    where: {
+      branch: {
+        organizationId: organization.id,
+        code: { notIn: activeBranchCodes }
+      }
+    }
+  });
+  await prisma.branch.updateMany({
+    where: {
+      organizationId: organization.id,
+      deletedAt: null,
+      code: { notIn: activeBranchCodes }
+    },
+    data: {
+      status: "INACTIVE",
+      isActive: false,
+      deletedAt: new Date()
+    }
+  });
+
+  const branchBrands = new Map<string, string>();
+  for (const brandSeed of predefinedBranchBrands) {
+    const brand = await prisma.branchBrand.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: organization.id,
+          code: brandSeed.code
+        }
+      },
+      update: {
+        name: brandSeed.name,
+        isActive: true
+      },
+      create: {
+        organizationId: organization.id,
+        code: brandSeed.code,
+        name: brandSeed.name
+      }
+    });
+    branchBrands.set(brand.code, brand.id);
+  }
+
+  const branchZones = new Map<string, string>();
+  for (const zoneSeed of predefinedBranchZones) {
+    const zone = await prisma.branchZone.upsert({
+      where: {
+        organizationId_code: {
+          organizationId: organization.id,
+          code: zoneSeed.code
+        }
+      },
+      update: {
+        name: zoneSeed.name,
+        isActive: true
+      },
+      create: {
+        organizationId: organization.id,
+        code: zoneSeed.code,
+        name: zoneSeed.name
+      }
+    });
+    branchZones.set(zone.code, zone.id);
+  }
+
   for (const branchSeed of branchCatalog.values()) {
+    const brandId = "brandCode" in branchSeed ? branchBrands.get(branchSeed.brandCode) : undefined;
+    const zoneCode = "zoneCode" in branchSeed ? branchSeed.zoneCode : "SUR";
+    const zoneId = branchZones.get(zoneCode);
+
     await prisma.branch.upsert({
       where: {
         organizationId_code: {
@@ -708,6 +1103,8 @@ async function main() {
         }
       },
       update: {
+        brandId,
+        zoneId,
         name: branchSeed.name,
         phone: branchSeed.phone,
         email: branchSeed.email,
@@ -721,6 +1118,8 @@ async function main() {
       },
       create: {
         organizationId: organization.id,
+        brandId,
+        zoneId,
         code: branchSeed.code,
         name: branchSeed.name,
         phone: branchSeed.phone,
@@ -867,6 +1266,82 @@ async function main() {
         isPrimary: assignedBranch.code === defaultBranchCode
       }
     });
+  }
+
+  await prisma.branchPriceList.deleteMany({ where: { organizationId: organization.id } });
+  await prisma.priceListItem.deleteMany({ where: { priceList: { organizationId: organization.id } } });
+  await prisma.priceListCategory.deleteMany({ where: { organizationId: organization.id } });
+  await prisma.agreement.updateMany({
+    where: { organizationId: organization.id, priceListId: { not: null } },
+    data: { priceListId: null }
+  });
+  await prisma.priceList.deleteMany({ where: { organizationId: organization.id } });
+
+  for (const priceListSeed of seededPriceLists) {
+    const priceList = await prisma.priceList.create({
+      data: {
+        organizationId: organization.id,
+        name: priceListSeed.name,
+        description: priceListSeed.description,
+        isDefault: priceListSeed.isDefault,
+        isActive: true
+      }
+    });
+
+    for (const [index, categoryName] of priceListSeed.categories.entries()) {
+      const procedureCategory = await prisma.procedureCategory.upsert({
+        where: {
+          organizationId_name: {
+            organizationId: organization.id,
+            name: categoryName
+          }
+        },
+        update: {
+          sortOrder: index + 1,
+          isActive: true
+        },
+        create: {
+          organizationId: organization.id,
+          name: categoryName,
+          sortOrder: index + 1,
+          isActive: true
+        }
+      });
+
+      await prisma.priceListCategory.create({
+        data: {
+          organizationId: organization.id,
+          priceListId: priceList.id,
+          procedureCategoryId: procedureCategory.id,
+          name: categoryName,
+          sortOrder: index + 1,
+          isActive: true
+        }
+      });
+    }
+
+    const assignedBranches = await prisma.branch.findMany({
+      where: {
+        organizationId: organization.id,
+        deletedAt: null,
+        status: "ACTIVE",
+        zone: { code: priceListSeed.zoneCode }
+      },
+      select: { id: true }
+    });
+
+    if (assignedBranches.length) {
+      await prisma.branchPriceList.createMany({
+        data: assignedBranches.map((branch) => ({
+          organizationId: organization.id,
+          branchId: branch.id,
+          priceListId: priceList.id,
+          type: priceListSeed.type,
+          isDefault: priceListSeed.type === "BASE",
+          isActive: true
+        }))
+      });
+    }
   }
 
   const staffPassword = process.env.SEED_STAFF_PASSWORD ?? "Usuario123!";

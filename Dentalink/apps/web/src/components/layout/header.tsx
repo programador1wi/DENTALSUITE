@@ -35,10 +35,7 @@ export function Header({
 
   const permissions = user?.permissions ?? [];
   const section = currentSection(location.pathname, permissions);
-  const assignedBranches = useMemo(
-    () => branches?.filter((branch) => user?.branchIds?.includes(branch.id)) ?? [],
-    [branches, user?.branchIds]
-  );
+  const assignedBranches = useMemo(() => branches ?? [], [branches]);
 
   useEffect(() => {
     if (assignedBranches.length > 0) {

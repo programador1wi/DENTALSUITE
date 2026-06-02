@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, ProfessionalBranchStatus } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
@@ -166,12 +166,19 @@ export class ProfessionalSchedulesService {
   }
 
   private async validateReferences(actor: AuthUser, professionalId: string, branchId: string, chairId?: string) {
+    const now = new Date();
     const professional = await this.prisma.professional.findFirst({
       where: {
         id: professionalId,
         organizationId: actor.organizationId,
         isActive: true,
-        branches: { some: { branchId } }
+        branches: {
+          some: {
+            branchId,
+            status: ProfessionalBranchStatus.ACTIVE,
+            OR: [{ endsAt: null }, { endsAt: { gt: now } }]
+          }
+        }
       }
     });
 

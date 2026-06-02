@@ -270,7 +270,7 @@ export class TreatmentPlansService {
 
     const agreement = plan.patient.agreement;
     const quantity = dto.quantity ?? 1;
-    const unitPrice = dto.unitPrice ?? (await this.resolveProcedurePrice(actor, plan.patient, dto.procedureId));
+    const unitPrice = dto.unitPrice ?? (await this.resolveProcedurePrice(actor, plan.branchId, plan.patient, dto.procedureId));
     const discount = dto.discount ?? 0;
     const itemPayload = {
       ...dto,
@@ -701,20 +701,69 @@ export class TreatmentPlansService {
 
   private async resolveProcedurePrice(
     actor: AuthUser,
+    branchId: string,
     patient: { agreement?: { priceListId?: string | null } | null },
     procedureId: string
   ) {
     const preferredPriceListId = patient.agreement?.priceListId;
+    const hasBranchScopedLists = await this.prisma.branchPriceList.count({
+      where: {
+        organizationId: actor.organizationId,
+        branchId,
+        isActive: true,
+        priceList: { isActive: true }
+      }
+    });
 
     if (preferredPriceListId) {
       const agreementPrice = await this.prisma.priceListItem.findFirst({
         where: {
           procedureId,
           priceListId: preferredPriceListId,
-          priceList: { organizationId: actor.organizationId, isActive: true }
+          priceList: {
+            organizationId: actor.organizationId,
+            isActive: true,
+            ...(hasBranchScopedLists
+              ? {
+                  branchAssignments: {
+                    some: { branchId, isActive: true }
+                  }
+                }
+              : {})
+          }
         }
       });
       if (agreementPrice) return Number(agreementPrice.price);
+    }
+
+    if (hasBranchScopedLists) {
+      const branchDefaultPrice = await this.prisma.priceListItem.findFirst({
+        where: {
+          procedureId,
+          priceList: {
+            organizationId: actor.organizationId,
+            isActive: true,
+            branchAssignments: {
+              some: { branchId, isActive: true, isDefault: true }
+            }
+          }
+        }
+      });
+      if (branchDefaultPrice) return Number(branchDefaultPrice.price);
+
+      const branchPrice = await this.prisma.priceListItem.findFirst({
+        where: {
+          procedureId,
+          priceList: {
+            organizationId: actor.organizationId,
+            isActive: true,
+            branchAssignments: {
+              some: { branchId, isActive: true }
+            }
+          }
+        }
+      });
+      if (branchPrice) return Number(branchPrice.price);
     }
 
     const defaultPrice = await this.prisma.priceListItem.findFirst({

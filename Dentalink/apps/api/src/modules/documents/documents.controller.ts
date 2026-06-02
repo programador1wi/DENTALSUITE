@@ -97,6 +97,50 @@ export class DocumentsController {
     });
   }
 
+  @Get("users/:userId/files")
+  @RequirePermissions("users.read")
+  listUserFiles(@CurrentUser() actor: AuthUser, @Param("userId") userId: string, @Query() query: PatientFilesQueryDto) {
+    return this.service.listUserFiles(actor, userId, query);
+  }
+
+  @Post("users/:userId/files/upload")
+  @RequirePermissions("users.update")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))
+  @ApiConsumes("multipart/form-data")
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        file: { type: "string", format: "binary" },
+        category: { type: "string", example: "TITLE" },
+        professionalId: { type: "string" }
+      },
+      required: ["file"]
+    }
+  })
+  uploadUserBinaryFile(
+    @CurrentUser() actor: AuthUser,
+    @Param("userId") userId: string,
+    @Body() dto: UploadBinaryFileAttachmentDto,
+    @UploadedFile() file?: UploadedPatientFile
+  ) {
+    return this.service.uploadUserBinaryFile(actor, userId, dto, file);
+  }
+
+  @Get("users/:userId/files/:fileId/content")
+  @RequirePermissions("users.read")
+  async getUserFileContent(
+    @CurrentUser() actor: AuthUser,
+    @Param("userId") userId: string,
+    @Param("fileId") fileId: string
+  ) {
+    const file = await this.service.getUserFileContent(actor, userId, fileId);
+    return new StreamableFile(file.stream, {
+      type: file.mimeType,
+      disposition: `inline; filename="${file.downloadName}"`
+    });
+  }
+
   @Get("settings/consent-templates")
   @RequirePermissions("consent_templates.read")
   listTemplates(@CurrentUser() actor: AuthUser, @Query() query: ConsentTemplatesQueryDto) {

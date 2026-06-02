@@ -1,16 +1,64 @@
 import type { PropsWithChildren, ReactNode } from "react";
+import { ChevronDown } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils/cn";
 
+export type LabRequestView = "pending" | "process" | "review" | "finished";
+
+export const LAB_REQUEST_STATE_META: Record<
+  LabRequestView,
+  {
+    label: string;
+    plural: string;
+    dotClass: string;
+    textClass: string;
+    bgClass: string;
+    borderClass: string;
+  }
+> = {
+  pending: {
+    label: "Pendiente",
+    plural: "Pendientes",
+    dotClass: "bg-sky-500",
+    textClass: "text-sky-700",
+    bgClass: "bg-sky-50",
+    borderClass: "border-sky-200"
+  },
+  process: {
+    label: "En proceso",
+    plural: "En proceso",
+    dotClass: "bg-amber-500",
+    textClass: "text-amber-700",
+    bgClass: "bg-amber-50",
+    borderClass: "border-amber-200"
+  },
+  review: {
+    label: "En revision",
+    plural: "En revision",
+    dotClass: "bg-indigo-500",
+    textClass: "text-indigo-700",
+    bgClass: "bg-indigo-50",
+    borderClass: "border-indigo-200"
+  },
+  finished: {
+    label: "Finalizada",
+    plural: "Finalizadas",
+    dotClass: "bg-emerald-500",
+    textClass: "text-emerald-700",
+    bgClass: "bg-emerald-50",
+    borderClass: "border-emerald-200"
+  }
+};
+
 type LabsNavItem = {
   to: string;
   label: string;
   match?: string;
   exact?: boolean;
-  children?: Array<{ to: string; label: string }>;
+  children?: Array<{ to: string; view: LabRequestView }>;
 };
 
 const labsNav: LabsNavItem[] = [
@@ -22,13 +70,19 @@ const labsNav: LabsNavItem[] = [
     label: "Solicitudes",
     match: "/labs/orders",
     children: [
-      { to: "/labs/orders?view=pending", label: "Pendiente" },
-      { to: "/labs/orders?view=process", label: "En proceso" },
-      { to: "/labs/orders?view=review", label: "En revision" },
-      { to: "/labs/orders?view=finished", label: "Finalizada" }
+      { to: "/labs/orders?view=pending", view: "pending" },
+      { to: "/labs/orders?view=process", view: "process" },
+      { to: "/labs/orders?view=review", view: "review" },
+      { to: "/labs/orders?view=finished", view: "finished" }
     ]
   }
 ];
+
+function currentRequestsView(search: string): LabRequestView {
+  const value = new URLSearchParams(search).get("view");
+  if (value === "process" || value === "review" || value === "finished") return value;
+  return "pending";
+}
 
 export function LabsWorkspace({
   children,
@@ -37,6 +91,7 @@ export function LabsWorkspace({
   action
 }: PropsWithChildren<{ title: string; description: string; action?: ReactNode }>) {
   const location = useLocation();
+  const requestView = currentRequestsView(location.search);
 
   return (
     <div className="space-y-4">
@@ -53,26 +108,47 @@ export function LabsWorkspace({
                 <div key={item.to} className="group relative">
                   <Link
                     to={item.to}
+                    aria-haspopup={item.children ? "menu" : undefined}
                     className={cn(
                       "flex h-full min-h-[58px] items-center gap-2 border-r border-slate-200 px-5 text-sm font-semibold text-slate-500 hover:bg-white hover:text-slate-900",
                       active && "bg-white text-brand-700 shadow-[inset_0_-3px_0_rgb(14_165_233)]"
                     )}
                   >
                     {item.label}
-                    {item.children ? <span className="text-xs">v</span> : null}
+                    {item.children ? (
+                      <ChevronDown
+                        className="h-3.5 w-3.5 transition-transform group-hover:rotate-180 group-focus-within:rotate-180"
+                        aria-hidden="true"
+                      />
+                    ) : null}
                   </Link>
 
                   {item.children ? (
-                    <div className="invisible absolute left-0 top-full z-20 min-w-[190px] rounded-b-xl border border-slate-200 bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
-                      {item.children.map((child) => (
-                        <Link
-                          key={child.to}
-                          to={child.to}
-                          className="block rounded-lg px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-brand-700"
-                        >
-                          {child.label}
-                        </Link>
-                      ))}
+                    <div
+                      className="invisible absolute left-0 top-full z-20 min-w-[230px] rounded-b-lg border border-slate-200 bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                      role="menu"
+                    >
+                      {item.children.map((child) => {
+                        const meta = LAB_REQUEST_STATE_META[child.view];
+                        const childActive = location.pathname === "/labs/orders" && requestView === child.view;
+
+                        return (
+                          <Link
+                            key={child.to}
+                            to={child.to}
+                            className={cn(
+                              "mb-1 flex items-center gap-2 rounded-md border border-transparent px-3 py-2 text-sm font-medium last:mb-0 hover:bg-slate-50",
+                              childActive && meta.bgClass,
+                              childActive && meta.borderClass,
+                              childActive ? meta.textClass : "text-slate-700"
+                            )}
+                            role="menuitem"
+                          >
+                            <span className={cn("h-2.5 w-2.5 rounded-full", meta.dotClass)} />
+                            <span>{meta.label}</span>
+                          </Link>
+                        );
+                      })}
                     </div>
                   ) : null}
                 </div>

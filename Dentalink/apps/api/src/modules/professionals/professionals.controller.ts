@@ -8,6 +8,7 @@ import { AuthUser } from "../../common/types/auth-user";
 import { CreateProfessionalDto } from "./dto/create-professional.dto";
 import { UpdateProfessionalDto } from "./dto/update-professional.dto";
 import { ConfigProfessionalDto } from "./dto/config-professional.dto";
+import { TransferProfessionalBranchDto } from "./dto/transfer-professional-branch.dto";
 import { ProfessionalsService } from "./professionals.service";
 
 @ApiTags("Professionals")
@@ -56,6 +57,12 @@ export class ProfessionalsController {
     @Body() dto: ConfigProfessionalDto
   ) {
     return this.professionalsService.updateAgendaConfig(user, id, branchId, dto);
+  }
+
+  @Post("branch-transfer")
+  @RequirePermissions("professionals.update")
+  transferBranch(@CurrentUser() user: AuthUser, @Body() dto: TransferProfessionalBranchDto) {
+    return this.professionalsService.transferBranch(user, dto);
   }
 
   @Patch(":id/deactivate")

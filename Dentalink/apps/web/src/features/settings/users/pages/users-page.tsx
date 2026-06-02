@@ -1,11 +1,8 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import {
   CalendarClock,
-  CheckSquare,
-  Eraser,
   FilePenLine,
-  Search,
-  ShieldCheck,
+  Stethoscope,
   UserPen,
   UserRoundCheck,
   UserRoundPlus,
@@ -23,10 +20,22 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
-import { usePermissionsQuery } from "@/features/settings/permissions/hooks/use-permissions";
-import type { PermissionListItem } from "@/features/settings/permissions/services/permissions.service";
-import { useUpdateProfessional } from "@/features/settings/professionals/hooks/use-professionals";
+import { uploadUserBinaryFile } from "@/features/documents/services/documents.service";
+import {
+  useCreateProfessional,
+  useProfessionals,
+  useUpdateProfessional
+} from "@/features/settings/professionals/hooks/use-professionals";
+import { useSpecialties } from "@/features/settings/specialties/hooks/use-specialties";
 import { useRolesQuery } from "@/features/settings/roles/hooks/use-roles";
+import { useChairs } from "@/features/settings/chairs/hooks/use-chairs";
+import { useUpdateProfessionalAgendaConfig } from "@/features/settings/schedules/hooks/use-schedules";
+import {
+  createSchedule as createProfessionalSchedule,
+  listSchedules,
+  updateSchedule as updateProfessionalSchedule,
+  type SchedulePayload
+} from "@/features/settings/schedules/services/schedules.service";
 import { useAuthStore } from "@/stores/auth.store";
 import { UsersModuleNav } from "../components/users-module-nav";
 import { useCreateUser, useDeactivateUser, useUpdateUser, useUsersQuery } from "../hooks/use-users";
@@ -38,189 +47,85 @@ type UserForm = {
   firstName: string;
   lastName: string;
   password: string;
-  permissionIds: string[];
   phone: string;
   primaryBranchId: string;
   roleId: string;
 };
 
+type UserKind = "STAFF" | "CEYE" | "PROFESSIONAL" | "ADMIN";
+
+type CollaboratorProfessionalForm = {
+  enabled: boolean;
+  licenseNumber: string;
+  specialtyIds: string[];
+  color: string;
+  commissionRate: string;
+  agendaSlotMinutes: string;
+  defaultAppointmentDurationMinutes: string;
+  chairId: string;
+  applyWeeklySchedule: boolean;
+  workDays: number[];
+  startTime: string;
+  endTime: string;
+  breakStartTime: string;
+  breakEndTime: string;
+};
+
+type PersonnelDocumentCategory = "INE" | "TITLE" | "LICENSE" | "CONTRACT" | "CERTIFICATION";
+
 const supportedStatuses = new Set(["ACTIVE", "INACTIVE", "LOCKED", "PENDING"]);
-const moduleLabels: Record<string, string> = {
-  accounts_receivable: "Cuentas por cobrar",
-  appointments: "Agenda",
-  branches: "Sucursales",
-  budgets: "Presupuestos",
-  cash_register: "Cajas",
-  clinical: "Clinica",
-  collections: "Cobranza",
-  dashboard: "Dashboard",
-  documents: "Documentos",
-  inventory: "Inventario",
-  labs: "Laboratorios",
-  payments: "Pagos",
-  payment_methods: "Medios de pago",
-  permissions: "Permisos",
-  price_lists: "Listas de precios",
-  procedures: "Prestaciones",
-  professionals: "Profesionales",
-  reports: "Reportes",
-  roles: "Perfiles",
-  schedules: "Horarios",
-  settings: "Configuracion",
-  specialties: "Especialidades",
-  system: "Sistema",
-  treatment_plans: "Tratamientos",
-  users: "Usuarios"
-};
-
-const permissionLabels: Record<string, string> = {
-  "accounts_receivable.read": "Ver cuentas por cobrar",
-  "appointments.block": "Bloquear espacios de agenda",
-  "appointments.cancel": "Cancelar citas",
-  "appointments.create": "Crear citas",
-  "appointments.overbook": "Permitir sobrecupo en agenda",
-  "appointments.read": "Ver agenda y citas",
-  "appointments.status.update": "Cambiar estado de citas",
-  "appointments.update": "Editar citas",
-  "branches.create": "Crear sucursales",
-  "branches.deactivate": "Desactivar sucursales",
-  "branches.read": "Ver sucursales",
-  "branches.update": "Editar sucursales",
-  "budgets.accept": "Aceptar presupuestos",
-  "budgets.create": "Crear presupuestos",
-  "budgets.print": "Imprimir presupuestos",
-  "budgets.read": "Ver presupuestos",
-  "budgets.reject": "Rechazar presupuestos",
-  "budgets.send": "Enviar presupuestos",
-  "budgets.update": "Editar presupuestos",
-  "cash_register.close": "Cerrar caja",
-  "cash_register.close_any": "Cerrar cualquier caja",
-  "cash_register.move": "Registrar movimientos de caja",
-  "cash_register.open": "Abrir caja",
-  "cash_register.read": "Ver caja",
-  "chairs.create": "Crear sillones",
-  "chairs.deactivate": "Desactivar sillones",
-  "chairs.read": "Ver sillones",
-  "chairs.update": "Editar sillones",
-  "clinical.documents.create": "Crear documentos clinicos",
-  "clinical.evolutions.create": "Crear evoluciones clinicas",
-  "clinical.evolutions.sign": "Firmar evoluciones clinicas",
-  "clinical.history.update": "Editar historia clinica",
-  "clinical.odontogram.read": "Ver odontograma",
-  "clinical.odontogram.write": "Editar odontograma",
-  "clinical.periodontogram.read": "Ver periodontograma",
-  "clinical.periodontogram.write": "Editar periodontograma",
-  "clinical.prescriptions.create": "Crear recetas",
-  "clinical.read": "Ver ficha clinica",
-  "clinical.templates.manage": "Gestionar plantillas clinicas",
-  "collections.activities.create": "Registrar actividades de cobranza",
-  "collections.create": "Crear casos de cobranza",
-  "collections.detect": "Detectar cuentas vencidas",
-  "collections.read": "Ver cobranza",
-  "collections.update": "Editar casos de cobranza",
-  "consent_templates.create": "Crear plantillas de consentimiento",
-  "consent_templates.deactivate": "Desactivar plantillas de consentimiento",
-  "consent_templates.read": "Ver plantillas de consentimiento",
-  "consent_templates.update": "Editar plantillas de consentimiento",
-  "consents.create": "Generar consentimientos",
-  "consents.pdf": "Descargar PDF de consentimientos",
-  "consents.read": "Ver consentimientos",
-  "consents.sign": "Firmar consentimientos",
-  "dashboard.read": "Ver dashboard",
-  "files.read": "Ver archivos de pacientes",
-  "files.upload": "Subir archivos de pacientes",
-  "installments.create": "Crear convenios de pago",
-  "installments.pay": "Registrar pagos de convenios",
-  "installments.read": "Ver convenios de pago",
-  "inventory.alerts.read": "Ver alertas de inventario",
-  "inventory.create": "Crear articulos de inventario",
-  "inventory.deactivate": "Desactivar articulos de inventario",
-  "inventory.movements.create": "Crear movimientos de inventario",
-  "inventory.movements.read": "Ver movimientos de inventario",
-  "inventory.read": "Ver inventario",
-  "inventory.update": "Editar inventario",
-  "lab_orders.cost.update": "Editar costos de laboratorio",
-  "lab_orders.create": "Crear ordenes de laboratorio",
-  "lab_orders.read": "Ver ordenes de laboratorio",
-  "lab_orders.update": "Editar ordenes de laboratorio",
-  "lab_profitability.read": "Ver rentabilidad de laboratorio",
-  "lab_providers.create": "Crear laboratorios",
-  "lab_providers.deactivate": "Desactivar laboratorios",
-  "lab_providers.read": "Ver laboratorios",
-  "lab_providers.update": "Editar laboratorios",
-  "payment_links.create": "Crear links de pago",
-  "payment_methods.create": "Crear medios de pago",
-  "payment_methods.deactivate": "Desactivar medios de pago",
-  "payment_methods.read": "Ver medios de pago",
-  "payment_methods.update": "Editar medios de pago",
-  "payments.allocate": "Asignar pagos a tratamientos",
-  "payments.create": "Recibir pagos",
-  "payments.override.closed_cash": "Permitir pagos sin caja abierta",
-  "payments.read": "Ver pagos",
-  "payments.refund": "Registrar devoluciones",
-  "permissions.create": "Crear permisos",
-  "permissions.deactivate": "Desactivar permisos",
-  "permissions.read": "Ver permisos",
-  "permissions.update": "Editar permisos",
-  "price_lists.create": "Crear listas de precios",
-  "price_lists.deactivate": "Desactivar listas de precios",
-  "price_lists.read": "Ver listas de precios",
-  "price_lists.update": "Editar listas de precios",
-  "procedure_categories.create": "Crear categorias de prestaciones",
-  "procedure_categories.deactivate": "Desactivar categorias de prestaciones",
-  "procedure_categories.read": "Ver categorias de prestaciones",
-  "procedure_categories.update": "Editar categorias de prestaciones",
-  "procedures.create": "Crear prestaciones",
-  "procedures.deactivate": "Desactivar prestaciones",
-  "procedures.read": "Ver prestaciones",
-  "procedures.update": "Editar prestaciones",
-  "professionals.create": "Crear profesionales",
-  "professionals.deactivate": "Desactivar profesionales",
-  "professionals.read": "Ver profesionales",
-  "professionals.update": "Editar profesionales",
-  "reports.export": "Exportar reportes",
-  "reports.read": "Ver reportes",
-  "roles.create": "Crear perfiles",
-  "roles.deactivate": "Desactivar perfiles",
-  "roles.read": "Ver perfiles",
-  "roles.update": "Editar perfiles",
-  "schedules.create": "Crear horarios",
-  "schedules.deactivate": "Desactivar horarios",
-  "schedules.read": "Ver horarios",
-  "schedules.update": "Editar horarios",
-  "settings.read": "Ver configuracion",
-  "settings.update": "Editar configuracion",
-  "specialties.create": "Crear especialidades",
-  "specialties.deactivate": "Desactivar especialidades",
-  "specialties.read": "Ver especialidades",
-  "specialties.update": "Editar especialidades",
-  "suppliers.create": "Crear proveedores",
-  "suppliers.deactivate": "Desactivar proveedores",
-  "suppliers.read": "Ver proveedores",
-  "suppliers.update": "Editar proveedores",
-  "system.manage_all": "Administracion completa del sistema",
-  "treatment_plans.alternatives.manage": "Gestionar alternativas de tratamiento",
-  "treatment_plans.create": "Crear planes de tratamiento",
-  "treatment_plans.read": "Ver planes de tratamiento",
-  "treatment_plans.status.update": "Cambiar estado de tratamientos",
-  "treatment_plans.update": "Editar planes de tratamiento",
-  "users.create": "Crear usuarios",
-  "users.deactivate": "Desactivar usuarios",
-  "users.read": "Ver usuarios",
-  "users.update": "Editar usuarios"
-};
-
 const emptyUserForm: UserForm = {
   branchIds: [],
   email: "",
   firstName: "",
   lastName: "",
   password: "",
-  permissionIds: [],
   phone: "",
   primaryBranchId: "",
   roleId: ""
 };
+
+const emptyProfessionalForm: CollaboratorProfessionalForm = {
+  enabled: false,
+  licenseNumber: "",
+  specialtyIds: [],
+  color: "#111827",
+  commissionRate: "0",
+  agendaSlotMinutes: "20",
+  defaultAppointmentDurationMinutes: "40",
+  chairId: "",
+  applyWeeklySchedule: false,
+  workDays: [1, 2, 3, 4, 5],
+  startTime: "10:00",
+  endTime: "19:00",
+  breakStartTime: "",
+  breakEndTime: ""
+};
+
+const documentOptions: { category: PersonnelDocumentCategory; label: string }[] = [
+  { category: "INE", label: "Identificacion oficial" },
+  { category: "TITLE", label: "Titulo profesional" },
+  { category: "LICENSE", label: "Cedula profesional" },
+  { category: "CONTRACT", label: "Contrato" },
+  { category: "CERTIFICATION", label: "Certificacion" }
+];
+
+const dayOptions = [
+  { value: 1, label: "Lun" },
+  { value: 2, label: "Mar" },
+  { value: 3, label: "Mie" },
+  { value: 4, label: "Jue" },
+  { value: 5, label: "Vie" },
+  { value: 6, label: "Sab" },
+  { value: 0, label: "Dom" }
+];
+
+const userKindOptions: { value: UserKind; label: string; rolePattern: RegExp }[] = [
+  { value: "STAFF", label: "Staff", rolePattern: /staff|recepci|asistente|auxiliar/i },
+  { value: "CEYE", label: "CEYE", rolePattern: /ceye|esteril/i },
+  { value: "PROFESSIONAL", label: "Profesional", rolePattern: /profesional|doctor|dentista|odont/i },
+  { value: "ADMIN", label: "Administracion", rolePattern: /admin|administrador|system/i }
+];
 
 function userDisplayName(user: UserListItem) {
   return `${user.firstName} ${user.lastName}`.trim();
@@ -233,11 +138,37 @@ function formFromUser(user: UserListItem): UserForm {
     firstName: user.firstName,
     lastName: user.lastName,
     password: "",
-    permissionIds: user.permissions.map((permission) => permission.id),
     phone: user.phone ?? "",
     primaryBranchId: user.branches.find((branch) => branch.isPrimary)?.id ?? user.branches[0]?.id ?? "",
     roleId: user.role?.id ?? ""
   };
+}
+
+function inferUserKind(roleName?: string | null): UserKind {
+  const match = userKindOptions.find((option) => option.rolePattern.test(roleName ?? ""));
+  return match?.value ?? "STAFF";
+}
+
+function professionalFormFromUser(user: UserListItem): CollaboratorProfessionalForm {
+  return {
+    ...emptyProfessionalForm,
+    enabled: Boolean(user.professional),
+    commissionRate: String(user.professional?.commissionRate ?? "0")
+  };
+}
+
+function toggleValue<T>(values: T[], value: T) {
+  return values.includes(value) ? values.filter((current) => current !== value) : [...values, value];
+}
+
+function textOrUndefined(value: string) {
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+function numberOrUndefined(value: string) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 export function UsersPage() {
@@ -247,59 +178,112 @@ export function UsersPage() {
   const [editing, setEditing] = useState<UserListItem | null>(null);
   const [userFormOpen, setUserFormOpen] = useState(false);
   const [userForm, setUserForm] = useState<UserForm>(emptyUserForm);
+  const [userKind, setUserKind] = useState<UserKind>("STAFF");
+  const [professionalForm, setProfessionalForm] = useState<CollaboratorProfessionalForm>(emptyProfessionalForm);
+  const [documentFiles, setDocumentFiles] = useState<Partial<Record<PersonnelDocumentCategory, File>>>({});
   const [contractUser, setContractUser] = useState<UserListItem | null>(null);
   const [commissionRate, setCommissionRate] = useState("");
-  const [permissionSearch, setPermissionSearch] = useState("");
 
   const routeStatus = searchParams.get("status") ?? "";
   const status = supportedStatuses.has(routeStatus) ? routeStatus : "";
   const users = useUsersQuery(search || undefined, status || undefined);
   const roles = useRolesQuery(undefined, "true");
   const branches = useBranches(undefined, "ACTIVE");
-  const permissions = usePermissionsQuery(undefined, undefined, "true");
+  const specialties = useSpecialties(undefined, "true");
+  const professionals = useProfessionals(undefined, undefined);
+  const chairs = useChairs(undefined, "true", userForm.primaryBranchId || undefined);
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deactivateUser = useDeactivateUser();
+  const createProfessional = useCreateProfessional();
   const updateProfessional = useUpdateProfessional();
+  const updateAgendaConfig = useUpdateProfessionalAgendaConfig();
 
-  const userMutationPending = createUser.isPending || updateUser.isPending || deactivateUser.isPending;
+  const userMutationPending =
+    createUser.isPending ||
+    updateUser.isPending ||
+    deactivateUser.isPending ||
+    createProfessional.isPending ||
+    updateProfessional.isPending ||
+    updateAgendaConfig.isPending;
   const contractRate = Number(commissionRate);
   const contractRateValid = Number.isFinite(contractRate) && contractRate >= 0 && contractRate <= 100;
-  const selectedPermissions = useMemo(() => new Set(userForm.permissionIds), [userForm.permissionIds]);
-  const groupedPermissions = useMemo(
-    () => groupPermissions(permissions.data ?? [], permissionSearch),
-    [permissions.data, permissionSearch]
+  const professionalsByUserId = useMemo(
+    () => new Map((professionals.data ?? []).filter((professional) => professional.user?.id).map((professional) => [professional.user?.id, professional])),
+    [professionals.data]
   );
-  const selectedRolePermissionIds = useMemo(
-    () =>
-      roles.data
-        ?.find((role) => role.id === userForm.roleId)
-        ?.permissions.map((permission) => permission.id) ?? [],
-    [roles.data, userForm.roleId]
-  );
+  const currentProfessional = editing
+    ? professionalsByUserId.get(editing.id) ?? (editing.professional ? professionals.data?.find((professional) => professional.id === editing.professional?.id) : undefined)
+    : undefined;
+  const primaryBranchChairs = chairs.data ?? [];
 
   const changeStatus = (nextStatus: string) => {
     setSearchParams(nextStatus ? { status: nextStatus } : {});
   };
 
+  useEffect(() => {
+    if (userFormOpen || searchParams.get("newCollaborator") !== "professional") return;
+
+    const branchIds = (searchParams.get("branchIds") ?? "")
+      .split(",")
+      .map((branchId) => branchId.trim())
+      .filter(Boolean);
+
+    setEditing(null);
+    setUserKind("PROFESSIONAL");
+    setUserForm({
+      ...emptyUserForm,
+      branchIds,
+      primaryBranchId: branchIds[0] ?? ""
+    });
+    setProfessionalForm({ ...emptyProfessionalForm, enabled: true, applyWeeklySchedule: true });
+    setDocumentFiles({});
+    setUserFormOpen(true);
+    setSearchParams(
+      (current) => {
+        const next = new URLSearchParams(current);
+        next.delete("newCollaborator");
+        next.delete("branchIds");
+        return next;
+      },
+      { replace: true }
+    );
+  }, [searchParams, setSearchParams, userFormOpen]);
+
   const openCreate = () => {
     setEditing(null);
     setUserForm(emptyUserForm);
-    setPermissionSearch("");
+    setProfessionalForm(emptyProfessionalForm);
+    setDocumentFiles({});
+    setUserKind("STAFF");
     setUserFormOpen(true);
   };
 
   const openEdit = (user: UserListItem) => {
+    const professional = professionalsByUserId.get(user.id);
     setEditing(user);
     setUserForm(formFromUser(user));
-    setPermissionSearch("");
+    setProfessionalForm({
+      ...professionalFormFromUser(user),
+      enabled: Boolean(user.professional || professional),
+      licenseNumber: professional?.licenseNumber ?? "",
+      specialtyIds: professional?.specialties.map((specialty) => specialty.id) ?? [],
+      color: professional?.color ?? "#111827",
+      commissionRate: String(professional?.commissionRate ?? user.professional?.commissionRate ?? "0"),
+      agendaSlotMinutes: String(professional?.branches[0]?.agendaSlotMinutes ?? "20"),
+      defaultAppointmentDurationMinutes: String(professional?.branches[0]?.defaultAppointmentDurationMinutes ?? "40")
+    });
+    setDocumentFiles({});
+    setUserKind(inferUserKind(user.role?.name));
     setUserFormOpen(true);
   };
 
   const closeUserForm = () => {
     setEditing(null);
     setUserForm(emptyUserForm);
-    setPermissionSearch("");
+    setProfessionalForm(emptyProfessionalForm);
+    setDocumentFiles({});
+    setUserKind("STAFF");
     setUserFormOpen(false);
   };
 
@@ -320,33 +304,15 @@ export function UsersPage() {
   };
 
   const setRole = (roleId: string) => {
-    const rolePermissionIds =
-      roles.data?.find((role) => role.id === roleId)?.permissions.map((permission) => permission.id) ?? [];
-    setUserForm((current) => ({ ...current, roleId, permissionIds: rolePermissionIds }));
+    setUserForm((current) => ({ ...current, roleId }));
   };
 
-  const togglePermission = (permissionId: string) => {
-    setUserForm((current) => ({
-      ...current,
-      permissionIds: current.permissionIds.includes(permissionId)
-        ? current.permissionIds.filter((selectedPermissionId) => selectedPermissionId !== permissionId)
-        : [...current.permissionIds, permissionId]
-    }));
-  };
-
-  const setAllPermissions = () => {
-    setUserForm((current) => ({
-      ...current,
-      permissionIds: (permissions.data ?? []).map((permission) => permission.id)
-    }));
-  };
-
-  const clearPermissions = () => {
-    setUserForm((current) => ({ ...current, permissionIds: [] }));
-  };
-
-  const applyRolePermissions = () => {
-    setUserForm((current) => ({ ...current, permissionIds: selectedRolePermissionIds }));
+  const applyUserKind = (kind: UserKind) => {
+    setUserKind(kind);
+    setProfessionalForm((current) => ({ ...current, enabled: kind === "PROFESSIONAL" || Boolean(editing?.professional) }));
+    const option = userKindOptions.find((item) => item.value === kind);
+    const matchedRole = roles.data?.find((role) => option?.rolePattern.test(`${role.name} ${role.code ?? ""}`));
+    if (matchedRole) setRole(matchedRole.id);
   };
 
   const submitUser = async (event: FormEvent<HTMLFormElement>) => {
@@ -362,15 +328,18 @@ export function UsersPage() {
       return;
     }
 
+    const shouldCreateProfessionalProfile = userKind === "PROFESSIONAL" || professionalForm.enabled;
+    if (shouldCreateProfessionalProfile && !professionalForm.specialtyIds.length) return;
+
+    let savedUser: UserListItem;
     if (editing) {
-      await updateUser.mutateAsync({
+      savedUser = await updateUser.mutateAsync({
         id: editing.id,
         payload: {
           branchIds: userForm.branchIds,
           firstName: userForm.firstName.trim(),
           lastName: userForm.lastName.trim(),
           password: userForm.password.trim() || undefined,
-          permissionIds: userForm.permissionIds,
           phone: userForm.phone.trim() || undefined,
           primaryBranchId: userForm.primaryBranchId,
           roleId: userForm.roleId
@@ -379,20 +348,103 @@ export function UsersPage() {
     } else {
       if (!userForm.email.trim() || userForm.password.trim().length < 8) return;
 
-      await createUser.mutateAsync({
+      savedUser = await createUser.mutateAsync({
         branchIds: userForm.branchIds,
         email: userForm.email.trim(),
         firstName: userForm.firstName.trim(),
         lastName: userForm.lastName.trim(),
         password: userForm.password.trim(),
-        permissionIds: userForm.permissionIds,
         phone: userForm.phone.trim() || undefined,
         primaryBranchId: userForm.primaryBranchId,
         roleId: userForm.roleId
       });
     }
 
+    if (shouldCreateProfessionalProfile) {
+      await saveProfessionalProfile(savedUser);
+    }
+
     closeUserForm();
+  };
+
+  const saveProfessionalProfile = async (savedUser: UserListItem) => {
+    const existingProfessional = professionalsByUserId.get(savedUser.id) ?? currentProfessional;
+    const professionalPayload = {
+      userId: savedUser.id,
+      firstName: userForm.firstName.trim(),
+      lastName: userForm.lastName.trim(),
+      licenseNumber: textOrUndefined(professionalForm.licenseNumber),
+      phone: textOrUndefined(userForm.phone),
+      email: savedUser.email,
+      color: professionalForm.color,
+      commissionRate: numberOrUndefined(professionalForm.commissionRate),
+      specialtyIds: professionalForm.specialtyIds,
+      branchIds: userForm.branchIds
+    };
+
+    const professional = existingProfessional
+      ? await updateProfessional.mutateAsync({ id: existingProfessional.id, payload: professionalPayload })
+      : await createProfessional.mutateAsync(professionalPayload);
+
+    const agendaSlotMinutes = numberOrUndefined(professionalForm.agendaSlotMinutes);
+    const defaultAppointmentDurationMinutes = numberOrUndefined(professionalForm.defaultAppointmentDurationMinutes);
+    if (userForm.primaryBranchId && (agendaSlotMinutes || defaultAppointmentDurationMinutes)) {
+      await updateAgendaConfig.mutateAsync({
+        professionalId: professional.id,
+        branchId: userForm.primaryBranchId,
+        payload: {
+          agendaSlotMinutes,
+          defaultAppointmentDurationMinutes
+        }
+      });
+    }
+
+    if (professionalForm.applyWeeklySchedule && userForm.primaryBranchId) {
+      await saveWeeklySchedule(professional.id, userForm.primaryBranchId);
+    }
+
+    await uploadPersonnelDocuments(savedUser.id, professional.id);
+  };
+
+  const saveWeeklySchedule = async (professionalId: string, branchId: string) => {
+    const existingSchedules = await listSchedules({ professionalId, branchId });
+    const schedulesByDay = new Map(existingSchedules.map((schedule) => [schedule.dayOfWeek, schedule]));
+
+    for (const dayOfWeek of professionalForm.workDays) {
+      const payload: SchedulePayload = {
+        professionalId,
+        branchId,
+        chairId: professionalForm.chairId || null,
+        dayOfWeek,
+        startTime: professionalForm.startTime,
+        endTime: professionalForm.endTime,
+        breakStartTime: textOrUndefined(professionalForm.breakStartTime) ?? null,
+        breakEndTime: textOrUndefined(professionalForm.breakEndTime) ?? null
+      };
+      const current = schedulesByDay.get(dayOfWeek);
+      if (current) {
+        await updateProfessionalSchedule(current.id, { ...payload, isActive: true });
+      } else {
+        await createProfessionalSchedule({
+          ...payload,
+          chairId: professionalForm.chairId || undefined,
+          breakStartTime: textOrUndefined(professionalForm.breakStartTime),
+          breakEndTime: textOrUndefined(professionalForm.breakEndTime)
+        });
+      }
+    }
+  };
+
+  const uploadPersonnelDocuments = async (userId: string, professionalId?: string) => {
+    for (const option of documentOptions) {
+      const file = documentFiles[option.category];
+      if (!file) continue;
+      await uploadUserBinaryFile(userId, {
+        file,
+        category: option.category,
+        professionalId
+      });
+    }
   };
 
   const setUserEnabled = async (user: UserListItem) => {
@@ -432,12 +484,12 @@ export function UsersPage() {
         actions={
           <Button onClick={openCreate}>
             <UserRoundPlus className="mr-1.5 h-4 w-4" />
-            Nuevo usuario
+            Nuevo colaborador
           </Button>
         }
       >
         <div className="space-y-4">
-          <PageHeader title="Usuarios" description="Administracion de usuarios por organizacion" />
+          <PageHeader title="Personal y usuarios" description="Alta, acceso, rol y expediente operativo del colaborador." />
 
           <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-[minmax(240px,1fr)_260px]">
             <Input
@@ -461,7 +513,6 @@ export function UsersPage() {
           {users.isError ? <ErrorState message={users.error.message} /> : null}
           {roles.isError ? <ErrorState message={roles.error.message} /> : null}
           {branches.isError ? <ErrorState message={branches.error.message} /> : null}
-          {permissions.isError ? <ErrorState message={permissions.error.message} /> : null}
           {createUser.isError ? <ErrorState message={createUser.error.message} /> : null}
           {updateUser.isError ? <ErrorState message={updateUser.error.message} /> : null}
           {deactivateUser.isError ? <ErrorState message={deactivateUser.error.message} /> : null}
@@ -541,7 +592,7 @@ export function UsersPage() {
                         <>
                           <ActionLink
                             title="Editar horarios"
-                            to={`/settings/online-scheduling/schedules?professionalId=${row.professional.id}`}
+                            to={`/settings/online-scheduling/schedules?professionalId=${row.professional.id}${row.branches.length === 1 ? `&branchId=${row.branches[0].id}` : ""}`}
                           >
                             <CalendarClock className="h-5 w-5" />
                           </ActionLink>
@@ -551,7 +602,16 @@ export function UsersPage() {
                         </>
                       ) : null}
 
-                      <ActionButton title="Editar datos y permisos" onClick={() => openEdit(row)}>
+                      {!row.professional && row.status === "ACTIVE" ? (
+                        <ActionLink
+                          title="Crear perfil profesional"
+                          to={`/settings/professionals?userId=${row.id}&branchIds=${row.branches.map((branch) => branch.id).join(",")}`}
+                        >
+                          <Stethoscope className="h-5 w-5" />
+                        </ActionLink>
+                      ) : null}
+
+                      <ActionButton title="Editar colaborador" onClick={() => openEdit(row)}>
                         <UserPen className="h-5 w-5" />
                       </ActionButton>
 
@@ -577,13 +637,13 @@ export function UsersPage() {
 
       <Modal
         open={userFormOpen}
-        title={editing ? "Editar datos y permisos" : "Nuevo usuario"}
+        title={editing ? "Editar colaborador" : "Nuevo colaborador"}
         size="xl"
         onClose={closeUserForm}
       >
         <form className="space-y-4" onSubmit={submitUser}>
-          {roles.isLoading || branches.isLoading || permissions.isLoading ? (
-            <LoadingState message="Cargando perfiles, sucursales y permisos..." />
+          {roles.isLoading || branches.isLoading ? (
+            <LoadingState message="Cargando perfiles y sucursales..." />
           ) : null}
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -633,8 +693,26 @@ export function UsersPage() {
               />
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
-              Perfil
-              <Select required value={userForm.roleId} onChange={(event) => setRole(event.target.value)}>
+              Tipo de usuario
+              <Select value={userKind} onChange={(event) => applyUserKind(event.target.value as UserKind)}>
+                {userKindOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="grid gap-1 text-sm text-slate-700">
+              Rol / perfil
+              <Select
+                required
+                value={userForm.roleId}
+                onChange={(event) => {
+                  const roleId = event.target.value;
+                  setRole(roleId);
+                  setUserKind(inferUserKind(roles.data?.find((role) => role.id === roleId)?.name));
+                }}
+              >
                 <option value="">Selecciona perfil</option>
                 {(roles.data ?? []).map((role) => (
                   <option key={role.id} value={role.id}>
@@ -681,86 +759,241 @@ export function UsersPage() {
           </section>
 
           <section className="rounded-lg border border-slate-200 p-3">
-            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h4 className="text-sm font-semibold text-slate-900">Permisos del usuario</h4>
+                <h4 className="text-sm font-semibold text-slate-900">Perfil profesional y agenda</h4>
                 <p className="mt-1 text-xs text-slate-500">
-                  Seleccionados: {userForm.permissionIds.length} de {permissions.data?.length ?? 0}
+                  Activalo para doctores, ortodoncistas, integralistas o profesionales que aparecen en agenda.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" size="sm" variant="secondary" onClick={applyRolePermissions}>
-                  <ShieldCheck className="h-4 w-4" />
-                  Segun perfil
-                </Button>
-                <Button type="button" size="sm" variant="secondary" onClick={setAllPermissions}>
-                  <CheckSquare className="h-4 w-4" />
-                  Marcar todos
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={clearPermissions}>
-                  <Eraser className="h-4 w-4" />
-                  Limpiar
-                </Button>
-              </div>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={professionalForm.enabled}
+                  onChange={(event) =>
+                    setProfessionalForm((current) => ({ ...current, enabled: event.target.checked }))
+                  }
+                />
+                Crear perfil clinico
+              </label>
             </div>
 
-            <label className="relative mt-3 block">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input
-                className="pl-9"
-                placeholder="Buscar permiso por modulo, nombre o codigo"
-                value={permissionSearch}
-                onChange={(event) => setPermissionSearch(event.target.value)}
-              />
-            </label>
-
-            <div className="mt-3 max-h-[360px] space-y-3 overflow-auto pr-1">
-              {groupedPermissions.length ? (
-                groupedPermissions.map((group) => (
-                  <div key={group.module} className="rounded-md border border-slate-100">
-                    <div className="flex items-center justify-between gap-3 bg-slate-50 px-3 py-2">
-                      <p className="text-xs font-semibold uppercase text-slate-500">
-                        {moduleLabels[group.module] ?? group.module}
-                      </p>
-                      <span className="text-xs text-slate-400">
-                        {
-                          group.permissions.filter((permission) => selectedPermissions.has(permission.id))
-                            .length
-                        }
-                        /{group.permissions.length}
-                      </span>
-                    </div>
-                    <div className="grid gap-1 p-2 md:grid-cols-2">
-                      {group.permissions.map((permission) => (
-                        <label
-                          key={permission.id}
-                          className="flex min-h-10 cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-sm text-slate-700 transition hover:bg-sky-50"
-                        >
-                          <input
-                            className="mt-1"
-                            type="checkbox"
-                            checked={selectedPermissions.has(permission.id)}
-                            onChange={() => togglePermission(permission.id)}
-                          />
-                          <span className="min-w-0">
-                            <span className="block font-medium leading-5 text-slate-800">
-                              {permissionDisplayName(permission)}
-                            </span>
-                            <span className="block truncate text-xs text-slate-500">
-                              {permissionHelpText(permission)}
-                            </span>
-                          </span>
-                        </label>
+            {professionalForm.enabled ? (
+              <div className="mt-3 space-y-4">
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <label className="grid gap-1 text-sm text-slate-700">
+                    Cedula
+                    <Input
+                      value={professionalForm.licenseNumber}
+                      onChange={(event) =>
+                        setProfessionalForm((current) => ({ ...current, licenseNumber: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm text-slate-700">
+                    Color en agenda
+                    <Input
+                      className="h-10 p-1"
+                      type="color"
+                      value={professionalForm.color}
+                      onChange={(event) =>
+                        setProfessionalForm((current) => ({ ...current, color: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm text-slate-700">
+                    Comision (%)
+                    <Input
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      type="number"
+                      value={professionalForm.commissionRate}
+                      onChange={(event) =>
+                        setProfessionalForm((current) => ({ ...current, commissionRate: event.target.value }))
+                      }
+                    />
+                  </label>
+                  <label className="grid gap-1 text-sm text-slate-700">
+                    Intervalo agenda
+                    <Select
+                      value={professionalForm.agendaSlotMinutes}
+                      onChange={(event) =>
+                        setProfessionalForm((current) => ({ ...current, agendaSlotMinutes: event.target.value }))
+                      }
+                    >
+                      <option value="10">10 minutos</option>
+                      <option value="15">15 minutos</option>
+                      <option value="20">20 minutos</option>
+                      <option value="30">30 minutos</option>
+                      <option value="45">45 minutos</option>
+                      <option value="60">60 minutos</option>
+                    </Select>
+                  </label>
+                  <label className="grid gap-1 text-sm text-slate-700">
+                    Duracion por defecto
+                    <Select
+                      value={professionalForm.defaultAppointmentDurationMinutes}
+                      onChange={(event) =>
+                        setProfessionalForm((current) => ({
+                          ...current,
+                          defaultAppointmentDurationMinutes: event.target.value
+                        }))
+                      }
+                    >
+                      <option value="20">20 minutos</option>
+                      <option value="30">30 minutos</option>
+                      <option value="40">40 minutos</option>
+                      <option value="60">60 minutos</option>
+                      <option value="90">90 minutos</option>
+                    </Select>
+                  </label>
+                  <label className="grid gap-1 text-sm text-slate-700">
+                    Box / sillon
+                    <Select
+                      value={professionalForm.chairId}
+                      onChange={(event) =>
+                        setProfessionalForm((current) => ({ ...current, chairId: event.target.value }))
+                      }
+                    >
+                      <option value="">Sin box fijo</option>
+                      {primaryBranchChairs.map((chair) => (
+                        <option key={chair.id} value={chair.id}>
+                          {chair.name}
+                        </option>
                       ))}
-                    </div>
+                    </Select>
+                  </label>
+                </div>
+
+                <div className="rounded-md border border-slate-100 p-3">
+                  <h5 className="text-xs font-semibold uppercase text-slate-500">Especialidades</h5>
+                  <div className="mt-2 grid max-h-28 gap-2 overflow-auto pr-1 sm:grid-cols-2">
+                    {(specialties.data ?? []).map((specialty) => (
+                      <label key={specialty.id} className="flex items-center gap-2 text-sm text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={professionalForm.specialtyIds.includes(specialty.id)}
+                          onChange={() =>
+                            setProfessionalForm((current) => ({
+                              ...current,
+                              specialtyIds: toggleValue(current.specialtyIds, specialty.id)
+                            }))
+                          }
+                        />
+                        <span>{specialty.name}</span>
+                      </label>
+                    ))}
                   </div>
-                ))
-              ) : (
-                <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-500">
-                  No hay permisos para la busqueda actual.
-                </p>
-              )}
-            </div>
+                  {!professionalForm.specialtyIds.length ? (
+                    <p className="mt-2 text-xs text-amber-700">Selecciona al menos una especialidad.</p>
+                  ) : null}
+                </div>
+
+                <div className="rounded-md border border-slate-100 p-3">
+                  <label className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                    <input
+                      type="checkbox"
+                      checked={professionalForm.applyWeeklySchedule}
+                      onChange={(event) =>
+                        setProfessionalForm((current) => ({
+                          ...current,
+                          applyWeeklySchedule: event.target.checked
+                        }))
+                      }
+                    />
+                    Configurar horario base al guardar
+                  </label>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <label className="grid gap-1 text-sm text-slate-700">
+                      Entrada
+                      <Input
+                        type="time"
+                        value={professionalForm.startTime}
+                        disabled={!professionalForm.applyWeeklySchedule}
+                        onChange={(event) =>
+                          setProfessionalForm((current) => ({ ...current, startTime: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm text-slate-700">
+                      Salida
+                      <Input
+                        type="time"
+                        value={professionalForm.endTime}
+                        disabled={!professionalForm.applyWeeklySchedule}
+                        onChange={(event) =>
+                          setProfessionalForm((current) => ({ ...current, endTime: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm text-slate-700">
+                      Inicio descanso
+                      <Input
+                        type="time"
+                        value={professionalForm.breakStartTime}
+                        disabled={!professionalForm.applyWeeklySchedule}
+                        onChange={(event) =>
+                          setProfessionalForm((current) => ({ ...current, breakStartTime: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <label className="grid gap-1 text-sm text-slate-700">
+                      Fin descanso
+                      <Input
+                        type="time"
+                        value={professionalForm.breakEndTime}
+                        disabled={!professionalForm.applyWeeklySchedule}
+                        onChange={(event) =>
+                          setProfessionalForm((current) => ({ ...current, breakEndTime: event.target.value }))
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {dayOptions.map((day) => (
+                      <label
+                        key={day.value}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600"
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={!professionalForm.applyWeeklySchedule}
+                          checked={professionalForm.workDays.includes(day.value)}
+                          onChange={() =>
+                            setProfessionalForm((current) => ({
+                              ...current,
+                              workDays: toggleValue(current.workDays, day.value)
+                            }))
+                          }
+                        />
+                        {day.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-md border border-slate-100 p-3">
+                  <h5 className="text-xs font-semibold uppercase text-slate-500">Documentos del colaborador</h5>
+                  <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                    {documentOptions.map((option) => (
+                      <label key={option.category} className="grid gap-1 text-sm text-slate-700">
+                        {option.label}
+                        <Input
+                          type="file"
+                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                            setDocumentFiles((current) => ({
+                              ...current,
+                              [option.category]: event.target.files?.[0]
+                            }))
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </section>
 
           <div className="flex justify-end gap-2">
@@ -774,10 +1007,11 @@ export function UsersPage() {
                 !userForm.roleId ||
                 !userForm.branchIds.length ||
                 !userForm.primaryBranchId ||
+                ((userKind === "PROFESSIONAL" || professionalForm.enabled) && !professionalForm.specialtyIds.length) ||
                 (!editing && userForm.password.trim().length < 8)
               }
             >
-              {editing ? "Actualizar usuario" : "Crear usuario"}
+              {editing ? "Actualizar colaborador" : "Crear colaborador"}
             </Button>
           </div>
         </form>
@@ -890,59 +1124,3 @@ function BranchSummary({ branches }: { branches: UserListItem["branches"] }) {
   );
 }
 
-function groupPermissions(permissions: PermissionListItem[], search: string) {
-  const normalizedSearch = search.trim().toLowerCase();
-  const filtered = normalizedSearch
-    ? permissions.filter((permission) =>
-        [
-          permission.key,
-          permission.name,
-          permissionDisplayName(permission),
-          permissionHelpText(permission),
-          moduleLabels[permission.module] ?? permission.module,
-          permission.description ?? ""
-        ]
-          .join(" ")
-          .toLowerCase()
-          .includes(normalizedSearch)
-      )
-    : permissions;
-
-  const groups = new Map<string, PermissionListItem[]>();
-  for (const permission of filtered) {
-    const entries = groups.get(permission.module) ?? [];
-    entries.push(permission);
-    groups.set(permission.module, entries);
-  }
-
-  return [...groups.entries()]
-    .sort(([firstModule], [secondModule]) => firstModule.localeCompare(secondModule))
-    .map(([module, group]) => ({
-      module,
-      permissions: group.sort((first, second) => first.key.localeCompare(second.key))
-    }));
-}
-
-function permissionDisplayName(permission: PermissionListItem) {
-  const translated = permissionLabels[permission.key] ?? permissionLabels[permission.code ?? ""];
-  if (translated) return translated;
-
-  const moduleName = (moduleLabels[permission.module] ?? permission.module).toLowerCase();
-  let fallback = permission.name
-    .replace(/^Read /, "Ver ")
-    .replace(/^Create /, "Crear ")
-    .replace(/^Update /, "Actualizar ")
-    .replace(/^Deactivate /, "Desactivar ")
-    .replace(/^Manage /, "Gestionar ")
-    .replace(/^Print /, "Imprimir ")
-    .replace(/^Export /, "Exportar ");
-
-  fallback = fallback.replace(permission.module, moduleName);
-  if (permission.resource) fallback = fallback.replace(permission.resource, moduleName);
-  return fallback;
-}
-
-function permissionHelpText(permission: PermissionListItem) {
-  const moduleName = moduleLabels[permission.module] ?? permission.module;
-  return `Modulo: ${moduleName}`;
-}

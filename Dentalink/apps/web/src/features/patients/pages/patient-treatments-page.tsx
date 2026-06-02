@@ -140,7 +140,7 @@ export function PatientTreatmentsPage() {
   const payments = usePatientPayments(id);
   const professionals = useProfessionals(undefined, "true");
   const procedures = useProcedures(undefined, "true");
-  const priceLists = usePriceLists(undefined, "true");
+  const priceLists = usePriceLists(undefined, "true", patient.data?.branchId);
   const clinicalMutations = useClinicalMutations(id);
   const treatmentMutations = useTreatmentMutations();
   const addNote = useAddPatientNote();

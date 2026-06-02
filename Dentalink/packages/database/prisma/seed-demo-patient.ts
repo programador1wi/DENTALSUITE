@@ -814,27 +814,170 @@ async function main() {
     ]
   });
 
-  // Asignar profesionales a todas las sucursales activas para que la agenda tenga datos visibles en cada filtro.
-  const profs = [profMendoza, profVega, profRuiz, profGomez];
-  for (const activeBranch of activeBranches) {
-    for (const prof of profs) {
-      await prisma.professionalBranch.create({
-        data: {
-          professionalId: prof.id,
-          branchId: activeBranch.id,
-          isPrimary: activeBranch.id === branch.id,
-          agendaSlotMinutes: prof.id === profMendoza.id ? 20 : null,
-          defaultAppointmentDurationMinutes: prof.id === profMendoza.id ? 20 : null
-        }
-      });
-    }
+  type DemoProfessional = typeof profMendoza;
+  const branchTeams = new Map<string, { general: DemoProfessional; orthodontist: DemoProfessional }>();
+  const professionalsByBranch = new Map<string, DemoProfessional[]>();
+  const defaultBranchProfessionals = [profMendoza, profVega, profRuiz, profGomez];
+
+  await prisma.professionalBranch.createMany({
+    data: defaultBranchProfessionals.map((prof) => ({
+      professionalId: prof.id,
+      branchId: branch.id,
+      isPrimary: true,
+      agendaSlotMinutes: 20,
+      defaultAppointmentDurationMinutes: 20
+    })),
+    skipDuplicates: true
+  });
+  branchTeams.set(branch.id, { general: profMendoza, orthodontist: profVega });
+  professionalsByBranch.set(branch.id, defaultBranchProfessionals);
+
+  const branchTeamProfiles = new Map([
+    ["TAPACHULA", { general: ["Ricardo", "Perez"], orthodontist: ["Natalia", "Santos"] }],
+    ["ATLIXCO", { general: ["Mariana", "Flores"], orthodontist: ["Diego", "Cortes"] }],
+    ["CAMPECHE", { general: ["Jorge", "Garcia"], orthodontist: ["Camila", "Ortega"] }],
+    ["COMITAN", { general: ["Ana", "Torres"], orthodontist: ["Emilio", "Luna"] }],
+    ["CORDOBA_VER", { general: ["Luis", "Hernandez"], orthodontist: ["Renata", "Molina"] }],
+    ["GUADALAJARA", { general: ["Sofia", "Ramirez"], orthodontist: ["Mateo", "Navarro"] }],
+    ["MERIDA", { general: ["Carlos", "Sanchez"], orthodontist: ["Valeria", "Pacheco"] }],
+    ["PACHUCA", { general: ["Patricia", "Morales"], orthodontist: ["Bruno", "Salazar"] }],
+    ["SAN_CRISTOBAL", { general: ["Fernando", "Diaz"], orthodontist: ["Elena", "Rojas"] }],
+    ["TONALA", { general: ["Gabriela", "Lopez"], orthodontist: ["Ivan", "Mejia"] }],
+    ["TUXPAN", { general: ["Miguel", "Vargas"], orthodontist: ["Paula", "Ibarra"] }],
+    ["TUXTLA", { general: ["Claudia", "Reyes"], orthodontist: ["Oscar", "Nunez"] }],
+    ["VILLAHERMOSA", { general: ["Eduardo", "Castillo"], orthodontist: ["Daniela", "Fuentes"] }],
+    ["XALAPA", { general: ["Daniela", "Gutierrez"], orthodontist: ["Hector", "Vega"] }],
+    ["DXRAY_TUXTLA", { general: ["Roberto", "Medina"], orthodontist: ["Adriana", "Campos"] }]
+  ]);
+  const fallbackGeneralNames = [
+    ["Andrea", "Silva"],
+    ["Martin", "Lara"],
+    ["Lucia", "Ponce"],
+    ["Sergio", "Ramos"]
+  ];
+  const fallbackOrthodontistNames = [
+    ["Regina", "Villar"],
+    ["Tomas", "Arias"],
+    ["Paola", "Leal"],
+    ["Nicolas", "Soto"]
+  ];
+
+  const slugFromBranch = (activeBranch: { code: string | null; name: string }) =>
+    (activeBranch.code ?? activeBranch.name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, ".")
+      .replace(/(^\.|\.$)/g, "");
+
+  const upsertBranchProfessional = async ({
+    activeBranch,
+    specialtyId,
+    role,
+    firstName,
+    lastName,
+    color,
+    index
+  }: {
+    activeBranch: { id: string; code: string | null; name: string };
+    specialtyId: string;
+    role: "general" | "ortho";
+    firstName: string;
+    lastName: string;
+    color: string;
+    index: number;
+  }) => {
+    const branchSlug = slugFromBranch(activeBranch);
+    const email = `${role}.${branchSlug}@dentalwarner.local`;
+    const phone = `+5296102${String(index + 1).padStart(4, "0")}${role === "general" ? "1" : "2"}`;
+    const licenseNumber = `${(activeBranch.code ?? "BR").replace(/[^A-Z0-9]+/g, "").slice(0, 3)}-${role.toUpperCase()}-${String(index + 1).padStart(2, "0")}`;
+    const user = await upsertSystemUser({
+      organizationId: organization.id,
+      branchId: activeBranch.id,
+      roleName: "DENTIST",
+      email,
+      firstName,
+      lastName,
+      phone,
+      passwordHash: systemUserPasswordHash
+    });
+
+    const professional = await prisma.professional.upsert({
+      where: {
+        organizationId_email: { organizationId: organization.id, email }
+      },
+      update: {
+        firstName,
+        lastName,
+        email,
+        phone,
+        licenseNumber,
+        color,
+        isActive: true,
+        userId: user.id
+      },
+      create: {
+        organizationId: organization.id,
+        firstName,
+        lastName,
+        email,
+        phone,
+        licenseNumber,
+        color,
+        isActive: true,
+        userId: user.id
+      }
+    });
+
+    await prisma.professionalSpecialty.create({
+      data: { professionalId: professional.id, specialtyId }
+    });
+    await prisma.professionalBranch.create({
+      data: {
+        professionalId: professional.id,
+        branchId: activeBranch.id,
+        isPrimary: true,
+        agendaSlotMinutes: 20,
+        defaultAppointmentDurationMinutes: 20
+      }
+    });
+
+    return professional;
+  };
+
+  for (const [index, activeBranch] of activeBranches.entries()) {
+    if (activeBranch.id === branch.id) continue;
+
+    const profile = branchTeamProfiles.get(activeBranch.code ?? "") ?? {
+      general: fallbackGeneralNames[index % fallbackGeneralNames.length],
+      orthodontist: fallbackOrthodontistNames[index % fallbackOrthodontistNames.length]
+    };
+    const general = await upsertBranchProfessional({
+      activeBranch,
+      specialtyId: specGeneral.id,
+      role: "general",
+      firstName: profile.general[0],
+      lastName: profile.general[1],
+      color: "#0284c7",
+      index
+    });
+    const orthodontist = await upsertBranchProfessional({
+      activeBranch,
+      specialtyId: specOrtodoncia.id,
+      role: "ortho",
+      firstName: profile.orthodontist[0],
+      lastName: profile.orthodontist[1],
+      color: "#ec4899",
+      index
+    });
+
+    branchTeams.set(activeBranch.id, { general, orthodontist });
+    professionalsByBranch.set(activeBranch.id, [general, orthodontist]);
   }
 
   console.log("Configurando horarios activos para agenda y disponibilidad...");
   const workingDays = [1, 2, 3, 4, 5, 6];
   await prisma.professionalSchedule.createMany({
     data: activeBranches.flatMap((activeBranch) =>
-      profs.flatMap((prof) =>
+      (professionalsByBranch.get(activeBranch.id) ?? []).flatMap((prof) =>
         workingDays.map((dayOfWeek) => ({
           professionalId: prof.id,
           branchId: activeBranch.id,
@@ -953,6 +1096,7 @@ async function main() {
     create: {
       organizationId: organization.id,
       categoryId: catDiag.id,
+      displayId: 25001,
       code: "DIAG-01",
       name: "Profilaxis Dental y Limpieza Ultrasónica",
       defaultDuration: 30
@@ -964,6 +1108,7 @@ async function main() {
     create: {
       organizationId: organization.id,
       categoryId: catRestauradora.id,
+      displayId: 25002,
       code: "REST-01",
       name: "Resina Compuesta de Fotocurado",
       defaultDuration: 45,
@@ -977,6 +1122,7 @@ async function main() {
     create: {
       organizationId: organization.id,
       categoryId: catOrto.id,
+      displayId: 25003,
       code: "ORT-01",
       name: "Brackets Autoligados Estéticos Damon",
       defaultDuration: 90
@@ -988,6 +1134,7 @@ async function main() {
     create: {
       organizationId: organization.id,
       categoryId: catOrto.id,
+      displayId: 25004,
       code: "ORT-02",
       name: "Ajuste y Control Mensual de Ortodoncia",
       defaultDuration: 30
@@ -999,6 +1146,7 @@ async function main() {
     create: {
       organizationId: organization.id,
       categoryId: catEndo.id,
+      displayId: 25005,
       code: "ENDO-01",
       name: "Tratamiento de Conductos Molar (Endodoncia)",
       defaultDuration: 60,
@@ -1011,6 +1159,7 @@ async function main() {
     create: {
       organizationId: organization.id,
       categoryId: catEndo.id,
+      displayId: 25006,
       code: "ENDO-02",
       name: "Reconstrucción Dentaria Post-Endodontica con Poste de Fibra",
       defaultDuration: 45,
@@ -1023,6 +1172,7 @@ async function main() {
     create: {
       organizationId: organization.id,
       categoryId: catPed.id,
+      displayId: 25007,
       code: "PED-01",
       name: "Profilaxis Infantil y Fluoración con Barniz",
       defaultDuration: 30
@@ -1034,6 +1184,7 @@ async function main() {
     create: {
       organizationId: organization.id,
       categoryId: catPed.id,
+      displayId: 25008,
       code: "PED-02",
       name: "Sellador de Fosetas y Fisuras (Por Pieza)",
       defaultDuration: 20,
@@ -1046,6 +1197,7 @@ async function main() {
     create: {
       organizationId: organization.id,
       categoryId: catImpl.id,
+      displayId: 25009,
       code: "IMP-01",
       name: "Implante Dental Biocompatible de Titanio Straumann",
       defaultDuration: 60,
@@ -1058,6 +1210,7 @@ async function main() {
     create: {
       organizationId: organization.id,
       categoryId: catImpl.id,
+      displayId: 25010,
       code: "REHAB-02",
       name: "Corona de Zirconio Monolítico Premium (Sobre Implante)",
       defaultDuration: 60,
@@ -1079,29 +1232,105 @@ async function main() {
     }
   });
 
+  const plCatDiag = await prisma.priceListCategory.upsert({
+    where: { priceListId_name: { priceListId: generalPriceList.id, name: catDiag.name } },
+    update: { procedureCategoryId: catDiag.id, sortOrder: catDiag.sortOrder, isActive: true },
+    create: {
+      organizationId: organization.id,
+      priceListId: generalPriceList.id,
+      procedureCategoryId: catDiag.id,
+      name: catDiag.name,
+      description: catDiag.description,
+      sortOrder: catDiag.sortOrder
+    }
+  });
+  const plCatRestauradora = await prisma.priceListCategory.upsert({
+    where: { priceListId_name: { priceListId: generalPriceList.id, name: catRestauradora.name } },
+    update: { procedureCategoryId: catRestauradora.id, sortOrder: catRestauradora.sortOrder, isActive: true },
+    create: {
+      organizationId: organization.id,
+      priceListId: generalPriceList.id,
+      procedureCategoryId: catRestauradora.id,
+      name: catRestauradora.name,
+      description: catRestauradora.description,
+      sortOrder: catRestauradora.sortOrder
+    }
+  });
+  const plCatOrto = await prisma.priceListCategory.upsert({
+    where: { priceListId_name: { priceListId: generalPriceList.id, name: catOrto.name } },
+    update: { procedureCategoryId: catOrto.id, sortOrder: catOrto.sortOrder, isActive: true },
+    create: {
+      organizationId: organization.id,
+      priceListId: generalPriceList.id,
+      procedureCategoryId: catOrto.id,
+      name: catOrto.name,
+      description: catOrto.description,
+      sortOrder: catOrto.sortOrder
+    }
+  });
+  const plCatEndo = await prisma.priceListCategory.upsert({
+    where: { priceListId_name: { priceListId: generalPriceList.id, name: catEndo.name } },
+    update: { procedureCategoryId: catEndo.id, sortOrder: catEndo.sortOrder, isActive: true },
+    create: {
+      organizationId: organization.id,
+      priceListId: generalPriceList.id,
+      procedureCategoryId: catEndo.id,
+      name: catEndo.name,
+      description: catEndo.description,
+      sortOrder: catEndo.sortOrder
+    }
+  });
+  const plCatPed = await prisma.priceListCategory.upsert({
+    where: { priceListId_name: { priceListId: generalPriceList.id, name: catPed.name } },
+    update: { procedureCategoryId: catPed.id, sortOrder: catPed.sortOrder, isActive: true },
+    create: {
+      organizationId: organization.id,
+      priceListId: generalPriceList.id,
+      procedureCategoryId: catPed.id,
+      name: catPed.name,
+      description: catPed.description,
+      sortOrder: catPed.sortOrder
+    }
+  });
+  const plCatImpl = await prisma.priceListCategory.upsert({
+    where: { priceListId_name: { priceListId: generalPriceList.id, name: catImpl.name } },
+    update: { procedureCategoryId: catImpl.id, sortOrder: catImpl.sortOrder, isActive: true },
+    create: {
+      organizationId: organization.id,
+      priceListId: generalPriceList.id,
+      procedureCategoryId: catImpl.id,
+      name: catImpl.name,
+      description: catImpl.description,
+      sortOrder: catImpl.sortOrder
+    }
+  });
+
   // Limpiar precios anteriores para evitar duplicados
   await prisma.priceListItem.deleteMany({
     where: { priceListId: generalPriceList.id }
   });
 
   const standardPrices = [
-    { procId: procProfilaxis.id, price: 500.0 },
-    { procId: procResina.id, price: 1200.0 },
-    { procId: procBracketAutoligado.id, price: 25000.0 },
-    { procId: procControlOrto.id, price: 1200.0 },
-    { procId: procEndodonciaMolar.id, price: 4500.0 },
-    { procId: procReconstruccionPostEndo.id, price: 1800.0 },
-    { procId: procProfilaxisInfantil.id, price: 600.0 },
-    { procId: procSelladores.id, price: 450.0 },
-    { procId: procImplanteTitanio.id, price: 18000.0 },
-    { procId: procCoronaZirconio.id, price: 6500.0 }
+    { procId: procProfilaxis.id, categoryId: plCatDiag.id, price: 500.0 },
+    { procId: procResina.id, categoryId: plCatRestauradora.id, price: 1200.0 },
+    { procId: procBracketAutoligado.id, categoryId: plCatOrto.id, price: 25000.0 },
+    { procId: procControlOrto.id, categoryId: plCatOrto.id, price: 1200.0 },
+    { procId: procEndodonciaMolar.id, categoryId: plCatEndo.id, price: 4500.0 },
+    { procId: procReconstruccionPostEndo.id, categoryId: plCatEndo.id, price: 1800.0 },
+    { procId: procProfilaxisInfantil.id, categoryId: plCatPed.id, price: 600.0 },
+    { procId: procSelladores.id, categoryId: plCatPed.id, price: 450.0 },
+    { procId: procImplanteTitanio.id, categoryId: plCatImpl.id, price: 18000.0 },
+    { procId: procCoronaZirconio.id, categoryId: plCatImpl.id, price: 6500.0 }
   ];
 
   await prisma.priceListItem.createMany({
     data: standardPrices.map((p) => ({
       priceListId: generalPriceList.id,
+      priceListCategoryId: p.categoryId,
       procedureId: p.procId,
       price: p.price,
+      labCost: 0,
+      allowsDiscount: false,
       currency: "MXN"
     }))
   });
@@ -2961,7 +3190,8 @@ async function main() {
       specialtyId: specPediatria.id,
       title: "[DEMO] Llegada PX - sangrado de encias",
       reason: "Sangrado gingival al cepillado y movilidad leve referida",
-      notes: "PX llega para valoracion periodontal inicial. Se registra triage y signos de inflamacion gingival.",
+      notes:
+        "PX llega para valoracion periodontal inicial. Se registra triage y signos de inflamacion gingival.",
       appointmentStatus: AppointmentStatus.ARRIVED,
       range: demoDateRange(10, 30, 30)
     },
@@ -3057,6 +3287,7 @@ async function main() {
   console.log("Creando datos de demostracion por sucursal...");
   for (let index = 0; index < activeBranches.length; index++) {
     const activeBranch = activeBranches[index];
+    const branchTeam = branchTeams.get(activeBranch.id) ?? { general: profMendoza, orthodontist: profVega };
     const branchCode = (activeBranch.code ?? `branch-${index + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const patient = await prisma.patient.create({
       data: {
@@ -3112,7 +3343,7 @@ async function main() {
           organizationId: organization.id,
           branchId: activeBranch.id,
           patientId: patient.id,
-          professionalId: profMendoza.id,
+          professionalId: branchTeam.general.id,
           specialtyId: specGeneral.id,
           title: appointmentSeed.title,
           reason: appointmentSeed.reason,
@@ -3139,7 +3370,9 @@ async function main() {
   console.log("¡ÉXITO! Seed premium multiespecialidad completado exitosamente.");
   console.log("10 Pacientes demo insertados/limpiados:");
   console.log("  Incluye 5 pacientes base y 5 PX de llegada por motivos dentales.");
-  console.log("  PX llegada: dolor molar, endodoncia, bracket desprendido, sangrado gingival y corona floja.");
+  console.log(
+    "  PX llegada: dolor molar, endodoncia, bracket desprendido, sangrado gingival y corona floja."
+  );
   console.log("  Usuarios extra: coordinacion.px@dentalwarner.local y recepcion.tarde@dentalwarner.local.");
   console.log("  1. Juan Demostración: General y Mora activa ($2,000 MXN vencidos).");
   console.log("  2. Sofía Castro: Ortodoncia Estética Damon ($25,000 MXN, Plan de cuotas activo).");

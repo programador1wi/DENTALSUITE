@@ -60,7 +60,7 @@ const days = [
   { value: 0, label: "Domingo" }
 ];
 
-const timeOptions = buildTimeOptions(7, 21, 10);
+const timeOptions = buildTimeOptions(7, 21, 60);
 
 function defaultDayForm(dayOfWeek: number, chairId = ""): DayForm {
   if (dayOfWeek === 0) {
@@ -176,8 +176,11 @@ export function SchedulesSettingsPage() {
   const defaultChairId = branchChairs.length === 1 ? branchChairs[0].id : "";
   const isReadyForEditor = Boolean(selectedProfessionalId && selectedBranchId);
   const isProfessionalLocked = Boolean(selectedProfessionalId);
-  const hasSingleBranch = Boolean(selectedProfessional && professionalBranches.length === 1);
-  const needsBranchSelection = Boolean(selectedProfessional && professionalBranches.length > 1);
+  const hasSingleBranch = Boolean(
+    selectedProfessional &&
+      (professionalBranches.length === 1 || (isProfessionalLocked && Boolean(selectedBranchId)))
+  );
+  const needsBranchSelection = Boolean(selectedProfessional && !hasSingleBranch && professionalBranches.length > 1);
   const actionPending = createSchedule.isPending || updateSchedule.isPending || updateAgendaConfig.isPending;
 
   const blockRange = blockDateRange(blockForm);

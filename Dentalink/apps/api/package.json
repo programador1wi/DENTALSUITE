@@ -10,8 +10,8 @@
     "lint": "eslint \"src/**/*.ts\"",
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "jest --config ./jest.config.ts --runInBand",
-    "test:unit": "jest --config ./jest.config.ts --runInBand --testPathPattern=unit\\.spec\\.ts$",
-    "test:integration": "jest --config ./jest.config.ts --runInBand --testPathPattern=integration\\.spec\\.ts$"
+    "test:unit": "jest --config ./jest.config.ts --runInBand --testPathPatterns=unit\\.spec\\.ts$",
+    "test:integration": "jest --config ./jest.config.ts --runInBand --testPathPatterns=integration\\.spec\\.ts$"
   },
   "dependencies": {
     "@dentalwarner/shared": "file:../../packages/shared",

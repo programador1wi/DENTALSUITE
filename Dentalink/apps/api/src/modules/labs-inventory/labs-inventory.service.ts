@@ -17,6 +17,7 @@ import {
   ListLabProvidersQueryDto,
   ListSuppliersQueryDto,
   UpdateInventoryItemDto,
+  UpdateLabProcedureAssignmentsDto,
   UpdateLabOrderCostDto,
   UpdateLabOrderStatusDto,
   UpdateLabProviderDto,
@@ -65,7 +66,8 @@ export class LabsInventoryService {
         name: dto.name.trim(),
         phone: dto.phone?.trim(),
         email: dto.email?.trim().toLowerCase(),
-        address: dto.address?.trim()
+        address: dto.address?.trim(),
+        details: dto.details?.trim()
       }
     });
 
@@ -100,6 +102,7 @@ export class LabsInventoryService {
         phone: dto.phone?.trim(),
         email: dto.email?.trim().toLowerCase(),
         address: dto.address?.trim(),
+        details: dto.details?.trim(),
         ...(typeof dto.isActive === "boolean" ? { isActive: dto.isActive } : {})
       }
     });
@@ -128,6 +131,83 @@ export class LabsInventoryService {
       after: { isActive: false }
     });
     return updated;
+  }
+
+  async listLabProcedureAssignments(actor: AuthUser) {
+    return this.prisma.labProcedureAssignment.findMany({
+      where: { organizationId: actor.organizationId },
+      include: {
+        labProvider: { select: { id: true, name: true, isActive: true } },
+        procedure: { select: { id: true, code: true, name: true, requiresLab: true, isActive: true } }
+      },
+      orderBy: [{ procedure: { code: "asc" } }, { labProvider: { name: "asc" } }]
+    });
+  }
+
+  async updateLabProcedureAssignments(actor: AuthUser, procedureId: string, dto: UpdateLabProcedureAssignmentsDto) {
+    const procedure = await this.prisma.procedure.findFirst({
+      where: { id: procedureId, organizationId: actor.organizationId, isActive: true }
+    });
+    if (!procedure) throw new NotFoundException("Procedure not found");
+    if (!procedure.requiresLab) throw new BadRequestException("Procedure does not require laboratory");
+
+    const labProviderIds = [...new Set(dto.assignments.map((assignment) => assignment.labProviderId))];
+    if (labProviderIds.length) {
+      const validCount = await this.prisma.labProvider.count({
+        where: { id: { in: labProviderIds }, organizationId: actor.organizationId }
+      });
+      if (validCount !== labProviderIds.length) throw new BadRequestException("One or more lab providers are invalid");
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const assignment of dto.assignments) {
+        if (!assignment.isAssigned) {
+          await tx.labProcedureAssignment.updateMany({
+            where: {
+              organizationId: actor.organizationId,
+              procedureId,
+              labProviderId: assignment.labProviderId
+            },
+            data: { isActive: false }
+          });
+          continue;
+        }
+
+        await tx.labProcedureAssignment.upsert({
+          where: {
+            procedureId_labProviderId: {
+              procedureId,
+              labProviderId: assignment.labProviderId
+            }
+          },
+          create: {
+            organizationId: actor.organizationId,
+            procedureId,
+            labProviderId: assignment.labProviderId,
+            patientPrice: this.toNullableDecimal(assignment.patientPrice),
+            currency: assignment.currency ?? "MXN",
+            isActive: true
+          },
+          update: {
+            patientPrice: this.toNullableDecimal(assignment.patientPrice),
+            currency: assignment.currency ?? "MXN",
+            isActive: true
+          }
+        });
+      }
+
+      await this.auditTx(tx, actor, {
+        entity: "LabProcedureAssignment",
+        entityId: procedureId,
+        action: "bulk_update",
+        after: {
+          procedureId,
+          assignmentCount: dto.assignments.filter((assignment) => assignment.isAssigned).length
+        }
+      });
+    });
+
+    return this.listLabProcedureAssignments(actor);
   }
 
   async listLabOrders(actor: AuthUser, query: ListLabOrdersQueryDto) {
@@ -787,6 +867,13 @@ export class LabsInventoryService {
 
   private toDecimal(value: number) {
     return new Prisma.Decimal(this.roundMoney(value));
+  }
+
+  private toNullableDecimal(value?: string) {
+    if (!value?.trim()) return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) throw new BadRequestException("Patient price must be zero or greater");
+    return new Prisma.Decimal(this.roundMoney(parsed));
   }
 
   private roundMoney(value: number) {

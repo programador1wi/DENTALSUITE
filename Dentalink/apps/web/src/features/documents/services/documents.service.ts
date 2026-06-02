@@ -4,6 +4,8 @@ export type FileAttachment = {
   id: string;
   organizationId: string;
   patientId?: string | null;
+  userId?: string | null;
+  professionalId?: string | null;
   uploadedById: string;
   fileName: string;
   originalName: string;
@@ -74,6 +76,23 @@ export async function uploadPatientBinaryFile(patientId: string, payload: { file
   formData.append("file", payload.file);
   formData.append("category", payload.category);
   const { data } = await http.post<FileAttachment>(`/patients/${patientId}/files/upload`, formData);
+  return data;
+}
+
+export async function listUserFiles(userId: string, params?: { category?: string }) {
+  const { data } = await http.get<FileAttachment[]>(`/users/${userId}/files`, { params });
+  return data;
+}
+
+export async function uploadUserBinaryFile(
+  userId: string,
+  payload: { file: File; category: string; professionalId?: string }
+) {
+  const formData = new FormData();
+  formData.append("file", payload.file);
+  formData.append("category", payload.category);
+  if (payload.professionalId) formData.append("professionalId", payload.professionalId);
+  const { data } = await http.post<FileAttachment>(`/users/${userId}/files/upload`, formData);
   return data;
 }
 

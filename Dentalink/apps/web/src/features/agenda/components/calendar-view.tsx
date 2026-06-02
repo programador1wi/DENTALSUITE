@@ -6,14 +6,24 @@ import { CalendarDays, Clock, Plus, UserRound } from "lucide-react";
 
 import { AppointmentCard } from "./appointment-card";
 import type { AppointmentMenuAction } from "./appointment-actions-menu";
+import {
+  DEFAULT_AGENDA_END_HOUR,
+  DEFAULT_AGENDA_SLOT_MINUTES,
+  DEFAULT_AGENDA_START_HOUR,
+  buildTimeSlotsFromRange,
+  getProfessionalBranchAgendaConfig,
+  normalizeAgendaSlotMinutes,
+  resolveAgendaTimelineRange,
+  timeToMinutes
+} from "../utils/agenda-grid-config";
 
 function dayKey(value: string) {
   return toDateInputValue(new Date(value));
 }
 
-const DEFAULT_DAY_START_HOUR = 8;
-const DEFAULT_DAY_END_HOUR = 19;
-const DEFAULT_DAY_SLOT_MINUTES = 30;
+const DEFAULT_DAY_START_HOUR = DEFAULT_AGENDA_START_HOUR;
+const DEFAULT_DAY_END_HOUR = DEFAULT_AGENDA_END_HOUR;
+const DEFAULT_DAY_SLOT_MINUTES = DEFAULT_AGENDA_SLOT_MINUTES;
 
 export function CalendarView({
   appointments,
@@ -64,11 +74,13 @@ export function CalendarView({
   onNoShow: (id: string) => void;
   onMenuAction?: (appointment: Appointment, action: AppointmentMenuAction) => void;
 }) {
-  const normalizedDaySlotMinutes = clampInt(daySlotMinutes, 5, 60, DEFAULT_DAY_SLOT_MINUTES);
+  const normalizedDaySlotMinutes = normalizeAgendaSlotMinutes(daySlotMinutes, DEFAULT_DAY_SLOT_MINUTES);
   const normalizedDayStartHour = clampInt(dayStartHour, 0, 23, DEFAULT_DAY_START_HOUR);
   const normalizedDayEndHour = clampInt(dayEndHour, 0, 23, DEFAULT_DAY_END_HOUR);
   const dayTimeSlots = buildTimeSlots(normalizedDayStartHour, normalizedDayEndHour, normalizedDaySlotMinutes, { endExclusive: true });
   const daySlotHeight = getAgendaSlotHeight(normalizedDaySlotMinutes);
+  const fallbackTimelineStartMinutes = normalizedDayStartHour * 60;
+  const fallbackTimelineEndMinutes = normalizedDayEndHour * 60;
 
   if (view === "week") {
     const weekStart = getWeekStart(parseDateInput(date));
@@ -288,11 +300,12 @@ export function CalendarView({
 
                     {dayAppointments.map((appointment) => {
                       const placement = getAppointmentPlacement(appointment, {
-                        startHour: normalizedDayStartHour,
-                        endHour: normalizedDayEndHour,
+                        startMinutes: fallbackTimelineStartMinutes,
+                        endMinutes: fallbackTimelineEndMinutes,
                         slotMinutes: normalizedDaySlotMinutes,
                         slotHeight: daySlotHeight
                       });
+                      if (!placement) return null;
 
                       return (
                         <div
@@ -329,8 +342,8 @@ export function CalendarView({
 
                     {dayBreaks.map((schedule) => {
                       const placement = getTimeRangePlacement(schedule.breakStartTime!, schedule.breakEndTime!, {
-                        startHour: normalizedDayStartHour,
-                        endHour: normalizedDayEndHour,
+                        startMinutes: fallbackTimelineStartMinutes,
+                        endMinutes: fallbackTimelineEndMinutes,
                         slotMinutes: normalizedDaySlotMinutes,
                         slotHeight: daySlotHeight
                       });
@@ -395,7 +408,26 @@ export function CalendarView({
       );
     }
 
-    const dayTimelineHeight = dayTimeSlots.length * daySlotHeight;
+    const dayOfWeek = parseDateInput(date).getDay();
+    const displayProfessionalIds = new Set(displayProfessionals.map((professional) => professional.id));
+    const daySchedules = schedules.filter(
+      (schedule) =>
+        schedule.dayOfWeek === dayOfWeek &&
+        schedule.isActive &&
+        displayProfessionalIds.has(schedule.professionalId)
+    );
+    const dayTimelineRange = resolveAgendaTimelineRange({
+      schedules: daySchedules,
+      fallbackStartHour: normalizedDayStartHour,
+      fallbackEndHour: normalizedDayEndHour
+    });
+    const dayViewTimeSlots = buildTimeSlotsFromRange(
+      dayTimelineRange.startMinutes,
+      dayTimelineRange.endMinutes,
+      normalizedDaySlotMinutes,
+      { endExclusive: true }
+    );
+    const dayTimelineHeight = dayViewTimeSlots.length * daySlotHeight;
 
     return (
       <div className="w-full space-y-4">
@@ -414,7 +446,7 @@ export function CalendarView({
                 
                 {/* Hourly grid lines indicators */}
                 <div className="flex-1 divide-y divide-zinc-100/60">
-                  {dayTimeSlots.map((time) => (
+                  {dayViewTimeSlots.map((time) => (
                     <div key={time} className="flex items-center justify-center text-center shrink-0" style={{ height: daySlotHeight }}>
                       <span className="text-[10px] font-medium text-zinc-400 tracking-tight">
                         {time}
@@ -431,10 +463,22 @@ export function CalendarView({
                     .filter((a) => a.professionalId === prof.id)
                     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
                   const profAppsCount = profApps.length;
-                  const profBreaks = schedules.filter(
+                  const professionalAgenda = getProfessionalBranchAgendaConfig(prof, selectedBranchId, normalizedDaySlotMinutes);
+                  const professionalSchedule = daySchedules.find(
+                    (schedule) => schedule.professionalId === prof.id && schedule.dayOfWeek === dayOfWeek
+                  );
+                  const scheduleStartMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.startTime) : null;
+                  const scheduleEndMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.endTime) : null;
+                  const professionalTimeSlots =
+                    professionalSchedule && scheduleStartMinutes !== null && scheduleEndMinutes !== null
+                      ? buildTimeSlotsFromRange(scheduleStartMinutes, scheduleEndMinutes, professionalAgenda.slotMinutes, {
+                          endExclusive: true
+                        })
+                      : [];
+                  const profBreaks = daySchedules.filter(
                     (schedule) =>
                       schedule.professionalId === prof.id &&
-                      schedule.dayOfWeek === parseDateInput(date).getDay() &&
+                      schedule.dayOfWeek === dayOfWeek &&
                       schedule.breakStartTime &&
                       schedule.breakEndTime
                   );
@@ -458,38 +502,70 @@ export function CalendarView({
 
                       {/* Timeline Slots under this doctor */}
                       <div className="relative flex-1 bg-zinc-50/5" style={{ height: dayTimelineHeight }}>
-                        {dayTimeSlots.map((time, index) => (
-                          <button
-                            key={time}
-                            type="button"
-                            onClick={() => {
-                              if (onCreateSlotClick) {
-                                onCreateSlotClick({
-                                  professionalId: prof.id,
-                                  branchId: selectedBranchId || undefined,
-                                  ...slotRange(date, time, normalizedDaySlotMinutes)
+                        {dayViewTimeSlots.map((time, index) => {
+                          return (
+                            <div
+                              key={time}
+                              className="absolute left-0 right-0 border-b border-zinc-200/20"
+                              style={{ top: index * daySlotHeight, height: daySlotHeight }}
+                            />
+                          );
+                        })}
+
+                        {professionalTimeSlots.map((time) => {
+                          const slotStartMinutes = timeToMinutes(time);
+                          const isInsideSchedule =
+                            slotStartMinutes !== null &&
+                            scheduleStartMinutes !== null &&
+                            scheduleEndMinutes !== null &&
+                            slotStartMinutes >= scheduleStartMinutes &&
+                            slotStartMinutes + professionalAgenda.defaultAppointmentDurationMinutes <= scheduleEndMinutes;
+                          const placement =
+                            slotStartMinutes === null
+                              ? null
+                              : getSlotButtonPlacement(slotStartMinutes, professionalAgenda.defaultAppointmentDurationMinutes, {
+                                  startMinutes: dayTimelineRange.startMinutes,
+                                  endMinutes: dayTimelineRange.endMinutes,
+                                  slotMinutes: normalizedDaySlotMinutes,
+                                  slotHeight: daySlotHeight
                                 });
-                                return;
-                              }
-                              onCreateClick?.();
-                            }}
-                            className="group/slot absolute left-0 right-0 border-b border-zinc-200/30 p-1 transition-colors duration-150 hover:bg-zinc-50/70"
-                            style={{ top: index * daySlotHeight, height: daySlotHeight }}
-                          >
-                            <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-transparent text-[10px] font-medium text-zinc-400/80 opacity-0 transition-opacity duration-150 group-hover/slot:opacity-100 group-hover/slot:text-zinc-600">
-                              <Plus className="h-3.5 w-3.5" />
-                              <span>Disponible</span>
-                            </span>
-                          </button>
-                        ))}
+
+                          if (!isInsideSchedule || !placement) return null;
+
+                          return (
+                            <button
+                              key={time}
+                              type="button"
+                              onClick={() => {
+                                if (onCreateSlotClick) {
+                                  onCreateSlotClick({
+                                    professionalId: prof.id,
+                                    branchId: selectedBranchId || undefined,
+                                    ...slotRange(date, time, professionalAgenda.defaultAppointmentDurationMinutes)
+                                  });
+                                  return;
+                                }
+                                onCreateClick?.();
+                              }}
+                              className="group/slot absolute left-0 right-0 border-b border-zinc-200/30 p-1 transition-colors duration-150 hover:bg-zinc-50/70"
+                              style={{ top: placement.top, height: placement.height }}
+                            >
+                              <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-transparent text-[10px] font-medium text-zinc-400/80 opacity-0 transition-opacity duration-150 group-hover/slot:opacity-100 group-hover/slot:text-zinc-600">
+                                <Plus className="h-3.5 w-3.5" />
+                                <span>Disponible</span>
+                              </span>
+                            </button>
+                          );
+                        })}
 
                         {profApps.map((app) => {
                           const placement = getAppointmentPlacement(app, {
-                            startHour: normalizedDayStartHour,
-                            endHour: normalizedDayEndHour,
+                            startMinutes: dayTimelineRange.startMinutes,
+                            endMinutes: dayTimelineRange.endMinutes,
                             slotMinutes: normalizedDaySlotMinutes,
                             slotHeight: daySlotHeight
                           });
+                          if (!placement) return null;
 
                           return (
                             <div
@@ -526,8 +602,8 @@ export function CalendarView({
 
                         {profBreaks.map((schedule) => {
                           const placement = getTimeRangePlacement(schedule.breakStartTime!, schedule.breakEndTime!, {
-                            startHour: normalizedDayStartHour,
-                            endHour: normalizedDayEndHour,
+                            startMinutes: dayTimelineRange.startMinutes,
+                            endMinutes: dayTimelineRange.endMinutes,
                             slotMinutes: normalizedDaySlotMinutes,
                             slotHeight: daySlotHeight
                           });
@@ -697,29 +773,35 @@ function buildTimeSlots(
   stepMinutes: number,
   options?: { endExclusive?: boolean }
 ) {
-  const slots: string[] = [];
-  const endMinutes = endHour * 60;
-  const endExclusive = options?.endExclusive ?? false;
-  for (let minutes = startHour * 60; endExclusive ? minutes < endMinutes : minutes <= endMinutes; minutes += stepMinutes) {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    slots.push(`${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`);
-  }
-  return slots;
+  return buildTimeSlotsFromRange(startHour * 60, endHour * 60, stepMinutes, options);
 }
 
 function getAppointmentPlacement(
   appointment: Appointment,
-  config: { startHour: number; endHour: number; slotMinutes: number; slotHeight: number }
+  config: { startMinutes: number; endMinutes: number; slotMinutes: number; slotHeight: number }
 ) {
   const start = new Date(appointment.startAt);
   const end = new Date(appointment.endAt);
-  const timelineStart = config.startHour * 60;
-  const timelineEnd = config.endHour * 60;
-  const startMinutes = Math.max(timelineStart, start.getHours() * 60 + start.getMinutes());
-  const endMinutes = Math.min(timelineEnd, end.getHours() * 60 + end.getMinutes());
-  const top = ((startMinutes - timelineStart) / config.slotMinutes) * config.slotHeight + 2;
+  const startMinutes = Math.max(config.startMinutes, start.getHours() * 60 + start.getMinutes());
+  const endMinutes = Math.min(config.endMinutes, end.getHours() * 60 + end.getMinutes());
+  if (endMinutes <= startMinutes) return null;
+
+  const top = ((startMinutes - config.startMinutes) / config.slotMinutes) * config.slotHeight + 2;
   const height = Math.max(20, ((endMinutes - startMinutes) / config.slotMinutes) * config.slotHeight - 4);
+
+  return { top, height };
+}
+
+function getSlotButtonPlacement(
+  startMinutes: number,
+  durationMinutes: number,
+  config: { startMinutes: number; endMinutes: number; slotMinutes: number; slotHeight: number }
+) {
+  const endMinutes = Math.min(config.endMinutes, startMinutes + durationMinutes);
+  if (startMinutes < config.startMinutes || endMinutes <= startMinutes) return null;
+
+  const top = ((startMinutes - config.startMinutes) / config.slotMinutes) * config.slotHeight;
+  const height = Math.max(20, ((endMinutes - startMinutes) / config.slotMinutes) * config.slotHeight);
 
   return { top, height };
 }
@@ -727,15 +809,17 @@ function getAppointmentPlacement(
 function getTimeRangePlacement(
   startTime: string,
   endTime: string,
-  config: { startHour: number; endHour: number; slotMinutes: number; slotHeight: number }
+  config: { startMinutes: number; endMinutes: number; slotMinutes: number; slotHeight: number }
 ) {
-  const timelineStart = config.startHour * 60;
-  const timelineEnd = config.endHour * 60;
-  const startMinutes = Math.max(timelineStart, timeToMinutes(startTime));
-  const endMinutes = Math.min(timelineEnd, timeToMinutes(endTime));
+  const rawStartMinutes = timeToMinutes(startTime);
+  const rawEndMinutes = timeToMinutes(endTime);
+  if (rawStartMinutes === null || rawEndMinutes === null) return null;
+
+  const startMinutes = Math.max(config.startMinutes, rawStartMinutes);
+  const endMinutes = Math.min(config.endMinutes, rawEndMinutes);
   if (endMinutes <= startMinutes) return null;
 
-  const top = ((startMinutes - timelineStart) / config.slotMinutes) * config.slotHeight + 2;
+  const top = ((startMinutes - config.startMinutes) / config.slotMinutes) * config.slotHeight + 2;
   const height = Math.max(20, ((endMinutes - startMinutes) / config.slotMinutes) * config.slotHeight - 4);
 
   return { top, height };
@@ -756,9 +840,4 @@ function getAgendaSlotHeight(slotMinutes: number) {
   if (slotMinutes <= 10) return 24;
   if (slotMinutes <= 20) return 38;
   return 56;
-}
-
-function timeToMinutes(value: string) {
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
 }

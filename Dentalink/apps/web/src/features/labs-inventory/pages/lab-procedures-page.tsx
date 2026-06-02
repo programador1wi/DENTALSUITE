@@ -11,11 +11,23 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { usePriceLists, useUpdatePriceList } from "@/features/settings/price-lists/hooks/use-price-lists";
 import type { PriceList, PriceListItem } from "@/features/settings/price-lists/services/price-lists.service";
-import { useProcedureCategories, useProcedureMutations, useProcedures } from "@/features/settings/procedures/hooks/use-procedures";
+import {
+  useProcedureCategories,
+  useProcedureMutations,
+  useProcedures
+} from "@/features/settings/procedures/hooks/use-procedures";
 import type { Procedure } from "@/features/settings/procedures/services/procedures.service";
 import { LabInfoBanner, LabsPrimaryAction, LabsWorkspace } from "../components/labs-workspace";
+import type { LabProcedureAssignment } from "../services/labs-inventory.service";
+import { useLabProcedureAssignments, useLabProviders, useLabsInventoryMutations } from "../hooks/use-labs-inventory";
 
 type Currency = "MXN" | "USD" | "EUR";
+
+type LabAssignmentDraft = {
+  enabled: boolean;
+  patientPrice: string;
+  currency: Currency;
+};
 
 type LabProcedureForm = {
   categoryId: string;
@@ -27,6 +39,7 @@ type LabProcedureForm = {
   currency: Currency;
   requiresTooth: boolean;
   requiresSurface: boolean;
+  labAssignments: Record<string, LabAssignmentDraft>;
 };
 
 const emptyForm: LabProcedureForm = {
@@ -38,32 +51,48 @@ const emptyForm: LabProcedureForm = {
   price: "",
   currency: "MXN",
   requiresTooth: false,
-  requiresSurface: false
+  requiresSurface: false,
+  labAssignments: {}
 };
 
 function normalizeItems(items: PriceListItem[]) {
   return items.map((item) => ({
     procedureId: item.procedureId,
+    priceListCategoryId: item.priceListCategoryId ?? undefined,
     price: item.price,
+    labCost: item.labCost,
+    allowsDiscount: item.allowsDiscount,
     currency: item.currency
   }));
 }
 
 function replacePrice(list: PriceList, procedureId: string, price: string, currency: Currency) {
   const current = normalizeItems(list.items);
-  const next = { procedureId, price, currency };
+  const existing = current.find((item) => item.procedureId === procedureId);
+  const next = {
+    procedureId,
+    priceListCategoryId: existing?.priceListCategoryId,
+    price,
+    labCost: existing?.labCost,
+    allowsDiscount: existing?.allowsDiscount,
+    currency
+  };
   return current.some((item) => item.procedureId === procedureId)
-    ? current.map((item) => item.procedureId === procedureId ? next : item)
+    ? current.map((item) => (item.procedureId === procedureId ? next : item))
     : [...current, next];
+}
+
+function formatMoney(value: string | number, currency: Currency) {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2
+  }).format(Number(value));
 }
 
 function money(item?: PriceListItem) {
   if (!item) return "Sin precio";
-  return new Intl.NumberFormat("es-MX", {
-    style: "currency",
-    currency: item.currency,
-    maximumFractionDigits: 2
-  }).format(Number(item.price));
+  return formatMoney(item.price, item.currency);
 }
 
 function duration(value: string) {
@@ -82,8 +111,11 @@ export function LabProceduresPage() {
   const procedures = useProcedures(search || undefined, "true");
   const categories = useProcedureCategories(undefined, "true");
   const lists = usePriceLists(undefined, "true");
+  const providers = useLabProviders(undefined, "true");
+  const labAssignments = useLabProcedureAssignments();
   const updateList = useUpdatePriceList();
   const procedureMutations = useProcedureMutations();
+  const labMutations = useLabsInventoryMutations();
 
   const genericList = lists.data?.find((list) => list.isDefault) ?? lists.data?.[0] ?? null;
   const labProcedures = (procedures.data ?? []).filter((procedure) => procedure.requiresLab);
@@ -91,12 +123,42 @@ export function LabProceduresPage() {
     () => new Map(genericList?.items.map((item) => [item.procedureId, item]) ?? []),
     [genericList]
   );
+  const labAssignmentsByProcedureId = useMemo(() => {
+    const grouped = new Map<string, Map<string, LabProcedureAssignment>>();
+    for (const assignment of labAssignments.data ?? []) {
+      const procedureAssignments = grouped.get(assignment.procedureId) ?? new Map<string, LabProcedureAssignment>();
+      procedureAssignments.set(assignment.labProviderId, assignment);
+      grouped.set(assignment.procedureId, procedureAssignments);
+    }
+    return grouped;
+  }, [labAssignments.data]);
+
+  const buildLabAssignments = (procedureId?: string): Record<string, LabAssignmentDraft> => {
+    const procedureAssignments = procedureId ? labAssignmentsByProcedureId.get(procedureId) : undefined;
+    return Object.fromEntries(
+      (providers.data ?? []).map((provider) => {
+        const assignment = procedureAssignments?.get(provider.id);
+        return [
+          provider.id,
+          {
+            enabled: assignment?.isActive ?? false,
+            patientPrice: assignment?.patientPrice ?? "",
+            currency: assignment?.currency ?? "MXN"
+          }
+        ];
+      })
+    );
+  };
+
+  const assignedLabsFor = (procedureId: string) =>
+    Array.from(labAssignmentsByProcedureId.get(procedureId)?.values() ?? []).filter((assignment) => assignment.isActive);
 
   const openCreate = () => {
     setEditing(null);
     setForm({
       ...emptyForm,
-      categoryId: categories.data?.[0]?.id ?? ""
+      categoryId: categories.data?.[0]?.id ?? "",
+      labAssignments: buildLabAssignments()
     });
     setFormOpen(true);
   };
@@ -113,7 +175,8 @@ export function LabProceduresPage() {
       price: item?.price ?? "",
       currency: item?.currency ?? "MXN",
       requiresTooth: procedure.requiresTooth,
-      requiresSurface: procedure.requiresSurface
+      requiresSurface: procedure.requiresSurface,
+      labAssignments: buildLabAssignments(procedure.id)
     });
     setFormOpen(true);
   };
@@ -146,12 +209,26 @@ export function LabProceduresPage() {
       : await procedureMutations.createProcedure.mutateAsync(payload);
 
     await persistPrice(procedure.id, form.price, form.currency);
+    await labMutations.updateLabProcedureAssignments.mutateAsync({
+      procedureId: procedure.id,
+      assignments: (providers.data ?? []).map((provider) => {
+        const assignment = form.labAssignments[provider.id];
+        return {
+          labProviderId: provider.id,
+          isAssigned: assignment?.enabled ?? false,
+          patientPrice: assignment?.patientPrice.trim() || undefined,
+          currency: assignment?.currency ?? form.currency
+        };
+      })
+    });
     setFormOpen(false);
   };
 
   if (procedures.isError) return <ErrorState message={procedures.error.message} />;
   if (categories.isError) return <ErrorState message={categories.error.message} />;
   if (lists.isError) return <ErrorState message={lists.error.message} />;
+  if (providers.isError) return <ErrorState message={providers.error.message} />;
+  if (labAssignments.isError) return <ErrorState message={labAssignments.error.message} />;
 
   return (
     <LabsWorkspace
@@ -177,10 +254,13 @@ export function LabProceduresPage() {
           </div>
         </div>
 
-        {procedures.isLoading || lists.isLoading ? (
+        {procedures.isLoading || lists.isLoading || providers.isLoading || labAssignments.isLoading ? (
           <LoadingState message="Cargando procedimientos de laboratorio..." />
         ) : !labProcedures.length ? (
-          <EmptyState title="Sin procedimientos" description="Crea un procedimiento de laboratorio para comenzar." />
+          <EmptyState
+            title="Sin procedimientos"
+            description="Crea un procedimiento de laboratorio para comenzar."
+          />
         ) : (
           <div className="overflow-x-auto rounded-2xl border border-slate-200">
             <table className="w-full border-collapse bg-white text-sm">
@@ -190,6 +270,7 @@ export function LabProceduresPage() {
                   <th className="px-4 py-3">Nombre</th>
                   <th className="px-4 py-3">Categoria</th>
                   <th className="px-4 py-3">Precio paciente generico</th>
+                  <th className="px-4 py-3">Laboratorios</th>
                   <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3 text-right">Opciones</th>
                 </tr>
@@ -200,15 +281,42 @@ export function LabProceduresPage() {
                     <td className="px-4 py-4 font-medium text-slate-700">{procedure.code}</td>
                     <td className="px-4 py-4">
                       <p className="font-semibold text-slate-900">{procedure.name}</p>
-                      {procedure.description ? <p className="text-xs text-slate-500">{procedure.description}</p> : null}
+                      {procedure.description ? (
+                        <p className="text-xs text-slate-500">{procedure.description}</p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-4">{procedure.category.name}</td>
-                    <td className="px-4 py-4 font-semibold text-slate-900">{money(priceByProcedureId.get(procedure.id))}</td>
-                    <td className="px-4 py-4"><Badge value="HABILITADO" tone="success" /></td>
+                    <td className="px-4 py-4 font-semibold text-slate-900">
+                      {money(priceByProcedureId.get(procedure.id))}
+                    </td>
+                    <td className="px-4 py-4">
+                      {assignedLabsFor(procedure.id).length ? (
+                        <div className="space-y-1">
+                          {assignedLabsFor(procedure.id).map((assignment) => (
+                            <p key={assignment.id} className="text-xs text-slate-600">
+                              <span className="font-semibold">{assignment.labProvider?.name ?? "Laboratorio"}</span>
+                              {" - "}
+                              {assignment.patientPrice
+                                ? formatMoney(assignment.patientPrice, assignment.currency)
+                                : "Precio generico"}
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate-500">Sin laboratorios asignados</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-4">
+                      <Badge value="HABILITADO" tone="success" />
+                    </td>
                     <td className="px-4 py-4">
                       <div className="flex justify-end gap-2">
-                        <Button variant="secondary" onClick={() => openEdit(procedure)}>Editar</Button>
-                        <Button variant="danger" onClick={() => setDeactivating(procedure)}>Deshabilitar</Button>
+                        <Button variant="secondary" onClick={() => openEdit(procedure)}>
+                          Editar
+                        </Button>
+                        <Button variant="danger" onClick={() => setDeactivating(procedure)}>
+                          Deshabilitar
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -219,41 +327,81 @@ export function LabProceduresPage() {
         )}
       </div>
 
-      <Modal open={formOpen} title={editing ? "Editar procedimiento" : "Nuevo procedimiento de laboratorio"} onClose={() => setFormOpen(false)}>
+      <Modal
+        open={formOpen}
+        title={editing ? "Editar procedimiento" : "Nuevo procedimiento de laboratorio"}
+        onClose={() => setFormOpen(false)}
+      >
         <form className="space-y-3" onSubmit={submitProcedure}>
           <label className="block text-sm font-medium text-slate-700">
             Categoria
-            <Select value={form.categoryId} onChange={(event) => setForm((current) => ({ ...current, categoryId: event.target.value }))}>
+            <Select
+              value={form.categoryId}
+              onChange={(event) => setForm((current) => ({ ...current, categoryId: event.target.value }))}
+            >
               <option value="">Selecciona categoria</option>
-              {categories.data?.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+              {categories.data?.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
             </Select>
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm font-medium text-slate-700">
               Codigo
-              <Input value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} />
+              <Input
+                value={form.code}
+                onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))}
+              />
             </label>
             <label className="text-sm font-medium text-slate-700">
               Duracion sugerida
-              <Input type="number" min="5" max="600" value={form.defaultDuration} onChange={(event) => setForm((current) => ({ ...current, defaultDuration: event.target.value }))} />
+              <Input
+                type="number"
+                min="5"
+                max="600"
+                value={form.defaultDuration}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, defaultDuration: event.target.value }))
+                }
+              />
             </label>
           </div>
           <label className="block text-sm font-medium text-slate-700">
             Nombre
-            <Input value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            <Input
+              value={form.name}
+              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+            />
           </label>
           <label className="block text-sm font-medium text-slate-700">
             Descripcion
-            <Textarea rows={2} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} />
+            <Textarea
+              rows={2}
+              value={form.description}
+              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+            />
           </label>
           <div className="grid gap-3 sm:grid-cols-[1fr_140px]">
             <label className="text-sm font-medium text-slate-700">
               Precio paciente generico
-              <Input type="number" min="0" step="0.01" value={form.price} onChange={(event) => setForm((current) => ({ ...current, price: event.target.value }))} />
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.price}
+                onChange={(event) => setForm((current) => ({ ...current, price: event.target.value }))}
+              />
             </label>
             <label className="text-sm font-medium text-slate-700">
               Moneda
-              <Select value={form.currency} onChange={(event) => setForm((current) => ({ ...current, currency: event.target.value as Currency }))}>
+              <Select
+                value={form.currency}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, currency: event.target.value as Currency }))
+                }
+              >
                 <option value="MXN">MXN</option>
                 <option value="USD">USD</option>
                 <option value="EUR">EUR</option>
@@ -261,13 +409,134 @@ export function LabProceduresPage() {
             </label>
           </div>
           <div className="grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
-            <Flag label="Requiere diente" checked={form.requiresTooth} onChange={(requiresTooth) => setForm((current) => ({ ...current, requiresTooth }))} />
-            <Flag label="Requiere superficie" checked={form.requiresSurface} onChange={(requiresSurface) => setForm((current) => ({ ...current, requiresSurface }))} />
+            <Flag
+              label="Requiere diente"
+              checked={form.requiresTooth}
+              onChange={(requiresTooth) => setForm((current) => ({ ...current, requiresTooth }))}
+            />
+            <Flag
+              label="Requiere superficie"
+              checked={form.requiresSurface}
+              onChange={(requiresSurface) => setForm((current) => ({ ...current, requiresSurface }))}
+            />
           </div>
-          {!genericList ? <p className="text-sm text-amber-700">Se creara el procedimiento, pero necesitas una lista de precios activa para guardar el precio generico.</p> : null}
+          <div className="space-y-2 rounded-xl border border-slate-200 p-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Laboratorios asignados</p>
+              <p className="text-xs text-slate-500">
+                Marca los laboratorios que prestan este procedimiento. Si el precio queda vacio, se usara el
+                precio paciente generico.
+              </p>
+            </div>
+            {providers.data?.length ? (
+              <div className="space-y-2">
+                {providers.data.map((provider) => {
+                  const assignment = form.labAssignments[provider.id] ?? {
+                    enabled: false,
+                    patientPrice: "",
+                    currency: form.currency
+                  };
+                  return (
+                    <div
+                      key={provider.id}
+                      className="grid gap-2 rounded-xl bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_150px_110px]"
+                    >
+                      <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={assignment.enabled}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              labAssignments: {
+                                ...current.labAssignments,
+                                [provider.id]: {
+                                  ...(current.labAssignments[provider.id] ?? {
+                                    patientPrice: "",
+                                    currency: current.currency
+                                  }),
+                                  enabled: event.target.checked
+                                }
+                              }
+                            }))
+                          }
+                        />
+                        {provider.name}
+                      </label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder="Precio paciente"
+                        disabled={!assignment.enabled}
+                        value={assignment.patientPrice}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            labAssignments: {
+                              ...current.labAssignments,
+                              [provider.id]: {
+                                ...(current.labAssignments[provider.id] ?? {
+                                  enabled: true,
+                                  currency: current.currency
+                                }),
+                                patientPrice: event.target.value
+                              }
+                            }
+                          }))
+                        }
+                      />
+                      <Select
+                        value={assignment.currency}
+                        disabled={!assignment.enabled}
+                        onChange={(event) =>
+                          setForm((current) => ({
+                            ...current,
+                            labAssignments: {
+                              ...current.labAssignments,
+                              [provider.id]: {
+                                ...(current.labAssignments[provider.id] ?? {
+                                  enabled: true,
+                                  patientPrice: ""
+                                }),
+                                currency: event.target.value as Currency
+                              }
+                            }
+                          }))
+                        }
+                      >
+                        <option value="MXN">MXN</option>
+                        <option value="USD">USD</option>
+                        <option value="EUR">EUR</option>
+                      </Select>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-amber-700">
+                Necesitas al menos un laboratorio habilitado para asignar este procedimiento.
+              </p>
+            )}
+          </div>
+          {!genericList ? (
+            <p className="text-sm text-amber-700">
+              Se creara el procedimiento, pero necesitas una lista de precios activa para guardar el precio
+              generico.
+            </p>
+          ) : null}
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" type="button" onClick={() => setFormOpen(false)}>Cancelar</Button>
-            <Button disabled={procedureMutations.createProcedure.isPending || procedureMutations.updateProcedure.isPending || updateList.isPending}>
+            <Button variant="secondary" type="button" onClick={() => setFormOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              disabled={
+                procedureMutations.createProcedure.isPending ||
+                procedureMutations.updateProcedure.isPending ||
+                updateList.isPending ||
+                labMutations.updateLabProcedureAssignments.isPending
+              }
+            >
               {editing ? "Actualizar" : "Crear"}
             </Button>
           </div>
@@ -277,19 +546,33 @@ export function LabProceduresPage() {
       <ConfirmDialog
         open={Boolean(deactivating)}
         title="Deshabilitar procedimiento"
-        description={deactivating ? `Se deshabilitara ${deactivating.name} para nuevos tratamientos.` : "Se deshabilitara el procedimiento."}
+        description={
+          deactivating
+            ? `Se deshabilitara ${deactivating.name} para nuevos tratamientos.`
+            : "Se deshabilitara el procedimiento."
+        }
         confirmLabel={procedureMutations.deactivateProcedure.isPending ? "Deshabilitando..." : "Deshabilitar"}
         onCancel={() => setDeactivating(null)}
         onConfirm={() => {
           if (!deactivating) return;
-          void procedureMutations.deactivateProcedure.mutateAsync(deactivating.id).then(() => setDeactivating(null));
+          void procedureMutations.deactivateProcedure
+            .mutateAsync(deactivating.id)
+            .then(() => setDeactivating(null));
         }}
       />
     </LabsWorkspace>
   );
 }
 
-function Flag({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+function Flag({
+  label,
+  checked,
+  onChange
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
   return (
     <label className="flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2">
       <input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />

@@ -5,9 +5,10 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
-  IsInt,
+  IsIn,
   IsNotEmpty,
   IsNumber,
+  IsNumberString,
   IsOptional,
   IsPositive,
   IsString,
@@ -43,6 +44,11 @@ export class CreateLabProviderDto {
   @IsOptional()
   @IsString()
   address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  details?: string;
 }
 
 export class UpdateLabProviderDto {
@@ -64,8 +70,37 @@ export class UpdateLabProviderDto {
   address?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  details?: string;
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+}
+
+export class LabProcedureAssignmentInputDto {
+  @IsString()
+  @IsNotEmpty()
+  labProviderId!: string;
+
+  @IsBoolean()
+  isAssigned!: boolean;
+
+  @IsOptional()
+  @IsNumberString()
+  patientPrice?: string;
+
+  @IsOptional()
+  @IsIn(["MXN", "USD", "EUR"])
+  currency?: "MXN" | "USD" | "EUR";
+}
+
+export class UpdateLabProcedureAssignmentsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LabProcedureAssignmentInputDto)
+  assignments!: LabProcedureAssignmentInputDto[];
 }
 
 export class LabOrderItemInputDto {

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import bcrypt from "bcryptjs";
-import { Prisma } from "@prisma/client";
+import { Permission, Prisma } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
@@ -56,7 +56,6 @@ export class UsersService {
   async create(actor: AuthUser, dto: CreateUserDto) {
     await this.validateRole(actor, dto.roleId);
     await this.validateBranches(actor, dto.branchIds, dto.primaryBranchId);
-    if (dto.permissionIds !== undefined) await this.validatePermissions(dto.permissionIds);
 
     const passwordHash = await bcrypt.hash(dto.password, 12);
 
@@ -70,7 +69,7 @@ export class UsersService {
           lastName: dto.lastName.trim(),
           phone: dto.phone?.trim(),
           roleId: dto.roleId,
-          permissionsOverride: dto.permissionIds !== undefined,
+          permissionsOverride: false,
           createdById: actor.id
         }
       });
@@ -86,13 +85,6 @@ export class UsersService {
         skipDuplicates: true
       });
 
-      if (dto.permissionIds !== undefined) {
-        await tx.userPermission.createMany({
-          data: [...new Set(dto.permissionIds)].map((permissionId) => ({ userId: created.id, permissionId })),
-          skipDuplicates: true
-        });
-      }
-
       await tx.auditLog.create({
         data: {
           organizationId: actor.organizationId,
@@ -100,7 +92,7 @@ export class UsersService {
           entity: "User",
           entityId: created.id,
           action: "create",
-          after: { email: created.email, roleId: created.roleId, permissionIds: dto.permissionIds }
+          after: { email: created.email, roleId: created.roleId }
         }
       });
 
@@ -113,13 +105,12 @@ export class UsersService {
   async update(actor: AuthUser, id: string, dto: UpdateUserDto) {
     const current = await this.prisma.user.findFirst({
       where: { id, deletedAt: null, ...this.organizationScope(actor) },
-      include: { branches: true, permissions: true }
+      include: { branches: true }
     });
     if (!current) throw new NotFoundException("User not found");
 
     if (dto.roleId) await this.validateRole(actor, dto.roleId);
     if (dto.branchIds) await this.validateBranches(actor, dto.branchIds, dto.primaryBranchId);
-    if (dto.permissionIds !== undefined) await this.validatePermissions(dto.permissionIds);
 
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 12) : undefined;
 
@@ -133,7 +124,7 @@ export class UsersService {
           roleId: dto.roleId,
           passwordHash,
           status: dto.status,
-          permissionsOverride: dto.permissionIds !== undefined ? true : undefined,
+          permissionsOverride: false,
           updatedById: actor.id
         }
       });
@@ -155,14 +146,6 @@ export class UsersService {
         });
       }
 
-      if (dto.permissionIds !== undefined) {
-        await tx.userPermission.deleteMany({ where: { userId: id } });
-        await tx.userPermission.createMany({
-          data: [...new Set(dto.permissionIds)].map((permissionId) => ({ userId: id, permissionId })),
-          skipDuplicates: true
-        });
-      }
-
       await tx.auditLog.create({
         data: {
           organizationId: actor.organizationId,
@@ -172,10 +155,9 @@ export class UsersService {
           action: "update",
           before: {
             status: current.status,
-            roleId: current.roleId,
-            permissionIds: current.permissions.map((permission) => permission.permissionId)
+            roleId: current.roleId
           },
-          after: { status: dto.status, roleId: dto.roleId, permissionIds: dto.permissionIds }
+          after: { status: dto.status, roleId: dto.roleId }
         }
       });
     });
@@ -266,19 +248,6 @@ export class UsersService {
     }
   }
 
-  private async validatePermissions(permissionIds: string[]) {
-    const uniqueIds = [...new Set(permissionIds)];
-    if (!uniqueIds.length) return;
-
-    const count = await this.prisma.permission.count({
-      where: { id: { in: uniqueIds }, isActive: true, deletedAt: null }
-    });
-
-    if (count !== uniqueIds.length) {
-      throw new BadRequestException("One or more permissions are invalid");
-    }
-  }
-
   private includeRelations() {
     return {
       role: {
@@ -295,7 +264,6 @@ export class UsersService {
           }
         }
       },
-      permissions: { include: { permission: true } },
       branches: { include: { branch: true } },
       professional: {
         select: {
@@ -308,7 +276,7 @@ export class UsersService {
   }
 
   private serialize(user: Prisma.UserGetPayload<{ include: ReturnType<UsersService["includeRelations"]> }>) {
-    const rolePermissions = new Map<string, (typeof user.permissions)[number]["permission"]>();
+    const rolePermissions = new Map<string, Permission>();
 
     for (const rolePermission of user.role?.permissions ?? []) {
       if (rolePermission.permission.isActive && !rolePermission.permission.deletedAt) {
@@ -324,10 +292,7 @@ export class UsersService {
       }
     }
 
-    const directPermissions = user.permissions
-      .map(({ permission }) => permission)
-      .filter((permission) => permission.isActive && !permission.deletedAt);
-    const selectedPermissions = user.permissionsOverride ? directPermissions : [...rolePermissions.values()];
+    const selectedPermissions = [...rolePermissions.values()];
 
     return {
       id: user.id,
@@ -337,7 +302,7 @@ export class UsersService {
       lastName: user.lastName,
       phone: user.phone,
       status: user.status,
-      permissionsOverride: user.permissionsOverride,
+      permissionsOverride: false,
       permissions: selectedPermissions.map((permission) => ({
         id: permission.id,
         key: permission.key,

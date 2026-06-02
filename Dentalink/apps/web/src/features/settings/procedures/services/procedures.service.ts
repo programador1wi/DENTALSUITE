@@ -11,6 +11,7 @@ export type ProcedureCategory = {
 export type Procedure = {
   id: string;
   categoryId: string;
+  displayId: number;
   code: string;
   name: string;
   description?: string | null;
@@ -51,10 +52,7 @@ export async function createProcedureCategory(payload: ProcedureCategoryPayload)
   return data;
 }
 
-export async function updateProcedureCategory(
-  id: string,
-  payload: ProcedureCategoryPayload
-) {
+export async function updateProcedureCategory(id: string, payload: ProcedureCategoryPayload) {
   const { data } = await http.patch<ProcedureCategory>(`/procedure-categories/${id}`, payload);
   return data;
 }
@@ -74,10 +72,7 @@ export async function createProcedure(payload: ProcedurePayload) {
   return data;
 }
 
-export async function updateProcedure(
-  id: string,
-  payload: ProcedurePayload
-) {
+export async function updateProcedure(id: string, payload: ProcedurePayload) {
   const { data } = await http.patch<Procedure>(`/procedures/${id}`, payload);
   return data;
 }

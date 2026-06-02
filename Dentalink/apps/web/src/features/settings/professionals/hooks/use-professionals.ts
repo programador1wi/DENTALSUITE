@@ -3,7 +3,9 @@ import {
   createProfessional,
   deactivateProfessional,
   listProfessionals,
+  transferProfessionalBranch,
   updateProfessional,
+  type ProfessionalBranchTransferPayload,
   type ProfessionalPayload
 } from "../services/professionals.service";
 
@@ -36,5 +38,17 @@ export function useDeactivateProfessional() {
   return useMutation({
     mutationFn: (id: string) => deactivateProfessional(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings", "professionals"] })
+  });
+}
+
+export function useTransferProfessionalBranch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: ProfessionalBranchTransferPayload) => transferProfessionalBranch(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "professionals"] });
+      queryClient.invalidateQueries({ queryKey: ["settings", "schedules"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+    }
   });
 }

@@ -5,7 +5,9 @@ import { RequirePermissions } from "../../common/decorators/permissions.decorato
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
+import { UpdateBranchPriceListsDto } from "./dto/branch-price-list.dto";
 import { CreatePriceListDto } from "./dto/create-price-list.dto";
+import { CreatePriceListCategoryDto, UpdatePriceListCategoryDto } from "./dto/price-list-category.dto";
 import { UpdatePriceListDto } from "./dto/update-price-list.dto";
 import { PriceListsService } from "./price-lists.service";
 
@@ -22,10 +24,17 @@ export class PriceListsController {
     @CurrentUser() user: AuthUser,
     @Query("search") search?: string,
     @Query("active") active?: string,
+    @Query("branchId") branchId?: string,
     @Query("page") page?: number,
     @Query("pageSize") pageSize?: number
   ) {
-    return this.priceListsService.findAll(user, search, active, page, pageSize);
+    return this.priceListsService.findAll(user, search, active, page, pageSize, branchId);
+  }
+
+  @Get("availability-matrix")
+  @RequirePermissions("price_lists.read")
+  availabilityMatrix(@CurrentUser() user: AuthUser) {
+    return this.priceListsService.availabilityMatrix(user);
   }
 
   @Get(":id")
@@ -46,9 +55,50 @@ export class PriceListsController {
     return this.priceListsService.update(user, id, dto);
   }
 
+  @Patch(":id/branches")
+  @RequirePermissions("price_lists.update")
+  updateBranchAssignments(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateBranchPriceListsDto
+  ) {
+    return this.priceListsService.updateBranchAssignments(user, id, dto);
+  }
+
   @Patch(":id/deactivate")
   @RequirePermissions("price_lists.deactivate")
   deactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.priceListsService.deactivate(user, id);
+  }
+
+  @Post(":id/categories")
+  @RequirePermissions("price_lists.update")
+  createCategory(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: CreatePriceListCategoryDto
+  ) {
+    return this.priceListsService.createCategory(user, id, dto);
+  }
+
+  @Patch(":id/categories/:categoryId")
+  @RequirePermissions("price_lists.update")
+  updateCategory(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("categoryId") categoryId: string,
+    @Body() dto: UpdatePriceListCategoryDto
+  ) {
+    return this.priceListsService.updateCategory(user, id, categoryId, dto);
+  }
+
+  @Patch(":id/categories/:categoryId/deactivate")
+  @RequirePermissions("price_lists.update")
+  deactivateCategory(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("categoryId") categoryId: string
+  ) {
+    return this.priceListsService.deactivateCategory(user, id, categoryId);
   }
 }

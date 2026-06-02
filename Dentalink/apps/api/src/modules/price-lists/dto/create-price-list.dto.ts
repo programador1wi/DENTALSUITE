@@ -1,12 +1,32 @@
-import { IsArray, IsBoolean, IsIn, IsNumberString, IsOptional, IsString, ValidateNested } from "class-validator";
+import {
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsNumberString,
+  IsOptional,
+  IsString,
+  ValidateNested
+} from "class-validator";
 import { Type } from "class-transformer";
 
 export class PriceListItemInputDto {
   @IsString()
   procedureId!: string;
 
+  @IsOptional()
+  @IsString()
+  priceListCategoryId?: string;
+
   @IsNumberString()
   price!: string;
+
+  @IsOptional()
+  @IsNumberString()
+  labCost?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowsDiscount?: boolean;
 
   @IsOptional()
   @IsIn(["MXN", "USD", "EUR"])

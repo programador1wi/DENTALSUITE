@@ -31,6 +31,7 @@ type UploadedPatientFile = {
 };
 
 const PATIENT_FILE_STORAGE_ROOT = resolve(process.cwd(), "storage", "patient-files");
+const USER_FILE_STORAGE_ROOT = resolve(process.cwd(), "storage", "user-files");
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".dcm", ".dicom"]);
 const ALLOWED_MIME_TYPES = new Set([
@@ -155,6 +156,98 @@ export class DocumentsService {
     if (!file) throw new NotFoundException("File not found");
 
     const directory = this.getPatientFileDirectory(actor.organizationId, patientId);
+    const filePath = resolve(directory, file.fileName);
+    if (!this.isPathInside(directory, filePath)) throw new BadRequestException("Invalid file path");
+
+    await stat(filePath).catch(() => {
+      throw new NotFoundException("Stored file not found");
+    });
+
+    return {
+      stream: createReadStream(filePath),
+      mimeType: file.mimeType,
+      downloadName: this.safeDownloadName(file.originalName)
+    };
+  }
+
+  async listUserFiles(actor: AuthUser, userId: string, query: PatientFilesQueryDto) {
+    const { skip, take } = resolvePagination(query);
+    await this.ensureUser(actor, userId);
+    return this.prisma.fileAttachment.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        userId,
+        ...(query.category ? { category: query.category } : {})
+      },
+      skip,
+      take,
+      orderBy: { createdAt: "desc" }
+    });
+  }
+
+  async uploadUserBinaryFile(actor: AuthUser, userId: string, dto: UploadBinaryFileAttachmentDto, file?: UploadedPatientFile) {
+    await this.ensureUser(actor, userId);
+    const professionalId = dto.professionalId ? await this.ensureUserProfessional(actor, userId, dto.professionalId) : undefined;
+    if (!file?.buffer || !file.originalname?.trim()) throw new BadRequestException("File is required");
+    if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) throw new BadRequestException("File size is not allowed");
+
+    const extension = extname(file.originalname).toLowerCase();
+    const mimeType = file.mimetype?.trim() || "application/octet-stream";
+    if (!this.isAllowedFile(extension, mimeType)) {
+      throw new BadRequestException("Unsupported file type");
+    }
+
+    const id = randomUUID();
+    const storedFileName = `${Date.now()}-${id}${extension || ".bin"}`;
+    const targetDirectory = this.getUserFileDirectory(actor.organizationId, userId);
+    await mkdir(targetDirectory, { recursive: true });
+    await writeFile(join(targetDirectory, storedFileName), file.buffer);
+
+    const category = dto.category?.trim() || this.inferCategory(mimeType, extension);
+    const created = await this.prisma.fileAttachment.create({
+      data: {
+        id,
+        organizationId: actor.organizationId,
+        userId,
+        professionalId,
+        uploadedById: actor.id,
+        fileName: storedFileName,
+        originalName: file.originalname.trim(),
+        mimeType,
+        size: file.size,
+        url: `/users/${userId}/files/${id}/content`,
+        category
+      }
+    });
+
+    await this.audit(actor, {
+      entity: "FileAttachment",
+      entityId: created.id,
+      action: "upload_user_file",
+      after: {
+        userId,
+        professionalId,
+        fileName: created.fileName,
+        originalName: created.originalName,
+        category: created.category
+      }
+    });
+
+    return created;
+  }
+
+  async getUserFileContent(actor: AuthUser, userId: string, fileId: string): Promise<{ stream: ReadStream; mimeType: string; downloadName: string }> {
+    await this.ensureUser(actor, userId);
+    const file = await this.prisma.fileAttachment.findFirst({
+      where: {
+        id: fileId,
+        organizationId: actor.organizationId,
+        userId
+      }
+    });
+    if (!file) throw new NotFoundException("File not found");
+
+    const directory = this.getUserFileDirectory(actor.organizationId, userId);
     const filePath = resolve(directory, file.fileName);
     if (!this.isPathInside(directory, filePath)) throw new BadRequestException("Invalid file path");
 
@@ -497,6 +590,32 @@ export class DocumentsService {
     return patient;
   }
 
+  private async ensureUser(actor: AuthUser, userId: string) {
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: userId,
+        organizationId: actor.organizationId,
+        deletedAt: null,
+        branches: { some: { branchId: branchScope(actor) } }
+      }
+    });
+    if (!user) throw new NotFoundException("User not found");
+    return user;
+  }
+
+  private async ensureUserProfessional(actor: AuthUser, userId: string, professionalId: string) {
+    const professional = await this.prisma.professional.findFirst({
+      where: {
+        id: professionalId,
+        userId,
+        organizationId: actor.organizationId
+      },
+      select: { id: true }
+    });
+    if (!professional) throw new BadRequestException("Professional does not belong to this user");
+    return professional.id;
+  }
+
   private async ensureProcedure(actor: AuthUser, procedureId: string) {
     const procedure = await this.prisma.procedure.findFirst({
       where: { id: procedureId, organizationId: actor.organizationId }
@@ -507,6 +626,10 @@ export class DocumentsService {
 
   private getPatientFileDirectory(organizationId: string, patientId: string) {
     return resolve(PATIENT_FILE_STORAGE_ROOT, organizationId, patientId);
+  }
+
+  private getUserFileDirectory(organizationId: string, userId: string) {
+    return resolve(USER_FILE_STORAGE_ROOT, organizationId, userId);
   }
 
   private isPathInside(parentPath: string, childPath: string) {

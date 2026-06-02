@@ -10,6 +10,7 @@ export type Professional = {
   color?: string | null;
   commissionRate: string;
   isActive: boolean;
+  user?: { id: string; firstName: string; lastName: string; email: string } | null;
   agendaSlotMinutes?: number | null;
   defaultAppointmentDurationMinutes?: number | null;
   specialties: { id: string; name: string }[];
@@ -18,6 +19,10 @@ export type Professional = {
     name: string;
     agendaSlotMinutes?: number | null;
     defaultAppointmentDurationMinutes?: number | null;
+    status?: "ACTIVE" | "PAUSED" | "ENDED";
+    startsAt?: string | Date | null;
+    endsAt?: string | Date | null;
+    endedReason?: string | null;
   }[];
 };
 
@@ -32,6 +37,30 @@ export type ProfessionalPayload = {
   commissionRate?: number;
   specialtyIds: string[];
   branchIds: string[];
+};
+
+export type ProfessionalBranchTransferPayload = {
+  branchId: string;
+  fromProfessionalId: string;
+  toProfessionalId: string;
+  effectiveAt?: string;
+  moveFutureAppointments?: boolean;
+  moveFutureBlocks?: boolean;
+  copySchedules?: boolean;
+  copyAgendaConfig?: boolean;
+  endSourceAssignment?: boolean;
+  notes?: string;
+};
+
+export type ProfessionalBranchTransferResult = {
+  id: string;
+  branchId: string;
+  fromProfessionalId: string;
+  toProfessionalId: string;
+  effectiveAt: string;
+  appointmentsTransferred: number;
+  blocksTransferred: number;
+  schedulesCopied: number;
 };
 
 export async function listProfessionals(params?: { search?: string; active?: string }) {
@@ -51,5 +80,10 @@ export async function updateProfessional(id: string, payload: Partial<Profession
 
 export async function deactivateProfessional(id: string) {
   const { data } = await http.patch<Professional>(`/professionals/${id}/deactivate`);
+  return data;
+}
+
+export async function transferProfessionalBranch(payload: ProfessionalBranchTransferPayload) {
+  const { data } = await http.post<ProfessionalBranchTransferResult>("/professionals/branch-transfer", payload);
   return data;
 }

@@ -11,11 +11,13 @@ import {
   deactivateSupplier,
   listInventoryItems,
   listInventoryMovements,
+  listLabProcedureAssignments,
   listLabOrders,
   listLabProviders,
   listMinStockAlerts,
   listSuppliers,
   updateInventoryItem,
+  updateLabProcedureAssignments,
   updateLabOrderCost,
   updateLabOrderStatus,
   updateLabProvider,
@@ -23,6 +25,7 @@ import {
   type CreateLabOrderPayload,
   type InventoryItemPayload,
   type InventoryMovementPayload,
+  type LabProcedureAssignmentPayload,
   type LabOrderStatus,
   type LabProviderPayload,
   type SupplierPayload
@@ -39,6 +42,13 @@ export function useLabOrders(params?: { patientId?: string; professionalId?: str
   return useQuery({
     queryKey: ["labs", "orders", params],
     queryFn: () => listLabOrders(params)
+  });
+}
+
+export function useLabProcedureAssignments() {
+  return useQuery({
+    queryKey: ["labs", "procedure-assignments"],
+    queryFn: listLabProcedureAssignments
   });
 }
 
@@ -92,6 +102,12 @@ export function useLabsInventoryMutations() {
     }),
     deactivateLabProvider: useMutation({
       mutationFn: (id: string) => deactivateLabProvider(id),
+      onSuccess: invalidate,
+      onError
+    }),
+    updateLabProcedureAssignments: useMutation({
+      mutationFn: ({ procedureId, assignments }: { procedureId: string; assignments: LabProcedureAssignmentPayload[] }) =>
+        updateLabProcedureAssignments(procedureId, assignments),
       onSuccess: invalidate,
       onError
     }),

@@ -6,7 +6,19 @@ export type LabProvider = {
   phone?: string | null;
   email?: string | null;
   address?: string | null;
+  details?: string | null;
   isActive: boolean;
+};
+
+export type LabProcedureAssignment = {
+  id: string;
+  procedureId: string;
+  labProviderId: string;
+  patientPrice?: string | null;
+  currency: "MXN" | "USD" | "EUR";
+  isActive: boolean;
+  labProvider?: { id: string; name: string; isActive: boolean };
+  procedure?: { id: string; code: string; name: string; requiresLab: boolean; isActive: boolean };
 };
 
 export type LabOrderStatus = "REQUESTED" | "SENT" | "IN_PROCESS" | "RECEIVED" | "DELIVERED" | "CANCELLED";
@@ -71,6 +83,14 @@ export type LabProviderPayload = {
   phone?: string;
   email?: string;
   address?: string;
+  details?: string;
+};
+
+export type LabProcedureAssignmentPayload = {
+  labProviderId: string;
+  isAssigned: boolean;
+  patientPrice?: string;
+  currency?: "MXN" | "USD" | "EUR";
 };
 
 export type CreateLabOrderPayload = {
@@ -127,6 +147,16 @@ export async function updateLabProvider(id: string, payload: Partial<LabProvider
 
 export async function deactivateLabProvider(id: string) {
   const { data } = await http.patch<LabProvider>(`/labs/providers/${id}/deactivate`);
+  return data;
+}
+
+export async function listLabProcedureAssignments() {
+  const { data } = await http.get<LabProcedureAssignment[]>("/labs/procedure-assignments");
+  return data;
+}
+
+export async function updateLabProcedureAssignments(procedureId: string, assignments: LabProcedureAssignmentPayload[]) {
+  const { data } = await http.patch<LabProcedureAssignment[]>(`/labs/procedures/${procedureId}/assignments`, { assignments });
   return data;
 }
 

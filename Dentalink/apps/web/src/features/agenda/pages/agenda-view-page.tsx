@@ -41,6 +41,7 @@ import {
 } from "../hooks/use-appointments";
 import type { Appointment, AppointmentPayload, AppointmentStatus } from "../services/appointments.service";
 import type { AppointmentMenuAction } from "../components/appointment-actions-menu";
+import { resolveAgendaViewConfig } from "../utils/agenda-grid-config";
 
 export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "list" }) {
   const [searchParams] = useSearchParams();
@@ -86,18 +87,28 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   );
 
   const selectedProfessionalBranch = useMemo(
-    () => selectedProfessional?.branches?.find((b) => b.id === activeBranchId) ?? null,
-    [selectedProfessional, activeBranchId]
+    () => selectedProfessional?.branches?.find((b) => b.id === activeBranchId && isBranchAssignmentActiveOn(b, date)) ?? null,
+    [selectedProfessional, activeBranchId, date]
   );
 
-  const agendaSlotMinutes = selectedProfessionalBranch?.agendaSlotMinutes ?? activeBranch?.agendaSlotMinutes ?? 30;
-  const defaultAppointmentDurationMinutes = selectedProfessionalBranch?.defaultAppointmentDurationMinutes ?? agendaSlotMinutes;
-  const agendaStartHour = activeBranch?.agendaStartHour ?? 8;
-  const agendaEndHour = activeBranch?.agendaEndHour ?? 19;
-
   const visibleProfessionals = useMemo(
-    () => (professionals.data ?? []).filter((professional) => !activeBranchId || professional.branches.some((branch) => branch.id === activeBranchId)),
-    [activeBranchId, professionals.data]
+    () =>
+      (professionals.data ?? []).filter(
+        (professional) =>
+          !activeBranchId ||
+          professional.branches.some((branch) => branch.id === activeBranchId && isBranchAssignmentActiveOn(branch, date))
+      ),
+    [activeBranchId, date, professionals.data]
+  );
+  const { agendaSlotMinutes, defaultAppointmentDurationMinutes, agendaStartHour, agendaEndHour } = useMemo(
+    () =>
+      resolveAgendaViewConfig({
+        activeBranch,
+        activeBranchId,
+        selectedProfessionalBranch,
+        visibleProfessionals
+      }),
+    [activeBranch, activeBranchId, selectedProfessionalBranch, visibleProfessionals]
   );
   const visibleChairs = useMemo(
     () => (chairs.data ?? []).filter((chair) => !activeBranchId || chair.branchId === activeBranchId),
@@ -269,8 +280,9 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     }
   };
 
-  if (appointments.isLoading) return <LoadingState message="Cargando agenda..." />;
+  if (appointments.isLoading || (view !== "list" && schedules.isLoading)) return <LoadingState message="Cargando agenda..." />;
   if (appointments.isError) return <ErrorState message={appointments.error.message} />;
+  if (schedules.isError) return <ErrorState message={schedules.error.message} />;
 
   return (
     <div className="space-y-4">
@@ -352,7 +364,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
           onMenuAction={handleAppointmentMenuAction}
         />
       ) : view === "day" ? (
-        <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
           <CalendarView
             appointments={appointments.data ?? []}
             date={date}
@@ -495,4 +507,23 @@ function getWeekStartDateInput(value: string) {
 function getDayOfWeek(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day, 0, 0, 0, 0).getDay();
+}
+
+function isBranchAssignmentActiveOn(
+  branch: {
+    status?: "ACTIVE" | "PAUSED" | "ENDED";
+    startsAt?: string | Date | null;
+    endsAt?: string | Date | null;
+  },
+  date: string
+) {
+  if (branch.status && branch.status !== "ACTIVE") return false;
+  const dayStart = new Date(`${date}T00:00:00`);
+  const dayEnd = new Date(`${date}T23:59:59`);
+  const startsAt = branch.startsAt ? new Date(branch.startsAt) : null;
+  const endsAt = branch.endsAt ? new Date(branch.endsAt) : null;
+
+  if (startsAt && startsAt > dayEnd) return false;
+  if (endsAt && endsAt <= dayStart) return false;
+  return true;
 }

@@ -51,6 +51,10 @@ export class UploadBinaryFileAttachmentDto {
   @IsString()
   @MaxLength(80)
   category?: string;
+
+  @IsOptional()
+  @IsString()
+  professionalId?: string;
 }
 
 export class ConsentTemplatesQueryDto extends PaginationQueryDto {

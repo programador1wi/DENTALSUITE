@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createBranch, deactivateBranch, listBranches, updateBranch, type BranchPayload } from "../services/branches.service";
+import { useAuthStore } from "@/stores/auth.store";
 
 export function useBranches(search?: string, status?: string) {
+  const accessToken = useAuthStore((state) => state.accessToken);
+
   return useQuery({
-    queryKey: ["settings", "branches", search, status],
-    queryFn: () => listBranches({ search, status })
+    queryKey: ["settings", "branches", search, status, accessToken],
+    queryFn: () => listBranches({ search, status }),
+    enabled: Boolean(accessToken)
   });
 }
 

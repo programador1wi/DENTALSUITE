@@ -623,11 +623,64 @@ export class PaymentsService {
       orderBy: { openedAt: "desc" }
     });
 
-    return registers.map((register) => ({
-      ...register,
-      expectedClosing: this.calculateExpectedClosing(register.movements),
-      movementCount: register.movements.length
-    }));
+    return Promise.all(registers.map((register) => this.enrichCashRegister(actor, register)));
+  }
+
+  async getCashRegisterDetail(actor: AuthUser, registerId: string) {
+    const register = await this.prisma.cashRegister.findFirst({
+      where: {
+        id: registerId,
+        organizationId: actor.organizationId,
+        branchId: branchScope(actor)
+      },
+      include: {
+        branch: { select: { id: true, name: true } },
+        openedBy: { select: { id: true, firstName: true, lastName: true } },
+        closedBy: { select: { id: true, firstName: true, lastName: true } },
+        movements: {
+          orderBy: { createdAt: "asc" },
+          include: {
+            createdBy: { select: { id: true, firstName: true, lastName: true } },
+            expense: { select: { id: true, description: true, total: true, paidAt: true } },
+            payment: {
+              select: {
+                id: true,
+                amount: true,
+                reference: true,
+                paidAt: true,
+                status: true,
+                patient: {
+                  select: {
+                    id: true,
+                    firstName: true,
+                    lastName: true,
+                    documentNumber: true,
+                    agreement: { select: { id: true, name: true } }
+                  }
+                },
+                paymentMethod: { select: { id: true, name: true, type: true } },
+                financialInstitution: { select: { id: true, name: true } },
+                allocations: {
+                  select: {
+                    amount: true,
+                    treatmentPlanItem: {
+                      select: {
+                        agreement: { select: { id: true, name: true } },
+                        treatmentPlan: { select: { id: true, name: true } }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!register) throw new NotFoundException("Cash register not found");
+
+    return this.enrichCashRegister(actor, register);
   }
 
   async createCashMovement(actor: AuthUser, registerId: string, dto: CreateCashMovementDto) {
@@ -964,6 +1017,37 @@ export class PaymentsService {
     return register;
   }
 
+  private async enrichCashRegister<T extends { branchId: string; openedAt: Date; movements: Array<{ type: CashMovementType; amount: Prisma.Decimal; payment?: { paymentMethod?: { name: string; type: string } | null } | null }> }>(
+    actor: AuthUser,
+    register: T
+  ) {
+    const previousBalance = await this.getPreviousCashRegisterBalance(actor, register.branchId, register.openedAt);
+    const totals = this.calculateCashRegisterTotals(register.movements);
+
+    return {
+      ...register,
+      previousBalance,
+      expectedClosing: this.calculateExpectedClosing(register.movements),
+      movementCount: register.movements.length,
+      ...totals
+    };
+  }
+
+  private async getPreviousCashRegisterBalance(actor: AuthUser, branchId: string, openedAt: Date) {
+    const previous = await this.prisma.cashRegister.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        branchId,
+        status: CashRegisterStatus.CLOSED,
+        openedAt: { lt: openedAt }
+      },
+      select: { closingAmount: true },
+      orderBy: { openedAt: "desc" }
+    });
+
+    return this.roundMoney(Number(previous?.closingAmount ?? 0));
+  }
+
   private async ensureBranch(actor: AuthUser, branchId: string) {
     const branch = await this.prisma.branch.findFirst({
       where: { id: branchScope(actor, branchId), organizationId: actor.organizationId, deletedAt: null }
@@ -1151,6 +1235,48 @@ export class PaymentsService {
         return sum + amount;
       }, 0)
     );
+  }
+
+  private calculateCashRegisterTotals(
+    movements: Array<{
+      type: CashMovementType;
+      amount: Prisma.Decimal;
+      payment?: { paymentMethod?: { name: string; type: string } | null } | null;
+    }>
+  ) {
+    const paymentMethods = new Map<string, { name: string; type: string; count: number; amount: number }>();
+    let openingTotal = 0;
+    let incomeTotal = 0;
+    let expenseTotal = 0;
+    let refundTotal = 0;
+    let adjustmentTotal = 0;
+
+    for (const movement of movements) {
+      const amount = Number(movement.amount);
+      if (movement.type === CashMovementType.OPENING) openingTotal += amount;
+      if (movement.type === CashMovementType.INCOME) {
+        incomeTotal += amount;
+
+        const methodName = movement.payment?.paymentMethod?.name ?? "Ingresos manuales";
+        const methodType = movement.payment?.paymentMethod?.type ?? "OTHER";
+        const current = paymentMethods.get(methodName) ?? { name: methodName, type: methodType, count: 0, amount: 0 };
+        current.count += 1;
+        current.amount = this.roundMoney(current.amount + amount);
+        paymentMethods.set(methodName, current);
+      }
+      if (movement.type === CashMovementType.EXPENSE) expenseTotal += amount;
+      if (movement.type === CashMovementType.REFUND) refundTotal += amount;
+      if (movement.type === CashMovementType.ADJUSTMENT) adjustmentTotal += amount;
+    }
+
+    return {
+      openingTotal: this.roundMoney(openingTotal),
+      incomeTotal: this.roundMoney(incomeTotal),
+      expenseTotal: this.roundMoney(expenseTotal),
+      refundTotal: this.roundMoney(refundTotal),
+      adjustmentTotal: this.roundMoney(adjustmentTotal),
+      paymentMethodTotals: Array.from(paymentMethods.values()).sort((a, b) => b.amount - a.amount)
+    };
   }
 
   private hasAnyPermission(actor: AuthUser, permissions: string[]) {

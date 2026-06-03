@@ -132,6 +132,12 @@ export class PaymentsController {
     return this.service.listCashRegisters(actor, query);
   }
 
+  @Get("cash-register/:id")
+  @RequirePermissions("cash_register.read")
+  getCashRegisterDetail(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getCashRegisterDetail(actor, id);
+  }
+
   @Post("cash-register/open")
   @RequirePermissions("cash_register.open")
   openCashRegister(@CurrentUser() actor: AuthUser, @Body() dto: OpenCashRegisterDto) {

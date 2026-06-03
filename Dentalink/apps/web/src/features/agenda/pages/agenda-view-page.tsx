@@ -36,10 +36,13 @@ import { AgendaToolbar } from "../components/agenda-toolbar";
 import {
   useAppointmentActions,
   useAppointments,
+  useAddAppointmentNote,
+  useCreateAppointmentReminder,
+  useUpdateAppointmentReminder,
   useCreateAppointment,
   useUpdateAppointment
 } from "../hooks/use-appointments";
-import type { Appointment, AppointmentPayload, AppointmentStatus } from "../services/appointments.service";
+import type { Appointment, AppointmentPayload, AppointmentReminderPayload, AppointmentStatus } from "../services/appointments.service";
 import type { AppointmentMenuAction } from "../components/appointment-actions-menu";
 import { resolveAgendaViewConfig } from "../utils/agenda-grid-config";
 
@@ -55,7 +58,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const [editing, setEditing] = useState<Appointment | null>(null);
   const [initialAppointmentValues, setInitialAppointmentValues] = useState<Partial<AppointmentPayload> | null>(null);
   const [openedPrefillPatientId, setOpenedPrefillPatientId] = useState("");
-  const [canceling, setCanceling] = useState<Appointment | null>(null);
+  const [canceling, setCanceling] = useState<{ appointment: Appointment; cancelledBy?: "patient" | "clinic" } | null>(null);
   const [rescheduling, setRescheduling] = useState<Appointment | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [durationEditing, setDurationEditing] = useState<Appointment | null>(null);
@@ -125,6 +128,9 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   });
   const createAppointment = useCreateAppointment();
   const updateAppointment = useUpdateAppointment();
+  const addAppointmentNote = useAddAppointmentNote();
+  const createAppointmentReminder = useCreateAppointmentReminder();
+  const updateAppointmentReminder = useUpdateAppointmentReminder();
   const actions = useAppointmentActions();
   const hasActiveFilters = Boolean(professionalId || chairId || status);
   const patientsForModal = useMemo<PatientListItem[]>(() => {
@@ -245,9 +251,13 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         setHistoryViewing(appointment);
         break;
       case "cancel":
-        setCanceling(appointment);
+        openCancelAppointment(appointment, "clinic");
         break;
     }
+  };
+
+  const openCancelAppointment = (appointment: Appointment, cancelledBy: "patient" | "clinic" = "clinic") => {
+    setCanceling({ appointment, cancelledBy });
   };
 
   const updateAppointmentFromAction = async (id: string, payload: Partial<AppointmentPayload>) => {
@@ -286,7 +296,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Agenda clinica" description="Operacion diaria, semanal y mensual de citas." />
+      <PageHeader title="Agenda clínica" description="Operación diaria, semanal y mensual de citas." />
 
       <AgendaToolbar 
         view={view} 
@@ -353,8 +363,9 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
           onDateChange={setDate}
           onCreateClick={() => openCreate()}
           onEdit={openEdit}
-          onCancel={setCanceling}
+          onCancel={openCancelAppointment}
           onReschedule={setRescheduling}
+          onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
           onConfirm={(id) => void actions.confirm.mutate(id)}
           onArrive={(id) => void actions.arrive.mutate(id)}
           onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
@@ -380,8 +391,9 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
             onCreateClick={() => openCreate()}
             onCreateSlotClick={(slot) => openCreate(slot)}
             onEdit={openEdit}
-            onCancel={setCanceling}
+            onCancel={openCancelAppointment}
             onReschedule={setRescheduling}
+            onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
             onConfirm={(id) => void actions.confirm.mutate(id)}
             onArrive={(id) => void actions.arrive.mutate(id)}
             onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
@@ -423,8 +435,9 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
           onCreateClick={() => openCreate()}
           onCreateSlotClick={(slot) => openCreate(slot)}
           onEdit={openEdit}
-          onCancel={setCanceling}
+          onCancel={openCancelAppointment}
           onReschedule={setRescheduling}
+          onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
           onConfirm={(id) => void actions.confirm.mutate(id)}
           onArrive={(id) => void actions.arrive.mutate(id)}
           onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
@@ -447,10 +460,11 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         onSubmit={submitAppointment}
       />
       <CancelAppointmentModal
-        appointment={canceling}
+        appointment={canceling?.appointment ?? null}
+        cancelledBy={canceling?.cancelledBy ?? "clinic"}
         onClose={() => setCanceling(null)}
         onConfirm={async (id, reason) => {
-          await actions.cancel.mutateAsync({ id, reason });
+          await actions.cancel.mutateAsync({ id, reason, cancelledBy: canceling?.cancelledBy ?? "clinic" });
         }}
       />
       <RescheduleModal
@@ -468,7 +482,9 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
       <AppointmentCommentModal
         appointment={commenting}
         onClose={() => setCommenting(null)}
-        onConfirm={updateAppointmentFromAction}
+        onConfirm={async (id, note, isPrivate) => {
+          await addAppointmentNote.mutateAsync({ id, payload: { note, isPrivate } });
+        }}
       />
       <AppointmentStatusModal
         appointment={statusChanging}
@@ -479,10 +495,20 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         appointment={emailAction?.appointment ?? null}
         mode={emailAction?.mode ?? "notification"}
         onClose={() => setEmailAction(null)}
+        onScheduleReminder={async (id: string, payload: AppointmentReminderPayload) => {
+          await createAppointmentReminder.mutateAsync({ id, payload });
+        }}
       />
       <AppointmentHistoryModal
         appointment={historyViewing}
         onClose={() => setHistoryViewing(null)}
+        onUpdateReminderStatus={async (id, reminderId, reminderStatus) => {
+          await updateAppointmentReminder.mutateAsync({
+            id,
+            reminderId,
+            payload: { status: reminderStatus }
+          });
+        }}
       />
     </div>
   );

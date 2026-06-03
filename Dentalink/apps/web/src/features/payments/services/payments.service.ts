@@ -67,6 +67,66 @@ export type CashRegister = {
   closedBy?: { id: string; firstName: string; lastName: string } | null;
   expectedClosing?: number;
   movementCount?: number;
+  previousBalance?: number;
+  openingTotal?: number;
+  incomeTotal?: number;
+  expenseTotal?: number;
+  refundTotal?: number;
+  adjustmentTotal?: number;
+  paymentMethodTotals?: CashRegisterPaymentMethodTotal[];
+};
+
+export type CashRegisterPaymentMethodTotal = {
+  name: string;
+  type: string;
+  count: number;
+  amount: number;
+};
+
+export type CashRegisterMovement = {
+  id: string;
+  type: "OPENING" | "INCOME" | "EXPENSE" | "ADJUSTMENT" | "REFUND" | "CLOSING";
+  amount: string;
+  description?: string | null;
+  createdAt: string;
+  createdBy: { id: string; firstName: string; lastName: string };
+  expense?: { id: string; description: string; total: string; paidAt: string } | null;
+  payment?: {
+    id: string;
+    amount: string;
+    reference?: string | null;
+    paidAt: string;
+    status: PaymentStatus;
+    patient: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      documentNumber?: string | null;
+      agreement?: { id: string; name: string } | null;
+    };
+    paymentMethod: { id: string; name: string; type: string };
+    financialInstitution?: { id: string; name: string } | null;
+    allocations: Array<{
+      amount: string;
+      treatmentPlanItem: {
+        agreement?: { id: string; name: string } | null;
+        treatmentPlan: { id: string; name: string };
+      };
+    }>;
+  } | null;
+};
+
+export type CashRegisterDetail = CashRegister & {
+  movements: CashRegisterMovement[];
+  previousBalance: number;
+  openingTotal: number;
+  incomeTotal: number;
+  expenseTotal: number;
+  refundTotal: number;
+  adjustmentTotal: number;
+  expectedClosing: number;
+  movementCount: number;
+  paymentMethodTotals: CashRegisterPaymentMethodTotal[];
 };
 
 export type AccountsReceivableRow = {
@@ -190,6 +250,11 @@ export async function payInstallment(
 
 export async function listCashRegisters(params?: { branchId?: string; status?: CashRegisterStatus | "" }) {
   const { data } = await http.get<CashRegister[]>("/cash-register", { params });
+  return data;
+}
+
+export async function getCashRegister(registerId: string) {
+  const { data } = await http.get<CashRegisterDetail>(`/cash-register/${registerId}`);
   return data;
 }
 

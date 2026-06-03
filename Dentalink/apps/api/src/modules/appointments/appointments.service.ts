@@ -11,6 +11,8 @@ import {
   CancelAppointmentDto,
   RescheduleAppointmentDto
 } from "./dto/appointment-actions.dto";
+import { CreateAppointmentNoteDto } from "./dto/appointment-note.dto";
+import { CreateAppointmentReminderDto, UpdateAppointmentReminderDto } from "./dto/appointment-reminder.dto";
 import { CreateAppointmentDto } from "./dto/create-appointment.dto";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
 
@@ -20,6 +22,76 @@ const FREE_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.NO_SHOW,
   AppointmentStatus.RESCHEDULED
 ];
+
+const APPOINTMENT_STATUS_TRANSITIONS: Partial<Record<AppointmentStatus, AppointmentStatus[]>> = {
+  [AppointmentStatus.SCHEDULED]: [
+    AppointmentStatus.PENDING_CONFIRMATION,
+    AppointmentStatus.CONFIRMED,
+    AppointmentStatus.ARRIVED,
+    AppointmentStatus.NO_SHOW,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC
+  ],
+  [AppointmentStatus.PENDING_CONFIRMATION]: [
+    AppointmentStatus.SCHEDULED,
+    AppointmentStatus.CONFIRMED,
+    AppointmentStatus.ARRIVED,
+    AppointmentStatus.NO_SHOW,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC
+  ],
+  [AppointmentStatus.CONFIRMED]: [
+    AppointmentStatus.ARRIVED,
+    AppointmentStatus.WAITING_ROOM,
+    AppointmentStatus.NO_SHOW,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC
+  ],
+  [AppointmentStatus.ARRIVED]: [
+    AppointmentStatus.WAITING_ROOM,
+    AppointmentStatus.IN_PROGRESS,
+    AppointmentStatus.NO_SHOW,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC
+  ],
+  [AppointmentStatus.WAITING_ROOM]: [
+    AppointmentStatus.IN_PROGRESS,
+    AppointmentStatus.COMPLETED,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC
+  ],
+  [AppointmentStatus.IN_PROGRESS]: [AppointmentStatus.WAITING_ROOM, AppointmentStatus.COMPLETED],
+  [AppointmentStatus.RESCHEDULED]: [
+    AppointmentStatus.SCHEDULED,
+    AppointmentStatus.PENDING_CONFIRMATION,
+    AppointmentStatus.CONFIRMED,
+    AppointmentStatus.ARRIVED,
+    AppointmentStatus.NO_SHOW,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC
+  ]
+};
+
+const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
+  [AppointmentStatus.SCHEDULED]: "Agendada",
+  [AppointmentStatus.CONFIRMED]: "Confirmada",
+  [AppointmentStatus.PENDING_CONFIRMATION]: "Por confirmar",
+  [AppointmentStatus.ARRIVED]: "Llegó a clínica",
+  [AppointmentStatus.WAITING_ROOM]: "Sala de espera",
+  [AppointmentStatus.IN_PROGRESS]: "En atención",
+  [AppointmentStatus.COMPLETED]: "Atendida",
+  [AppointmentStatus.CANCELLED_BY_PATIENT]: "Cancelada por paciente",
+  [AppointmentStatus.CANCELLED_BY_CLINIC]: "Cancelada por clínica",
+  [AppointmentStatus.NO_SHOW]: "No asistió",
+  [AppointmentStatus.RESCHEDULED]: "Reagendada",
+  [AppointmentStatus.BLOCKED]: "Bloqueada"
+};
 
 @Injectable()
 export class AppointmentsService {
@@ -149,6 +221,13 @@ export class AppointmentsService {
       dto.chairId ??
       (keepCurrentChair ? current.chairId ?? undefined : await this.defaultChairForSchedule(actor, branchId, professionalId, startAt));
     assertBranchAccess(actor, branchId);
+    if (status !== current.status && this.isCancellationStatus(status)) {
+      throw new BadRequestException("Usa el flujo de cancelación para cancelar una cita");
+    }
+    if (status !== current.status && status === AppointmentStatus.RESCHEDULED) {
+      throw new BadRequestException("Usa el flujo de reagendado para reagendar una cita");
+    }
+    this.assertStatusTransition(current.status, status);
 
     this.validateDates(startAt, endAt, durationMinutes);
     await this.validateDurationSlotEnforcement(actor, branchId, professionalId, durationMinutes, startAt);
@@ -226,6 +305,7 @@ export class AppointmentsService {
     const endAt = new Date(dto.endAt);
     const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
 
+    this.assertStatusTransition(current.status, AppointmentStatus.RESCHEDULED);
     this.validateDates(startAt, endAt, durationMinutes);
     await this.validateDurationSlotEnforcement(actor, current.branchId, current.professionalId, durationMinutes, startAt);
     await this.enforceSchedulingRules(
@@ -334,6 +414,110 @@ export class AppointmentsService {
     return { slots };
   }
 
+  async listNotes(actor: AuthUser, id: string) {
+    await this.ensureAppointmentAccess(actor, id);
+
+    return this.prisma.appointmentNote.findMany({
+      where: { appointmentId: id },
+      include: { user: { select: { id: true, firstName: true, lastName: true } } },
+      orderBy: { createdAt: "desc" }
+    });
+  }
+
+  async addNote(actor: AuthUser, id: string, dto: CreateAppointmentNoteDto) {
+    await this.ensureAppointmentAccess(actor, id);
+    const noteText = dto.note.trim();
+    if (!noteText) throw new BadRequestException("note is required");
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const note = await tx.appointmentNote.create({
+        data: {
+          appointmentId: id,
+          userId: actor.id,
+          note: noteText,
+          isPrivate: dto.isPrivate ?? false
+        },
+        include: { user: { select: { id: true, firstName: true, lastName: true } } }
+      });
+
+      await this.audit(tx, actor, id, "add_note", { noteId: note.id, isPrivate: note.isPrivate });
+      return note;
+    });
+
+    return created;
+  }
+
+  async listReminders(actor: AuthUser, id: string) {
+    await this.ensureAppointmentAccess(actor, id);
+
+    return this.prisma.appointmentReminder.findMany({
+      where: { appointmentId: id },
+      orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }]
+    });
+  }
+
+  async createReminder(actor: AuthUser, id: string, dto: CreateAppointmentReminderDto) {
+    await this.ensureAppointmentAccess(actor, id);
+    const scheduledAt = new Date(dto.scheduledAt);
+    if (Number.isNaN(scheduledAt.getTime())) throw new BadRequestException("Invalid scheduledAt");
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const reminder = await tx.appointmentReminder.create({
+        data: {
+          appointmentId: id,
+          channel: dto.channel,
+          scheduledAt,
+          status: dto.status ?? "PENDING"
+        }
+      });
+
+      await this.audit(tx, actor, id, "create_reminder", {
+        reminderId: reminder.id,
+        channel: reminder.channel,
+        scheduledAt: reminder.scheduledAt.toISOString(),
+        status: reminder.status
+      });
+      return reminder;
+    });
+
+    return created;
+  }
+
+  async updateReminder(actor: AuthUser, id: string, reminderId: string, dto: UpdateAppointmentReminderDto) {
+    await this.ensureAppointmentAccess(actor, id);
+    const current = await this.prisma.appointmentReminder.findFirst({ where: { id: reminderId, appointmentId: id } });
+    if (!current) throw new NotFoundException("Appointment reminder not found");
+
+    const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : undefined;
+    const sentAt = dto.sentAt ? new Date(dto.sentAt) : dto.status === "SENT" && !current.sentAt ? new Date() : undefined;
+    if (scheduledAt && Number.isNaN(scheduledAt.getTime())) throw new BadRequestException("Invalid scheduledAt");
+    if (sentAt && Number.isNaN(sentAt.getTime())) throw new BadRequestException("Invalid sentAt");
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const reminder = await tx.appointmentReminder.update({
+        where: { id: reminderId },
+        data: {
+          channel: dto.channel,
+          scheduledAt,
+          status: dto.status,
+          sentAt,
+          errorMessage: dto.errorMessage
+        }
+      });
+
+      await this.audit(tx, actor, id, "update_reminder", {
+        reminderId: reminder.id,
+        channel: reminder.channel,
+        scheduledAt: reminder.scheduledAt.toISOString(),
+        status: reminder.status,
+        sentAt: reminder.sentAt?.toISOString() ?? null
+      });
+      return reminder;
+    });
+
+    return updated;
+  }
+
   private async changeStatus(
     actor: AuthUser,
     id: string,
@@ -342,6 +526,8 @@ export class AppointmentsService {
     extra?: Pick<Prisma.AppointmentUpdateInput, "cancellationReason">
   ) {
     const current = await this.findOne(actor, id);
+    if (current.status === newStatus) return current;
+    this.assertStatusTransition(current.status, newStatus);
     await this.prisma.$transaction(async (tx) => {
       await tx.appointment.update({
         where: { id },
@@ -355,6 +541,31 @@ export class AppointmentsService {
       await this.audit(tx, actor, id, "status_change", { previousStatus: current.status, newStatus, reason });
     });
     return this.findOne(actor, id);
+  }
+
+  private assertStatusTransition(currentStatus: AppointmentStatus, newStatus: AppointmentStatus) {
+    if (currentStatus === newStatus) return;
+
+    const allowedStatuses = APPOINTMENT_STATUS_TRANSITIONS[currentStatus] ?? [];
+    if (allowedStatuses.includes(newStatus)) return;
+
+    const from = APPOINTMENT_STATUS_LABELS[currentStatus] ?? currentStatus;
+    const to = APPOINTMENT_STATUS_LABELS[newStatus] ?? newStatus;
+    throw new BadRequestException(`Cambio de estado inválido: ${from} no puede pasar a ${to}`);
+  }
+
+  private isCancellationStatus(status: AppointmentStatus) {
+    return status === AppointmentStatus.CANCELLED_BY_PATIENT || status === AppointmentStatus.CANCELLED_BY_CLINIC;
+  }
+
+  private async ensureAppointmentAccess(actor: AuthUser, id: string) {
+    const appointment = await this.prisma.appointment.findFirst({
+      where: { id, organizationId: actor.organizationId, branchId: { in: actor.branchIds } },
+      select: { id: true }
+    });
+
+    if (!appointment) throw new NotFoundException("Appointment not found");
+    return appointment;
   }
 
   private async validateReferences(

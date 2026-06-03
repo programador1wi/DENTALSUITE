@@ -1,5 +1,5 @@
 import { EmptyState } from "@/components/feedback/empty-state";
-import type { Appointment } from "../services/appointments.service";
+import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import type { Professional } from "@/features/settings/professionals/services/professionals.service";
 import type { Schedule } from "@/features/settings/schedules/services/schedules.service";
 import { CalendarDays, Clock, Plus, UserRound } from "lucide-react";
@@ -42,6 +42,7 @@ export function CalendarView({
   onEdit,
   onCancel,
   onReschedule,
+  onChangeStatus,
   onConfirm,
   onArrive,
   onWaitingRoom,
@@ -66,6 +67,7 @@ export function CalendarView({
   onEdit: (appointment: Appointment) => void;
   onCancel: (appointment: Appointment) => void;
   onReschedule: (appointment: Appointment) => void;
+  onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
   onConfirm: (id: string) => void;
   onArrive: (id: string) => void;
   onWaitingRoom: (id: string) => void;
@@ -327,6 +329,7 @@ export function CalendarView({
                               onEdit={onEdit}
                               onCancel={onCancel}
                               onReschedule={onReschedule}
+                              onChangeStatus={onChangeStatus}
                               onConfirm={onConfirm}
                               onArrive={onArrive}
                               onWaitingRoom={onWaitingRoom}
@@ -587,6 +590,7 @@ export function CalendarView({
                                   onEdit={onEdit}
                                   onCancel={onCancel}
                                   onReschedule={onReschedule}
+                                  onChangeStatus={onChangeStatus}
                                   onConfirm={onConfirm}
                                   onArrive={onArrive}
                                   onWaitingRoom={onWaitingRoom}
@@ -654,6 +658,7 @@ export function CalendarView({
                 onEdit={onEdit}
                 onCancel={onCancel}
                 onReschedule={onReschedule}
+                onChangeStatus={onChangeStatus}
                 onConfirm={onConfirm}
                 onArrive={onArrive}
                 onWaitingRoom={onWaitingRoom}

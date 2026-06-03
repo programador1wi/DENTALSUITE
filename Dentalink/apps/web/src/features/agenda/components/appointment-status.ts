@@ -4,13 +4,13 @@ const labels: Record<AppointmentStatus, string> = {
   SCHEDULED: "Agendada",
   CONFIRMED: "Confirmada",
   PENDING_CONFIRMATION: "Por confirmar",
-  ARRIVED: "Llego",
+  ARRIVED: "Llegó",
   WAITING_ROOM: "Sala de espera",
-  IN_PROGRESS: "En atencion",
+  IN_PROGRESS: "En atención",
   COMPLETED: "Atendida",
   CANCELLED_BY_PATIENT: "Cancelada paciente",
-  CANCELLED_BY_CLINIC: "Cancelada clinica",
-  NO_SHOW: "No asistio",
+  CANCELLED_BY_CLINIC: "Cancelada clínica",
+  NO_SHOW: "No asistió",
   RESCHEDULED: "Reagendada",
   BLOCKED: "Bloqueada"
 };

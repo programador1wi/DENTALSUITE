@@ -12,6 +12,8 @@ import {
   CancelAppointmentDto,
   RescheduleAppointmentDto
 } from "./dto/appointment-actions.dto";
+import { CreateAppointmentNoteDto } from "./dto/appointment-note.dto";
+import { CreateAppointmentReminderDto, UpdateAppointmentReminderDto } from "./dto/appointment-reminder.dto";
 import { AppointmentsService } from "./appointments.service";
 import { CreateAppointmentDto } from "./dto/create-appointment.dto";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
@@ -39,6 +41,41 @@ export class AppointmentsController {
   @RequirePermissions("appointments.create")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateAppointmentDto) {
     return this.appointmentsService.create(user, dto);
+  }
+
+  @Get(":id/notes")
+  @RequirePermissions("appointments.read")
+  listNotes(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.appointmentsService.listNotes(user, id);
+  }
+
+  @Post(":id/notes")
+  @RequirePermissions("appointments.update")
+  addNote(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: CreateAppointmentNoteDto) {
+    return this.appointmentsService.addNote(user, id, dto);
+  }
+
+  @Get(":id/reminders")
+  @RequirePermissions("appointments.read")
+  listReminders(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.appointmentsService.listReminders(user, id);
+  }
+
+  @Post(":id/reminders")
+  @RequirePermissions("appointments.update")
+  createReminder(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: CreateAppointmentReminderDto) {
+    return this.appointmentsService.createReminder(user, id, dto);
+  }
+
+  @Patch(":id/reminders/:reminderId")
+  @RequirePermissions("appointments.update")
+  updateReminder(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("reminderId") reminderId: string,
+    @Body() dto: UpdateAppointmentReminderDto
+  ) {
+    return this.appointmentsService.updateReminder(user, id, reminderId, dto);
   }
 
   @Get(":id")

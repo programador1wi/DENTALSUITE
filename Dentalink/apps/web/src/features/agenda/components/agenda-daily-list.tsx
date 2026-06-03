@@ -1,7 +1,8 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
-import { appointmentColorPalette, appointmentStatusLabel } from "./appointment-status";
+import { appointmentColorPalette } from "./appointment-status";
 import { AppointmentActionsMenu, type AppointmentMenuAction } from "./appointment-actions-menu";
+import { AppointmentStatusMenu } from "./appointment-status-menu";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -26,8 +27,9 @@ const ALL_STATUSES: { status: AppointmentStatus; label: string }[] = [
 
 type ActionHandlers = {
   onEdit: (appointment: Appointment) => void;
-  onCancel: (appointment: Appointment) => void;
+  onCancel: (appointment: Appointment, cancelledBy?: "patient" | "clinic") => void;
   onReschedule: (appointment: Appointment) => void;
+  onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
   onConfirm: (id: string) => void;
   onArrive: (id: string) => void;
   onWaitingRoom: (id: string) => void;
@@ -362,7 +364,20 @@ function PaginationBtn({
 
 // ─── Row sub-component ────────────────────────────────────────────────────────
 
-function AgendaListRow({ appointment, onEdit, onCancel, onReschedule, onConfirm, onArrive, onWaitingRoom, onStart, onComplete, onNoShow, onMenuAction }: { appointment: Appointment } & ActionHandlers) {
+function AgendaListRow({
+  appointment,
+  onEdit,
+  onCancel,
+  onReschedule,
+  onChangeStatus,
+  onConfirm,
+  onArrive,
+  onWaitingRoom,
+  onStart,
+  onComplete,
+  onNoShow,
+  onMenuAction
+}: { appointment: Appointment } & ActionHandlers) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -445,10 +460,20 @@ function AgendaListRow({ appointment, onEdit, onCancel, onReschedule, onConfirm,
 
       {/* Status badge */}
       <td className="px-4 py-2.5">
-        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold border whitespace-nowrap ${pal.cardClass}`}>
-          <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${pal.dotClass}`} />
-          {appointmentStatusLabel(appointment.status)}
-        </span>
+        <AppointmentStatusMenu
+          appointment={appointment}
+          variant="list"
+          onChangeStatus={onChangeStatus}
+          onConfirm={onConfirm}
+          onArrive={onArrive}
+          onWaitingRoom={onWaitingRoom}
+          onStart={onStart}
+          onComplete={onComplete}
+          onNoShow={onNoShow}
+          onReschedule={onReschedule}
+          onCancel={onCancel}
+          onHistory={onMenuAction ? (item) => onMenuAction(item, "viewHistory") : undefined}
+        />
       </td>
 
       {/* Actions */}
@@ -475,7 +500,7 @@ function AgendaListRow({ appointment, onEdit, onCancel, onReschedule, onConfirm,
               }
 
               if (action === "cancel") {
-                onCancel(appointment);
+                onCancel(appointment, "clinic");
                 return;
               }
 

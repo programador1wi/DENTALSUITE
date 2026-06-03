@@ -1,21 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  addAppointmentNote,
   arriveAppointment,
   cancelAppointment,
   completeAppointment,
   confirmAppointment,
+  createAppointmentReminder,
   createAppointment,
   deleteAppointment,
   getAvailability,
+  listAppointmentNotes,
+  listAppointmentReminders,
   listAppointments,
   noShowAppointment,
   rescheduleAppointment,
   startAppointment,
+  updateAppointmentReminder,
   updateAppointment,
   waitingRoomAppointment,
+  type AppointmentNotePayload,
   type AppointmentPayload,
-  type AppointmentQuery
+  type AppointmentQuery,
+  type AppointmentReminderPayload,
+  type AppointmentReminderUpdatePayload
 } from "../services/appointments.service";
 
 export function useAppointments(params: AppointmentQuery) {
@@ -36,6 +44,22 @@ export function useAvailability(params: {
     queryKey: ["appointments", "availability", params],
     queryFn: () => getAvailability(params),
     enabled: Boolean(params.branchId && params.professionalId && params.date)
+  });
+}
+
+export function useAppointmentNotes(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ["appointments", id, "notes"],
+    queryFn: () => listAppointmentNotes(id),
+    enabled: enabled && Boolean(id)
+  });
+}
+
+export function useAppointmentReminders(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ["appointments", id, "reminders"],
+    queryFn: () => listAppointmentReminders(id),
+    enabled: enabled && Boolean(id)
   });
 }
 
@@ -63,6 +87,56 @@ export function useUpdateAppointment() {
   });
 }
 
+export function useAddAppointmentNote() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: AppointmentNotePayload }) => addAppointmentNote(id, payload),
+    onSuccess: (_data, variables) => {
+      toast.success("Comentario agregado");
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments", variables.id, "notes"] });
+      queryClient.invalidateQueries({ queryKey: ["appointment-history", variables.id] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useCreateAppointmentReminder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: AppointmentReminderPayload }) => createAppointmentReminder(id, payload),
+    onSuccess: (_data, variables) => {
+      toast.success("Recordatorio registrado");
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments", variables.id, "reminders"] });
+      queryClient.invalidateQueries({ queryKey: ["appointment-history", variables.id] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useUpdateAppointmentReminder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      reminderId,
+      payload
+    }: {
+      id: string;
+      reminderId: string;
+      payload: AppointmentReminderUpdatePayload;
+    }) => updateAppointmentReminder(id, reminderId, payload),
+    onSuccess: (_data, variables) => {
+      toast.success("Recordatorio actualizado");
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      queryClient.invalidateQueries({ queryKey: ["appointments", variables.id, "reminders"] });
+      queryClient.invalidateQueries({ queryKey: ["appointment-history", variables.id] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
 export function useAppointmentActions() {
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["appointments"] });
@@ -79,7 +153,11 @@ export function useAppointmentActions() {
     complete: useMutation({ mutationFn: completeAppointment, ...options }),
     noShow: useMutation({ mutationFn: noShowAppointment, ...options }),
     remove: useMutation({ mutationFn: deleteAppointment, ...options }),
-    cancel: useMutation({ mutationFn: ({ id, reason }: { id: string; reason: string }) => cancelAppointment(id, { reason }), ...options }),
+    cancel: useMutation({
+      mutationFn: ({ id, reason, cancelledBy }: { id: string; reason: string; cancelledBy?: "patient" | "clinic" }) =>
+        cancelAppointment(id, { reason, cancelledBy }),
+      ...options
+    }),
     reschedule: useMutation({
       mutationFn: ({ id, startAt, endAt, reason }: { id: string; startAt: string; endAt: string; reason?: string }) =>
         rescheduleAppointment(id, { startAt, endAt, reason }),

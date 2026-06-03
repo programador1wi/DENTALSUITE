@@ -194,7 +194,7 @@ export function AppointmentModal({
           <aside className="border-b border-slate-200 bg-white/85 p-5 lg:border-b-0 lg:border-r">
             <div className="mb-5 flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Nueva atencion</p>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Nueva atención</p>
                 <h3 className="mt-1 text-xl font-semibold text-slate-950">Agenda inteligente</h3>
               </div>
               <div className="rounded-2xl bg-cyan-50 p-3 text-cyan-700">
@@ -379,7 +379,7 @@ export function AppointmentModal({
                       <UserRound className="h-5 w-5" />
                     </div>
                     <div>
-                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Motivo de atencion</p>
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Motivo de atención</p>
                       <h4 className="text-xl font-semibold text-slate-950">Completa los datos de la cita</h4>
                     </div>
                   </div>
@@ -419,7 +419,7 @@ export function AppointmentModal({
                     </FieldLabel>
 
                     <FieldLabel label="Notas">
-                      <Textarea rows={4} placeholder="Notas visibles para recepcion o clinica" value={form.notes} onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))} />
+                      <Textarea rows={4} placeholder="Notas visibles para recepción o clínica" value={form.notes} onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))} />
                     </FieldLabel>
                   </div>
                 </div>

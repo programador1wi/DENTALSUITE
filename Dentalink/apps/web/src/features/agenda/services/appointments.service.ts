@@ -75,6 +75,22 @@ export type AppointmentReminder = {
   updatedAt: string;
 };
 
+export type AppointmentNotePayload = {
+  note: string;
+  isPrivate?: boolean;
+};
+
+export type AppointmentReminderPayload = {
+  channel: "EMAIL" | "WHATSAPP" | "PHONE";
+  scheduledAt: string;
+  status?: "PENDING" | "SENT" | "FAILED" | "CANCELLED";
+};
+
+export type AppointmentReminderUpdatePayload = Partial<AppointmentReminderPayload> & {
+  sentAt?: string;
+  errorMessage?: string;
+};
+
 export type AppointmentPayload = {
   branchId: string;
   patientId?: string;
@@ -117,6 +133,31 @@ export async function listAppointments(params?: AppointmentQuery) {
 
 export async function getAppointment(id: string) {
   const { data } = await http.get<Appointment>(`/appointments/${id}`);
+  return data;
+}
+
+export async function listAppointmentNotes(id: string) {
+  const { data } = await http.get<AppointmentNote[]>(`/appointments/${id}/notes`);
+  return data;
+}
+
+export async function addAppointmentNote(id: string, payload: AppointmentNotePayload) {
+  const { data } = await http.post<AppointmentNote>(`/appointments/${id}/notes`, payload);
+  return data;
+}
+
+export async function listAppointmentReminders(id: string) {
+  const { data } = await http.get<AppointmentReminder[]>(`/appointments/${id}/reminders`);
+  return data;
+}
+
+export async function createAppointmentReminder(id: string, payload: AppointmentReminderPayload) {
+  const { data } = await http.post<AppointmentReminder>(`/appointments/${id}/reminders`, payload);
+  return data;
+}
+
+export async function updateAppointmentReminder(id: string, reminderId: string, payload: AppointmentReminderUpdatePayload) {
+  const { data } = await http.patch<AppointmentReminder>(`/appointments/${id}/reminders/${reminderId}`, payload);
   return data;
 }
 

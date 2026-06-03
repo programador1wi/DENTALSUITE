@@ -1,4 +1,5 @@
 import { FormEvent, useMemo, useState } from "react";
+import { Search, Printer } from "lucide-react";
 import { useLocation } from "react-router-dom";
 import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { EmptyState } from "@/components/feedback/empty-state";
@@ -6,8 +7,12 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { ModuleTabs } from "@/components/layout/module-tabs";
-import { useCashRegisters, usePaymentsMutations } from "../hooks/use-payments";
-import type { CashRegister, CashRegisterStatus } from "../services/payments.service";
+import { Badge } from "@/components/ui/badge";
+import { Modal } from "@/components/ui/modal";
+import { useAuthStore } from "@/stores/auth.store";
+import { useBranchStore } from "@/stores/branch.store";
+import { useCashRegisterDetail, useCashRegisters, usePaymentsMutations } from "../hooks/use-payments";
+import type { CashRegister, CashRegisterDetail, CashRegisterMovement, CashRegisterStatus } from "../services/payments.service";
 
 const cashTabs = [
   { to: "/cash-register/open", label: "Cajas abiertas" },
@@ -25,8 +30,38 @@ function date(value?: string | null) {
   return new Date(value).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function dateTime(value?: string | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString("es-MX", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
 function userName(register: CashRegister) {
   return `${register.openedBy.firstName} ${register.openedBy.lastName}`.trim() || "CAJA";
+}
+
+function personName(person?: { firstName?: string; lastName?: string } | null) {
+  return `${person?.firstName ?? ""} ${person?.lastName ?? ""}`.trim() || "-";
+}
+
+function shortId(id: string) {
+  return id.slice(-6).toUpperCase();
+}
+
+function paymentAgreement(movement: CashRegisterMovement) {
+  const payment = movement.payment;
+  if (!payment) return "-";
+
+  const allocationAgreement = payment.allocations.find((allocation) => allocation.treatmentPlanItem.agreement?.name)
+    ?.treatmentPlanItem.agreement?.name;
+  const planName = payment.allocations[0]?.treatmentPlanItem.treatmentPlan.name;
+
+  return allocationAgreement ?? payment.patient.agreement?.name ?? planName ?? "Sin convenio";
 }
 
 export function CashRegisterPage() {
@@ -36,30 +71,49 @@ export function CashRegisterPage() {
   const isSearch = location.pathname.endsWith("/search");
   const status: CashRegisterStatus | "" = isReports || isSearch ? "" : isClosed ? "CLOSED" : "OPEN";
 
+  const user = useAuthStore((state) => state.user);
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const [branchId, setBranchId] = useState("");
   const [openFormVisible, setOpenFormVisible] = useState(false);
-  const [openBranchId, setOpenBranchId] = useState("");
   const [openingAmount, setOpeningAmount] = useState("0");
   const [closingRegister, setClosingRegister] = useState<CashRegister | null>(null);
   const [closeAmount, setCloseAmount] = useState("");
   const [search, setSearch] = useState("");
+  const [detailRegisterId, setDetailRegisterId] = useState<string | null>(null);
 
   const branches = useBranches(undefined, "ACTIVE");
-  const cashRegisters = useCashRegisters({ branchId: branchId || undefined, status });
+  const selectedBranchId = isSearch ? branchId || activeBranchId : activeBranchId;
+  const activeBranch = useMemo(
+    () => branches.data?.find((branch) => branch.id === activeBranchId),
+    [branches.data, activeBranchId]
+  );
+  const cashRegisters = useCashRegisters({ branchId: selectedBranchId || undefined, status });
+  const detail = useCashRegisterDetail(detailRegisterId);
   const mutations = usePaymentsMutations();
 
   const rows = useMemo(() => {
     const source = cashRegisters.data ?? [];
     if (!search) return source;
-    return source.filter((register) => userName(register).toLowerCase().includes(search.toLowerCase()) || register.id.toLowerCase().includes(search.toLowerCase()));
+    const term = search.toLowerCase();
+    return source.filter(
+      (register) =>
+        userName(register).toLowerCase().includes(term) ||
+        register.id.toLowerCase().includes(term) ||
+        register.branch.name.toLowerCase().includes(term)
+    );
   }, [cashRegisters.data, search]);
 
   const handleOpen = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!openBranchId || Number(openingAmount) < 0) return;
+    if (!activeBranchId || Number(openingAmount) < 0) return;
     mutations.openCashRegister.mutate(
-      { branchId: openBranchId, openingAmount: Number(openingAmount) },
-      { onSuccess: () => setOpenFormVisible(false) }
+      { branchId: activeBranchId, openingAmount: Number(openingAmount) },
+      {
+        onSuccess: () => {
+          setOpenFormVisible(false);
+          setOpeningAmount("0");
+        }
+      }
     );
   };
 
@@ -81,7 +135,8 @@ export function CashRegisterPage() {
     <button
       type="button"
       onClick={() => setOpenFormVisible((visible) => !visible)}
-      className="rounded bg-[#49ad50] px-4 py-2 text-lg font-bold text-white shadow-sm hover:bg-[#3d9944]"
+      className="rounded bg-[#49ad50] px-4 py-2 text-lg font-bold text-white shadow-sm hover:bg-[#3d9944] disabled:cursor-not-allowed disabled:opacity-50"
+      disabled={!activeBranchId}
     >
       + Abrir caja
     </button>
@@ -105,16 +160,21 @@ export function CashRegisterPage() {
           <form className="mb-4 flex flex-wrap items-end gap-3 rounded border border-slate-200 bg-slate-50 p-3" onSubmit={handleOpen}>
             <label className="text-sm">
               Sucursal
-              <select className="mt-1 block h-10 min-w-[260px] rounded border border-slate-300 px-3" value={openBranchId} onChange={(event) => setOpenBranchId(event.target.value)}>
-                <option value="">Seleccione sucursal</option>
-                {branches.data?.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
-              </select>
+              <span className="mt-1 flex h-10 min-w-[300px] items-center rounded border border-slate-300 bg-white px-3 font-semibold text-slate-700">
+                {activeBranch ? `Suc. ${activeBranch.name}` : "Seleccione sucursal en el encabezado"}
+              </span>
+            </label>
+            <label className="text-sm">
+              Usuario
+              <span className="mt-1 flex h-10 min-w-[220px] items-center rounded border border-slate-300 bg-white px-3 font-semibold text-slate-700">
+                {personName(user)}
+              </span>
             </label>
             <label className="text-sm">
               Saldo inicial
               <input className="mt-1 block h-10 w-[160px] rounded border border-slate-300 px-3" type="number" min="0" value={openingAmount} onChange={(event) => setOpeningAmount(event.target.value)} />
             </label>
-            <button className="h-10 rounded bg-[#0784d8] px-5 font-bold text-white" disabled={!openBranchId || mutations.openCashRegister.isPending}>
+            <button className="h-10 rounded bg-[#0784d8] px-5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!activeBranchId || mutations.openCashRegister.isPending}>
               Abrir caja
             </button>
           </form>
@@ -144,9 +204,9 @@ export function CashRegisterPage() {
 
         {isSearch && (
           <div className="mb-4 flex flex-wrap items-center gap-3">
-            <input className="h-10 w-[320px] rounded border border-slate-300 px-3" placeholder="Buscar caja por usuario o ID" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <input className="h-10 w-[320px] rounded border border-slate-300 px-3" placeholder="Buscar caja por usuario, sucursal o ID" value={search} onChange={(event) => setSearch(event.target.value)} />
             <select className="h-10 rounded border border-slate-300 px-3" value={branchId} onChange={(event) => setBranchId(event.target.value)}>
-              <option value="">Todas las sucursales</option>
+              <option value="">Sucursal activa</option>
               {branches.data?.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
             </select>
           </div>
@@ -159,7 +219,7 @@ export function CashRegisterPage() {
         ) : !rows.length ? (
           <EmptyState title="Sin cajas" description="No hay cajas para los filtros seleccionados." />
         ) : (
-          <CashTable rows={rows} closed={isClosed || isSearch} onClose={setClosingRegister} />
+          <CashTable rows={rows} closed={isClosed || isSearch} onClose={setClosingRegister} onDetail={setDetailRegisterId} />
         )}
 
         {closingRegister && (
@@ -181,11 +241,27 @@ export function CashRegisterPage() {
           </form>
         )}
       </div>
+
+      <Modal open={Boolean(detailRegisterId)} title="Detalle de caja" onClose={() => setDetailRegisterId(null)} size="2xl">
+        {detail.isLoading ? <LoadingState message="Cargando detalle de caja..." /> : null}
+        {detail.isError ? <ErrorState message={detail.error.message} /> : null}
+        {detail.data ? <CashRegisterDetailPanel register={detail.data} /> : null}
+      </Modal>
     </WarnerSuitePanel>
   );
 }
 
-function CashTable({ rows, closed, onClose }: { rows: CashRegister[]; closed: boolean; onClose: (register: CashRegister) => void }) {
+function CashTable({
+  rows,
+  closed,
+  onClose,
+  onDetail
+}: {
+  rows: CashRegister[];
+  closed: boolean;
+  onClose: (register: CashRegister) => void;
+  onDetail: (registerId: string) => void;
+}) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full border-collapse text-sm">
@@ -207,8 +283,12 @@ function CashTable({ rows, closed, onClose }: { rows: CashRegister[]; closed: bo
               <td className="border border-slate-200 px-3 py-3 uppercase">{userName(register)}</td>
               <td className="border border-slate-200 px-3 py-3">{date(register.openedAt)}</td>
               {closed && <td className="border border-slate-200 px-3 py-3">{date(register.closedAt)}</td>}
-              <td className="border border-slate-200 px-3 py-3 text-[#0784d8]">ver detalle Q</td>
-              <td className="border border-slate-200 px-3 py-3 text-right">{money(0)}</td>
+              <td className="border border-slate-200 px-3 py-3">
+                <button className="inline-flex items-center gap-1 text-[#0784d8] hover:underline" type="button" onClick={() => onDetail(register.id)}>
+                  ver detalle <Search className="h-3.5 w-3.5" />
+                </button>
+              </td>
+              <td className="border border-slate-200 px-3 py-3 text-right">{money(register.previousBalance ?? 0)}</td>
               <td className="border border-slate-200 px-3 py-3 text-right">{money(register.openingAmount)}</td>
               <td className="border border-slate-200 px-3 py-3 text-right">{money(closed ? register.closingAmount : register.expectedClosing ?? register.openingAmount)}</td>
               {!closed && (
@@ -224,6 +304,144 @@ function CashTable({ rows, closed, onClose }: { rows: CashRegister[]; closed: bo
   );
 }
 
+function CashRegisterDetailPanel({ register }: { register: CashRegisterDetail }) {
+  const statusTone = register.status === "OPEN" ? "success" : "default";
+  const saldoInicialTotal = Number(register.previousBalance ?? 0) + Number(register.openingTotal ?? register.openingAmount ?? 0);
+  const paymentTransactions = register.movements.filter((movement) => movement.payment && (movement.type === "INCOME" || movement.type === "REFUND"));
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-slate-200 bg-slate-50 px-4 py-3">
+        <div>
+          <p className="text-xl font-bold text-slate-700">Total caja #{shortId(register.id)}</p>
+          <p className="text-xs text-slate-500">(recaudado + saldo inicial - gastos)</p>
+        </div>
+        <p className="text-3xl font-bold text-emerald-600">{money(register.expectedClosing)}</p>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Badge value={register.status === "OPEN" ? "Caja abierta" : "Caja cerrada"} tone={statusTone} />
+          <span className="text-sm text-slate-500">{register.branch.name}</span>
+        </div>
+        <button
+          type="button"
+          onClick={() => window.print()}
+          className="inline-flex h-9 items-center gap-2 rounded bg-[#0784d8] px-3 text-sm font-semibold text-white hover:bg-[#0c6fb5]"
+        >
+          <Printer className="h-4 w-4" />
+          Imprimir
+        </button>
+      </div>
+
+      <div className="overflow-hidden border border-slate-200">
+        <table className="w-full border-collapse text-sm">
+          <tbody>
+            <DetailRow label="Usuario" value={userName(register)} secondaryLabel="Sucursal" secondaryValue={register.branch.name} />
+            <DetailRow label="Fecha apertura" value={dateTime(register.openedAt)} secondaryLabel="Apertura realizada por" secondaryValue={personName(register.openedBy)} />
+            {register.status === "CLOSED" && (
+              <DetailRow label="Fecha cierre" value={dateTime(register.closedAt)} secondaryLabel="Cierre realizado por" secondaryValue={personName(register.closedBy)} />
+            )}
+            <DetailRow label="Saldo anterior" value={money(register.previousBalance)} />
+            <DetailRow label="Abono inicial" value={money(register.openingTotal)} />
+            <DetailRow label="Saldo inicial total" value={money(saldoInicialTotal)} strong />
+            {register.paymentMethodTotals.map((method) => (
+              <DetailRow key={`${method.name}-${method.type}`} label={`${method.name} (cantidad: ${method.count})`} value={money(method.amount)} />
+            ))}
+            <DetailRow label="Cobrado" value={money(register.incomeTotal)} strong />
+            <DetailRow label="Gastos (-)" value={money(register.expenseTotal)} danger />
+            <DetailRow label="Devoluciones (-)" value={money(register.refundTotal)} danger />
+            {register.adjustmentTotal !== 0 && <DetailRow label="Ajustes" value={money(register.adjustmentTotal)} />}
+            <DetailRow label="Total caja (recaudado + saldo inicial - gastos)" value={money(register.expectedClosing)} strong />
+          </tbody>
+        </table>
+      </div>
+
+      <div className="border border-slate-200">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-bold text-emerald-700">
+          Transacciones de la caja
+        </div>
+        <div className="max-h-[52vh] overflow-auto">
+          <table className="w-full min-w-[900px] border-collapse text-xs">
+            <thead>
+              <tr className="bg-white text-left text-slate-700">
+                <th className="border border-slate-200 px-2 py-3">#</th>
+                <th className="border border-slate-200 px-2 py-3">Nombre paciente</th>
+                <th className="border border-slate-200 px-2 py-3">Medio de pago</th>
+                <th className="border border-slate-200 px-2 py-3">Convenio</th>
+                <th className="border border-slate-200 px-2 py-3">Vencimiento</th>
+                <th className="border border-slate-200 px-2 py-3"># referencia</th>
+                <th className="border border-slate-200 px-2 py-3">Factura</th>
+                <th className="border border-slate-200 px-2 py-3 text-right">Monto</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paymentTransactions.map((movement) => {
+                const payment = movement.payment;
+                if (!payment) return null;
+                const amount = movement.type === "REFUND" ? Number(movement.amount) * -1 : Number(movement.amount);
+                return (
+                  <tr key={movement.id}>
+                    <td className="border border-slate-200 px-2 py-3 text-slate-500">{shortId(payment.id)}</td>
+                    <td className="border border-slate-200 px-2 py-3 font-semibold text-[#0784d8]">
+                      {payment.patient.documentNumber ? `${payment.patient.documentNumber} ` : ""}
+                      {personName(payment.patient)}
+                    </td>
+                    <td className="border border-slate-200 px-2 py-3">{payment.paymentMethod.name}</td>
+                    <td className="border border-slate-200 px-2 py-3">{paymentAgreement(movement)}</td>
+                    <td className="border border-slate-200 px-2 py-3">{date(payment.paidAt)}</td>
+                    <td className="border border-slate-200 px-2 py-3">{payment.reference || "-"}</td>
+                    <td className="border border-slate-200 px-2 py-3">-</td>
+                    <td className="border border-slate-200 px-2 py-3 text-right">{money(amount)}</td>
+                  </tr>
+                );
+              })}
+              {!paymentTransactions.length && (
+                <tr>
+                  <td className="border border-slate-200 px-3 py-8 text-center text-sm text-slate-500" colSpan={8}>
+                    No hay pagos asociados a esta caja.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({
+  label,
+  value,
+  secondaryLabel,
+  secondaryValue,
+  strong,
+  danger
+}: {
+  label: string;
+  value: string;
+  secondaryLabel?: string;
+  secondaryValue?: string;
+  strong?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <tr className={strong ? "bg-slate-50 font-bold" : ""}>
+      <td className="w-[28%] border border-slate-200 px-3 py-2 font-semibold text-slate-600">{label}</td>
+      <td className={`border border-slate-200 px-3 py-2 text-right ${danger ? "font-bold text-red-600" : "text-slate-700"}`}>{value}</td>
+      {secondaryLabel ? (
+        <>
+          <td className="w-[24%] border border-slate-200 px-3 py-2 font-semibold text-slate-600">{secondaryLabel}</td>
+          <td className="border border-slate-200 px-3 py-2 text-right text-slate-700">{secondaryValue}</td>
+        </>
+      ) : (
+        <td className="border border-slate-200 px-3 py-2" colSpan={2} />
+      )}
+    </tr>
+  );
+}
+
 function CashReports({ registers }: { registers: CashRegister[] }) {
   const totalInitial = registers.reduce((sum, register) => sum + Number(register.openingAmount ?? 0), 0);
   const totalExpected = registers.reduce((sum, register) => sum + Number(register.expectedClosing ?? register.closingAmount ?? 0), 0);
@@ -231,7 +449,7 @@ function CashReports({ registers }: { registers: CashRegister[] }) {
   return (
     <div>
       <div className="relative mb-4 inline-block">
-        <button className="border border-slate-300 bg-white px-6 py-3 text-slate-600 shadow-sm">Reportes v</button>
+        <button className="border border-slate-300 bg-white px-6 py-3 text-slate-600">Reportes v</button>
         <div className="absolute left-0 top-full z-10 w-[370px] border border-slate-300 bg-white py-2 shadow-lg">
           {[
             "Resumen de recaudacion ultimos 10 dias",

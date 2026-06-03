@@ -151,7 +151,7 @@ export function AppointmentActionsMenu({
             Datos personales
           </ActionItem>
           <ActionItem disabled={!hasPatient} onClick={() => goToPatientRoute(`/patients/${appointment.patientId}/clinical`)}>
-            Ir a la ficha clinica del paciente
+            Ir a la ficha clínica del paciente
           </ActionItem>
           <ActionItem disabled={!hasPatient} onClick={() => handleAction("requestDataEmail")}>
             Enviar solicitud de datos por mail
@@ -162,11 +162,11 @@ export function AppointmentActionsMenu({
 
           <div className="my-1 border-t border-[#e5e7eb]" />
 
-          <ActionItem onClick={() => handleAction("modifyDuration")}>Modificar duracion</ActionItem>
+          <ActionItem onClick={() => handleAction("modifyDuration")}>Modificar duración</ActionItem>
           <ActionItem onClick={() => handleAction("addComment")}>Agregar comentario</ActionItem>
           <ActionItem onClick={() => handleAction("changeDate")}>Cambiar fecha</ActionItem>
           <ActionItem onClick={() => handleAction("changeStatus")}>Cambiar estado</ActionItem>
-          <ActionItem onClick={() => handleAction("notifyEmail")}>Notificar por e-mail</ActionItem>
+          <ActionItem onClick={() => handleAction("notifyEmail")}>Notificar por email</ActionItem>
           <ActionItem onClick={() => handleAction("viewHistory")}>Ver historial de cambios</ActionItem>
           <ActionItem onClick={() => handleAction("cancel")}>Anular</ActionItem>
         </div>

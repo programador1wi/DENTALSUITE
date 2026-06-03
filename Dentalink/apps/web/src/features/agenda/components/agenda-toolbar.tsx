@@ -100,7 +100,7 @@ export function AgendaToolbar({ view, date, totalAppointments, onDateChange, onG
             )}
           >
             <AlertTriangle className="w-4 h-4" />
-            Reprogramación
+            Sala de espera
           </Link>
         </div>
       </div>

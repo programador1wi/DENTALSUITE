@@ -8,6 +8,7 @@ import {
   createPayment,
   createPaymentLink,
   createRefund,
+  getCashRegister,
   listPaymentLinks,
   listAccountsReceivable,
   listCashRegisters,
@@ -61,6 +62,14 @@ export function useCashRegisters(params?: { branchId?: string; status?: CashRegi
   return useQuery({
     queryKey: ["cash-register", params],
     queryFn: () => listCashRegisters(params)
+  });
+}
+
+export function useCashRegisterDetail(registerId?: string | null) {
+  return useQuery({
+    queryKey: ["cash-register", "detail", registerId],
+    queryFn: () => getCashRegister(registerId as string),
+    enabled: Boolean(registerId)
   });
 }
 

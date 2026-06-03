@@ -34,7 +34,7 @@ export function WaitingRoomPage() {
     <div className="space-y-4">
       <PageHeader 
         title="Sala de espera" 
-        description="Control operativo de llegada y atencion." 
+        description="Control operativo de llegada y atención." 
         helpText="La Sala de Espera permite realizar el seguimiento operativo en tiempo real de los pacientes desde que ingresan a la clínica, controlando su flujo de atención: ingreso en recepción, tiempos transcurridos en sala de espera y el paso a la atención con el odontólogo."
       />
       <Card>
@@ -63,6 +63,7 @@ export function WaitingRoomPage() {
       </Card>
       <WaitingRoomPanel
         appointments={waiting}
+        onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
         onStart={(id) => void actions.start.mutate(id)}
         onComplete={(id) => void actions.complete.mutate(id)}
         onNoShow={(id) => void actions.noShow.mutate(id)}
@@ -70,4 +71,3 @@ export function WaitingRoomPage() {
     </div>
   );
 }
-

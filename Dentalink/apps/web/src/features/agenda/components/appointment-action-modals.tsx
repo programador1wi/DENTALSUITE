@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -6,26 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { Appointment, AppointmentPayload, AppointmentStatus } from "../services/appointments.service";
+import type { Appointment, AppointmentPayload, AppointmentReminderPayload, AppointmentStatus } from "../services/appointments.service";
 import { getAppointment } from "../services/appointments.service";
+import { getDirectAppointmentStatusOptions } from "../utils/appointment-status-flow";
 import { appointmentStatusLabel } from "./appointment-status";
 
 export type AppointmentEmailMode = "dataRequest" | "notification";
-
-const STATUS_OPTIONS: { value: AppointmentStatus; label: string }[] = [
-  { value: "SCHEDULED", label: "Agendada" },
-  { value: "CONFIRMED", label: "Confirmada" },
-  { value: "PENDING_CONFIRMATION", label: "Por confirmar" },
-  { value: "ARRIVED", label: "Llego a clinica" },
-  { value: "WAITING_ROOM", label: "Sala de espera" },
-  { value: "IN_PROGRESS", label: "En atencion" },
-  { value: "COMPLETED", label: "Atendida" },
-  { value: "RESCHEDULED", label: "Reagendada" },
-  { value: "NO_SHOW", label: "No asistio" },
-  { value: "CANCELLED_BY_PATIENT", label: "Cancelada por paciente" },
-  { value: "CANCELLED_BY_CLINIC", label: "Cancelada por clinica" },
-  { value: "BLOCKED", label: "Bloqueada" }
-];
 
 export function AppointmentDurationModal({
   appointment,
@@ -48,7 +34,7 @@ export function AppointmentDurationModal({
     if (!appointment) return;
     const minutes = Number(durationMinutes);
     if (!Number.isInteger(minutes) || minutes < 5) {
-      toast.error("Ingresa una duracion valida");
+      toast.error("Ingresa una duración válida");
       return;
     }
 
@@ -69,7 +55,7 @@ export function AppointmentDurationModal({
   };
 
   return (
-    <Modal open={Boolean(appointment)} title="Modificar duracion" onClose={onClose}>
+    <Modal open={Boolean(appointment)} title="Modificar duración" onClose={onClose}>
       <div className="space-y-3">
         <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-subtle)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">
           <span className="font-semibold text-[var(--text-primary)]">{appointment?.title}</span>
@@ -101,26 +87,24 @@ export function AppointmentCommentModal({
 }: {
   appointment: Appointment | null;
   onClose: () => void;
-  onConfirm: (id: string, payload: Partial<AppointmentPayload>) => Promise<void>;
+  onConfirm: (id: string, note: string, isPrivate?: boolean) => Promise<void>;
 }) {
   const [comment, setComment] = useState("");
+  const [isPrivate, setIsPrivate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!appointment) return;
     setComment("");
+    setIsPrivate(false);
   }, [appointment]);
 
   const confirm = async () => {
     if (!appointment || !comment.trim()) return;
-    const prefix = formatDateTime(new Date().toISOString());
-    const nextNotes = appointment.notes?.trim()
-      ? `${appointment.notes.trim()}\n\n${prefix} - ${comment.trim()}`
-      : `${prefix} - ${comment.trim()}`;
 
     setSubmitting(true);
     try {
-      await onConfirm(appointment.id, { notes: nextNotes });
+      await onConfirm(appointment.id, comment.trim(), isPrivate);
       onClose();
     } finally {
       setSubmitting(false);
@@ -132,10 +116,20 @@ export function AppointmentCommentModal({
       <div className="space-y-3">
         {appointment?.notes ? (
           <div className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-subtle)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">
+            <p className="mb-1 font-semibold text-[var(--text-primary)]">Notas heredadas</p>
             {appointment.notes}
           </div>
         ) : null}
         <Textarea rows={4} placeholder="Comentario" value={comment} onChange={(event) => setComment(event.target.value)} />
+        <label className="flex items-center gap-2 text-[var(--text-sm)] text-[var(--text-secondary)]">
+          <input
+            type="checkbox"
+            checked={isPrivate}
+            onChange={(event) => setIsPrivate(event.target.checked)}
+            className="h-4 w-4 rounded border-[var(--border-strong)] accent-[var(--action-brand)]"
+          />
+          Comentario privado
+        </label>
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} type="button">Cerrar</Button>
           <Button disabled={submitting || !comment.trim()} onClick={() => void confirm()}>
@@ -158,11 +152,15 @@ export function AppointmentStatusModal({
 }) {
   const [status, setStatus] = useState<AppointmentStatus>("SCHEDULED");
   const [submitting, setSubmitting] = useState(false);
+  const statusOptions = useMemo(
+    () => (appointment ? getDirectAppointmentStatusOptions(appointment.status) : []),
+    [appointment?.status]
+  );
 
   useEffect(() => {
     if (!appointment) return;
-    setStatus(appointment.status);
-  }, [appointment]);
+    setStatus(statusOptions[0]?.nextStatus ?? appointment.status);
+  }, [appointment, statusOptions]);
 
   const confirm = async () => {
     if (!appointment) return;
@@ -178,14 +176,23 @@ export function AppointmentStatusModal({
   return (
     <Modal open={Boolean(appointment)} title="Cambiar estado" onClose={onClose}>
       <div className="space-y-3">
-        <Select value={status} onChange={(event) => setStatus(event.target.value as AppointmentStatus)}>
-          {STATUS_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>{option.label}</option>
-          ))}
-        </Select>
+        <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-subtle)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">
+          Estado actual: <span className="font-semibold text-[var(--text-primary)]">{appointment ? appointmentStatusLabel(appointment.status) : ""}</span>
+        </div>
+        {statusOptions.length ? (
+          <Select value={status} onChange={(event) => setStatus(event.target.value as AppointmentStatus)}>
+            {statusOptions.map((option) => (
+              <option key={`${option.action}-${option.nextStatus}`} value={option.nextStatus}>{option.label}</option>
+            ))}
+          </Select>
+        ) : (
+          <p className="rounded-[var(--radius-md)] border border-dashed border-[var(--border-default)] px-[var(--space-3)] py-[var(--space-4)] text-center text-[var(--text-sm)] text-[var(--text-secondary)]">
+            Este estado no tiene cambios directos disponibles.
+          </p>
+        )}
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} type="button">Cerrar</Button>
-          <Button disabled={submitting || status === appointment?.status} onClick={() => void confirm()}>
+          <Button disabled={submitting || !statusOptions.length || status === appointment?.status} onClick={() => void confirm()}>
             {submitting ? "Guardando..." : "Guardar"}
           </Button>
         </div>
@@ -197,15 +204,20 @@ export function AppointmentStatusModal({
 export function AppointmentEmailModal({
   appointment,
   mode,
-  onClose
+  onClose,
+  onScheduleReminder
 }: {
   appointment: Appointment | null;
   mode: AppointmentEmailMode;
   onClose: () => void;
+  onScheduleReminder?: (id: string, payload: AppointmentReminderPayload) => Promise<void>;
 }) {
   const [to, setTo] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
+  const [channel, setChannel] = useState<AppointmentReminderPayload["channel"]>("EMAIL");
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [scheduling, setScheduling] = useState(false);
 
   useEffect(() => {
     if (!appointment) return;
@@ -214,12 +226,14 @@ export function AppointmentEmailModal({
     const appointmentDate = formatDateTime(appointment.startAt);
 
     setTo(appointment.patient?.email ?? "");
-    setSubject(mode === "dataRequest" ? "Solicitud de actualizacion de datos" : "Recordatorio de cita");
+    setSubject(mode === "dataRequest" ? "Solicitud de actualización de datos" : "Recordatorio de cita");
     setBody(
       mode === "dataRequest"
         ? `Hola ${patientName},\n\nPor favor actualiza o confirma tus datos en este enlace:\n${dataLink}\n\nGracias.`
         : `Hola ${patientName},\n\nTe recordamos tu cita: ${appointmentDate}.\n\nGracias.`
     );
+    setChannel(mode === "notification" ? "WHATSAPP" : "EMAIL");
+    setScheduledAt(defaultReminderLocalInput(appointment.startAt));
   }, [appointment, mode]);
 
   const send = () => {
@@ -229,14 +243,52 @@ export function AppointmentEmailModal({
     onClose();
   };
 
+  const scheduleReminder = async () => {
+    if (!appointment || !onScheduleReminder || !scheduledAt) return;
+
+    setScheduling(true);
+    try {
+      await onScheduleReminder(appointment.id, {
+        channel,
+        scheduledAt: new Date(scheduledAt).toISOString(),
+        status: "PENDING"
+      });
+      onClose();
+    } finally {
+      setScheduling(false);
+    }
+  };
+
   return (
-    <Modal open={Boolean(appointment)} title={mode === "dataRequest" ? "Solicitud de datos" : "Notificar por e-mail"} onClose={onClose}>
+    <Modal open={Boolean(appointment)} title={mode === "dataRequest" ? "Solicitud de datos" : "Notificar por email"} onClose={onClose}>
       <div className="space-y-3">
         <Input placeholder="Correo destinatario" value={to} onChange={(event) => setTo(event.target.value)} />
         <Input placeholder="Asunto" value={subject} onChange={(event) => setSubject(event.target.value)} />
         <Textarea rows={6} placeholder="Mensaje" value={body} onChange={(event) => setBody(event.target.value)} />
+        <div className="grid gap-3 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-subtle)] p-[var(--space-3)] md:grid-cols-2">
+          <label className="grid gap-1 text-[var(--text-xs)] font-semibold uppercase text-[var(--text-secondary)]">
+            Canal del recordatorio
+            <Select value={channel} onChange={(event) => setChannel(event.target.value as AppointmentReminderPayload["channel"])}>
+              <option value="EMAIL">Email</option>
+              <option value="WHATSAPP">WhatsApp</option>
+              <option value="PHONE">Teléfono</option>
+            </Select>
+          </label>
+          <label className="grid gap-1 text-[var(--text-xs)] font-semibold uppercase text-[var(--text-secondary)]">
+            Programar para
+            <Input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
+          </label>
+        </div>
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} type="button">Cerrar</Button>
+          <Button
+            variant="secondary"
+            disabled={!appointment || !onScheduleReminder || !scheduledAt || scheduling}
+            onClick={() => void scheduleReminder()}
+            type="button"
+          >
+            {scheduling ? "Registrando..." : "Registrar recordatorio"}
+          </Button>
           <Button disabled={!subject.trim() || !body.trim()} onClick={send}>Abrir correo</Button>
         </div>
       </div>
@@ -246,12 +298,15 @@ export function AppointmentEmailModal({
 
 export function AppointmentHistoryModal({
   appointment,
-  onClose
+  onClose,
+  onUpdateReminderStatus
 }: {
   appointment: Appointment | null;
   onClose: () => void;
+  onUpdateReminderStatus?: (appointmentId: string, reminderId: string, status: "SENT" | "CANCELLED") => Promise<void>;
 }) {
   const appointmentId = appointment?.id ?? "";
+  const [updatingReminderId, setUpdatingReminderId] = useState("");
   const detail = useQuery({
     queryKey: ["appointment-history", appointmentId],
     queryFn: () => getAppointment(appointmentId),
@@ -259,6 +314,20 @@ export function AppointmentHistoryModal({
   });
   const history = detail.data?.statusHistory ?? [];
   const notes = detail.data?.appointmentNotes ?? [];
+  const reminders = detail.data?.reminders ?? [];
+
+  const updateReminderStatus = async (reminderId: string, status: "SENT" | "CANCELLED") => {
+    if (!appointmentId || !onUpdateReminderStatus) return;
+    setUpdatingReminderId(reminderId);
+    try {
+      await onUpdateReminderStatus(appointmentId, reminderId, status);
+      await detail.refetch();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "No se pudo actualizar el recordatorio");
+    } finally {
+      setUpdatingReminderId("");
+    }
+  };
 
   return (
     <Modal open={Boolean(appointment)} title="Ver historial de cambios" size="lg" onClose={onClose}>
@@ -312,6 +381,44 @@ export function AppointmentHistoryModal({
                 </div>
               </div>
             ) : null}
+
+            {reminders.length ? (
+              <div className="border-t border-[var(--border-default)] pt-3">
+                <h4 className="mb-2 text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">Recordatorios</h4>
+                <div className="max-h-40 space-y-2 overflow-y-auto pr-1">
+                  {reminders.map((reminder) => (
+                    <div key={reminder.id} className="rounded-[var(--radius-md)] bg-[var(--bg-subtle)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">
+                      <p className="font-semibold text-[var(--text-primary)]">
+                        {reminderChannelLabel(reminder.channel)} - {reminderStatusLabel(reminder.status)}
+                      </p>
+                      <p>Programado: {formatDateTime(reminder.scheduledAt)}</p>
+                      {reminder.sentAt ? <p>Enviado: {formatDateTime(reminder.sentAt)}</p> : null}
+                      {reminder.errorMessage ? <p className="text-[var(--text-danger)]">{reminder.errorMessage}</p> : null}
+                      {onUpdateReminderStatus && reminder.status === "PENDING" ? (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={updatingReminderId === reminder.id}
+                            onClick={() => void updateReminderStatus(reminder.id, "SENT")}
+                          >
+                            Marcar enviado
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={updatingReminderId === reminder.id}
+                            onClick={() => void updateReminderStatus(reminder.id, "CANCELLED")}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </>
         )}
       </div>
@@ -336,4 +443,37 @@ function formatDateTime(value: string) {
 function formatUser(user?: { firstName: string; lastName: string } | null) {
   if (!user) return "Sistema";
   return `${user.firstName} ${user.lastName}`;
+}
+
+function defaultReminderLocalInput(appointmentStartAt: string) {
+  const appointmentDate = new Date(appointmentStartAt);
+  const now = new Date();
+  const reminderDate = new Date(appointmentDate.getTime() - 24 * 60 * 60000);
+  return toLocalInput(reminderDate > now ? reminderDate.toISOString() : now.toISOString());
+}
+
+function toLocalInput(value: string) {
+  const date = new Date(value);
+  const offset = date.getTimezoneOffset();
+  const local = new Date(date.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 16);
+}
+
+function reminderChannelLabel(channel: string) {
+  const labels: Record<string, string> = {
+    EMAIL: "Email",
+    WHATSAPP: "WhatsApp",
+    PHONE: "Teléfono"
+  };
+  return labels[channel] ?? channel;
+}
+
+function reminderStatusLabel(status: string) {
+  const labels: Record<string, string> = {
+    PENDING: "Pendiente",
+    SENT: "Enviado",
+    FAILED: "Fallido",
+    CANCELLED: "Cancelado"
+  };
+  return labels[status] ?? status;
 }

@@ -1,23 +1,24 @@
 import { useState } from "react";
 import { MessageSquare } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils/cn";
-import type { Appointment } from "../services/appointments.service";
-import { appointmentColorPalette, appointmentStatusLabel, appointmentStatusTone } from "./appointment-status";
+import type { Appointment, AppointmentStatus } from "../services/appointments.service";
+import { appointmentColorPalette, appointmentStatusLabel } from "./appointment-status";
 import { AppointmentActionsMenu, type AppointmentMenuAction } from "./appointment-actions-menu";
+import { AppointmentStatusMenu } from "./appointment-status-menu";
 
 type AppointmentCardProps = {
   appointment: Appointment;
   compact?: boolean;
   onEdit: (appointment: Appointment) => void;
-  onCancel: (appointment: Appointment) => void;
-  onReschedule: (appointment: Appointment) => void;
-  onConfirm: (id: string) => void;
-  onArrive: (id: string) => void;
-  onWaitingRoom: (id: string) => void;
-  onStart: (id: string) => void;
-  onComplete: (id: string) => void;
-  onNoShow: (id: string) => void;
+  onCancel?: (appointment: Appointment, cancelledBy?: "patient" | "clinic") => void;
+  onReschedule?: (appointment: Appointment) => void;
+  onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
+  onConfirm?: (id: string) => void;
+  onArrive?: (id: string) => void;
+  onWaitingRoom?: (id: string) => void;
+  onStart?: (id: string) => void;
+  onComplete?: (id: string) => void;
+  onNoShow?: (id: string) => void;
   onMenuAction?: (appointment: Appointment, action: AppointmentMenuAction) => void;
 };
 
@@ -27,6 +28,13 @@ export function AppointmentCard({
   onEdit,
   onCancel,
   onReschedule,
+  onChangeStatus,
+  onConfirm,
+  onArrive,
+  onWaitingRoom,
+  onStart,
+  onComplete,
+  onNoShow,
   onMenuAction
 }: AppointmentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -42,12 +50,12 @@ export function AppointmentCard({
 
   const handleMenuAction = (action: AppointmentMenuAction) => {
     if (action === "changeDate") {
-      onReschedule(appointment);
+      onReschedule?.(appointment);
       return;
     }
 
     if (action === "cancel") {
-      onCancel(appointment);
+      onCancel?.(appointment, "clinic");
       return;
     }
 
@@ -131,7 +139,20 @@ export function AppointmentCard({
           <h4 className="truncate font-semibold leading-tight text-[var(--text-primary)]">{appointment.title}</h4>
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Badge value={appointmentStatusLabel(appointment.status)} tone={appointmentStatusTone(appointment.status)} />
+          <AppointmentStatusMenu
+            appointment={appointment}
+            variant="card"
+            onChangeStatus={onChangeStatus}
+            onConfirm={onConfirm}
+            onArrive={onArrive}
+            onWaitingRoom={onWaitingRoom}
+            onStart={onStart}
+            onComplete={onComplete}
+            onNoShow={onNoShow}
+            onReschedule={onReschedule}
+            onCancel={onCancel}
+            onHistory={onMenuAction ? (item) => onMenuAction(item, "viewHistory") : undefined}
+          />
           <AppointmentActionsMenu
             appointment={appointment}
             triggerVariant="standard"

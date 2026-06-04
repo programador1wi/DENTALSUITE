@@ -24,6 +24,8 @@
     "db:migrate:status": "node scripts/db-migrate-status.cjs",
     "db:seed": "node scripts/db-seed.cjs",
     "db:seed:demo": "node scripts/db-seed-demo.cjs",
+    "db:seed:full-demo": "node scripts/db-seed-full-demo.cjs",
+    "db:seed:professionals-agenda": "npm --workspace=@dentalwarner/database run prisma:seed:professionals-agenda --",
     "db:studio": "node scripts/db-studio.cjs",
     "db:backup": "node scripts/db-backup.cjs",
     "db:index:check": "node scripts/db-index-check.cjs",

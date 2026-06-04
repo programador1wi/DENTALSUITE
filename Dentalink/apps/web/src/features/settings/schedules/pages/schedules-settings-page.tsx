@@ -60,7 +60,7 @@ const days = [
   { value: 0, label: "Domingo" }
 ];
 
-const timeOptions = buildTimeOptions(7, 21, 60);
+const timeOptions = buildTimeOptions(10, 19, 60);
 
 function defaultDayForm(dayOfWeek: number, chairId = ""): DayForm {
   if (dayOfWeek === 0) {
@@ -77,11 +77,11 @@ function defaultDayForm(dayOfWeek: number, chairId = ""): DayForm {
 
   return {
     startTime: "10:00",
-    endTime: dayOfWeek === 6 ? "15:00" : "19:00",
+    endTime: "19:00",
     chairId,
-    hasBreak: false,
-    breakStartTime: "",
-    breakEndTime: "",
+    hasBreak: true,
+    breakStartTime: "14:00",
+    breakEndTime: "15:00",
     noAttend: false
   };
 }
@@ -117,10 +117,21 @@ function scheduleToDayForm(schedule: Schedule): DayForm {
 
 function weeklyFormFromSchedules(schedules: Schedule[], chairId = "") {
   const form = emptyWeeklyForm(chairId);
-  for (const schedule of schedules) {
+  for (const schedule of schedulesByDayMap(schedules).values()) {
     form[schedule.dayOfWeek] = scheduleToDayForm(schedule);
   }
   return form;
+}
+
+function schedulesByDayMap(schedules: Schedule[]) {
+  const map = new Map<number, Schedule>();
+  for (const schedule of schedules) {
+    const current = map.get(schedule.dayOfWeek);
+    if (!current || (!current.isActive && schedule.isActive)) {
+      map.set(schedule.dayOfWeek, schedule);
+    }
+  }
+  return map;
 }
 
 export function SchedulesSettingsPage() {
@@ -141,6 +152,13 @@ export function SchedulesSettingsPage() {
     branchId: selectedBranchId || undefined,
     active: selectedProfessionalId && selectedBranchId ? undefined : "true"
   });
+  const branchActiveSchedules = useSchedules(
+    {
+      branchId: selectedBranchId || undefined,
+      active: "true"
+    },
+    Boolean(selectedBranchId)
+  );
   const futureBlocks = useFutureScheduleBlocks({
     professionalId: selectedProfessionalId || undefined,
     branchId: selectedBranchId || undefined,
@@ -173,6 +191,7 @@ export function SchedulesSettingsPage() {
     [professionalBranches, selectedBranchId]
   );
   const branchChairs = useMemo(() => chairs.data ?? [], [chairs.data]);
+  const chairNamesById = useMemo(() => new Map(branchChairs.map((chair) => [chair.id, chair.name])), [branchChairs]);
   const defaultChairId = branchChairs.length === 1 ? branchChairs[0].id : "";
   const isReadyForEditor = Boolean(selectedProfessionalId && selectedBranchId);
   const isProfessionalLocked = Boolean(selectedProfessionalId);
@@ -181,7 +200,7 @@ export function SchedulesSettingsPage() {
       (professionalBranches.length === 1 || (isProfessionalLocked && Boolean(selectedBranchId)))
   );
   const needsBranchSelection = Boolean(selectedProfessional && !hasSingleBranch && professionalBranches.length > 1);
-  const actionPending = createSchedule.isPending || updateSchedule.isPending || updateAgendaConfig.isPending;
+  const actionPending = createSchedule.isPending || updateSchedule.isPending || updateAgendaConfig.isPending || branchActiveSchedules.isLoading;
 
   const blockRange = blockDateRange(blockForm);
   const blockConflictQuery = useScheduleBlockConflicts(
@@ -259,47 +278,75 @@ export function SchedulesSettingsPage() {
   const submitWeeklySchedule = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedProfessionalId || !selectedBranchId) return;
+    createSchedule.reset();
+    updateSchedule.reset();
 
+    if (branchActiveSchedules.isLoading) {
+      setWeeklyError("Espera a que carguen los horarios de la sucursal.");
+      return;
+    }
+
+    const schedulesByDay = schedulesByDayMap(schedules.data ?? []);
     const validationError = validateWeeklyForm(weeklyForm);
     if (validationError) {
       setWeeklyError(validationError);
       return;
     }
 
-    const schedulesByDay = new Map((schedules.data ?? []).map((schedule) => [schedule.dayOfWeek, schedule]));
+    const chairConflictError = validateChairConflicts(
+      weeklyForm,
+      schedulesByDay,
+      branchActiveSchedules.data ?? [],
+      chairNamesById
+    );
+    if (chairConflictError) {
+      setWeeklyError(chairConflictError);
+      toast.error(chairConflictError);
+      return;
+    }
 
-    for (const day of days) {
-      const row = weeklyForm[day.value];
-      const current = schedulesByDay.get(day.value);
+    try {
+      for (const day of days) {
+        const row = weeklyForm[day.value];
+        const current = schedulesByDay.get(day.value);
 
-      if (row.noAttend) {
-        if (current?.isActive) {
-          await updateSchedule.mutateAsync({ id: current.id, payload: { isActive: false } });
+        if (row.noAttend) {
+          if (current?.isActive) {
+            await updateSchedule.mutateAsync({ id: current.id, payload: { isActive: false } });
+          }
+          continue;
         }
-        continue;
-      }
 
-      const payload: SchedulePayload = {
-        professionalId: selectedProfessionalId,
-        branchId: selectedBranchId,
-        chairId: row.chairId || null,
-        dayOfWeek: day.value,
-        startTime: row.startTime,
-        endTime: row.endTime,
-        breakStartTime: row.hasBreak ? row.breakStartTime : null,
-        breakEndTime: row.hasBreak ? row.breakEndTime : null
-      };
+        const payload: SchedulePayload = {
+          professionalId: selectedProfessionalId,
+          branchId: selectedBranchId,
+          chairId: row.chairId || null,
+          dayOfWeek: day.value,
+          startTime: row.startTime,
+          endTime: row.endTime,
+          breakStartTime: row.hasBreak ? row.breakStartTime : null,
+          breakEndTime: row.hasBreak ? row.breakEndTime : null
+        };
 
-      if (current) {
-        await updateSchedule.mutateAsync({ id: current.id, payload: { ...payload, isActive: true } });
-      } else {
-        await createSchedule.mutateAsync({
-          ...payload,
-          chairId: row.chairId || undefined,
-          breakStartTime: row.hasBreak ? row.breakStartTime : undefined,
-          breakEndTime: row.hasBreak ? row.breakEndTime : undefined
-        });
+        if (current) {
+          await updateSchedule.mutateAsync({ id: current.id, payload: { ...payload, isActive: true } });
+        } else {
+          await createSchedule.mutateAsync({
+            ...payload,
+            chairId: row.chairId || undefined,
+            breakStartTime: row.hasBreak ? row.breakStartTime : undefined,
+            breakEndTime: row.hasBreak ? row.breakEndTime : undefined
+          });
+        }
       }
+      setWeeklyError("");
+      toast.success("Horario actualizado con exito");
+    } catch (error) {
+      const message = scheduleSaveErrorMessage(error);
+      createSchedule.reset();
+      updateSchedule.reset();
+      setWeeklyError(message);
+      toast.error(message);
     }
   };
 
@@ -382,10 +429,11 @@ export function SchedulesSettingsPage() {
         ) : null}
       </Card>
 
-      {schedules.isLoading || professionals.isLoading || branches.isLoading || chairs.isLoading ? (
+      {schedules.isLoading || branchActiveSchedules.isLoading || professionals.isLoading || branches.isLoading || chairs.isLoading ? (
         <LoadingState message="Cargando horarios y catalogos..." />
       ) : null}
       {schedules.isError ? <ErrorState message={schedules.error.message} /> : null}
+      {branchActiveSchedules.isError ? <ErrorState message={branchActiveSchedules.error.message} /> : null}
       {professionals.isError ? <ErrorState message={professionals.error.message} /> : null}
       {branches.isError ? <ErrorState message={branches.error.message} /> : null}
       {chairs.isError ? <ErrorState message={chairs.error.message} /> : null}
@@ -411,7 +459,7 @@ export function SchedulesSettingsPage() {
                   Editar horarios de {selectedProfessionalName}
                 </h3>
                 <div className="mt-1 flex flex-wrap items-center gap-[var(--space-3)] text-[var(--text-sm)] text-[var(--text-secondary)]">
-                  <span>Lunes a viernes 10:00 a 19:00, sabado 10:00 a 15:00.</span>
+                  <span>Lunes a sabado 10:00 a 19:00.</span>
                   <span className="hidden sm:inline">•</span>
                   <div className="flex items-center gap-1.5">
                     <span>Intervalo: <strong className="text-[var(--text-primary)]">{selectedBranch?.agendaSlotMinutes ?? 30} minutos</strong></span>
@@ -856,6 +904,48 @@ function validateWeeklyForm(form: Record<number, DayForm>) {
   }
 
   return "";
+}
+
+function validateChairConflicts(
+  form: Record<number, DayForm>,
+  currentSchedulesByDay: Map<number, Schedule>,
+  branchSchedules: Schedule[],
+  chairNamesById: Map<string, string>
+) {
+  for (const day of days) {
+    const row = form[day.value];
+    if (row.noAttend || !row.chairId) continue;
+
+    const current = currentSchedulesByDay.get(day.value);
+    const start = toMinutes(row.startTime);
+    const end = toMinutes(row.endTime);
+    const conflict = branchSchedules.find((schedule) => {
+      if (!schedule.isActive || schedule.id === current?.id || schedule.chairId !== row.chairId || schedule.dayOfWeek !== day.value) {
+        return false;
+      }
+
+      return start < toMinutes(schedule.endTime) && end > toMinutes(schedule.startTime);
+    });
+
+    if (conflict) {
+      const chairName = conflict.chair?.name ?? chairNamesById.get(row.chairId) ?? "El box seleccionado";
+      const professionalName = `${conflict.professional.firstName} ${conflict.professional.lastName}`.trim();
+      return `${day.label}: ${chairName} ya esta asignado a ${professionalName} de ${conflict.startTime} a ${conflict.endTime}. Elige otro box, ajusta el horario o deja "Sin box".`;
+    }
+  }
+
+  return "";
+}
+
+function scheduleSaveErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "No se pudo actualizar el horario.";
+  if (message.includes("Overlapping schedule for selected chair")) {
+    return "El box seleccionado ya tiene otro horario activo en ese dia y rango. Elige otro box, ajusta las horas o deja el dia sin box.";
+  }
+  if (message.includes("Overlapping schedule for professional and branch")) {
+    return "El profesional ya tiene otro horario activo en esa sucursal, dia y rango.";
+  }
+  return message;
 }
 
 function blockDateRange(form: BlockForm) {

@@ -17,6 +17,9 @@ import {
   timeToMinutes
 } from "../utils/agenda-grid-config";
 
+type CalendarProfessional = Pick<Professional, "id" | "firstName" | "lastName"> &
+  Partial<Pick<Professional, "color" | "specialties" | "branches">>;
+
 function dayKey(value: string) {
   return toDateInputValue(new Date(value));
 }
@@ -54,7 +57,7 @@ export function CalendarView({
   appointments: Appointment[];
   date: string;
   view?: "day" | "week" | "month";
-  professionals?: Professional[];
+  professionals?: CalendarProfessional[];
   selectedProfessionalId?: string;
   selectedBranchId?: string;
   daySlotMinutes?: number;
@@ -112,8 +115,10 @@ export function CalendarView({
               id,
               firstName: appointment?.professional?.firstName || "Doctor",
               lastName: appointment?.professional?.lastName || "",
-              color: appointment?.professional?.color
-            } as Professional;
+              color: appointment?.professional?.color,
+              specialties: [],
+              branches: []
+            };
           });
 
       if (displayProfessionals.length === 0) {
@@ -312,7 +317,7 @@ export function CalendarView({
                       return (
                         <div
                           key={appointment.id}
-                          className="absolute z-10 px-1"
+                          className="absolute z-10 px-1 transition-all has-[.menu-open]:z-[50] has-[.tooltip-open]:z-[40]"
                           style={{
                             top: placement.top,
                             height: placement.height,
@@ -374,21 +379,17 @@ export function CalendarView({
   // --- DAY VIEW: MULTI-PROFESSIONAL COLUMN GRID (SaaS Premium Redesign) ---
   if (view === "day") {
     const appointmentsForDate = appointments.filter((appointment) => dayKey(appointment.startAt) === date);
-    const activeProfessionals = selectedProfessionalId
+    const dayOfWeek = parseDateInput(date).getDay();
+    const schedulesForDate = schedules.filter(
+      (schedule) =>
+        schedule.dayOfWeek === dayOfWeek &&
+        schedule.isActive &&
+        (!selectedBranchId || schedule.branchId === selectedBranchId) &&
+        (!selectedProfessionalId || schedule.professionalId === selectedProfessionalId)
+    );
+    const displayProfessionals = selectedProfessionalId
       ? professionals.filter((p) => p.id === selectedProfessionalId)
       : professionals;
-
-    // Fallback to active appointment professionals if the list is empty
-    const displayProfessionals = activeProfessionals.length > 0
-      ? activeProfessionals
-      : Array.from(new Set(appointmentsForDate.map((a) => a.professionalId))).map((id) => {
-          const app = appointmentsForDate.find((a) => a.professionalId === id);
-          return {
-            id,
-            firstName: app?.professional?.firstName || "Doctor",
-            lastName: app?.professional?.lastName || "",
-          } as Professional;
-        });
 
     if (displayProfessionals.length === 0) {
       return (
@@ -411,14 +412,8 @@ export function CalendarView({
       );
     }
 
-    const dayOfWeek = parseDateInput(date).getDay();
     const displayProfessionalIds = new Set(displayProfessionals.map((professional) => professional.id));
-    const daySchedules = schedules.filter(
-      (schedule) =>
-        schedule.dayOfWeek === dayOfWeek &&
-        schedule.isActive &&
-        displayProfessionalIds.has(schedule.professionalId)
-    );
+    const daySchedules = schedulesForDate.filter((schedule) => displayProfessionalIds.has(schedule.professionalId));
     const dayTimelineRange = resolveAgendaTimelineRange({
       schedules: daySchedules,
       fallbackStartHour: normalizedDayStartHour,
@@ -467,9 +462,8 @@ export function CalendarView({
                     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
                   const profAppsCount = profApps.length;
                   const professionalAgenda = getProfessionalBranchAgendaConfig(prof, selectedBranchId, normalizedDaySlotMinutes);
-                  const professionalSchedule = daySchedules.find(
-                    (schedule) => schedule.professionalId === prof.id && schedule.dayOfWeek === dayOfWeek
-                  );
+                  const professionalSchedules = daySchedules.filter((schedule) => schedule.professionalId === prof.id);
+                  const professionalSchedule = professionalSchedules[0];
                   const scheduleStartMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.startTime) : null;
                   const scheduleEndMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.endTime) : null;
                   const professionalTimeSlots =
@@ -478,18 +472,12 @@ export function CalendarView({
                           endExclusive: true
                         })
                       : [];
-                  const profBreaks = daySchedules.filter(
-                    (schedule) =>
-                      schedule.professionalId === prof.id &&
-                      schedule.dayOfWeek === dayOfWeek &&
-                      schedule.breakStartTime &&
-                      schedule.breakEndTime
-                  );
+                  const profBreaks = professionalSchedules.filter((schedule) => schedule.breakStartTime && schedule.breakEndTime);
 
                   return (
                     <div key={prof.id} className="flex-1 min-w-[220px] flex flex-col">
                       {/* Professional Info Column Header */}
-                      <div className="sticky top-0 h-16 bg-white/95 backdrop-blur-md px-4 py-3 border-b border-zinc-200/60 flex items-center gap-2.5 z-10 shrink-0">
+                      <div className="sticky top-0 h-16 bg-white/95 backdrop-blur-md px-4 py-3 border-b border-zinc-200/60 flex items-center gap-2.5 z-20 shrink-0">
                         <div className="h-8 w-8 rounded-full bg-zinc-950 text-white flex items-center justify-center font-medium text-xs shrink-0 select-none">
                           {prof.firstName.charAt(0)}{prof.lastName.charAt(0)}
                         </div>
@@ -504,12 +492,31 @@ export function CalendarView({
                       </div>
 
                       {/* Timeline Slots under this doctor */}
-                      <div className="relative flex-1 bg-zinc-50/5" style={{ height: dayTimelineHeight }}>
+                      <div className="relative flex-1 overflow-hidden bg-zinc-50/5" style={{ height: dayTimelineHeight }}>
+                        {professionalSchedules.map((schedule) => {
+                          const placement = getTimeRangePlacement(schedule.startTime, schedule.endTime, {
+                            startMinutes: dayTimelineRange.startMinutes,
+                            endMinutes: dayTimelineRange.endMinutes,
+                            slotMinutes: normalizedDaySlotMinutes,
+                            slotHeight: daySlotHeight
+                          });
+                          if (!placement) return null;
+
+                          return (
+                            <div
+                              key={`working-${schedule.id}`}
+                              className="absolute left-1 right-1 z-0 rounded-lg border border-emerald-100 bg-emerald-50/80 shadow-[inset_3px_0_0_rgba(16,185,129,0.35)]"
+                              style={{ top: placement.top, height: placement.height }}
+                              title={`Horario laboral ${schedule.startTime} - ${schedule.endTime}`}
+                            />
+                          );
+                        })}
+
                         {dayViewTimeSlots.map((time, index) => {
                           return (
                             <div
                               key={time}
-                              className="absolute left-0 right-0 border-b border-zinc-200/20"
+                              className="absolute left-0 right-0 z-[1] border-b border-zinc-200/25"
                               style={{ top: index * daySlotHeight, height: daySlotHeight }}
                             />
                           );
@@ -550,10 +557,10 @@ export function CalendarView({
                                 }
                                 onCreateClick?.();
                               }}
-                              className="group/slot absolute left-0 right-0 border-b border-zinc-200/30 p-1 transition-colors duration-150 hover:bg-zinc-50/70"
+                              className="group/slot absolute left-0 right-0 z-[3] border-b border-emerald-100/60 p-1 transition-colors duration-150 hover:bg-emerald-100/70"
                               style={{ top: placement.top, height: placement.height }}
                             >
-                              <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-transparent text-[10px] font-medium text-zinc-400/80 opacity-0 transition-opacity duration-150 group-hover/slot:opacity-100 group-hover/slot:text-zinc-600">
+                              <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-emerald-200/70 bg-white/55 text-[10px] font-medium text-emerald-700/90 opacity-0 shadow-sm transition-opacity duration-150 group-hover/slot:opacity-100">
                                 <Plus className="h-3.5 w-3.5" />
                                 <span>Disponible</span>
                               </span>
@@ -573,7 +580,7 @@ export function CalendarView({
                           return (
                             <div
                               key={app.id}
-                              className="absolute z-10 px-1 py-0.5"
+                              className="absolute z-10 px-1 py-0.5 transition-all has-[.menu-open]:z-[50] has-[.tooltip-open]:z-[40]"
                               style={{
                                 top: placement.top,
                                 height: placement.height,
@@ -707,7 +714,7 @@ function BlockedAppointmentBlock({
 function BreakBlock({ top, height, range }: { top: number; height: number; range: string }) {
   return (
     <div
-      className="absolute left-1 right-1 z-20 flex select-none items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-amber-200/80 bg-amber-50/80 px-2 text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800 shadow-sm"
+      className="absolute left-1 right-1 z-[2] flex select-none items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-amber-200/80 bg-amber-50/80 px-2 text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800 shadow-sm"
       style={{
         top,
         height,

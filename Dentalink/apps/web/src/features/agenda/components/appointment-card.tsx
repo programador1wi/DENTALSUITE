@@ -42,6 +42,7 @@ export function AppointmentCard({
 
   const start = new Date(appointment.startAt);
   const end = new Date(appointment.endAt);
+  const timeRange = `${start.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false })} - ${end.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
   const patientName = appointment.patient ? `${appointment.patient.firstName} ${appointment.patient.lastName}` : "Bloqueo Clinico";
   const patientId = appointment.patient?.id || "N/A";
   const patientFirstName = patientName.split(" ")[0] || patientName;
@@ -72,7 +73,11 @@ export function AppointmentCard({
       <div
         className={cn(
           "relative flex h-full w-full cursor-pointer flex-col justify-start rounded-[var(--radius-sm)] border p-[var(--space-1)] transition-[border-color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:shadow-[var(--shadow-card-hover)]",
-          menuOpen ? "z-[80] overflow-visible" : "z-0 overflow-hidden",
+          menuOpen
+            ? "z-[80] overflow-visible menu-open"
+            : showTooltip
+              ? "z-[70] overflow-visible tooltip-open"
+              : "z-0 overflow-hidden",
           palette.cardClass
         )}
         onMouseEnter={() => setShowTooltip(true)}
@@ -82,8 +87,11 @@ export function AppointmentCard({
         <div className={cn("flex h-full w-full items-center justify-between gap-1", menuOpen ? "overflow-visible" : "overflow-hidden")}>
           <span className={cn("h-2.5 w-2.5 shrink-0 rounded-[var(--radius-full)] ring-1 ring-[var(--bg-surface)]", palette.dotClass)} />
 
-          <span className="flex-1 truncate text-[10px] font-semibold leading-tight text-[var(--text-primary)]">
-            ({patientId.slice(0, 5)}) {patientFirstName} {patientLastName}
+          <span className="flex min-w-0 flex-1 flex-col justify-center overflow-hidden leading-tight">
+            <span className="truncate text-[10px] font-semibold text-[var(--text-primary)]">
+              ({patientId.slice(0, 5)}) {patientFirstName} {patientLastName}
+            </span>
+            <span className="truncate text-[9px] font-medium text-[var(--text-secondary)]">{timeRange}</span>
           </span>
 
           <div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
@@ -126,7 +134,7 @@ export function AppointmentCard({
     <article
       className={cn(
         "relative flex h-full flex-col justify-between rounded-[var(--radius-lg)] border p-[var(--space-4)] text-[var(--text-xs)] transition-[border-color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:-translate-y-px hover:shadow-[var(--shadow-card-hover)]",
-        menuOpen ? "z-[80] overflow-visible" : "z-0",
+        menuOpen ? "z-[80] overflow-visible menu-open" : "z-0",
         palette.cardClass
       )}
     >

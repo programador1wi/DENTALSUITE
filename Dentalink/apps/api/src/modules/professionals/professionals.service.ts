@@ -1,8 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { AppointmentStatus, Prisma, ProfessionalBranchStatus } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
+import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
+import {
+  ALLOWED_SPECIALTY_NAMES,
+  type AllowedSpecialtyName,
+  isAllowedSpecialtyName,
+  resolveAllowedSpecialtyName,
+  withAllowedSpecialtyName
+} from "../../common/utils/specialty-policy.util";
 import { CreateProfessionalDto } from "./dto/create-professional.dto";
 import { UpdateProfessionalDto } from "./dto/update-professional.dto";
 import { ConfigProfessionalDto } from "./dto/config-professional.dto";
@@ -16,18 +24,25 @@ const CLOSED_TRANSFER_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.COMPLETED
 ];
 
+const GENERAL_SPECIALTY_NAME = ALLOWED_SPECIALTY_NAMES[0];
+const ORTHODONTICS_SPECIALTY_NAME = ALLOWED_SPECIALTY_NAMES[1];
+const MIN_BRANCH_STAFFING = [
+  { specialtyName: GENERAL_SPECIALTY_NAME, minimum: 2 },
+  { specialtyName: ORTHODONTICS_SPECIALTY_NAME, minimum: 1 }
+] as const;
+
 @Injectable()
 export class ProfessionalsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(actor: AuthUser, search?: string, active?: string, page?: number, pageSize?: number) {
+  async findAll(actor: AuthUser, search?: string, active?: string, branchId?: string, page?: number, pageSize?: number) {
     const { skip, take } = resolvePagination({ page, pageSize });
     const now = new Date();
     const where: Prisma.ProfessionalWhereInput = {
       organizationId: actor.organizationId,
       branches: {
         some: {
-          branchId: { in: actor.branchIds },
+          branchId: branchScope(actor, branchId),
           status: ProfessionalBranchStatus.ACTIVE,
           OR: [{ endsAt: null }, { endsAt: { gt: now } }]
         }
@@ -65,7 +80,9 @@ export class ProfessionalsService {
 
     return rows.map((row) => ({
       ...row,
-      specialties: row.specialties.map((item) => item.specialty),
+      specialties: row.specialties
+        .map((item) => withAllowedSpecialtyName(item.specialty))
+        .filter((specialty): specialty is NonNullable<typeof specialty> => Boolean(specialty)),
       branches: row.branches.map((item) => ({
         ...item.branch,
         agendaSlotMinutes: item.agendaSlotMinutes ?? item.branch.agendaSlotMinutes,
@@ -110,7 +127,9 @@ export class ProfessionalsService {
 
     return {
       ...professional,
-      specialties: professional.specialties.map((item) => item.specialty),
+      specialties: professional.specialties
+        .map((item) => withAllowedSpecialtyName(item.specialty))
+        .filter((specialty): specialty is NonNullable<typeof specialty> => Boolean(specialty)),
       branches: professional.branches.map((item) => ({
         ...item.branch,
         agendaSlotMinutes: item.agendaSlotMinutes ?? item.branch.agendaSlotMinutes,
@@ -174,8 +193,16 @@ export class ProfessionalsService {
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateProfessionalDto) {
-    await this.findOne(actor, id);
+    const current = await this.findOne(actor, id);
     await this.validateForeignKeys(actor, dto.userId, dto.specialtyIds, dto.branchIds);
+    await this.assertStaffingReductionKeepsMinimum(actor, id, {
+      currentBranchIds: current.branches.map((branch) => branch.id),
+      currentSpecialtyNames: current.specialties.map((specialty) => specialty.name as AllowedSpecialtyName),
+      currentIsActive: current.isActive,
+      nextBranchIds: dto.branchIds ? [...new Set(dto.branchIds)] : current.branches.map((branch) => branch.id),
+      nextSpecialtyIds: dto.specialtyIds ?? current.specialties.map((specialty) => specialty.id),
+      nextIsActive: dto.isActive ?? current.isActive
+    });
 
     await this.prisma.$transaction(async (tx) => {
       await tx.professional.update({
@@ -377,6 +404,17 @@ export class ProfessionalsService {
       throw new BadRequestException("Replacement professional is not active in selected branch");
     }
     const targetProfessional = targetAssignment.professional;
+
+    if (endSourceAssignment) {
+      await this.assertStaffingReductionKeepsMinimum(actor, dto.fromProfessionalId, {
+        currentBranchIds: [dto.branchId],
+        currentSpecialtyNames: await this.resolveProfessionalAllowedSpecialtyNames(actor, dto.fromProfessionalId),
+        currentIsActive: true,
+        nextBranchIds: [],
+        nextSpecialtyIds: [],
+        nextIsActive: false
+      });
+    }
 
     const transferStatuses = this.transferableStatuses(moveFutureAppointments, moveFutureBlocks);
     const futureAppointments = transferStatuses.length
@@ -595,18 +633,27 @@ export class ProfessionalsService {
 
     if (specialtyIds) {
       if (!specialtyIds.length) throw new BadRequestException("At least one specialty is required");
-      const count = await this.prisma.specialty.count({
+      const uniqueSpecialtyIds = [...new Set(specialtyIds)];
+      const specialties = await this.prisma.specialty.findMany({
         where: {
-          id: { in: [...new Set(specialtyIds)] },
+          id: { in: uniqueSpecialtyIds },
           organizationId: actor.organizationId,
           isActive: true
         }
       });
-      if (count !== new Set(specialtyIds).size) throw new BadRequestException("One or more specialties are invalid");
+      if (
+        specialties.length !== uniqueSpecialtyIds.length ||
+        specialties.some((specialty) => !isAllowedSpecialtyName(specialty.name))
+      ) {
+        throw new BadRequestException("One or more specialties are invalid");
+      }
     }
 
     if (branchIds) {
       if (!branchIds.length) throw new BadRequestException("At least one branch is required");
+      if (new Set(branchIds).size !== 1) {
+        throw new BadRequestException("Professional can only be assigned to one active branch");
+      }
       const count = await this.prisma.branch.count({
         where: {
           id: { in: [...new Set(branchIds)] },
@@ -618,5 +665,105 @@ export class ProfessionalsService {
       });
       if (count !== new Set(branchIds).size) throw new BadRequestException("One or more branches are invalid");
     }
+  }
+
+  private async assertStaffingReductionKeepsMinimum(
+    actor: AuthUser,
+    professionalId: string,
+    input: {
+      currentBranchIds: string[];
+      currentSpecialtyNames: AllowedSpecialtyName[];
+      currentIsActive: boolean;
+      nextBranchIds: string[];
+      nextSpecialtyIds: string[];
+      nextIsActive: boolean;
+    }
+  ) {
+    const nextSpecialtyNames = input.nextSpecialtyIds.length
+      ? await this.resolveAllowedSpecialtyNames(actor, input.nextSpecialtyIds)
+      : [];
+    const affectedBranchIds = [...new Set([...input.currentBranchIds, ...input.nextBranchIds])];
+
+    for (const branchId of affectedBranchIds) {
+      for (const rule of MIN_BRANCH_STAFFING) {
+        const currentContribution =
+          input.currentIsActive &&
+          input.currentBranchIds.includes(branchId) &&
+          input.currentSpecialtyNames.includes(rule.specialtyName)
+            ? 1
+            : 0;
+        const nextContribution =
+          input.nextIsActive && input.nextBranchIds.includes(branchId) && nextSpecialtyNames.includes(rule.specialtyName)
+            ? 1
+            : 0;
+
+        if (nextContribution >= currentContribution) continue;
+
+        const count = await this.countBranchProfessionalsBySpecialty(actor, branchId, rule.specialtyName, professionalId);
+        if (count + nextContribution < rule.minimum) {
+          throw new BadRequestException(
+            `Branch must keep at least ${rule.minimum} active ${rule.specialtyName} professional(s)`
+          );
+        }
+      }
+    }
+  }
+
+  private async countBranchProfessionalsBySpecialty(
+    actor: AuthUser,
+    branchId: string,
+    specialtyName: AllowedSpecialtyName,
+    excludeProfessionalId?: string
+  ) {
+    const now = new Date();
+    const professionals = await this.prisma.professional.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        isActive: true,
+        ...(excludeProfessionalId ? { id: { not: excludeProfessionalId } } : {}),
+        branches: {
+          some: {
+            branchId,
+            status: ProfessionalBranchStatus.ACTIVE,
+            startsAt: { lte: now },
+            OR: [{ endsAt: null }, { endsAt: { gt: now } }]
+          }
+        }
+      },
+      select: {
+        specialties: { select: { specialty: { select: { name: true } } } }
+      }
+    });
+
+    return professionals.filter((professional) =>
+      professional.specialties.some((item) => resolveAllowedSpecialtyName(item.specialty.name) === specialtyName)
+    ).length;
+  }
+
+  private async resolveProfessionalAllowedSpecialtyNames(actor: AuthUser, professionalId: string) {
+    const professional = await this.prisma.professional.findFirst({
+      where: { id: professionalId, organizationId: actor.organizationId },
+      select: { specialties: { select: { specialty: { select: { name: true } } } } }
+    });
+
+    if (!professional) throw new BadRequestException("Invalid professionalId");
+    return professional.specialties
+      .map((item) => resolveAllowedSpecialtyName(item.specialty.name))
+      .filter((specialtyName): specialtyName is AllowedSpecialtyName => Boolean(specialtyName));
+  }
+
+  private async resolveAllowedSpecialtyNames(actor: AuthUser, specialtyIds: string[]) {
+    const specialties = await this.prisma.specialty.findMany({
+      where: {
+        id: { in: [...new Set(specialtyIds)] },
+        organizationId: actor.organizationId,
+        isActive: true
+      },
+      select: { name: true }
+    });
+
+    return specialties
+      .map((specialty) => resolveAllowedSpecialtyName(specialty.name))
+      .filter((specialtyName): specialtyName is AllowedSpecialtyName => Boolean(specialtyName));
   }
 }

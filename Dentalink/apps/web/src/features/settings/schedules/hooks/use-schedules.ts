@@ -22,10 +22,11 @@ type ScheduleFilters = {
   active?: string;
 };
 
-export function useSchedules(filters?: ScheduleFilters) {
+export function useSchedules(filters?: ScheduleFilters, enabled = true) {
   return useQuery({
     queryKey: ["settings", "schedules", filters],
-    queryFn: () => listSchedules(filters)
+    queryFn: () => listSchedules(filters),
+    enabled
   });
 }
 

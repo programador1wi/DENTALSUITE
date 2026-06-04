@@ -9,7 +9,7 @@ import {
 describe("agenda grid config", () => {
   it("uses the common professional interval in the global daily agenda", () => {
     const config = resolveAgendaViewConfig({
-      activeBranch: { id: "branch-1", agendaSlotMinutes: 30, agendaStartHour: 8, agendaEndHour: 19 },
+      activeBranch: { id: "branch-1", agendaSlotMinutes: 30, agendaStartHour: 10, agendaEndHour: 19 },
       activeBranchId: "branch-1",
       selectedProfessionalBranch: null,
       visibleProfessionals: [
@@ -19,7 +19,7 @@ describe("agenda grid config", () => {
     });
 
     expect(config.agendaSlotMinutes).toBe(20);
-    expect(config.agendaStartHour).toBe(8);
+    expect(config.agendaStartHour).toBe(10);
     expect(config.agendaEndHour).toBe(19);
   });
 
@@ -78,15 +78,21 @@ describe("agenda grid config", () => {
     expect(config).toEqual({ slotMinutes: 20, defaultAppointmentDurationMinutes: 40 });
   });
 
+  it("falls back when a professional payload has no branch list", () => {
+    const config = getProfessionalBranchAgendaConfig({}, "branch-1", 30);
+
+    expect(config).toEqual({ slotMinutes: 30, defaultAppointmentDurationMinutes: 30 });
+  });
+
   it("checks time alignment from the professional schedule start", () => {
     expect(isTimeAlignedToSlot("08:40", "08:00", 20)).toBe(true);
     expect(isTimeAlignedToSlot("08:30", "08:00", 20)).toBe(false);
     expect(isTimeAlignedToSlot("09:15", "08:45", 15)).toBe(true);
   });
 
-  it("derives the visible agenda range from active professional schedules", () => {
+  it("keeps the visible agenda range pinned to branch agenda hours", () => {
     const range = resolveAgendaTimelineRange({
-      fallbackStartHour: 8,
+      fallbackStartHour: 10,
       fallbackEndHour: 19,
       schedules: [
         { professionalId: "a", startTime: "09:00", endTime: "14:00", isActive: true },
@@ -94,7 +100,7 @@ describe("agenda grid config", () => {
       ]
     });
 
-    expect(range).toEqual({ startMinutes: 540, endMinutes: 1110 });
+    expect(range).toEqual({ startMinutes: 600, endMinutes: 1140 });
   });
 
   it("builds agenda labels from a minute range and interval", () => {

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -28,6 +29,7 @@ import type {
   SpecialtyClinicalTemplate,
   SpecialtyClinicalTemplateType
 } from "../services/specialties.service";
+import { ALLOWED_SPECIALTY_NAMES } from "../utils/allowed-specialties";
 
 type SpecialtyForm = {
   name: string;
@@ -87,7 +89,8 @@ export function SpecialtiesSettingsPage() {
   const createReason = useCreateSpecialtyAppointmentReason();
   const updateReason = useUpdateSpecialtyAppointmentReason();
 
-  const specialtyPending = createSpecialty.isPending || updateSpecialty.isPending || deactivateSpecialty.isPending;
+  const specialtyPending =
+    createSpecialty.isPending || updateSpecialty.isPending || deactivateSpecialty.isPending;
   const templatePending = createTemplate.isPending || updateTemplate.isPending;
   const reasonPending = createReason.isPending || updateReason.isPending;
 
@@ -200,7 +203,7 @@ export function SpecialtiesSettingsPage() {
     event.preventDefault();
     if (!reasonSpecialty || !reasonForm.name.trim()) return;
     const durationMinutes = Number(reasonForm.durationMinutes);
-    if (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 480) return;
+    if (!Number.isInteger(durationMinutes) || durationMinutes < 5 || durationMinutes > 60) return;
 
     const payload = {
       name: reasonForm.name.trim(),
@@ -278,11 +281,16 @@ export function SpecialtiesSettingsPage() {
                       <td className="px-4 py-4 text-slate-500">{index + 1}</td>
                       <td className="px-4 py-4">
                         <p className="font-semibold text-slate-900">{specialty.name}</p>
-                        <p className="mt-1 text-xs text-slate-500">{specialty.description || "Sin descripcion"}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {specialty.description || "Sin descripcion"}
+                        </p>
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap gap-2">
-                          <Button variant="secondary" onClick={() => openTemplates(specialty, "PRESCRIPTION")}>
+                          <Button
+                            variant="secondary"
+                            onClick={() => openTemplates(specialty, "PRESCRIPTION")}
+                          >
                             Prescripciones
                           </Button>
                           <Button variant="secondary" onClick={() => openTemplates(specialty, "EVOLUTION")}>
@@ -296,7 +304,10 @@ export function SpecialtiesSettingsPage() {
                         </Button>
                       </td>
                       <td className="px-4 py-4">
-                        <Badge value={specialty.isActive ? "HABILITADA" : "DESHABILITADA"} tone={specialty.isActive ? "success" : "warning"} />
+                        <Badge
+                          value={specialty.isActive ? "HABILITADA" : "DESHABILITADA"}
+                          tone={specialty.isActive ? "success" : "warning"}
+                        />
                       </td>
                       <td className="px-4 py-4">
                         <div className="flex justify-end gap-2">
@@ -314,7 +325,12 @@ export function SpecialtiesSettingsPage() {
                           ) : (
                             <Button
                               disabled={specialtyPending}
-                              onClick={() => void updateSpecialty.mutateAsync({ id: specialty.id, payload: { isActive: true } })}
+                              onClick={() =>
+                                void updateSpecialty.mutateAsync({
+                                  id: specialty.id,
+                                  payload: { isActive: true }
+                                })
+                              }
                             >
                               Habilitar
                             </Button>
@@ -338,17 +354,26 @@ export function SpecialtiesSettingsPage() {
         <form className="space-y-4" onSubmit={submitSpecialty}>
           <label className="block text-sm text-slate-700">
             Nombre
-            <Input
+            <Select
               required
               value={specialtyForm.name}
               onChange={(event) => setSpecialtyForm((current) => ({ ...current, name: event.target.value }))}
-            />
+            >
+              <option value="">Seleccionar especialidad</option>
+              {ALLOWED_SPECIALTY_NAMES.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </Select>
           </label>
           <label className="block text-sm text-slate-700">
             Descripcion
             <Textarea
               value={specialtyForm.description}
-              onChange={(event) => setSpecialtyForm((current) => ({ ...current, description: event.target.value }))}
+              onChange={(event) =>
+                setSpecialtyForm((current) => ({ ...current, description: event.target.value }))
+              }
             />
           </label>
           <div className="flex justify-end gap-2">
@@ -364,7 +389,11 @@ export function SpecialtiesSettingsPage() {
 
       <Modal
         open={Boolean(templateTarget)}
-        title={templateTarget ? `${templateLabel(templateTarget.type)} de ${templateTarget.specialty.name}` : "Plantillas"}
+        title={
+          templateTarget
+            ? `${templateLabel(templateTarget.type)} de ${templateTarget.specialty.name}`
+            : "Plantillas"
+        }
         onClose={closeTemplates}
       >
         <div className="space-y-4">
@@ -379,7 +408,10 @@ export function SpecialtiesSettingsPage() {
                       <p className="font-semibold text-slate-900">{template.name}</p>
                       <p className="mt-1 line-clamp-2 text-xs text-slate-500">{template.content}</p>
                     </div>
-                    <Badge value={template.isActive ? "ACTIVA" : "INACTIVA"} tone={template.isActive ? "success" : "warning"} />
+                    <Badge
+                      value={template.isActive ? "ACTIVA" : "INACTIVA"}
+                      tone={template.isActive ? "success" : "warning"}
+                    />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Button variant="secondary" onClick={() => editTemplate(template)}>
@@ -405,11 +437,16 @@ export function SpecialtiesSettingsPage() {
               ))}
             </div>
           ) : !templates.isLoading ? (
-            <EmptyState title="Sin plantillas" description="Crea la primera plantilla para esta especialidad." />
+            <EmptyState
+              title="Sin plantillas"
+              description="Crea la primera plantilla para esta especialidad."
+            />
           ) : null}
 
           <form className="space-y-3 border-t border-slate-200 pt-4" onSubmit={submitTemplate}>
-            <h4 className="text-sm font-semibold text-slate-900">{editingTemplate ? "Editar plantilla" : "Nueva plantilla"}</h4>
+            <h4 className="text-sm font-semibold text-slate-900">
+              {editingTemplate ? "Editar plantilla" : "Nueva plantilla"}
+            </h4>
             <label className="block text-sm text-slate-700">
               Nombre
               <Input
@@ -424,7 +461,9 @@ export function SpecialtiesSettingsPage() {
                 required
                 rows={4}
                 value={templateForm.content}
-                onChange={(event) => setTemplateForm((current) => ({ ...current, content: event.target.value }))}
+                onChange={(event) =>
+                  setTemplateForm((current) => ({ ...current, content: event.target.value }))
+                }
               />
             </label>
             <div className="flex justify-end gap-2">
@@ -465,13 +504,19 @@ export function SpecialtiesSettingsPage() {
                 <div key={reason.id} className="rounded-xl border border-slate-200 p-3">
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div className="flex items-start gap-3">
-                      <span className="mt-1 h-3 w-3 rounded-full ring-1 ring-slate-200" style={{ backgroundColor: reason.color ?? "#0ea5e9" }} />
+                      <span
+                        className="mt-1 h-3 w-3 rounded-full ring-1 ring-slate-200"
+                        style={{ backgroundColor: reason.color ?? "#0ea5e9" }}
+                      />
                       <div>
                         <p className="font-semibold text-slate-900">{reason.name}</p>
                         <p className="mt-1 text-xs text-slate-500">{reason.durationMinutes} minutos</p>
                       </div>
                     </div>
-                    <Badge value={reason.isActive ? "ACTIVO" : "INACTIVO"} tone={reason.isActive ? "success" : "warning"} />
+                    <Badge
+                      value={reason.isActive ? "ACTIVO" : "INACTIVO"}
+                      tone={reason.isActive ? "success" : "warning"}
+                    />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Button variant="secondary" onClick={() => editReason(reason)}>
@@ -497,11 +542,16 @@ export function SpecialtiesSettingsPage() {
               ))}
             </div>
           ) : !reasons.isLoading ? (
-            <EmptyState title="Sin motivos" description="Configura el primer motivo de atencion para esta especialidad." />
+            <EmptyState
+              title="Sin motivos"
+              description="Configura el primer motivo de atencion para esta especialidad."
+            />
           ) : null}
 
           <form className="space-y-3 border-t border-slate-200 pt-4" onSubmit={submitReason}>
-            <h4 className="text-sm font-semibold text-slate-900">{editingReason ? "Editar motivo" : "Nuevo motivo"}</h4>
+            <h4 className="text-sm font-semibold text-slate-900">
+              {editingReason ? "Editar motivo" : "Nuevo motivo"}
+            </h4>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-sm text-slate-700">
                 Nombre
@@ -516,11 +566,13 @@ export function SpecialtiesSettingsPage() {
                 <Input
                   required
                   min={5}
-                  max={480}
+                  max={60}
                   step={5}
                   type="number"
                   value={reasonForm.durationMinutes}
-                  onChange={(event) => setReasonForm((current) => ({ ...current, durationMinutes: event.target.value }))}
+                  onChange={(event) =>
+                    setReasonForm((current) => ({ ...current, durationMinutes: event.target.value }))
+                  }
                 />
               </label>
               <label className="text-sm text-slate-700">
@@ -528,7 +580,9 @@ export function SpecialtiesSettingsPage() {
                 <Input
                   type="color"
                   value={reasonForm.color}
-                  onChange={(event) => setReasonForm((current) => ({ ...current, color: event.target.value }))}
+                  onChange={(event) =>
+                    setReasonForm((current) => ({ ...current, color: event.target.value }))
+                  }
                   className="h-10 p-1"
                 />
               </label>

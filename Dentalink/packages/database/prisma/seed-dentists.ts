@@ -2,7 +2,7 @@
  * seed-dentists.ts
  *
  * Agrega dentistas exclusivos por sucursal (1 dentista por sucursal)
- * y 2 dentistas multi-sucursal para probar el dropdown.
+ * y 2 dentistas adicionales de sucursal unica.
  *
  * Uso:
  *   npx ts-node packages/database/prisma/seed-dentists.ts
@@ -22,6 +22,34 @@ loadEnv({ path: resolve(process.cwd(), ".env") });
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter: new PrismaPg(pool) });
+
+const allowedSpecialtySeeds = [
+  { name: "Odontología General (Integral)", aliases: ["Odontología General y Estética", "Odontología General"] },
+  { name: "Ortodoncia", aliases: [] }
+] as const;
+
+function normalizeSpecialtyKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " y ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveAllowedSpecialtyName(value: string) {
+  const normalized = normalizeSpecialtyKey(value);
+  for (const specialty of allowedSpecialtySeeds) {
+    if (normalizeSpecialtyKey(specialty.name) === normalized) return specialty.name;
+    if (specialty.aliases.some((alias) => normalizeSpecialtyKey(alias) === normalized)) return specialty.name;
+  }
+  if (normalized === "general" || normalized === "integral" || normalized === "general integral") {
+    return allowedSpecialtySeeds[0].name;
+  }
+  return null;
+}
 
 // ──────────────────────────────────────────────────────────────
 // Dentistas: 1 por sucursal  →  sin dropdown al editar horarios
@@ -173,7 +201,7 @@ const dentistsByBranch: Array<{
 ];
 
 // ──────────────────────────────────────────────────────────────
-// Dentistas multi-sucursal  →  SÍ muestran dropdown
+// Dentistas adicionales de sucursal unica
 // ──────────────────────────────────────────────────────────────
 const multibranchDentists: Array<{
   email: string;
@@ -217,10 +245,33 @@ async function main() {
     where: { organizationId_name: { organizationId: organization.id, name: "DENTIST" } }
   });
 
-  // Obtener especialidades para asignar a los dentistas
-  const specialties = await prisma.specialty.findMany({
-    where: { organizationId: organization.id, isActive: true },
-    take: 2
+  const existingSpecialties = await prisma.specialty.findMany({
+    where: { organizationId: organization.id }
+  });
+
+  const specialties: Array<{ id: string }> = [];
+  for (const specialtySeed of allowedSpecialtySeeds) {
+    const matchingSpecialties = existingSpecialties.filter(
+      (specialty) => resolveAllowedSpecialtyName(specialty.name) === specialtySeed.name
+    );
+    const existing = matchingSpecialties.find((specialty) => specialty.name === specialtySeed.name) ?? matchingSpecialties[0];
+    const specialty = existing
+      ? await prisma.specialty.update({
+          where: { id: existing.id },
+          data: { name: specialtySeed.name, isActive: true }
+        })
+      : await prisma.specialty.create({
+          data: { organizationId: organization.id, name: specialtySeed.name, isActive: true }
+        });
+    specialties.push(specialty);
+  }
+
+  await prisma.specialty.updateMany({
+    where: {
+      organizationId: organization.id,
+      id: { notIn: specialties.map((specialty) => specialty.id) }
+    },
+    data: { isActive: false }
   });
 
   const allBranches = await prisma.branch.findMany({
@@ -334,15 +385,16 @@ async function main() {
     createdSingle++;
   }
 
-  // ── Dentistas multi-sucursal ────────────────────────────────
+  // ── Dentistas adicionales de sucursal unica ─────────────────
   let createdMulti = 0;
 
   for (const def of multibranchDentists) {
     const branches = def.branchCodes
       .map((code) => branchByCode.get(code))
       .filter(Boolean) as Array<{ id: string; code: string; name: string }>;
+    const branch = branches[0];
 
-    if (branches.length === 0) {
+    if (!branch) {
       console.warn(`⚠  No se encontraron sucursales para ${def.email} — omitiendo`);
       continue;
     }
@@ -378,13 +430,10 @@ async function main() {
       create: { userId: user.id, roleId: dentistRole.id }
     });
 
-    // Asignar TODAS sus sucursales al usuario
     await prisma.userBranch.deleteMany({ where: { userId: user.id } });
-    for (let i = 0; i < branches.length; i++) {
-      await prisma.userBranch.create({
-        data: { userId: user.id, branchId: branches[i].id, isPrimary: i === 0 }
-      });
-    }
+    await prisma.userBranch.create({
+      data: { userId: user.id, branchId: branch.id, isPrimary: true }
+    });
 
     const existingProfessional = await prisma.professional.findFirst({
       where: { userId: user.id, organizationId: organization.id }
@@ -417,13 +466,10 @@ async function main() {
           }
         });
 
-    // Limpiar y asignar TODAS sus sucursales al profesional
     await prisma.professionalBranch.deleteMany({ where: { professionalId: professional.id } });
-    for (let i = 0; i < branches.length; i++) {
-      await prisma.professionalBranch.create({
-        data: { professionalId: professional.id, branchId: branches[i].id, isPrimary: i === 0 }
-      });
-    }
+    await prisma.professionalBranch.create({
+      data: { professionalId: professional.id, branchId: branch.id, isPrimary: true }
+    });
 
     if (specialties.length > 0) {
       await prisma.professionalSpecialty.deleteMany({ where: { professionalId: professional.id } });
@@ -432,8 +478,7 @@ async function main() {
       });
     }
 
-    const branchNames = branches.map((b) => b.name).join(", ");
-    console.log(`✅  [MULTI-BRANCH]  ${def.firstName} ${def.lastName} → ${branchNames}`);
+    console.log(`✅  [SINGLE-BRANCH]  ${def.firstName} ${def.lastName} → ${branch.name}`);
     createdMulti++;
   }
 
@@ -441,7 +486,7 @@ async function main() {
   console.log(`Seed completado:`);
   console.log(`  ✅ ${createdSingle} dentistas de sucursal única creados`);
   if (skippedSingle > 0) console.log(`  ⚠  ${skippedSingle} omitidos (sucursal no encontrada)`);
-  console.log(`  ✅ ${createdMulti} dentistas multi-sucursal creados`);
+  console.log(`  ✅ ${createdMulti} dentistas adicionales de sucursal unica creados`);
   console.log(`  🔑 Contraseña: ${staffPassword}`);
   console.log("──────────────────────────────────────────────────────\n");
 }

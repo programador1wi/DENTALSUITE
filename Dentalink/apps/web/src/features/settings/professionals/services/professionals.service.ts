@@ -63,7 +63,13 @@ export type ProfessionalBranchTransferResult = {
   schedulesCopied: number;
 };
 
-export async function listProfessionals(params?: { search?: string; active?: string }) {
+export async function listProfessionals(params?: {
+  search?: string;
+  active?: string;
+  branchId?: string;
+  page?: number;
+  pageSize?: number;
+}) {
   const { data } = await http.get<Professional[]>("/professionals", { params });
   return data;
 }

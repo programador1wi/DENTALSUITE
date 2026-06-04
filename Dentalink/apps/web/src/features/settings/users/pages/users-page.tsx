@@ -98,8 +98,8 @@ const emptyProfessionalForm: CollaboratorProfessionalForm = {
   workDays: [1, 2, 3, 4, 5],
   startTime: "10:00",
   endTime: "19:00",
-  breakStartTime: "",
-  breakEndTime: ""
+  breakStartTime: "14:00",
+  breakEndTime: "15:00"
 };
 
 const documentOptions: { category: PersonnelDocumentCategory; label: string }[] = [

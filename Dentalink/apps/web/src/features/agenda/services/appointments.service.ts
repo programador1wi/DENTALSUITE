@@ -75,6 +75,16 @@ export type AppointmentReminder = {
   updatedAt: string;
 };
 
+export type AppointmentReasonSuggestion = {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  color?: string | null;
+  isActive: boolean;
+  source?: "history";
+  count?: number;
+};
+
 export type AppointmentNotePayload = {
   note: string;
   isPrivate?: boolean;
@@ -89,6 +99,17 @@ export type AppointmentReminderPayload = {
 export type AppointmentReminderUpdatePayload = Partial<AppointmentReminderPayload> & {
   sentAt?: string;
   errorMessage?: string;
+};
+
+export type RescheduleAppointmentPayload = {
+  branchId?: string;
+  professionalId?: string;
+  chairId?: string;
+  specialtyId?: string;
+  startAt: string;
+  endAt: string;
+  durationMinutes?: number;
+  reason?: string;
 };
 
 export type AppointmentPayload = {
@@ -128,6 +149,11 @@ export type AvailabilitySlot = {
 
 export async function listAppointments(params?: AppointmentQuery) {
   const { data } = await http.get<Appointment[]>("/appointments", { params });
+  return data;
+}
+
+export async function listAppointmentReasonSuggestions(params?: { specialtyId?: string }) {
+  const { data } = await http.get<AppointmentReasonSuggestion[]>("/appointments/reasons", { params });
   return data;
 }
 
@@ -186,7 +212,7 @@ export async function cancelAppointment(id: string, payload: { reason: string; c
   return data;
 }
 
-export async function rescheduleAppointment(id: string, payload: { startAt: string; endAt: string; durationMinutes?: number; reason?: string }) {
+export async function rescheduleAppointment(id: string, payload: RescheduleAppointmentPayload) {
   const { data } = await http.post<Appointment>(`/appointments/${id}/reschedule`, payload);
   return data;
 }

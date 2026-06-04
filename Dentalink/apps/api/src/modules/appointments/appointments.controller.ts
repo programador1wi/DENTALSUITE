@@ -37,6 +37,12 @@ export class AppointmentsController {
     return this.appointmentsService.availability(user, query);
   }
 
+  @Get("reasons")
+  @RequirePermissions("appointments.read")
+  listReasonSuggestions(@CurrentUser() user: AuthUser, @Query("specialtyId") specialtyId?: string) {
+    return this.appointmentsService.listReasonSuggestions(user, specialtyId);
+  }
+
   @Post()
   @RequirePermissions("appointments.create")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateAppointmentDto) {

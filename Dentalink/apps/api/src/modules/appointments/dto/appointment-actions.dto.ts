@@ -10,6 +10,22 @@ export class CancelAppointmentDto {
 }
 
 export class RescheduleAppointmentDto {
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsOptional()
+  @IsString()
+  professionalId?: string;
+
+  @IsOptional()
+  @IsString()
+  chairId?: string;
+
+  @IsOptional()
+  @IsString()
+  specialtyId?: string;
+
   @IsDateString()
   startAt!: string;
 

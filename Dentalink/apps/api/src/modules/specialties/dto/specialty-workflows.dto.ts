@@ -1,5 +1,15 @@
 import { Type } from "class-transformer";
-import { IsBoolean, IsHexColor, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Max, Min } from "class-validator";
+import {
+  IsBoolean,
+  IsHexColor,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  Min
+} from "class-validator";
 
 export class CreateSpecialtyClinicalTemplateDto {
   @IsIn(["PRESCRIPTION", "EVOLUTION"])
@@ -38,7 +48,7 @@ export class CreateSpecialtyAppointmentReasonDto {
   @Type(() => Number)
   @IsInt()
   @Min(5)
-  @Max(480)
+  @Max(60)
   durationMinutes!: number;
 
   @IsOptional()
@@ -56,7 +66,7 @@ export class UpdateSpecialtyAppointmentReasonDto {
   @Type(() => Number)
   @IsInt()
   @Min(5)
-  @Max(480)
+  @Max(60)
   durationMinutes?: number;
 
   @IsOptional()

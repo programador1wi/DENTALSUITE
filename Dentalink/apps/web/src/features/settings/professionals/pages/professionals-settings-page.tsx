@@ -90,7 +90,7 @@ function toForm(professional: Professional): ProfessionalForm {
     email: professional.email ?? "",
     color: professional.color ?? "#111827",
     specialtyIds: professional.specialties.map((specialty) => specialty.id),
-    branchIds: professional.branches.map((branch) => branch.id)
+    branchIds: professional.branches.slice(0, 1).map((branch) => branch.id)
   };
 }
 
@@ -198,7 +198,7 @@ export function ProfessionalsSettingsPage() {
       lastName: user.lastName,
       email: user.email,
       phone: user.phone ?? "",
-      branchIds: branchIds.length ? branchIds : user.branches.map((branch) => branch.id)
+      branchIds: branchIds.length ? [branchIds[0]] : user.branches.slice(0, 1).map((branch) => branch.id)
     });
     setFormOpen(true);
     setSearchParams(
@@ -239,7 +239,7 @@ export function ProfessionalsSettingsPage() {
   const submitProfessional = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!form.firstName.trim() || !form.lastName.trim()) return;
-    if (!form.specialtyIds.length || !form.branchIds.length) return;
+    if (!form.specialtyIds.length || form.branchIds.length !== 1) return;
 
     const payload = {
       firstName: form.firstName.trim(),
@@ -598,12 +598,13 @@ export function ProfessionalsSettingsPage() {
                 {(branches.data ?? []).map((branch) => (
                   <label key={branch.id} className="flex items-center gap-2 text-sm text-slate-600">
                     <input
-                      type="checkbox"
+                      type="radio"
+                      name="professional-branch"
                       checked={form.branchIds.includes(branch.id)}
                       onChange={() =>
                         setForm((current) => ({
                           ...current,
-                          branchIds: toggleValue(current.branchIds, branch.id)
+                          branchIds: current.branchIds.includes(branch.id) ? [] : [branch.id]
                         }))
                       }
                     />
@@ -611,8 +612,8 @@ export function ProfessionalsSettingsPage() {
                   </label>
                 ))}
               </div>
-              {!form.branchIds.length ? (
-                <p className="mt-2 text-xs text-amber-700">Selecciona al menos una sucursal.</p>
+              {form.branchIds.length !== 1 ? (
+                <p className="mt-2 text-xs text-amber-700">Selecciona una sola sucursal.</p>
               ) : null}
             </section>
           </div>
@@ -623,7 +624,7 @@ export function ProfessionalsSettingsPage() {
             </Button>
             <Button
               type="submit"
-              disabled={actionPending || !form.specialtyIds.length || !form.branchIds.length}
+              disabled={actionPending || !form.specialtyIds.length || form.branchIds.length !== 1}
             >
               {editing ? "Actualizar datos" : "Crear profesional"}
             </Button>

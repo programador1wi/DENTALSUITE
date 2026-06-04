@@ -1,5 +1,5 @@
 export const DEFAULT_AGENDA_SLOT_MINUTES = 30;
-export const DEFAULT_AGENDA_START_HOUR = 8;
+export const DEFAULT_AGENDA_START_HOUR = 10;
 export const DEFAULT_AGENDA_END_HOUR = 19;
 export const MIN_AGENDA_SLOT_MINUTES = 5;
 export const MAX_AGENDA_SLOT_MINUTES = 120;
@@ -13,7 +13,7 @@ type AgendaBranchConfig = {
 };
 
 type AgendaProfessionalConfig = {
-  branches: AgendaBranchConfig[];
+  branches?: AgendaBranchConfig[] | null;
 };
 
 type AgendaScheduleConfig = {
@@ -61,7 +61,7 @@ export function getProfessionalBranchAgendaConfig(
   branchId: string | undefined,
   fallbackSlotMinutes: number
 ) {
-  const branch = branchId ? professional.branches.find((item) => item.id === branchId) : undefined;
+  const branch = branchId ? professional.branches?.find((item) => item.id === branchId) : undefined;
   const slotMinutes = normalizeOptionalAgendaSlotMinutes(branch?.agendaSlotMinutes) ?? fallbackSlotMinutes;
   const defaultAppointmentDurationMinutes =
     normalizeOptionalAppointmentDuration(branch?.defaultAppointmentDurationMinutes) ?? slotMinutes;
@@ -81,7 +81,6 @@ export function isTimeAlignedToSlot(time: string, startTime: string, slotMinutes
 }
 
 export function resolveAgendaTimelineRange({
-  schedules,
   fallbackStartHour,
   fallbackEndHour
 }: {
@@ -89,24 +88,9 @@ export function resolveAgendaTimelineRange({
   fallbackStartHour: number;
   fallbackEndHour: number;
 }) {
-  const ranges = schedules
-    .filter((schedule) => schedule.isActive ?? true)
-    .map((schedule) => ({
-      start: timeToMinutes(schedule.startTime),
-      end: timeToMinutes(schedule.endTime)
-    }))
-    .filter((range): range is { start: number; end: number } => range.start !== null && range.end !== null && range.end > range.start);
-
-  if (!ranges.length) {
-    return {
-      startMinutes: fallbackStartHour * 60,
-      endMinutes: fallbackEndHour * 60
-    };
-  }
-
   return {
-    startMinutes: Math.min(...ranges.map((range) => range.start)),
-    endMinutes: Math.max(...ranges.map((range) => range.end))
+    startMinutes: fallbackStartHour * 60,
+    endMinutes: fallbackEndHour * 60
   };
 }
 

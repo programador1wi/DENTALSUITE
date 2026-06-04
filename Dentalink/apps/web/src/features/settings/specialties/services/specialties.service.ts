@@ -1,4 +1,5 @@
 import { http } from "@/lib/api/http-client";
+import { canonicalizeSpecialty, filterAllowedSpecialties } from "../utils/allowed-specialties";
 
 export type Specialty = {
   id: string;
@@ -46,17 +47,17 @@ export type SpecialtyAppointmentReasonPayload = {
 
 export async function listSpecialties(params?: { search?: string; active?: string }) {
   const { data } = await http.get<Specialty[]>("/specialties", { params });
-  return data;
+  return filterAllowedSpecialties(data);
 }
 
 export async function createSpecialty(payload: SpecialtyPayload) {
   const { data } = await http.post<Specialty>("/specialties", payload);
-  return data;
+  return canonicalizeSpecialty(data) ?? data;
 }
 
 export async function updateSpecialty(id: string, payload: Partial<SpecialtyPayload> & { isActive?: boolean }) {
   const { data } = await http.patch<Specialty>(`/specialties/${id}`, payload);
-  return data;
+  return canonicalizeSpecialty(data) ?? data;
 }
 
 export async function deactivateSpecialty(id: string) {

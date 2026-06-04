@@ -1,8 +1,14 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
+import {
+  SPECIALTY_POLICY_MESSAGE,
+  matchesAllowedSpecialtySearch,
+  resolveAllowedSpecialtyName,
+  withAllowedSpecialtyName
+} from "../../common/utils/specialty-policy.util";
 import { CreateSpecialtyDto } from "./dto/create-specialty.dto";
 import {
   CreateSpecialtyAppointmentReasonDto,
@@ -20,31 +26,45 @@ export class SpecialtiesService {
     const { skip, take } = resolvePagination({ page, pageSize });
     const where: Prisma.SpecialtyWhereInput = {
       organizationId: actor.organizationId,
-      ...(active !== undefined ? { isActive: active === "true" } : {}),
-      ...(search
-        ? {
-            OR: [
-              { name: { contains: search, mode: "insensitive" } },
-              { description: { contains: search, mode: "insensitive" } }
-            ]
-          }
-        : {})
+      ...(active !== undefined ? { isActive: active === "true" } : {})
     };
 
-    return this.prisma.specialty.findMany({ where, skip, take, orderBy: { name: "asc" } });
+    const specialties = await this.prisma.specialty.findMany({ where, orderBy: { name: "asc" } });
+    return specialties
+      .map((specialty) => withAllowedSpecialtyName(specialty))
+      .filter((specialty): specialty is NonNullable<typeof specialty> => Boolean(specialty))
+      .filter((specialty) => matchesAllowedSpecialtySearch(specialty, search))
+      .slice(skip, skip + take);
   }
 
   async findOne(actor: AuthUser, id: string) {
     const specialty = await this.prisma.specialty.findFirst({ where: { id, organizationId: actor.organizationId } });
     if (!specialty) throw new NotFoundException("Specialty not found");
-    return specialty;
+    const allowedSpecialty = withAllowedSpecialtyName(specialty);
+    if (!allowedSpecialty) throw new NotFoundException("Specialty not found");
+    return allowedSpecialty;
   }
 
   async create(actor: AuthUser, dto: CreateSpecialtyDto) {
+    const name = this.resolveInputName(dto.name);
+    const existing = await this.findExistingAllowedSpecialty(actor, name);
+    if (existing) {
+      const specialty = await this.prisma.specialty.update({
+        where: { id: existing.id },
+        data: {
+          name,
+          description: dto.description?.trim(),
+          isActive: true
+        }
+      });
+      await this.audit(actor, "reactivate", specialty.id, { name: specialty.name });
+      return this.findOne(actor, specialty.id);
+    }
+
     const specialty = await this.prisma.specialty.create({
       data: {
         organizationId: actor.organizationId,
-        name: dto.name.trim(),
+        name,
         description: dto.description?.trim()
       }
     });
@@ -55,17 +75,23 @@ export class SpecialtiesService {
 
   async update(actor: AuthUser, id: string, dto: UpdateSpecialtyDto) {
     const current = await this.findOne(actor, id);
+    const name = dto.name ? this.resolveInputName(dto.name) : undefined;
+    if (name) {
+      const existing = await this.findExistingAllowedSpecialty(actor, name);
+      if (existing && existing.id !== id) throw new BadRequestException("La especialidad ya existe");
+    }
+
     const specialty = await this.prisma.specialty.update({
       where: { id },
       data: {
-        name: dto.name?.trim(),
+        name,
         description: dto.description?.trim(),
         isActive: dto.isActive
       }
     });
 
     await this.audit(actor, "update", id, { before: current, after: specialty });
-    return specialty;
+    return this.findOne(actor, specialty.id);
   }
 
   async deactivate(actor: AuthUser, id: string) {
@@ -187,5 +213,19 @@ export class SpecialtiesService {
         after: payload as Prisma.InputJsonValue
       }
     });
+  }
+
+  private resolveInputName(name: string) {
+    const allowedName = resolveAllowedSpecialtyName(name);
+    if (!allowedName) throw new BadRequestException(SPECIALTY_POLICY_MESSAGE);
+    return allowedName;
+  }
+
+  private async findExistingAllowedSpecialty(actor: AuthUser, allowedName: string) {
+    const specialties = await this.prisma.specialty.findMany({
+      where: { organizationId: actor.organizationId }
+    });
+    const matches = specialties.filter((specialty) => resolveAllowedSpecialtyName(specialty.name) === allowedName);
+    return matches.find((specialty) => specialty.name === allowedName) ?? matches[0] ?? null;
   }
 }

@@ -638,54 +638,42 @@ async function main() {
 
   const specGeneral = await prisma.specialty.upsert({
     where: {
-      organizationId_name: { organizationId: organization.id, name: "Odontología General y Estética" }
+      organizationId_name: { organizationId: organization.id, name: "Odontología General (Integral)" }
     },
-    update: {},
+    update: {
+      isActive: true,
+      description: "Atención odontológica general e integral"
+    },
     create: {
       organizationId: organization.id,
-      name: "Odontología General y Estética",
-      description: "Cuidado general y estética dental elemental"
+      name: "Odontología General (Integral)",
+      description: "Atención odontológica general e integral"
     }
   });
   const specOrtodoncia = await prisma.specialty.upsert({
     where: {
-      organizationId_name: { organizationId: organization.id, name: "Ortodoncia y Ortopedia Maxilofacial" }
+      organizationId_name: { organizationId: organization.id, name: "Ortodoncia" }
     },
-    update: {},
+    update: {
+      isActive: true,
+      description: "Corrección de anomalías dento-faciales y brackets"
+    },
     create: {
       organizationId: organization.id,
-      name: "Ortodoncia y Ortopedia Maxilofacial",
+      name: "Ortodoncia",
       description: "Corrección de anomalías dento-faciales y brackets"
     }
   });
-  const specEndodoncia = await prisma.specialty.upsert({
-    where: { organizationId_name: { organizationId: organization.id, name: "Endodoncia Avanzada" } },
-    update: {},
-    create: {
-      organizationId: organization.id,
-      name: "Endodoncia Avanzada",
-      description: "Tratamiento de conductos radiculares y conservación dental"
-    }
-  });
-  const specPediatria = await prisma.specialty.upsert({
-    where: { organizationId_name: { organizationId: organization.id, name: "Odontopediatría" } },
-    update: {},
-    create: {
-      organizationId: organization.id,
-      name: "Odontopediatría",
-      description: "Cuidado dental integral infantil y preventivo"
-    }
-  });
-  const specImplantologia = await prisma.specialty.upsert({
+  const specEndodoncia = specGeneral;
+  const specPediatria = specGeneral;
+  const specImplantologia = specGeneral;
+
+  await prisma.specialty.updateMany({
     where: {
-      organizationId_name: { organizationId: organization.id, name: "Implantología y Prótesis Oral" }
-    },
-    update: {},
-    create: {
       organizationId: organization.id,
-      name: "Implantología y Prótesis Oral",
-      description: "Rehabilitación bucal con implantes y coronas estéticas"
-    }
+      id: { notIn: [specGeneral.id, specOrtodoncia.id] }
+    },
+    data: { isActive: false }
   });
 
   // 5. Configurar/Upsert Profesionales Clínicos
@@ -808,14 +796,13 @@ async function main() {
     data: [
       { professionalId: profMendoza.id, specialtyId: specGeneral.id },
       { professionalId: profVega.id, specialtyId: specOrtodoncia.id },
-      { professionalId: profRuiz.id, specialtyId: specEndodoncia.id },
-      { professionalId: profRuiz.id, specialtyId: specImplantologia.id },
+      { professionalId: profRuiz.id, specialtyId: specGeneral.id },
       { professionalId: profGomez.id, specialtyId: specPediatria.id }
     ]
   });
 
   type DemoProfessional = typeof profMendoza;
-  const branchTeams = new Map<string, { general: DemoProfessional; orthodontist: DemoProfessional }>();
+  const branchTeams = new Map<string, { general: DemoProfessional; general2: DemoProfessional; orthodontist: DemoProfessional }>();
   const professionalsByBranch = new Map<string, DemoProfessional[]>();
   const defaultBranchProfessionals = [profMendoza, profVega, profRuiz, profGomez];
 
@@ -829,7 +816,7 @@ async function main() {
     })),
     skipDuplicates: true
   });
-  branchTeams.set(branch.id, { general: profMendoza, orthodontist: profVega });
+  branchTeams.set(branch.id, { general: profMendoza, general2: profRuiz, orthodontist: profVega });
   professionalsByBranch.set(branch.id, defaultBranchProfessionals);
 
   const branchTeamProfiles = new Map([
@@ -879,7 +866,7 @@ async function main() {
   }: {
     activeBranch: { id: string; code: string | null; name: string };
     specialtyId: string;
-    role: "general" | "ortho";
+    role: "general" | "general2" | "ortho";
     firstName: string;
     lastName: string;
     color: string;
@@ -887,7 +874,8 @@ async function main() {
   }) => {
     const branchSlug = slugFromBranch(activeBranch);
     const email = `${role}.${branchSlug}@dentalwarner.local`;
-    const phone = `+5296102${String(index + 1).padStart(4, "0")}${role === "general" ? "1" : "2"}`;
+    const phoneSuffix = role === "ortho" ? "3" : role === "general2" ? "2" : "1";
+    const phone = `+5296102${String(index + 1).padStart(4, "0")}${phoneSuffix}`;
     const licenseNumber = `${(activeBranch.code ?? "BR").replace(/[^A-Z0-9]+/g, "").slice(0, 3)}-${role.toUpperCase()}-${String(index + 1).padStart(2, "0")}`;
     const user = await upsertSystemUser({
       organizationId: organization.id,
@@ -959,6 +947,15 @@ async function main() {
       color: "#0284c7",
       index
     });
+    const general2 = await upsertBranchProfessional({
+      activeBranch,
+      specialtyId: specGeneral.id,
+      role: "general2",
+      firstName: `${profile.general[0]} II`,
+      lastName: profile.general[1],
+      color: "#0f766e",
+      index
+    });
     const orthodontist = await upsertBranchProfessional({
       activeBranch,
       specialtyId: specOrtodoncia.id,
@@ -969,8 +966,8 @@ async function main() {
       index
     });
 
-    branchTeams.set(activeBranch.id, { general, orthodontist });
-    professionalsByBranch.set(activeBranch.id, [general, orthodontist]);
+    branchTeams.set(activeBranch.id, { general, general2, orthodontist });
+    professionalsByBranch.set(activeBranch.id, [general, general2, orthodontist]);
   }
 
   console.log("Configurando horarios activos para agenda y disponibilidad...");
@@ -982,10 +979,10 @@ async function main() {
           professionalId: prof.id,
           branchId: activeBranch.id,
           dayOfWeek,
-          startTime: dayOfWeek === 6 ? "09:00" : "08:00",
-          endTime: dayOfWeek === 6 ? "14:00" : "20:00",
-          breakStartTime: dayOfWeek === 6 ? null : "14:00",
-          breakEndTime: dayOfWeek === 6 ? null : "15:00",
+          startTime: "10:00",
+          endTime: "19:00",
+          breakStartTime: "14:00",
+          breakEndTime: "15:00",
           isActive: true
         }))
       )
@@ -3287,7 +3284,7 @@ async function main() {
   console.log("Creando datos de demostracion por sucursal...");
   for (let index = 0; index < activeBranches.length; index++) {
     const activeBranch = activeBranches[index];
-    const branchTeam = branchTeams.get(activeBranch.id) ?? { general: profMendoza, orthodontist: profVega };
+    const branchTeam = branchTeams.get(activeBranch.id) ?? { general: profMendoza, general2: profRuiz, orthodontist: profVega };
     const branchCode = (activeBranch.code ?? `branch-${index + 1}`).toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const patient = await prisma.patient.create({
       data: {

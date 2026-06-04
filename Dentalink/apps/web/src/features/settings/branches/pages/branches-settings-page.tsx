@@ -61,7 +61,7 @@ export function BranchesSettingsPage() {
         {
           key: "agendaStartHour",
           title: "Agenda",
-          render: (row) => `${formatHour(row.agendaStartHour ?? 8)} - ${formatHour(row.agendaEndHour ?? 19)}`
+          render: (row) => `${formatHour(row.agendaStartHour ?? 10)} - ${formatHour(row.agendaEndHour ?? 19)}`
         },
         {
           key: "status",
@@ -89,7 +89,7 @@ export function BranchesSettingsPage() {
           country: "MX",
           timezone: "America/Mexico_City",
           agendaSlotMinutes: row.agendaSlotMinutes ?? 30,
-          agendaStartHour: row.agendaStartHour ?? 8,
+          agendaStartHour: row.agendaStartHour ?? 10,
           agendaEndHour: row.agendaEndHour ?? 19,
           status: row.status
         }),

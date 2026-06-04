@@ -3,6 +3,7 @@ import { Prisma, ToothProcedureStatus } from "@prisma/client";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
+import { withAllowedSpecialtyName } from "../../common/utils/specialty-policy.util";
 import {
   CreateAllergyDto,
   CreateMedicalConditionDto,
@@ -47,7 +48,7 @@ export class ClinicalService {
 
   async listAppointmentHistory(actor: AuthUser, patientId: string) {
     await this.ensurePatient(actor, patientId);
-    return this.prisma.appointment.findMany({
+    const appointments = await this.prisma.appointment.findMany({
       where: {
         patientId,
         organizationId: actor.organizationId,
@@ -61,6 +62,11 @@ export class ClinicalService {
       },
       orderBy: [{ startAt: "desc" }, { createdAt: "desc" }]
     });
+
+    return appointments.map((appointment) => ({
+      ...appointment,
+      specialty: appointment.specialty ? withAllowedSpecialtyName(appointment.specialty) : null
+    }));
   }
 
   async upsertHistory(actor: AuthUser, patientId: string, dto: UpsertMedicalHistoryDto) {

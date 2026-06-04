@@ -55,6 +55,7 @@ export class ProfessionalSchedulesService {
   async create(actor: AuthUser, dto: CreateProfessionalScheduleDto) {
     await this.validateReferences(actor, dto.professionalId, dto.branchId, dto.chairId);
     this.validateTimeRange(dto.startTime, dto.endTime, dto.breakStartTime, dto.breakEndTime);
+    await this.validateInsideBranchHours(actor, dto.branchId, dto.startTime, dto.endTime);
     await this.ensureNoOverlap(actor, {
       professionalId: dto.professionalId,
       branchId: dto.branchId,
@@ -119,6 +120,7 @@ export class ProfessionalSchedulesService {
 
     await this.validateReferences(actor, professionalId, branchId, chairId);
     this.validateTimeRange(startTime, endTime, breakStartTime, breakEndTime);
+    await this.validateInsideBranchHours(actor, branchId, startTime, endTime);
     await this.ensureNoOverlap(actor, { professionalId, branchId, dayOfWeek, startTime, endTime }, id);
     if (chairId && (dto.isActive ?? current.isActive)) {
       await this.ensureNoChairOverlap(actor, { chairId, dayOfWeek, startTime, endTime }, id);
@@ -206,6 +208,28 @@ export class ProfessionalSchedulesService {
       });
 
       if (!chair) throw new BadRequestException("Invalid chairId for selected branch");
+    }
+  }
+
+  private async validateInsideBranchHours(actor: AuthUser, branchId: string, startTime: string, endTime: string) {
+    const branch = await this.prisma.branch.findFirst({
+      where: {
+        id: branchScope(actor, branchId),
+        organizationId: actor.organizationId,
+        status: "ACTIVE",
+        deletedAt: null
+      },
+      select: { agendaStartHour: true, agendaEndHour: true }
+    });
+
+    if (!branch) throw new BadRequestException("Invalid branchId");
+    const start = this.toMinutes(startTime);
+    const end = this.toMinutes(endTime);
+    const branchStart = branch.agendaStartHour * 60;
+    const branchEnd = branch.agendaEndHour * 60;
+
+    if (start < branchStart || end > branchEnd) {
+      throw new BadRequestException("Schedule must be inside branch agenda hours");
     }
   }
 

@@ -6,7 +6,7 @@ import { Select } from "@/components/ui/select";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
-import { usePatient, usePatients } from "@/features/patients/hooks/use-patients";
+import { useCreatePatient, usePatient, usePatients } from "@/features/patients/hooks/use-patients";
 import type { PatientListItem } from "@/features/patients/services/patients.service";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useChairs } from "@/features/settings/chairs/hooks/use-chairs";
@@ -79,7 +79,10 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     [assignedBranches, activeBranchId]
   );
 
-  const professionals = useProfessionals(undefined, "true");
+  const professionals = useProfessionals(undefined, "true", {
+    branchId: activeBranchId || undefined,
+    pageSize: 100
+  });
   const chairs = useChairs(undefined, "true");
   const patients = usePatients({});
   const prefillPatient = usePatient(prefillPatientId);
@@ -128,6 +131,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   });
   const createAppointment = useCreateAppointment();
   const updateAppointment = useUpdateAppointment();
+  const createPatient = useCreatePatient();
   const addAppointmentNote = useAddAppointmentNote();
   const createAppointmentReminder = useCreateAppointmentReminder();
   const updateAppointmentReminder = useUpdateAppointmentReminder();
@@ -217,8 +221,19 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   };
 
   const submitAppointment = async (payload: AppointmentPayload) => {
-    if (editing) await updateAppointment.mutateAsync({ id: editing.id, payload });
-    else await createAppointment.mutateAsync(payload);
+    const saved = editing
+      ? await updateAppointment.mutateAsync({ id: editing.id, payload })
+      : await createAppointment.mutateAsync(payload);
+
+    focusSavedAppointment(saved);
+  };
+
+  const focusSavedAppointment = (appointment: Appointment) => {
+    setActiveBranchId(appointment.branchId);
+    setDate(toDateInputValue(new Date(appointment.startAt)));
+    if (professionalId && professionalId !== appointment.professionalId) setProfessionalId("");
+    if (chairId && chairId !== (appointment.chairId ?? "")) setChairId("");
+    if (status && status !== appointment.status) setStatus("");
   };
 
   const clearFilters = () => {
@@ -452,12 +467,14 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         open={modalOpen}
         appointment={editing}
         initialValues={initialAppointmentValues}
+        defaultDate={date}
         branches={branches.data ?? []}
         professionals={professionals.data ?? []}
         chairs={chairs.data ?? []}
         patients={patientsForModal}
         onClose={closeAppointmentModal}
         onSubmit={submitAppointment}
+        onCreatePatient={async (payload) => (await createPatient.mutateAsync(payload)).patient}
       />
       <CancelAppointmentModal
         appointment={canceling?.appointment ?? null}
@@ -469,9 +486,12 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
       />
       <RescheduleModal
         appointment={rescheduling}
+        branches={branches.data ?? []}
+        professionals={professionals.data ?? []}
+        chairs={chairs.data ?? []}
         onClose={() => setRescheduling(null)}
-        onConfirm={async (id, startAt, endAt, reason) => {
-          await actions.reschedule.mutateAsync({ id, startAt, endAt, reason });
+        onConfirm={async (id, payload) => {
+          await actions.reschedule.mutateAsync({ id, payload });
         }}
       />
       <AppointmentDurationModal

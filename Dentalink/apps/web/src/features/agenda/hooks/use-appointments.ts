@@ -23,7 +23,8 @@ import {
   type AppointmentPayload,
   type AppointmentQuery,
   type AppointmentReminderPayload,
-  type AppointmentReminderUpdatePayload
+  type AppointmentReminderUpdatePayload,
+  type RescheduleAppointmentPayload
 } from "../services/appointments.service";
 
 export function useAppointments(params: AppointmentQuery) {
@@ -159,8 +160,7 @@ export function useAppointmentActions() {
       ...options
     }),
     reschedule: useMutation({
-      mutationFn: ({ id, startAt, endAt, reason }: { id: string; startAt: string; endAt: string; reason?: string }) =>
-        rescheduleAppointment(id, { startAt, endAt, reason }),
+      mutationFn: ({ id, payload }: { id: string; payload: RescheduleAppointmentPayload }) => rescheduleAppointment(id, payload),
       ...options
     })
   };

@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
 import { Pool } from "pg";
+import { APPOINTMENT_REASON_SEEDS_BY_SPECIALTY } from "./appointment-reasons";
 
 loadEnv({ path: resolve(process.cwd(), "../../.env") });
 loadEnv({ path: resolve(process.cwd(), ".env") });
@@ -985,8 +986,66 @@ const seededPriceLists = [
   }
 ] as const;
 
+const allowedSpecialtySeeds = [
+  { name: "Odontología General (Integral)", aliases: ["Odontología General y Estética", "Odontología General"] },
+  { name: "Ortodoncia", aliases: [] }
+] as const;
+
 function normalizeCode(name: string) {
   return name.toLowerCase();
+}
+
+function normalizeSpecialtyKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/&/g, " y ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveSeedAllowedSpecialtyName(value: string) {
+  const normalized = normalizeSpecialtyKey(value);
+  for (const specialty of allowedSpecialtySeeds) {
+    if (normalizeSpecialtyKey(specialty.name) === normalized) return specialty.name;
+    if (specialty.aliases.some((alias) => normalizeSpecialtyKey(alias) === normalized)) return specialty.name;
+  }
+  if (normalized === "general" || normalized === "integral" || normalized === "general integral") {
+    return allowedSpecialtySeeds[0].name;
+  }
+  return null;
+}
+
+async function seedSpecialtyAppointmentReasons(specialtyIdsByName: Map<string, string>) {
+  for (const [specialtyName, reasons] of Object.entries(APPOINTMENT_REASON_SEEDS_BY_SPECIALTY)) {
+    const specialtyId = specialtyIdsByName.get(specialtyName);
+    if (!specialtyId) continue;
+
+    for (const reason of reasons) {
+      await (prisma as any).specialtyAppointmentReason.upsert({
+        where: {
+          specialtyId_name: {
+            specialtyId,
+            name: reason.name
+          }
+        },
+        update: {
+          durationMinutes: reason.durationMinutes,
+          color: reason.color,
+          isActive: true
+        },
+        create: {
+          specialtyId,
+          name: reason.name,
+          durationMinutes: reason.durationMinutes,
+          color: reason.color,
+          isActive: true
+        }
+      });
+    }
+  }
 }
 
 async function main() {
@@ -1113,6 +1172,8 @@ async function main() {
         state: branchSeed.state,
         country: "MX",
         timezone: "America/Mexico_City",
+        agendaStartHour: 10,
+        agendaEndHour: 19,
         isActive: true,
         status: "ACTIVE"
       },
@@ -1129,6 +1190,8 @@ async function main() {
         state: branchSeed.state,
         country: "MX",
         timezone: "America/Mexico_City",
+        agendaStartHour: 10,
+        agendaEndHour: 19,
         isActive: true,
         status: "ACTIVE"
       }
@@ -1267,6 +1330,36 @@ async function main() {
       }
     });
   }
+
+  const existingSpecialties = await prisma.specialty.findMany({
+    where: { organizationId: organization.id }
+  });
+  const allowedSpecialties: Array<{ id: string; name: string }> = [];
+  for (const specialtySeed of allowedSpecialtySeeds) {
+    const matchingSpecialties = existingSpecialties.filter(
+      (specialty) => resolveSeedAllowedSpecialtyName(specialty.name) === specialtySeed.name
+    );
+    const existing = matchingSpecialties.find((specialty) => specialty.name === specialtySeed.name) ?? matchingSpecialties[0];
+    const specialty = existing
+      ? await prisma.specialty.update({
+          where: { id: existing.id },
+          data: { name: specialtySeed.name, isActive: true }
+        })
+      : await prisma.specialty.create({
+          data: { organizationId: organization.id, name: specialtySeed.name, isActive: true }
+        });
+    allowedSpecialties.push(specialty);
+  }
+
+  await prisma.specialty.updateMany({
+    where: {
+      organizationId: organization.id,
+      id: { notIn: allowedSpecialties.map((specialty) => specialty.id) }
+    },
+    data: { isActive: false }
+  });
+
+  await seedSpecialtyAppointmentReasons(new Map(allowedSpecialties.map((specialty) => [specialty.name, specialty.id])));
 
   await prisma.branchPriceList.deleteMany({ where: { organizationId: organization.id } });
   await prisma.priceListItem.deleteMany({ where: { priceList: { organizationId: organization.id } } });

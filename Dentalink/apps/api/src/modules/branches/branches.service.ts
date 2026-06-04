@@ -1,10 +1,17 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, ProfessionalBranchStatus } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
+import { DEFAULT_CLINIC_AGENDA_END_HOUR, DEFAULT_CLINIC_AGENDA_START_HOUR } from "../../common/utils/clinic-hours.util";
+import { ALLOWED_SPECIALTY_NAMES, resolveAllowedSpecialtyName } from "../../common/utils/specialty-policy.util";
 import { CreateBranchDto } from "./dto/create-branch.dto";
 import { UpdateBranchDto } from "./dto/update-branch.dto";
+
+const MIN_BRANCH_STAFFING = [
+  { specialtyName: ALLOWED_SPECIALTY_NAMES[0], minimum: 2, label: "General" },
+  { specialtyName: ALLOWED_SPECIALTY_NAMES[1], minimum: 1, label: "Ortodoncia" }
+] as const;
 
 @Injectable()
 export class BranchesService {
@@ -50,42 +57,48 @@ export class BranchesService {
     this.validateAgendaSettings(dto);
     await this.validateBranchScope(actor, dto.brandId, dto.zoneId);
 
-    const branch = await this.prisma.branch.create({
-      data: {
-        organizationId: actor.organizationId,
-        brandId: dto.brandId,
-        zoneId: dto.zoneId,
-        code: this.normalizeCode(dto.code),
-        name: dto.name.trim(),
-        phone: dto.phone?.trim(),
-        email: dto.email?.toLowerCase().trim(),
-        address: dto.address?.trim(),
-        city: dto.city?.trim(),
-        state: dto.state?.trim(),
-        country: dto.country?.trim() ?? "MX",
-        timezone: dto.timezone?.trim() ?? "America/Mexico_City",
-        agendaSlotMinutes: dto.agendaSlotMinutes,
-        agendaStartHour: dto.agendaStartHour,
-        agendaEndHour: dto.agendaEndHour,
-        createdById: actor.id
-      }
-    });
+    const branch = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.branch.create({
+        data: {
+          organizationId: actor.organizationId,
+          brandId: dto.brandId,
+          zoneId: dto.zoneId,
+          code: this.normalizeCode(dto.code),
+          name: dto.name.trim(),
+          phone: dto.phone?.trim(),
+          email: dto.email?.toLowerCase().trim(),
+          address: dto.address?.trim(),
+          city: dto.city?.trim(),
+          state: dto.state?.trim(),
+          country: dto.country?.trim() ?? "MX",
+          timezone: dto.timezone?.trim() ?? "America/Mexico_City",
+          agendaSlotMinutes: dto.agendaSlotMinutes,
+          agendaStartHour: dto.agendaStartHour,
+          agendaEndHour: dto.agendaEndHour,
+          createdById: actor.id
+        }
+      });
 
-    await this.prisma.userBranch.upsert({
-      where: { userId_branchId: { userId: actor.id, branchId: branch.id } },
-      create: { userId: actor.id, branchId: branch.id, isPrimary: actor.branchIds.length === 0 },
-      update: {}
-    });
+      await tx.userBranch.upsert({
+        where: { userId_branchId: { userId: actor.id, branchId: created.id } },
+        create: { userId: actor.id, branchId: created.id, isPrimary: actor.branchIds.length === 0 },
+        update: {}
+      });
 
-    await this.prisma.auditLog.create({
-      data: {
-        organizationId: actor.organizationId,
-        actorUserId: actor.id,
-        entity: "Branch",
-        entityId: branch.id,
-        action: "create",
-        after: { code: branch.code, name: branch.name }
-      }
+      await this.ensureMinimumBranchStaffing(tx, actor.organizationId, created.id, created.code ?? created.id, created.name);
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: actor.organizationId,
+          actorUserId: actor.id,
+          entity: "Branch",
+          entityId: created.id,
+          action: "create",
+          after: { code: created.code, name: created.name }
+        }
+      });
+
+      return created;
     });
 
     return branch;
@@ -102,6 +115,9 @@ export class BranchesService {
       agendaEndHour: current.agendaEndHour
     });
     await this.validateBranchScope(actor, dto.brandId, dto.zoneId);
+    if (dto.status === "ACTIVE") {
+      await this.assertBranchStaffingMinimum(actor, id);
+    }
 
     const branch = await this.prisma.branch.update({
       where: { id },
@@ -159,8 +175,8 @@ export class BranchesService {
     dto: Pick<CreateBranchDto | UpdateBranchDto, "agendaStartHour" | "agendaEndHour">,
     current?: { agendaStartHour: number; agendaEndHour: number }
   ) {
-    const startHour = dto.agendaStartHour ?? current?.agendaStartHour ?? 8;
-    const endHour = dto.agendaEndHour ?? current?.agendaEndHour ?? 19;
+    const startHour = dto.agendaStartHour ?? current?.agendaStartHour ?? DEFAULT_CLINIC_AGENDA_START_HOUR;
+    const endHour = dto.agendaEndHour ?? current?.agendaEndHour ?? DEFAULT_CLINIC_AGENDA_END_HOUR;
 
     if (endHour <= startHour) {
       throw new BadRequestException("agendaEndHour must be greater than agendaStartHour");
@@ -181,5 +197,101 @@ export class BranchesService {
       });
       if (!zone) throw new BadRequestException("Invalid zoneId");
     }
+  }
+
+  private async ensureMinimumBranchStaffing(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    branchId: string,
+    branchCode: string,
+    branchName: string
+  ) {
+    const specialties = await this.ensureStaffingSpecialties(tx, organizationId);
+    const branchToken = this.normalizeCode(branchCode || branchName).toLowerCase();
+
+    for (const rule of MIN_BRANCH_STAFFING) {
+      const specialtyId = specialties.get(rule.specialtyName);
+      if (!specialtyId) throw new BadRequestException(`Missing specialty ${rule.specialtyName}`);
+
+      for (let index = 1; index <= rule.minimum; index += 1) {
+        const email = `auto.${rule.label.toLowerCase()}.${index}.${branchToken}@dentalwarner.local`;
+        const professional = await tx.professional.create({
+          data: {
+            organizationId,
+            firstName: `Dr. ${rule.label}`,
+            lastName: `${branchName} ${index}`,
+            email,
+            color: rule.label === "General" ? "#0f766e" : "#7c3aed",
+            isActive: true
+          }
+        });
+
+        await tx.professionalSpecialty.create({
+          data: { professionalId: professional.id, specialtyId }
+        });
+        await tx.professionalBranch.create({
+          data: {
+            professionalId: professional.id,
+            branchId,
+            isPrimary: true,
+            status: ProfessionalBranchStatus.ACTIVE
+          }
+        });
+      }
+    }
+  }
+
+  private async ensureStaffingSpecialties(tx: Prisma.TransactionClient, organizationId: string) {
+    const rows = new Map<string, string>();
+
+    for (const specialtyName of ALLOWED_SPECIALTY_NAMES) {
+      const specialty = await tx.specialty.upsert({
+        where: {
+          organizationId_name: {
+            organizationId,
+            name: specialtyName
+          }
+        },
+        update: { isActive: true },
+        create: { organizationId, name: specialtyName, isActive: true }
+      });
+      rows.set(specialtyName, specialty.id);
+    }
+
+    return rows;
+  }
+
+  private async assertBranchStaffingMinimum(actor: AuthUser, branchId: string) {
+    for (const rule of MIN_BRANCH_STAFFING) {
+      const count = await this.countBranchProfessionalsBySpecialty(actor, branchId, rule.specialtyName);
+      if (count < rule.minimum) {
+        throw new BadRequestException(
+          `Branch must have at least ${rule.minimum} active ${rule.specialtyName} professional(s) before activation`
+        );
+      }
+    }
+  }
+
+  private async countBranchProfessionalsBySpecialty(actor: AuthUser, branchId: string, specialtyName: string) {
+    const now = new Date();
+    const professionals = await this.prisma.professional.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        isActive: true,
+        branches: {
+          some: {
+            branchId,
+            status: ProfessionalBranchStatus.ACTIVE,
+            startsAt: { lte: now },
+            OR: [{ endsAt: null }, { endsAt: { gt: now } }]
+          }
+        }
+      },
+      select: { specialties: { select: { specialty: { select: { name: true } } } } }
+    });
+
+    return professionals.filter((professional) =>
+      professional.specialties.some((item) => resolveAllowedSpecialtyName(item.specialty.name) === specialtyName)
+    ).length;
   }
 }

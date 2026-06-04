@@ -282,9 +282,9 @@ model Branch {
   country                     String?                      @default("MX")
   timezone                    String?                      @default("America/Mexico_City")
   /// Agenda configuration per branch (minutes per slot, visible start/end hours).
-  /// Defaults match typical clinics (08:00–19:00 with 30 minute slots).
+  /// Defaults match clinic operations (10:00-19:00 with 30 minute slots).
   agendaSlotMinutes           Int                          @default(30)
-  agendaStartHour             Int                          @default(8)
+  agendaStartHour             Int                          @default(10)
   agendaEndHour               Int                          @default(19)
   isActive                    Boolean                      @default(true)
   code                        String?

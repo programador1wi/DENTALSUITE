@@ -24,10 +24,11 @@ export class ProfessionalsController {
     @CurrentUser() user: AuthUser,
     @Query("search") search?: string,
     @Query("active") active?: string,
+    @Query("branchId") branchId?: string,
     @Query("page") page?: number,
     @Query("pageSize") pageSize?: number
   ) {
-    return this.professionalsService.findAll(user, search, active, page, pageSize);
+    return this.professionalsService.findAll(user, search, active, branchId, page, pageSize);
   }
 
   @Get(":id")

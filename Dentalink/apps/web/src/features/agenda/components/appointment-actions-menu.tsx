@@ -36,6 +36,7 @@ export function AppointmentActionsMenu({
   const [openUp, setOpenUp] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const hasPatient = Boolean(appointment.patientId);
+  const canReschedule = canRescheduleAppointment(appointment.status);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -164,7 +165,7 @@ export function AppointmentActionsMenu({
 
           <ActionItem onClick={() => handleAction("modifyDuration")}>Modificar duración</ActionItem>
           <ActionItem onClick={() => handleAction("addComment")}>Agregar comentario</ActionItem>
-          <ActionItem onClick={() => handleAction("changeDate")}>Cambiar fecha</ActionItem>
+          <ActionItem disabled={!canReschedule} onClick={() => handleAction("changeDate")}>Cambiar fecha</ActionItem>
           <ActionItem onClick={() => handleAction("changeStatus")}>Cambiar estado</ActionItem>
           <ActionItem onClick={() => handleAction("notifyEmail")}>Notificar por email</ActionItem>
           <ActionItem onClick={() => handleAction("viewHistory")}>Ver historial de cambios</ActionItem>
@@ -173,6 +174,10 @@ export function AppointmentActionsMenu({
       )}
     </div>
   );
+}
+
+function canRescheduleAppointment(status: Appointment["status"]) {
+  return ["SCHEDULED", "PENDING_CONFIRMATION", "CONFIRMED", "ARRIVED", "WAITING_ROOM", "RESCHEDULED"].includes(status);
 }
 
 function ActionItem({

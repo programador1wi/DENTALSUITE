@@ -22,7 +22,7 @@ export function HelpTooltip({ content, position = "top", children }: HelpTooltip
   };
 
   return (
-    <div className="relative group inline-flex items-center shrink-0">
+    <div className="relative group inline-flex items-center shrink-0 hover:z-[100]">
       {children ? (
         <div className="cursor-help">{children}</div>
       ) : (

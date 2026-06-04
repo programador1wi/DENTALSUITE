@@ -9,10 +9,16 @@ import {
   type ProfessionalPayload
 } from "../services/professionals.service";
 
-export function useProfessionals(search?: string, active?: string) {
+type ProfessionalQueryOptions = {
+  branchId?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export function useProfessionals(search?: string, active?: string, options?: ProfessionalQueryOptions) {
   return useQuery({
-    queryKey: ["settings", "professionals", search, active],
-    queryFn: () => listProfessionals({ search, active })
+    queryKey: ["settings", "professionals", search, active, options],
+    queryFn: () => listProfessionals({ search, active, ...options })
   });
 }
 

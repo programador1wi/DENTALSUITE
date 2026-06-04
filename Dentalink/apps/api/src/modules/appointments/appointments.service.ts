@@ -4,6 +4,7 @@ import { resolvePagination } from "../../common/utils/pagination.util";
 import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
+import { isAllowedSpecialtyName, resolveAllowedSpecialtyName, withAllowedSpecialtyName } from "../../common/utils/specialty-policy.util";
 import { AppointmentQueryDto } from "./dto/appointment-query.dto";
 import {
   AppointmentStatusReasonDto,
@@ -120,13 +121,15 @@ export class AppointmentsService {
         : {})
     };
 
-    return this.prisma.appointment.findMany({
+    const appointments = await this.prisma.appointment.findMany({
       where,
       skip,
       take,
       include: this.include(),
       orderBy: [{ startAt: "asc" }, { professionalId: "asc" }]
     });
+
+    return appointments.map((appointment) => this.withCanonicalSpecialty(appointment));
   }
 
   async findOne(actor: AuthUser, id: string) {
@@ -148,6 +151,46 @@ export class AppointmentsService {
 
     if (!appointment) throw new NotFoundException("Appointment not found");
     return appointment;
+  }
+
+  async listReasonSuggestions(actor: AuthUser, specialtyId?: string) {
+    const specialtyIds = specialtyId ? await this.resolveEquivalentSpecialtyIds(actor, specialtyId) : undefined;
+    const rows = await this.prisma.appointment.groupBy({
+      by: ["reason", "durationMinutes"],
+      where: {
+        organizationId: actor.organizationId,
+        branchId: { in: actor.branchIds },
+        reason: { not: null },
+        ...(specialtyIds ? { specialtyId: { in: specialtyIds } } : {})
+      },
+      _count: { _all: true }
+    });
+
+    const byReason = new Map<
+      string,
+      { id: string; name: string; durationMinutes: number; color: null; isActive: boolean; source: "history"; count: number }
+    >();
+
+    for (const row of rows) {
+      const name = row.reason?.trim();
+      if (!name) continue;
+
+      const key = this.normalizeReasonKey(name);
+      const current = byReason.get(key);
+      if (!current || row._count._all > current.count) {
+        byReason.set(key, {
+          id: `history:${encodeURIComponent(key)}`,
+          name,
+          durationMinutes: row.durationMinutes,
+          color: null,
+          isActive: true,
+          source: "history",
+          count: row._count._all
+        });
+      }
+    }
+
+    return Array.from(byReason.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)).slice(0, 24);
   }
 
   async create(actor: AuthUser, dto: CreateAppointmentDto) {
@@ -301,19 +344,36 @@ export class AppointmentsService {
 
   async reschedule(actor: AuthUser, id: string, dto: RescheduleAppointmentDto) {
     const current = await this.findOne(actor, id);
+    const branchId = dto.branchId ?? current.branchId;
+    const professionalId = dto.professionalId ?? current.professionalId;
     const startAt = new Date(dto.startAt);
     const endAt = new Date(dto.endAt);
     const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
+    const keepCurrentChair = current.chairId && branchId === current.branchId && professionalId === current.professionalId;
+    const chairId =
+      dto.chairId ??
+      (keepCurrentChair ? current.chairId ?? undefined : await this.defaultChairForSchedule(actor, branchId, professionalId, startAt));
+    const specialtyId = dto.specialtyId ?? current.specialtyId ?? undefined;
 
+    assertBranchAccess(actor, branchId);
     this.assertStatusTransition(current.status, AppointmentStatus.RESCHEDULED);
     this.validateDates(startAt, endAt, durationMinutes);
-    await this.validateDurationSlotEnforcement(actor, current.branchId, current.professionalId, durationMinutes, startAt);
+    await this.validateDurationSlotEnforcement(actor, branchId, professionalId, durationMinutes, startAt);
+    await this.validateReferences(actor, {
+      branchId,
+      patientId: current.patientId ?? undefined,
+      professionalId,
+      chairId,
+      specialtyId,
+      status: AppointmentStatus.SCHEDULED,
+      startAt
+    });
     await this.enforceSchedulingRules(
       actor,
       {
-        branchId: current.branchId,
-        professionalId: current.professionalId,
-        chairId: current.chairId ?? undefined,
+        branchId,
+        professionalId,
+        chairId,
         startAt,
         endAt,
         status: AppointmentStatus.SCHEDULED
@@ -325,6 +385,10 @@ export class AppointmentsService {
       await tx.appointment.update({
         where: { id },
         data: {
+          branchId,
+          professionalId,
+          chairId: chairId ?? null,
+          specialtyId,
           startAt,
           endAt,
           durationMinutes,
@@ -394,8 +458,13 @@ export class AppointmentsService {
 
     if (!schedule) return { slots: [] };
 
-    const dayStart = this.atTime(date, schedule.startTime);
-    const dayEnd = this.atTime(date, schedule.endTime);
+    const scheduleStart = this.atTime(date, schedule.startTime);
+    const scheduleEnd = this.atTime(date, schedule.endTime);
+    const branchStart = this.atTime(date, `${String(agendaConfig.agendaStartHour).padStart(2, "0")}:00`);
+    const branchEnd = this.atTime(date, `${String(agendaConfig.agendaEndHour).padStart(2, "0")}:00`);
+    const dayStart = new Date(Math.max(scheduleStart.getTime(), branchStart.getTime()));
+    const dayEnd = new Date(Math.min(scheduleEnd.getTime(), branchEnd.getTime()));
+    if (dayStart >= dayEnd) return { slots: [] };
     const busy = await this.busyAppointments(actor, {
       professionalId: query.professionalId,
       chairId: query.chairId,
@@ -627,9 +696,9 @@ export class AppointmentsService {
 
     if (input.specialtyId) {
       const specialty = await this.prisma.specialty.findFirst({
-        where: { id: input.specialtyId, organizationId: actor.organizationId, isActive: true }
+        where: { id: input.specialtyId, organizationId: actor.organizationId }
       });
-      if (!specialty) throw new BadRequestException("Invalid specialtyId");
+      if (!specialty || !isAllowedSpecialtyName(specialty.name)) throw new BadRequestException("Invalid specialtyId");
     }
   }
 
@@ -699,6 +768,13 @@ export class AppointmentsService {
 
     const scheduleStart = this.atTime(input.startAt, schedule.startTime);
     const scheduleEnd = this.atTime(input.startAt, schedule.endTime);
+    const agendaConfig = await this.resolveAgendaConfig(actor, input.branchId, input.professionalId, input.startAt);
+    const branchStart = this.atTime(input.startAt, `${String(agendaConfig.agendaStartHour).padStart(2, "0")}:00`);
+    const branchEnd = this.atTime(input.startAt, `${String(agendaConfig.agendaEndHour).padStart(2, "0")}:00`);
+    if (input.startAt < branchStart || input.endAt > branchEnd) {
+      throw new BadRequestException("Appointment is outside branch agenda hours");
+    }
+
     if (input.startAt < scheduleStart || input.endAt > scheduleEnd) {
       throw new BadRequestException("Appointment is outside professional schedule");
     }
@@ -707,7 +783,6 @@ export class AppointmentsService {
       throw new BadRequestException("Appointment overlaps professional break");
     }
 
-    const agendaConfig = await this.resolveAgendaConfig(actor, input.branchId, input.professionalId, input.startAt);
     const minutesFromScheduleStart = this.diffMinutes(scheduleStart, input.startAt);
     if (minutesFromScheduleStart % agendaConfig.agendaSlotMinutes !== 0) {
       throw new BadRequestException(`Appointment startAt must align to professional slot minutes (${agendaConfig.agendaSlotMinutes} minutes)`);
@@ -792,6 +867,42 @@ export class AppointmentsService {
     } satisfies Prisma.AppointmentInclude;
   }
 
+  private withCanonicalSpecialty<T extends { specialty?: { name: string } | null }>(appointment: T): T {
+    if (!appointment.specialty) return appointment;
+    return {
+      ...appointment,
+      specialty: withAllowedSpecialtyName(appointment.specialty)
+    } as T;
+  }
+
+  private async resolveEquivalentSpecialtyIds(actor: AuthUser, specialtyId: string) {
+    const selected = await this.prisma.specialty.findFirst({
+      where: { id: specialtyId, organizationId: actor.organizationId }
+    });
+    if (!selected) throw new BadRequestException("Invalid specialtyId");
+
+    const selectedName = resolveAllowedSpecialtyName(selected.name);
+    if (!selectedName) throw new BadRequestException("Invalid specialtyId");
+
+    const specialties = await this.prisma.specialty.findMany({
+      where: { organizationId: actor.organizationId },
+      select: { id: true, name: true }
+    });
+
+    return specialties
+      .filter((specialty) => resolveAllowedSpecialtyName(specialty.name) === selectedName)
+      .map((specialty) => specialty.id);
+  }
+
+  private normalizeReasonKey(value: string) {
+    return value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   private async defaultChairForSchedule(actor: AuthUser, branchId: string, professionalId: string, startAt: Date) {
     const schedule = await this.prisma.professionalSchedule.findFirst({
       where: {
@@ -863,7 +974,7 @@ export class AppointmentsService {
       select: {
         agendaSlotMinutes: true,
         defaultAppointmentDurationMinutes: true,
-        branch: { select: { agendaSlotMinutes: true } }
+        branch: { select: { agendaSlotMinutes: true, agendaStartHour: true, agendaEndHour: true } }
       }
     });
 
@@ -872,7 +983,9 @@ export class AppointmentsService {
     const agendaSlotMinutes = assignment.agendaSlotMinutes ?? assignment.branch.agendaSlotMinutes;
     return {
       agendaSlotMinutes,
-      defaultAppointmentDurationMinutes: assignment.defaultAppointmentDurationMinutes ?? agendaSlotMinutes
+      defaultAppointmentDurationMinutes: assignment.defaultAppointmentDurationMinutes ?? agendaSlotMinutes,
+      agendaStartHour: assignment.branch.agendaStartHour,
+      agendaEndHour: assignment.branch.agendaEndHour
     };
   }
 }

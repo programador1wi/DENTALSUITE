@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { AlertTriangle, CalendarClock, ChevronRight, ClipboardList, IdCard, Mail, Phone, UserRound, WalletCards } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { WarnerSuitePanel } from "@/components/layout/module-tabs";
@@ -12,6 +12,7 @@ import { useBranchStore } from "@/stores/branch.store";
 import { useDeactivatePatient, usePatients } from "../hooks/use-patients";
 import type { PatientListItem } from "../services/patients.service";
 import { PatientsModuleTabs } from "../components/patients-module-tabs";
+import { PatientSearchBox } from "../components/patient-search-box";
 import { getPatientStatusLabel, getPatientStatusTone } from "../components/patient-status";
 
 type FilterState = {
@@ -151,6 +152,7 @@ function PatientPreview({ patient, number }: { patient: PatientListItem; number:
 }
 
 export function PatientsPage() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { activeBranchId, setActiveBranchId } = useBranchStore();
   const [filters, setFilters] = useState<FilterState>(() => ({
@@ -210,9 +212,9 @@ export function PatientsPage() {
     setConfirmId(null);
   };
 
-  const submitFilters = () => {
+  const submitFilters = (searchOverride = filters.search) => {
     const next = new URLSearchParams(searchParams);
-    if (filters.search.trim()) next.set("search", filters.search.trim());
+    if (searchOverride.trim()) next.set("search", searchOverride.trim());
     else next.delete("search");
     if (selectedBranchId) next.set("branchId", selectedBranchId);
     else next.delete("branchId");
@@ -235,16 +237,16 @@ export function PatientsPage() {
 
       <div className="p-3">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="relative w-full max-w-[360px]">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#0784d8]">Q</span>
-            <input
-              className="h-10 w-full rounded border border-slate-300 pl-10 pr-3 text-sm outline-none focus:border-[#0784d8]"
+          <div className="w-full max-w-[360px]">
+            <PatientSearchBox
               placeholder="Buscar por nombre o apellido..."
               value={filters.search}
-              onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") submitFilters();
+              onValueChange={(value) => setFilters((prev) => ({ ...prev, search: value }))}
+              onSubmit={(value) => submitFilters(value)}
+              onSelect={(patient) => {
+                navigate(`/patients/${patient.id}/profile`);
               }}
+              inputClassName="rounded border-slate-300 focus:border-[#0784d8]"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -286,7 +288,7 @@ export function PatientsPage() {
               <option value="ortodoncia">Ortodoncia</option>
               <option value="general">General</option>
             </select>
-            <button className="h-10 rounded bg-[#8bcf8f] px-5 text-sm font-bold text-white" type="button" onClick={submitFilters}>
+            <button className="h-10 rounded bg-[#8bcf8f] px-5 text-sm font-bold text-white" type="button" onClick={() => submitFilters()}>
               Buscar
             </button>
           </div>

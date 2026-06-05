@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/layout/page-header";
@@ -221,6 +222,27 @@ export function PriceListsSettingsPage() {
         .filter((procedure) => procedureMatchesSearch(procedure, normalizedSearch))
     : [];
   const filteredCategories = (selectedList?.categories ?? []).filter((category) => categoryMatchesSearch(category, search));
+  const priceSearchSuggestions = useMemo(
+    () =>
+      (selectedList?.categories ?? []).flatMap((category) => [
+        { id: `category:${category.id}`, type: "category" as const, label: category.name, category },
+        ...proceduresForPriceCategory(category).map((procedure) => ({
+          id: `procedure:${procedure.id}`,
+          type: "procedure" as const,
+          label: procedure.name,
+          code: procedure.code,
+          category
+        }))
+      ]).filter((item) => {
+        const query = search.trim().toLowerCase();
+        if (!query) return false;
+        return [item.label, "code" in item ? item.code : "", item.category.name]
+          .join(" ")
+          .toLowerCase()
+          .includes(query);
+      }),
+    [search, selectedList]
+  );
   const priceByProcedureId = useMemo(
     () => new Map(selectedList?.items.map((item) => [item.procedureId, item]) ?? []),
     [selectedList]
@@ -460,11 +482,26 @@ export function PriceListsSettingsPage() {
 
             <label className="text-sm font-medium text-slate-700">
               Buscar prestacion, codigo o categoria
-              <Input
+              <EntitySearchBox
                 className="mt-1"
                 placeholder="Ej. consulta, endodoncia o codigo interno"
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onValueChange={setSearch}
+                items={priceSearchSuggestions}
+                onSelect={(item) => {
+                  setSearch(item.label);
+                  openCategory(item.category.id);
+                }}
+                getItemKey={(item) => item.id}
+                emptyMessage="Sin prestaciones encontradas"
+                renderItem={(item) => (
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{item.label}</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                      {item.type === "procedure" ? `${item.code} · ${item.category.name}` : "Categoria"}
+                    </p>
+                  </div>
+                )}
               />
             </label>
 
@@ -855,11 +892,23 @@ function PriceListAvailability({
           </label>
           <label className="text-sm font-medium text-slate-700">
             Buscar
-            <Input
+            <EntitySearchBox
               className="mt-1"
               placeholder="Sucursal, codigo, marca o zona"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onValueChange={setSearch}
+              items={search.trim() ? filteredBranches : []}
+              onSelect={(branch) => setSearch(branch.name)}
+              getItemKey={(branch) => branch.id}
+              emptyMessage="Sin sucursales encontradas"
+              renderItem={(branch) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{branch.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {[branch.code, branch.brand?.name, branch.zone?.name].filter(Boolean).join(" · ") || "Sin clasificacion"}
+                  </p>
+                </div>
+              )}
             />
           </label>
         </div>

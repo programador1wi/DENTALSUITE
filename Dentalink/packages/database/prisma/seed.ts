@@ -1024,6 +1024,45 @@ async function seedSpecialtyAppointmentReasons(specialtyIdsByName: Map<string, s
     if (!specialtyId) continue;
 
     for (const reason of reasons) {
+      for (const legacyName of reason.legacyNames ?? []) {
+        const existingReason = await (prisma as any).specialtyAppointmentReason.findUnique({
+          where: {
+            specialtyId_name: {
+              specialtyId,
+              name: legacyName
+            }
+          }
+        });
+
+        if (!existingReason) continue;
+
+        const targetReason = await (prisma as any).specialtyAppointmentReason.findUnique({
+          where: {
+            specialtyId_name: {
+              specialtyId,
+              name: reason.name
+            }
+          }
+        });
+
+        if (targetReason) {
+          await (prisma as any).specialtyAppointmentReason.update({
+            where: { id: existingReason.id },
+            data: { isActive: false }
+          });
+        } else {
+          await (prisma as any).specialtyAppointmentReason.update({
+            where: { id: existingReason.id },
+            data: {
+              name: reason.name,
+              durationMinutes: reason.durationMinutes,
+              color: reason.color,
+              isActive: true
+            }
+          });
+        }
+      }
+
       await (prisma as any).specialtyAppointmentReason.upsert({
         where: {
           specialtyId_name: {

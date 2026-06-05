@@ -2,10 +2,11 @@ export type AppointmentReasonSeed = {
   name: string;
   durationMinutes: number;
   color: string;
+  legacyNames?: string[];
 };
 
 export const GENERAL_APPOINTMENT_REASON_SEEDS: AppointmentReasonSeed[] = [
-  { name: "1ER SESIÓN DE ENDODONCIA", durationMinutes: 80, color: "#0ea5e9" },
+  { name: "1RA SESION DE ENDODONCIA", durationMinutes: 80, color: "#0ea5e9", legacyNames: ["1ER SESIÓN DE ENDODONCIA"] },
   { name: "2DA SESION DE ENDODONCIA", durationMinutes: 60, color: "#0ea5e9" },
   { name: "3RA SESIÓN DE ENDODONCIA", durationMinutes: 60, color: "#0ea5e9" },
   { name: "AJUSTE DE OCLUSION", durationMinutes: 20, color: "#0ea5e9" },
@@ -22,10 +23,6 @@ export const GENERAL_APPOINTMENT_REASON_SEEDS: AppointmentReasonSeed[] = [
   { name: "COLOCACIÓN DE IMPLANTE", durationMinutes: 120, color: "#0ea5e9" },
   { name: "COLOCACION ENDOPOSTE Y PREPARACION PARA CORONA", durationMinutes: 80, color: "#0ea5e9" },
   { name: "CONSULTA DIAGNOSTICO GENERAL", durationMinutes: 40, color: "#0ea5e9" },
-  { name: "CONSULTA DIAGNOSTICO GENERAL - CARLOS M", durationMinutes: 40, color: "#0ea5e9" },
-  { name: "CONSULTA DIAGNOSTICO GENERAL - JHOVANA T", durationMinutes: 40, color: "#0ea5e9" },
-  { name: "CONSULTA DIAGNOSTICO GENERAL - OSIRIS C", durationMinutes: 40, color: "#0ea5e9" },
-  { name: "CONSULTA DIAGNOSTICO GENERAL - RUBEN L", durationMinutes: 40, color: "#0ea5e9" },
   { name: "CURACION DE IONOMERO / ZOE", durationMinutes: 40, color: "#0ea5e9" },
   { name: "CURETAJE ABIERTO O CERRADO", durationMinutes: 80, color: "#0ea5e9" },
   { name: "DRENAJE DE ABCESO", durationMinutes: 40, color: "#0ea5e9" },
@@ -67,10 +64,6 @@ export const ORTHODONTICS_APPOINTMENT_REASON_SEEDS: AppointmentReasonSeed[] = [
   { name: "MENSUALIDAD ORTODONCIA / ORTOPEDIA", durationMinutes: 20, color: "#7c3aed" },
   { name: "REPOSICION Y CEMENTADO DE BRACKETS", durationMinutes: 40, color: "#7c3aed" },
   { name: "CONSULTA DIAGNOSTICO ORTODONCIA", durationMinutes: 40, color: "#7c3aed" },
-  { name: "CONSULTA DIAGNOSTICO ORTODONCIA - CARLOS M", durationMinutes: 40, color: "#7c3aed" },
-  { name: "CONSULTA DIAGNOSTICO ORTODONCIA - JHOVANA T", durationMinutes: 40, color: "#7c3aed" },
-  { name: "CONSULTA DIAGNOSTICO ORTODONCIA - OSIRIS C", durationMinutes: 40, color: "#7c3aed" },
-  { name: "CONSULTA DIAGNOSTICO ORTODONCIA - RUBEN L", durationMinutes: 40, color: "#7c3aed" },
   { name: "RETIRO DE BRACKETS", durationMinutes: 60, color: "#7c3aed" }
 ];
 

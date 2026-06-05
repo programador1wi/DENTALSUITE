@@ -218,6 +218,10 @@ export class ListCashRegistersQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
 }
 
 export class CreateCashMovementDto {
@@ -260,6 +264,10 @@ export class ListAccountsReceivableQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   branchId?: string;
+
+  @IsOptional()
+  @IsString()
+  patientId?: string;
 
   @IsOptional()
   @IsString()

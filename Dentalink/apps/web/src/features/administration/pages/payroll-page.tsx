@@ -1,8 +1,9 @@
+import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, FileText, Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Download, FileText } from "lucide-react";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 
@@ -13,6 +14,16 @@ const mockSettlements = [
 ];
 
 export function PayrollPage() {
+  const [search, setSearch] = useState("");
+  const [selectedSettlementId, setSelectedSettlementId] = useState("");
+  const filteredSettlements = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return mockSettlements;
+    return mockSettlements.filter((item) =>
+      [item.id, item.doctor, item.period, item.status].join(" ").toLowerCase().includes(query)
+    );
+  }, [search]);
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-start">
@@ -24,9 +35,28 @@ export function PayrollPage() {
 
       <Card className="p-4">
         <div className="flex flex-wrap gap-4 mb-6">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input placeholder="Buscar por profesional o ID..." className="pl-9" />
+          <div className="flex-1 min-w-[200px]">
+            <EntitySearchBox
+              placeholder="Buscar por profesional o ID..."
+              value={search}
+              onValueChange={(value) => {
+                setSearch(value);
+                setSelectedSettlementId("");
+              }}
+              items={search.trim() ? filteredSettlements : []}
+              onSelect={(item) => {
+                setSearch(item.id);
+                setSelectedSettlementId(item.id);
+              }}
+              getItemKey={(item) => item.id}
+              emptyMessage="Sin liquidaciones encontradas"
+              renderItem={(item) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{item.id} · {item.doctor}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{item.period} · {item.status}</p>
+                </div>
+              )}
+            />
           </div>
           <Select className="w-48">
             <option value="all">Todos los estados</option>
@@ -53,8 +83,8 @@ export function PayrollPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
-              {mockSettlements.map((item) => (
-                <tr key={item.id} className="hover:bg-slate-50">
+              {filteredSettlements.map((item) => (
+                <tr key={item.id} className={selectedSettlementId === item.id ? "bg-sky-50 ring-1 ring-inset ring-sky-200" : "hover:bg-slate-50"}>
                   <td className="px-4 py-3 font-medium text-slate-900">{item.id}</td>
                   <td className="px-4 py-3 text-slate-700">{item.doctor}</td>
                   <td className="px-4 py-3 text-slate-500">{item.period}</td>

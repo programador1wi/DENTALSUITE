@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
@@ -90,10 +91,25 @@ export function LabsPage({ enabledOnly = false }: { enabledOnly?: boolean }) {
         </LabInfoBanner>
 
         <div className="max-w-md">
-          <Input
+          <EntitySearchBox
             placeholder="Buscar laboratorio por nombre, telefono o email"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onValueChange={setSearch}
+            items={search.trim() ? providers.data ?? [] : []}
+            onSelect={(provider) => {
+              setSearch(provider.name);
+              openEdit(provider);
+            }}
+            getItemKey={(provider) => provider.id}
+            emptyMessage="Sin laboratorios encontrados"
+            renderItem={(provider) => (
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{provider.name}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {[provider.phone, provider.email].filter(Boolean).join(" · ") || "Sin contacto"}
+                </p>
+              </div>
+            )}
           />
         </div>
 

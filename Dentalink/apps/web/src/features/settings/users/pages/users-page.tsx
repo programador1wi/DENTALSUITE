@@ -16,6 +16,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -492,10 +493,23 @@ export function UsersPage() {
           <PageHeader title="Personal y usuarios" description="Alta, acceso, rol y expediente operativo del colaborador." />
 
           <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-[minmax(240px,1fr)_260px]">
-            <Input
+            <EntitySearchBox
               placeholder="Buscar por nombre o correo"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onValueChange={setSearch}
+              items={search.trim() ? users.data ?? [] : []}
+              onSelect={(user) => {
+                setSearch(userDisplayName(user));
+                openEdit(user);
+              }}
+              getItemKey={(user) => user.id}
+              emptyMessage="Sin usuarios encontrados"
+              renderItem={(user) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{userDisplayName(user)}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{user.email}</p>
+                </div>
+              )}
             />
             <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
               Filtrar usuarios
@@ -520,8 +534,7 @@ export function UsersPage() {
           {users.data ? (
             <DataTable
               rows={users.data}
-              tableClassName="table-fixed"
-              containerClassName="overflow-hidden"
+              tableClassName="w-full table-fixed"
               empty={
                 <EmptyState
                   title="Sin usuarios"
@@ -533,7 +546,7 @@ export function UsersPage() {
                   key: "firstName",
                   title: "Usuario",
                   wrap: true,
-                  headerClassName: "w-[22%]",
+                  headerClassName: "w-[180px]",
                   cellClassName: "min-w-0",
                   render: (row) => (
                     <div className="min-w-0">
@@ -546,7 +559,7 @@ export function UsersPage() {
                   key: "email",
                   title: "Contacto",
                   wrap: true,
-                  headerClassName: "w-[22%]",
+                  headerClassName: "w-auto",
                   cellClassName: "min-w-0",
                   render: (row) => (
                     <div className="min-w-0">
@@ -561,14 +574,14 @@ export function UsersPage() {
                   key: "branches",
                   title: "Sucursales",
                   wrap: true,
-                  headerClassName: "w-[30%]",
+                  headerClassName: "w-[220px]",
                   cellClassName: "min-w-0",
                   render: (row) => <BranchSummary branches={row.branches} />
                 },
                 {
                   key: "status",
                   title: "Estado",
-                  headerClassName: "w-[110px]",
+                  headerClassName: "w-[96px]",
                   render: (row) => (
                     <Badge
                       value={row.status}
@@ -585,9 +598,10 @@ export function UsersPage() {
                 {
                   key: "id",
                   title: "Acciones",
-                  headerClassName: "w-[168px] text-right",
+                  headerClassName: "w-[184px] text-right",
+                  cellClassName: "w-[184px]",
                   render: (row) => (
-                    <div className="flex flex-nowrap justify-end gap-1">
+                    <div className="flex min-w-[140px] flex-nowrap justify-end gap-1">
                       {row.professional?.isActive ? (
                         <>
                           <ActionLink
@@ -1073,7 +1087,7 @@ function ActionButton({
       title={title}
       disabled={disabled}
       onClick={onClick}
-      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-[#0679c8] disabled:cursor-not-allowed disabled:opacity-40"
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-[#0679c8] disabled:cursor-not-allowed disabled:opacity-40"
     >
       {children}
     </button>
@@ -1085,7 +1099,7 @@ function ActionLink({ children, title, to }: { children: ReactNode; title: strin
     <Link
       title={title}
       to={to}
-      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-[#0679c8]"
+      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-[#0679c8]"
     >
       {children}
     </Link>

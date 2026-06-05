@@ -5,6 +5,7 @@ import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { ModuleTabs } from "@/components/layout/module-tabs";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +54,10 @@ function shortId(id: string) {
   return id.slice(-6).toUpperCase();
 }
 
+function cashRegisterSearchLabel(register: CashRegister) {
+  return `${shortId(register.id)} · ${userName(register)} · ${register.branch.name}`;
+}
+
 function paymentAgreement(movement: CashRegisterMovement) {
   const payment = movement.payment;
   if (!payment) return "-";
@@ -87,7 +92,7 @@ export function CashRegisterPage() {
     () => branches.data?.find((branch) => branch.id === activeBranchId),
     [branches.data, activeBranchId]
   );
-  const cashRegisters = useCashRegisters({ branchId: selectedBranchId || undefined, status });
+  const cashRegisters = useCashRegisters({ branchId: selectedBranchId || undefined, status, search: search || undefined });
   const detail = useCashRegisterDetail(detailRegisterId);
   const mutations = usePaymentsMutations();
 
@@ -186,7 +191,26 @@ export function CashRegisterPage() {
             <div className="flex flex-wrap items-end gap-4">
               <label className="text-sm">
                 Usuario:
-                <input className="mt-1 block h-11 w-[255px] rounded border border-slate-300 px-3 text-lg" placeholder="Buscar usuario" value={search} onChange={(event) => setSearch(event.target.value)} />
+                <EntitySearchBox
+                  className="mt-1 w-[255px]"
+                  inputClassName="h-11 rounded border-slate-300 text-lg"
+                  placeholder="Buscar usuario"
+                  value={search}
+                  onValueChange={setSearch}
+                  items={search.trim() ? rows : []}
+                  onSelect={(register) => {
+                    setSearch(shortId(register.id));
+                    setDetailRegisterId(register.id);
+                  }}
+                  getItemKey={(register) => register.id}
+                  emptyMessage="Sin cajas encontradas"
+                  renderItem={(register) => (
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{cashRegisterSearchLabel(register)}</p>
+                      <p className="mt-0.5 truncate text-xs text-slate-500">{dateTime(register.openedAt)}</p>
+                    </div>
+                  )}
+                />
               </label>
               <label className="text-sm">
                 Fecha apertura:
@@ -204,7 +228,26 @@ export function CashRegisterPage() {
 
         {isSearch && (
           <div className="mb-4 flex flex-wrap items-center gap-3">
-            <input className="h-10 w-[320px] rounded border border-slate-300 px-3" placeholder="Buscar caja por usuario, sucursal o ID" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <EntitySearchBox
+              className="w-[320px]"
+              inputClassName="rounded border-slate-300"
+              placeholder="Buscar caja por usuario, sucursal o ID"
+              value={search}
+              onValueChange={setSearch}
+              items={search.trim() ? rows : []}
+              onSelect={(register) => {
+                setSearch(shortId(register.id));
+                setDetailRegisterId(register.id);
+              }}
+              getItemKey={(register) => register.id}
+              emptyMessage="Sin cajas encontradas"
+              renderItem={(register) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{cashRegisterSearchLabel(register)}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{register.status} · {dateTime(register.openedAt)}</p>
+                </div>
+              )}
+            />
             <select className="h-10 rounded border border-slate-300 px-3" value={branchId} onChange={(event) => setBranchId(event.target.value)}>
               <option value="">Sucursal activa</option>
               {branches.data?.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}

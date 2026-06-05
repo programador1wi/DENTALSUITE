@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { DataTable } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
@@ -8,13 +7,16 @@ import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+import { PatientSearchBox, getPatientSearchLabel } from "@/features/patients/components/patient-search-box";
 import { useAccountsReceivable } from "../hooks/use-payments";
 
 export function AccountsReceivablePage() {
   const [search, setSearch] = useState("");
+  const [patientId, setPatientId] = useState("");
   const [branchId, setBranchId] = useState("");
   const branches = useBranches(undefined, "ACTIVE");
   const accountsReceivable = useAccountsReceivable({
+    patientId: patientId || undefined,
     search: search || undefined,
     branchId: branchId || undefined
   });
@@ -32,10 +34,17 @@ export function AccountsReceivablePage() {
 
       <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-2">
         <div className="flex items-center gap-1.5 w-full">
-          <Input 
+          <PatientSearchBox
             placeholder="Buscar paciente" 
             value={search} 
-            onChange={(event) => setSearch(event.target.value)} 
+            onValueChange={(value) => {
+              setSearch(value);
+              setPatientId("");
+            }}
+            onSelect={(patient) => {
+              setSearch(getPatientSearchLabel(patient));
+              setPatientId(patient.id);
+            }}
             className="flex-1"
           />
           <HelpTooltip content="Busca pacientes por nombre, apellido o RUT/DNI para consultar su estado y saldo deudor." />

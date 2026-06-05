@@ -10,6 +10,7 @@ import {
   DEFAULT_AGENDA_END_HOUR,
   DEFAULT_AGENDA_SLOT_MINUTES,
   DEFAULT_AGENDA_START_HOUR,
+  buildTimelineMarkersFromRange,
   buildTimeSlotsFromRange,
   getProfessionalBranchAgendaConfig,
   normalizeAgendaSlotMinutes,
@@ -27,6 +28,12 @@ function dayKey(value: string) {
 const DEFAULT_DAY_START_HOUR = DEFAULT_AGENDA_START_HOUR;
 const DEFAULT_DAY_END_HOUR = DEFAULT_AGENDA_END_HOUR;
 const DEFAULT_DAY_SLOT_MINUTES = DEFAULT_AGENDA_SLOT_MINUTES;
+const FREE_APPOINTMENT_STATUSES = new Set<AppointmentStatus>([
+  "CANCELLED_BY_PATIENT",
+  "CANCELLED_BY_CLINIC",
+  "NO_SHOW",
+  "RESCHEDULED"
+]);
 
 export function CalendarView({
   appointments,
@@ -132,7 +139,7 @@ export function CalendarView({
               <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">Semana</p>
               <h3 className="text-sm font-semibold text-zinc-900">{formatWeekRange(weekStart)}</h3>
             </div>
-            <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
+            <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-subtle)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)]">
               <UserRound className="h-3.5 w-3.5" />
               {displayProfessionals.length} doctores
             </div>
@@ -141,14 +148,14 @@ export function CalendarView({
           <div className="grid gap-2.5 p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {displayProfessionals.map((professional) => {
               const count = appointmentCounts[professional.id] ?? 0;
-              const accentColor = professional.color || "#18181b";
+              const accentColor = professional.color || "var(--text-primary)";
 
               return (
                 <button
                   key={professional.id}
                   type="button"
                   onClick={() => onSelectProfessional?.(professional.id)}
-                  className="group flex min-h-24 items-center gap-3 rounded-lg border border-zinc-200 bg-white p-3 text-left transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-zinc-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-zinc-300"
+                  className="group flex min-h-24 items-center gap-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 text-left transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
                 >
                   <span
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm"
@@ -197,21 +204,21 @@ export function CalendarView({
     const totalTimelineHeight = dayTimeSlots.length * daySlotHeight;
 
     return (
-      <div className="w-full rounded-xl border border-zinc-200/70 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-zinc-100 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+      <div className="w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-[var(--border-default)]/50 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-zinc-950 text-xs font-semibold text-white">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--text-brand-strong)] text-[var(--text-inverse)] font-semibold text-xs">
               {selectedProfessional.firstName.charAt(0)}{selectedProfessional.lastName.charAt(0)}
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">{formatWeekRange(weekStart)}</p>
-              <h3 className="truncate text-base font-semibold text-zinc-900">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">{formatWeekRange(weekStart)}</p>
+              <h3 className="truncate text-base font-semibold text-[var(--text-primary)]">
                 {selectedProfessional.firstName} {selectedProfessional.lastName}
               </h3>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-[11px] font-medium text-zinc-600">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-subtle)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)]">
               <Clock className="h-3.5 w-3.5" />
               {selectedAppointments.length} {selectedAppointments.length === 1 ? "cita" : "citas"}
             </span>
@@ -219,7 +226,7 @@ export function CalendarView({
               <button
                 type="button"
                 onClick={() => onSelectProfessional("")}
-                className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-50"
+                className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-subtle)]"
               >
                 Cambiar doctor
               </button>
@@ -230,20 +237,20 @@ export function CalendarView({
         <div className="overflow-x-auto">
           <div className="min-w-[980px]">
             <div
-              className="grid border-b border-zinc-200 bg-zinc-50/70"
+              className="grid border-b border-[var(--border-default)] bg-[var(--bg-subtle)]/70"
               style={{ gridTemplateColumns: "72px repeat(7, minmax(128px, 1fr))" }}
             >
-              <div className="sticky left-0 z-30 flex h-14 items-center justify-center border-r border-zinc-200 bg-zinc-50 text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">
+              <div className="sticky left-0 z-30 flex h-14 items-center justify-center border-r border-[var(--border-default)] bg-[var(--bg-subtle)] text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
                 Hora
               </div>
               {days.map((day) => {
                 const dayCount = appointmentsByDay[day.key]?.length ?? 0;
 
                 return (
-                  <div key={day.key} className="flex h-14 flex-col justify-center border-r border-zinc-200 px-3 last:border-r-0">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">{day.shortLabel}</span>
-                    <span className="text-xs font-semibold text-zinc-900">{day.label}</span>
-                    <span className="text-[10px] font-medium text-zinc-500">{dayCount} {dayCount === 1 ? "cita" : "citas"}</span>
+                  <div key={day.key} className="flex h-14 flex-col justify-center border-r border-[var(--border-default)] px-3 last:border-r-0">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">{day.shortLabel}</span>
+                    <span className="text-xs font-semibold text-[var(--text-primary)]">{day.label}</span>
+                    <span className="text-[10px] font-medium text-[var(--text-secondary)]">{dayCount} {dayCount === 1 ? "cita" : "citas"}</span>
                   </div>
                 );
               })}
@@ -253,11 +260,11 @@ export function CalendarView({
               className="grid"
               style={{ gridTemplateColumns: "72px repeat(7, minmax(128px, 1fr))" }}
             >
-              <div className="sticky left-0 z-20 border-r border-zinc-200 bg-zinc-50/80">
+              <div className="sticky left-0 z-20 border-r border-[var(--border-default)] bg-[var(--bg-subtle)]/80">
                 {dayTimeSlots.map((time) => (
                   <div
                     key={time}
-                    className="flex items-start justify-center border-b border-zinc-200/70 pt-1 text-[10px] font-medium text-zinc-500"
+                    className="flex items-start justify-center border-b border-[var(--border-default)]/70 pt-1 text-[10px] font-medium text-[var(--text-secondary)]"
                     style={{ height: daySlotHeight }}
                   >
                     {time}
@@ -278,7 +285,7 @@ export function CalendarView({
                 return (
                   <div
                     key={day.key}
-                    className="relative border-r border-zinc-200 bg-white last:border-r-0"
+                    className="relative border-r border-[var(--border-default)] bg-[var(--bg-surface)] last:border-r-0"
                     style={{ height: totalTimelineHeight }}
                   >
                     {dayTimeSlots.map((time, index) => (
@@ -296,10 +303,10 @@ export function CalendarView({
                           }
                           onCreateClick?.();
                         }}
-                        className="group absolute left-0 right-0 border-b border-zinc-100/90 transition-colors hover:bg-cyan-50/40"
+                        className="group absolute left-0 right-0 border-b border-[var(--border-default)]/50 transition-colors hover:bg-[var(--bg-brand-light)]/40"
                         style={{ top: index * daySlotHeight, height: daySlotHeight }}
                       >
-                        <span className="pointer-events-none absolute inset-1 flex items-center justify-center rounded-md text-cyan-700 opacity-0 transition-opacity group-hover:opacity-100">
+                        <span className="pointer-events-none absolute inset-1 flex items-center justify-center rounded-md text-[var(--text-brand)] opacity-0 transition-opacity group-hover:opacity-100">
                           <Plus className="h-3.5 w-3.5" />
                         </span>
                       </button>
@@ -419,35 +426,47 @@ export function CalendarView({
       fallbackStartHour: normalizedDayStartHour,
       fallbackEndHour: normalizedDayEndHour
     });
-    const dayViewTimeSlots = buildTimeSlotsFromRange(
+    const timelineScale = { slotMinutes: normalizedDaySlotMinutes, slotHeight: daySlotHeight };
+    const dayScaleTimeSlots = buildTimeSlotsFromRange(
       dayTimelineRange.startMinutes,
       dayTimelineRange.endMinutes,
       normalizedDaySlotMinutes,
       { endExclusive: true }
     );
-    const dayTimelineHeight = dayViewTimeSlots.length * daySlotHeight;
+    const dayTimelineHeight = dayScaleTimeSlots.length * daySlotHeight;
+    const hourAxisMarkers = buildTimelineMarkersFromRange(
+      dayTimelineRange.startMinutes,
+      dayTimelineRange.endMinutes,
+      normalizedDaySlotMinutes,
+      timelineScale,
+      { endExclusive: true }
+    );
 
     return (
       <div className="w-full space-y-4">
         {/* Responsive horizontal scroll shell for daily clinical columns */}
-        <div className="w-full rounded-xl border border-zinc-200/60 bg-white shadow-sm transition-all duration-200">
+        <div className="w-full rounded-xl border border-[var(--border-default)]/60 bg-[var(--bg-surface)] shadow-sm transition-all duration-200">
           <div className="overflow-x-auto">
             <div className="flex min-w-[700px]">
               {/* Sticky Hours Timeline Left Panel */}
-              <div className="w-16 shrink-0 border-r border-zinc-100 bg-zinc-50/20 flex flex-col z-20">
+              <div className="w-16 shrink-0 border-r border-[var(--border-default)] bg-[var(--bg-subtle)]/20 flex flex-col z-20">
                 {/* Visual corner connector indicator */}
-                <div className="h-16 border-b border-zinc-100 flex items-center justify-center bg-zinc-50/40 shrink-0 select-none">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-zinc-400">
+                <div className="h-16 border-b border-[var(--border-default)] flex items-center justify-center bg-[var(--bg-subtle)]/40 shrink-0 select-none">
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
                     Hora
                   </span>
                 </div>
                 
-                {/* Hourly grid lines indicators */}
-                <div className="flex-1 divide-y divide-zinc-100/60">
-                  {dayViewTimeSlots.map((time) => (
-                    <div key={time} className="flex items-center justify-center text-center shrink-0" style={{ height: daySlotHeight }}>
-                      <span className="text-[10px] font-medium text-zinc-400 tracking-tight">
-                        {time}
+                {/* Time indicators for each visible slot division */}
+                <div className="relative shrink-0" style={{ height: dayTimelineHeight }}>
+                  {hourAxisMarkers.map((marker) => (
+                    <div
+                      key={marker.time}
+                      className="absolute left-0 right-0 flex items-start justify-center border-t border-[var(--border-default)]/50 pt-1 text-center"
+                      style={{ top: marker.top }}
+                    >
+                      <span className="text-[10px] font-medium text-[var(--text-secondary)] tracking-tight">
+                        {marker.time}
                       </span>
                     </div>
                   ))}
@@ -455,7 +474,7 @@ export function CalendarView({
               </div>
 
               {/* Columns list for each active professional */}
-              <div className="flex flex-1 divide-x divide-zinc-200/40">
+              <div className="flex flex-1 divide-x divide-[var(--border-default)]/40">
                 {displayProfessionals.map((prof) => {
                   const profApps = appointmentsForDate
                     .filter((a) => a.professionalId === prof.id)
@@ -466,6 +485,13 @@ export function CalendarView({
                   const professionalSchedule = professionalSchedules[0];
                   const scheduleStartMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.startTime) : null;
                   const scheduleEndMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.endTime) : null;
+                  const professionalVisualMarkers = buildTimelineMarkersFromRange(
+                    dayTimelineRange.startMinutes,
+                    dayTimelineRange.endMinutes,
+                    professionalAgenda.slotMinutes,
+                    timelineScale,
+                    { endExclusive: true }
+                  );
                   const professionalTimeSlots =
                     professionalSchedule && scheduleStartMinutes !== null && scheduleEndMinutes !== null
                       ? buildTimeSlotsFromRange(scheduleStartMinutes, scheduleEndMinutes, professionalAgenda.slotMinutes, {
@@ -473,26 +499,27 @@ export function CalendarView({
                         })
                       : [];
                   const profBreaks = professionalSchedules.filter((schedule) => schedule.breakStartTime && schedule.breakEndTime);
+                  const busyAppointments = profApps.filter((appointment) => !FREE_APPOINTMENT_STATUSES.has(appointment.status));
 
                   return (
                     <div key={prof.id} className="flex-1 min-w-[220px] flex flex-col">
                       {/* Professional Info Column Header */}
-                      <div className="sticky top-0 h-16 bg-white/95 backdrop-blur-md px-4 py-3 border-b border-zinc-200/60 flex items-center gap-2.5 z-20 shrink-0">
-                        <div className="h-8 w-8 rounded-full bg-zinc-950 text-white flex items-center justify-center font-medium text-xs shrink-0 select-none">
+                      <div className="sticky top-0 h-16 bg-[var(--bg-surface)]/95 backdrop-blur-md px-4 py-3 border-b border-[var(--border-default)]/60 flex items-center gap-2.5 z-20 shrink-0">
+                        <div className="h-8 w-8 rounded-full bg-[var(--text-brand-strong)] text-[var(--text-inverse)] flex items-center justify-center font-semibold text-xs shrink-0 select-none">
                           {prof.firstName.charAt(0)}{prof.lastName.charAt(0)}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-zinc-900 truncate">
+                          <p className="text-xs font-semibold text-[var(--text-primary)] truncate">
                             {prof.firstName} {prof.lastName}
                           </p>
-                          <span className="inline-flex items-center rounded-full bg-zinc-50 border border-zinc-200/60 px-2 py-0.5 text-[9px] font-medium text-zinc-500 mt-0.5 select-none">
+                          <span className="inline-flex items-center rounded-full bg-[var(--bg-subtle)] border border-[var(--border-default)]/60 px-2 py-0.5 text-[9px] font-medium text-[var(--text-secondary)] mt-0.5 select-none">
                             {profAppsCount} {profAppsCount === 1 ? "cita" : "citas"}
                           </span>
                         </div>
                       </div>
 
                       {/* Timeline Slots under this doctor */}
-                      <div className="relative flex-1 overflow-hidden bg-zinc-50/5" style={{ height: dayTimelineHeight }}>
+                      <div className="relative shrink-0 overflow-hidden bg-[var(--bg-subtle)]/5" style={{ height: dayTimelineHeight }}>
                         {professionalSchedules.map((schedule) => {
                           const placement = getTimeRangePlacement(schedule.startTime, schedule.endTime, {
                             startMinutes: dayTimelineRange.startMinutes,
@@ -505,42 +532,57 @@ export function CalendarView({
                           return (
                             <div
                               key={`working-${schedule.id}`}
-                              className="absolute left-1 right-1 z-0 rounded-lg border border-emerald-100 bg-emerald-50/80 shadow-[inset_3px_0_0_rgba(16,185,129,0.35)]"
+                              className="absolute left-1 right-1 z-0 rounded-lg border border-[var(--border-default)] bg-[var(--status-success-bg)]/80 shadow-[inset_3px_0_0_var(--status-success-text)]"
                               style={{ top: placement.top, height: placement.height }}
                               title={`Horario laboral ${schedule.startTime} - ${schedule.endTime}`}
                             />
                           );
                         })}
 
-                        {dayViewTimeSlots.map((time, index) => {
+                        {professionalVisualMarkers.map((marker) => {
                           return (
                             <div
-                              key={time}
-                              className="absolute left-0 right-0 z-[1] border-b border-zinc-200/25"
-                              style={{ top: index * daySlotHeight, height: daySlotHeight }}
+                              key={marker.time}
+                              className="absolute left-0 right-0 z-[1] border-b border-[var(--border-default)]/25"
+                              style={{ top: marker.top }}
                             />
                           );
                         })}
 
                         {professionalTimeSlots.map((time) => {
                           const slotStartMinutes = timeToMinutes(time);
+                          const slotEndMinutes =
+                            slotStartMinutes === null ? null : slotStartMinutes + professionalAgenda.defaultAppointmentDurationMinutes;
                           const isInsideSchedule =
                             slotStartMinutes !== null &&
+                            slotEndMinutes !== null &&
                             scheduleStartMinutes !== null &&
                             scheduleEndMinutes !== null &&
                             slotStartMinutes >= scheduleStartMinutes &&
-                            slotStartMinutes + professionalAgenda.defaultAppointmentDurationMinutes <= scheduleEndMinutes;
+                            slotEndMinutes <= scheduleEndMinutes;
+                          const overlapsBreak =
+                            slotStartMinutes !== null &&
+                            slotEndMinutes !== null &&
+                            profBreaks.some((schedule) =>
+                              rangeOverlapsTimeRange(slotStartMinutes, slotEndMinutes, schedule.breakStartTime, schedule.breakEndTime)
+                            );
+                          const overlapsBusyAppointment =
+                            slotStartMinutes !== null &&
+                            slotEndMinutes !== null &&
+                            busyAppointments.some((appointment) =>
+                              rangeOverlapsMinutes(slotStartMinutes, slotEndMinutes, appointmentToDayMinutes(appointment))
+                            );
                           const placement =
                             slotStartMinutes === null
                               ? null
-                              : getSlotButtonPlacement(slotStartMinutes, professionalAgenda.defaultAppointmentDurationMinutes, {
+                              : getSlotButtonPlacement(slotStartMinutes, professionalAgenda.slotMinutes, {
                                   startMinutes: dayTimelineRange.startMinutes,
                                   endMinutes: dayTimelineRange.endMinutes,
                                   slotMinutes: normalizedDaySlotMinutes,
                                   slotHeight: daySlotHeight
                                 });
 
-                          if (!isInsideSchedule || !placement) return null;
+                          if (!isInsideSchedule || overlapsBreak || overlapsBusyAppointment || !placement) return null;
 
                           return (
                             <button
@@ -557,10 +599,10 @@ export function CalendarView({
                                 }
                                 onCreateClick?.();
                               }}
-                              className="group/slot absolute left-0 right-0 z-[3] border-b border-emerald-100/60 p-1 transition-colors duration-150 hover:bg-emerald-100/70"
+                              className="group/slot absolute left-0 right-0 z-[3] border-b border-[var(--status-success-bg)]/60 p-1 transition-colors duration-150 hover:bg-[var(--status-success-bg)]/70"
                               style={{ top: placement.top, height: placement.height }}
                             >
-                              <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-emerald-200/70 bg-white/55 text-[10px] font-medium text-emerald-700/90 opacity-0 shadow-sm transition-opacity duration-150 group-hover/slot:opacity-100">
+                              <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)]/55 text-[10px] font-medium text-[var(--status-success-text)] opacity-0 shadow-sm transition-opacity duration-150 group-hover/slot:opacity-100">
                                 <Plus className="h-3.5 w-3.5" />
                                 <span>Disponible</span>
                               </span>
@@ -698,15 +740,11 @@ function BlockedAppointmentBlock({
       type="button"
       onClick={() => onEdit(appointment)}
       title={`${appointment.title} ${range}`}
-      className="flex h-full w-full flex-col justify-center overflow-hidden rounded-[var(--radius-sm)] border border-sky-300/80 px-2 py-1 text-left text-sky-950 shadow-sm transition-[border-color,box-shadow] hover:border-sky-400 hover:shadow-[var(--shadow-card-hover)]"
-      style={{
-        backgroundColor: "#eff6ff",
-        backgroundImage: "repeating-linear-gradient(135deg, rgba(14, 116, 144, 0.18) 0, rgba(14, 116, 144, 0.18) 1px, transparent 1px, transparent 6px)"
-      }}
+      className="flex h-full w-full flex-col justify-center overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] px-2 py-1 text-left text-[var(--text-brand-strong)] shadow-sm transition-[border-color,box-shadow] hover:border-[var(--border-brand)] hover:shadow-[var(--shadow-card-hover)]"
     >
       <span className="truncate text-[10px] font-semibold uppercase tracking-[0.08em]">{compact ? "Bloqueo" : "Horario bloqueado"}</span>
       <span className="truncate text-[11px] font-semibold">{appointment.title || "Bloqueo programado"}</span>
-      <span className="truncate text-[10px] font-medium text-sky-800">{range}</span>
+      <span className="truncate text-[10px] font-medium text-[var(--text-brand)]">{range}</span>
     </button>
   );
 }
@@ -714,12 +752,10 @@ function BlockedAppointmentBlock({
 function BreakBlock({ top, height, range }: { top: number; height: number; range: string }) {
   return (
     <div
-      className="absolute left-1 right-1 z-[2] flex select-none items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-amber-200/80 bg-amber-50/80 px-2 text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-amber-800 shadow-sm"
+      className="absolute left-1 right-1 z-[2] flex select-none items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-blue-900/30 bg-blue-900 bg-[repeating-linear-gradient(-45deg,transparent,transparent_8px,rgba(255,255,255,0.1)_8px,rgba(255,255,255,0.1)_16px)] px-2 text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-sm"
       style={{
         top,
-        height,
-        backgroundImage:
-          "repeating-linear-gradient(135deg, rgba(217, 119, 6, 0.14) 0, rgba(217, 119, 6, 0.14) 1px, transparent 1px, transparent 7px)"
+        height
       }}
       title={`Horario de comida ${range}`}
     >
@@ -835,6 +871,39 @@ function getTimeRangePlacement(
   const height = Math.max(20, ((endMinutes - startMinutes) / config.slotMinutes) * config.slotHeight - 4);
 
   return { top, height };
+}
+
+function rangeOverlapsTimeRange(
+  startMinutes: number,
+  endMinutes: number,
+  rangeStartTime?: string | null,
+  rangeEndTime?: string | null
+) {
+  if (!rangeStartTime || !rangeEndTime) return false;
+  const rangeStartMinutes = timeToMinutes(rangeStartTime);
+  const rangeEndMinutes = timeToMinutes(rangeEndTime);
+  if (rangeStartMinutes === null || rangeEndMinutes === null) return false;
+
+  return startMinutes < rangeEndMinutes && endMinutes > rangeStartMinutes;
+}
+
+function rangeOverlapsMinutes(
+  startMinutes: number,
+  endMinutes: number,
+  range: { startMinutes: number; endMinutes: number } | null
+) {
+  if (!range) return false;
+  return startMinutes < range.endMinutes && endMinutes > range.startMinutes;
+}
+
+function appointmentToDayMinutes(appointment: Appointment) {
+  const start = new Date(appointment.startAt);
+  const end = new Date(appointment.endAt);
+
+  return {
+    startMinutes: start.getHours() * 60 + start.getMinutes(),
+    endMinutes: end.getHours() * 60 + end.getMinutes()
+  };
 }
 
 function formatDisplayTime(value: string) {

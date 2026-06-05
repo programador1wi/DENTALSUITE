@@ -197,7 +197,7 @@ export async function getPatientBalance(patientId: string) {
   return data;
 }
 
-export async function listAccountsReceivable(params?: { branchId?: string; search?: string }) {
+export async function listAccountsReceivable(params?: { branchId?: string; patientId?: string; search?: string }) {
   const { data } = await http.get<AccountsReceivableRow[]>("/accounts-receivable", { params });
   return data;
 }
@@ -248,7 +248,7 @@ export async function payInstallment(
   return data;
 }
 
-export async function listCashRegisters(params?: { branchId?: string; status?: CashRegisterStatus | "" }) {
+export async function listCashRegisters(params?: { branchId?: string; status?: CashRegisterStatus | ""; search?: string }) {
   const { data } = await http.get<CashRegister[]>("/cash-register", { params });
   return data;
 }

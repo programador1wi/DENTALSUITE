@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { EmptyState } from "@/components/feedback/empty-state";
@@ -13,8 +14,9 @@ import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { usePaymentMethods } from "@/features/settings/payment-methods/hooks/use-payment-methods";
 import { useFinancialInstitutions } from "@/features/settings/financial-institutions/hooks/use-financial-institutions";
+import { PatientSearchBox, getPatientSearchLabel } from "@/features/patients/components/patient-search-box";
 import { usePayments, usePaymentsMutations } from "../hooks/use-payments";
-import type { PaymentStatus } from "../services/payments.service";
+import type { Payment, PaymentStatus } from "../services/payments.service";
 
 const STATUS_OPTIONS: Array<{ label: string; value: PaymentStatus }> = [
   { label: "Recibido", value: "RECEIVED" },
@@ -24,6 +26,27 @@ const STATUS_OPTIONS: Array<{ label: string; value: PaymentStatus }> = [
   { label: "Anulado", value: "VOIDED" }
 ];
 
+function paymentPatientName(payment: Payment) {
+  return `${payment.patient.firstName} ${payment.patient.lastName}`.trim() || "Paciente sin nombre";
+}
+
+function paymentSearchLabel(payment: Payment) {
+  return payment.reference || paymentPatientName(payment);
+}
+
+function paymentMatchesTerm(payment: Payment, term: string) {
+  const query = term.trim().toLowerCase();
+  if (!query) return true;
+  return [
+    payment.id,
+    payment.reference ?? "",
+    payment.notes ?? "",
+    paymentPatientName(payment),
+    payment.branch.name,
+    payment.paymentMethod.name
+  ].some((value) => value.toLowerCase().includes(query));
+}
+
 export function PaymentsPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<PaymentStatus | "">("");
@@ -31,6 +54,7 @@ export function PaymentsPage() {
 
   const [newBranchId, setNewBranchId] = useState("");
   const [newPatientId, setNewPatientId] = useState("");
+  const [newPatientSearch, setNewPatientSearch] = useState("");
   const [newPaymentMethodId, setNewPaymentMethodId] = useState("");
   const [newFinancialInstitutionId, setNewFinancialInstitutionId] = useState("");
   const [newAmount, setNewAmount] = useState("");
@@ -46,6 +70,10 @@ export function PaymentsPage() {
   const financialInstitutions = useFinancialInstitutions(undefined, "true");
   const payments = usePayments({ search: search || undefined, status: status || undefined, branchId: branchId || undefined });
   const mutations = usePaymentsMutations();
+  const refundPaymentSuggestions = useMemo(
+    () => (payments.data ?? []).filter((payment) => paymentMatchesTerm(payment, refundPaymentId)),
+    [payments.data, refundPaymentId]
+  );
 
   const canCreate = Boolean(newBranchId && newPatientId.trim() && newPaymentMethodId && Number(newAmount) > 0);
   const canRefund = Boolean(refundPaymentId.trim() && Number(refundAmount) > 0);
@@ -119,10 +147,18 @@ export function PaymentsPage() {
           </div>
 
           <div className="flex items-center gap-1.5 w-full">
-            <Input 
-              placeholder="patientId" 
-              value={newPatientId} 
-              onChange={(event) => setNewPatientId(event.target.value)} 
+            <PatientSearchBox
+              placeholder="Buscar paciente"
+              value={newPatientSearch}
+              onValueChange={(value) => {
+                setNewPatientSearch(value);
+                setNewPatientId("");
+              }}
+              onSelect={(patient) => {
+                setNewPatientSearch(getPatientSearchLabel(patient));
+                setNewPatientId(patient.id);
+              }}
+              onSubmit={(value) => setNewPatientId(value.trim())}
               className="flex-1"
             />
             <HelpTooltip content="ID del paciente que realiza el pago." />
@@ -199,10 +235,22 @@ export function PaymentsPage() {
         </div>
         <form className="grid gap-3 md:grid-cols-4" onSubmit={handleRefund}>
           <div className="flex items-center gap-1.5 w-full">
-            <Input 
-              placeholder="paymentId para devolucion" 
-              value={refundPaymentId} 
-              onChange={(event) => setRefundPaymentId(event.target.value)} 
+            <EntitySearchBox
+              placeholder="paymentId para devolucion"
+              value={refundPaymentId}
+              onValueChange={setRefundPaymentId}
+              items={refundPaymentId.trim() ? refundPaymentSuggestions : []}
+              onSelect={(payment) => setRefundPaymentId(payment.id)}
+              getItemKey={(payment) => payment.id}
+              emptyMessage="Sin pagos encontrados"
+              renderItem={(payment) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{paymentPatientName(payment)}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {payment.reference || payment.id} · {payment.amount} {payment.currency}
+                  </p>
+                </div>
+              )}
               className="flex-1"
             />
             <HelpTooltip content="ID del pago original recibido sobre el cual se aplicará el reembolso." />
@@ -240,10 +288,22 @@ export function PaymentsPage() {
       {/* Filtros */}
       <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-3">
         <div className="flex items-center gap-1.5 w-full">
-          <Input 
-            placeholder="Buscar por paciente o referencia" 
-            value={search} 
-            onChange={(event) => setSearch(event.target.value)} 
+          <EntitySearchBox
+            placeholder="Buscar por paciente o referencia"
+            value={search}
+            onValueChange={setSearch}
+            items={search.trim() ? payments.data ?? [] : []}
+            onSelect={(payment) => setSearch(paymentSearchLabel(payment))}
+            getItemKey={(payment) => payment.id}
+            emptyMessage="Sin pagos encontrados"
+            renderItem={(payment) => (
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{paymentPatientName(payment)}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {payment.reference || payment.id} · {payment.branch.name}
+                </p>
+              </div>
+            )}
             className="flex-1"
           />
           <HelpTooltip content="Busca transacciones ingresando el nombre del paciente o el código de referencia del pago." />

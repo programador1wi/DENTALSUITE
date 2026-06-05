@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -244,10 +245,23 @@ export function SpecialtiesSettingsPage() {
             ]}
           />
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
+            <EntitySearchBox
               placeholder="Buscar especialidad"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onValueChange={setSearch}
+              items={search.trim() ? specialties.data ?? [] : []}
+              onSelect={(specialty) => {
+                setSearch(specialty.name);
+                openEditSpecialty(specialty);
+              }}
+              getItemKey={(specialty) => specialty.id}
+              emptyMessage="Sin especialidades encontradas"
+              renderItem={(specialty) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{specialty.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{specialty.description || "Sin descripcion"}</p>
+                </div>
+              )}
               className="sm:w-72"
             />
             <Button onClick={openNewSpecialty}>Nueva especialidad</Button>

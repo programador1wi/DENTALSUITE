@@ -5,6 +5,7 @@ import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
@@ -338,10 +339,27 @@ export function UsersBulkContractsPage() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                   <label className="grid gap-1 text-sm text-slate-700">
                     Buscar profesional
-                    <Input
+                    <EntitySearchBox
                       placeholder="Nombre, correo o cédula"
                       value={search}
-                      onChange={(e) => setSearch(e.target.value)}
+                      onValueChange={setSearch}
+                      items={search.trim() ? rows : []}
+                      onSelect={(professional) => {
+                        setSearch(`${professional.firstName} ${professional.lastName}`.trim());
+                        toggleProfessional(professional);
+                      }}
+                      getItemKey={(professional) => professional.id}
+                      emptyMessage="Sin profesionales encontrados"
+                      renderItem={(professional) => (
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-slate-900">
+                            {professional.firstName} {professional.lastName}
+                          </p>
+                          <p className="mt-0.5 truncate text-xs text-slate-500">
+                            {[professional.email, professional.licenseNumber].filter(Boolean).join(" · ") || "Sin contacto"}
+                          </p>
+                        </div>
+                      )}
                       className="sm:w-80"
                     />
                   </label>

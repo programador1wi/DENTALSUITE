@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { Dropdown } from "@/components/ui/dropdown";
-import { Input } from "@/components/ui/input";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/feedback/empty-state";
@@ -70,6 +70,21 @@ export function PayrollSettingsPage() {
   const finalizedRows = useMemo(
     () => (finalized.data ?? []).filter((row) => finalizedMatches(row, search)),
     [finalized.data, search]
+  );
+  const payrollSearchRows = useMemo(
+    () =>
+      view === "active"
+        ? activeRows.map((row) => ({
+            id: row.professionalId,
+            name: row.professionalName,
+            detail: money(row.payableAmount)
+          }))
+        : finalizedRows.map((row) => ({
+            id: row.id,
+            name: finalizedName(row),
+            detail: new Date(row.finalizedAt).toLocaleDateString()
+          })),
+    [activeRows, finalizedRows, view]
   );
 
   const download = (target: string) => {
@@ -161,10 +176,22 @@ export function PayrollSettingsPage() {
         </div>
 
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-          <Input
+          <EntitySearchBox
             placeholder="Buscar por nombre o apellidos"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onValueChange={setSearch}
+            items={search.trim() ? payrollSearchRows : []}
+            onSelect={(row) => setSearch(row.name)}
+            getItemKey={(row) => row.id}
+            emptyMessage="Sin liquidaciones encontradas"
+            renderItem={(row) => {
+              return (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{row.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{row.detail}</p>
+                </div>
+              );
+            }}
             className="lg:max-w-sm"
           />
           {view === "active" ? (

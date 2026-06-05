@@ -1,4 +1,5 @@
 import {
+  buildTimelineMarkersFromRange,
   buildTimeSlotsFromRange,
   getProfessionalBranchAgendaConfig,
   isTimeAlignedToSlot,
@@ -105,5 +106,19 @@ describe("agenda grid config", () => {
 
   it("builds agenda labels from a minute range and interval", () => {
     expect(buildTimeSlotsFromRange(540, 600, 20, { endExclusive: true })).toEqual(["09:00", "09:20", "09:40"]);
+  });
+
+  it("keeps 18:40 as the last start label for a 20 minute agenda ending at 19:00", () => {
+    const slots = buildTimeSlotsFromRange(600, 1140, 20, { endExclusive: true });
+
+    expect(slots.at(-1)).toBe("18:40");
+    expect(slots).not.toContain("19:00");
+  });
+
+  it("builds visible time labels for each agenda division", () => {
+    const markers = buildTimelineMarkersFromRange(600, 660, 20, { slotMinutes: 20, slotHeight: 38 }, { endExclusive: true });
+
+    expect(markers.map((marker) => marker.time)).toEqual(["10:00", "10:20", "10:40"]);
+    expect(markers.map((marker) => marker.top)).toEqual([0, 38, 76]);
   });
 });

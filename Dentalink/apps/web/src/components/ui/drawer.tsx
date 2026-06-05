@@ -1,4 +1,5 @@
 import type { PropsWithChildren } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "./button";
 
 export function Drawer({
@@ -9,7 +10,7 @@ export function Drawer({
 }: PropsWithChildren<{ open: boolean; title: string; onClose: () => void }>) {
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 bg-[var(--backdrop-modal)] backdrop-blur-sm">
       <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-[var(--bg-surface)] p-[var(--space-6)] shadow-[var(--shadow-modal)]">
         <div className="mb-[var(--space-4)] flex items-center justify-between gap-[var(--space-4)]">
@@ -20,6 +21,7 @@ export function Drawer({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

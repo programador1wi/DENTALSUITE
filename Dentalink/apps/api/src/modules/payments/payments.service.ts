@@ -610,7 +610,19 @@ export class PaymentsService {
       where: {
         organizationId: actor.organizationId,
         branchId: branchScope(actor, query.branchId),
-        ...(query.status ? { status: query.status as CashRegisterStatus } : {})
+        ...(query.status ? { status: query.status as CashRegisterStatus } : {}),
+        ...(query.search
+          ? {
+              OR: [
+                { id: { contains: query.search, mode: "insensitive" } },
+                { branch: { name: { contains: query.search, mode: "insensitive" } } },
+                { openedBy: { firstName: { contains: query.search, mode: "insensitive" } } },
+                { openedBy: { lastName: { contains: query.search, mode: "insensitive" } } },
+                { closedBy: { firstName: { contains: query.search, mode: "insensitive" } } },
+                { closedBy: { lastName: { contains: query.search, mode: "insensitive" } } }
+              ]
+            }
+          : {})
       },
       include: {
         branch: { select: { id: true, name: true } },
@@ -811,6 +823,7 @@ export class PaymentsService {
         organizationId: actor.organizationId,
         deletedAt: null,
         branchId: branchScope(actor, query.branchId),
+        ...(query.patientId ? { id: query.patientId } : {}),
         ...(query.search
           ? {
               OR: [

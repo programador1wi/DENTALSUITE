@@ -40,6 +40,7 @@ export type Appointment = {
   statusHistory?: AppointmentStatusHistory[];
   appointmentNotes?: AppointmentNote[];
   reminders?: AppointmentReminder[];
+  _count?: { appointmentNotes?: number };
 };
 
 export type AppointmentStatusHistory = {

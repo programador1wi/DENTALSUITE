@@ -2,6 +2,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -54,6 +55,12 @@ function fieldValueToRender(value: unknown) {
   if (typeof value === "boolean") return String(value);
   if (typeof value === "number") return String(value);
   return (value as string) ?? "";
+}
+
+function rowSearchLabel<T extends Record<string, unknown>>(row: T, columns: ColumnConfig<T>[]) {
+  const first = columns[0] ? fieldValueToRender(row[columns[0].key]) : "";
+  const second = columns[1] ? fieldValueToRender(row[columns[1].key]) : "";
+  return [first, second].filter(Boolean).join(" · ") || "Registro";
 }
 
 export function SimpleCrudPage<T extends Record<string, unknown>>({
@@ -131,7 +138,24 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
         <div className="grid gap-3 md:grid-cols-3">
           <div className="flex items-center gap-1.5">
             <div className="flex-1">
-              <Input placeholder="Buscar" value={search} onChange={(event) => setSearch(event.target.value)} />
+              <EntitySearchBox
+                placeholder="Buscar"
+                value={search}
+                onValueChange={setSearch}
+                items={search.trim() ? rows ?? [] : []}
+                onSelect={(row) => {
+                  setSearch(rowSearchLabel(row, columns));
+                  onEdit(row);
+                }}
+                getItemKey={(row) => actions.getId(row)}
+                emptyMessage="Sin registros encontrados"
+                renderItem={(row) => (
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{rowSearchLabel(row, columns)}</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">Seleccionar para editar</p>
+                  </div>
+                )}
+              />
             </div>
             <HelpTooltip content="Filtra la lista de registros en tiempo real buscando coincidencias por nombre o texto clave." />
           </div>

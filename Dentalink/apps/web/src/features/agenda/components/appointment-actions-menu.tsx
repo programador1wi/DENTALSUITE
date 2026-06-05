@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { ChevronDown, MoreVertical } from "lucide-react";
 import { toast } from "sonner";
@@ -34,13 +35,20 @@ export function AppointmentActionsMenu({
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [openUp, setOpenUp] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const hasPatient = Boolean(appointment.patientId);
   const canReschedule = canRescheduleAppointment(appointment.status);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (!menuRef.current || menuRef.current.contains(event.target as Node)) return;
+      if (
+        triggerRef.current?.contains(event.target as Node) ||
+        menuRef.current?.contains(event.target as Node)
+      ) {
+        return;
+      }
       closeMenu();
     }
 
@@ -48,13 +56,20 @@ export function AppointmentActionsMenu({
       if (event.key === "Escape") closeMenu();
     }
 
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleEscape);
+      window.addEventListener("scroll", closeMenu, { capture: true });
+      window.addEventListener("resize", closeMenu);
+    }
+
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("scroll", closeMenu, { capture: true });
+      window.removeEventListener("resize", closeMenu);
     };
-  }, []);
+  }, [open]);
 
   const closeMenu = () => {
     setOpen(false);
@@ -66,8 +81,14 @@ export function AppointmentActionsMenu({
 
     if (nextOpen) {
       const rect = button.getBoundingClientRect();
-      const menuHeight = 344;
-      setOpenUp(placement === "top" || (placement === "auto" && rect.bottom + menuHeight > window.innerHeight && rect.top > menuHeight));
+      const menuHeight = 296; // 11 items * 24px + 32px padding/dividers
+      const menuWidth = 204;
+      const isUp = placement === "top" || (placement === "auto" && rect.bottom + menuHeight > window.innerHeight && rect.top > menuHeight);
+      setOpenUp(isUp);
+      
+      const top = isUp ? rect.top - menuHeight - 4 + window.scrollY : rect.bottom + 4 + window.scrollY;
+      const left = Math.max(12, rect.right - menuWidth + window.scrollX);
+      setCoords({ top, left });
     }
 
     setOpen(nextOpen);
@@ -110,8 +131,9 @@ export function AppointmentActionsMenu({
   };
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative">
       <button
+        ref={triggerRef}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -127,51 +149,56 @@ export function AppointmentActionsMenu({
           triggerVariant === "standard" &&
             "h-5 w-5 rounded-[var(--radius-sm)] bg-transparent text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]",
           triggerVariant === "list" &&
-            "h-7 w-7 rounded-lg border border-zinc-200 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+            "h-7 w-7 rounded-lg border border-[var(--border-default)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]"
         )}
       >
         {triggerVariant === "list" ? <MoreVertical className="h-3.5 w-3.5" /> : <ChevronDown className="h-3 w-3" />}
       </button>
 
-      {open && (
-        <div
-          role="menu"
-          className={cn(
-            "absolute right-0 z-[1000] w-[204px] overflow-hidden rounded-[4px] border border-[#d7d7d7] bg-white py-1 text-[11px] font-normal leading-none text-[#3f3f46] shadow-[0_8px_22px_rgba(15,23,42,0.14)] ring-1 ring-black/[0.02] animate-in fade-in-0 zoom-in-95",
-            openUp ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]"
-          )}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <ActionItem disabled={!hasPatient} onClick={() => goToPatientRoute(`/patients/${appointment.patientId}/treatments`)}>
-            Ir a plan de tratamiento
-          </ActionItem>
-          <ActionItem disabled={!hasPatient} onClick={() => goToPatientRoute(`/patients/${appointment.patientId}/payments`)}>
-            Cobranza
-          </ActionItem>
-          <ActionItem disabled={!hasPatient} onClick={() => goToPatientRoute(`/patients/${appointment.patientId}/profile`)}>
-            Datos personales
-          </ActionItem>
-          <ActionItem disabled={!hasPatient} onClick={() => goToPatientRoute(`/patients/${appointment.patientId}/clinical`)}>
-            Ir a la ficha clínica del paciente
-          </ActionItem>
-          <ActionItem disabled={!hasPatient} onClick={() => handleAction("requestDataEmail")}>
-            Enviar solicitud de datos por mail
-          </ActionItem>
-          <ActionItem disabled={!hasPatient} onClick={() => void copyDataRequestLink()}>
-            Copiar link para solicitar datos
-          </ActionItem>
+      {open && coords && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              className="absolute z-[1000] w-[204px] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] py-1 text-[11px] font-normal leading-none text-[var(--text-primary)] shadow-[var(--shadow-modal)] ring-1 ring-black/[0.02] animate-in fade-in-0 zoom-in-95"
+              style={{
+                top: coords.top,
+                left: coords.left
+              }}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <ActionItem disabled={!hasPatient} onClick={() => goToPatientRoute(`/patients/${appointment.patientId}/treatments`)}>
+                Ir a plan de tratamiento
+              </ActionItem>
+              <ActionItem disabled={!hasPatient} onClick={() => goToPatientRoute(`/patients/${appointment.patientId}/payments`)}>
+                Cobranza
+              </ActionItem>
+              <ActionItem disabled={!hasPatient} onClick={() => goToPatientRoute(`/patients/${appointment.patientId}/profile`)}>
+                Datos personales
+              </ActionItem>
+              <ActionItem disabled={!hasPatient} onClick={() => goToPatientRoute(`/patients/${appointment.patientId}/clinical`)}>
+                Ir a la ficha clínica del paciente
+              </ActionItem>
+              <ActionItem disabled={!hasPatient} onClick={() => handleAction("requestDataEmail")}>
+                Enviar solicitud de datos por mail
+              </ActionItem>
+              <ActionItem disabled={!hasPatient} onClick={() => void copyDataRequestLink()}>
+                Copiar link para solicitar datos
+              </ActionItem>
 
-          <div className="my-1 border-t border-[#e5e7eb]" />
+              <div className="my-1 border-t border-[var(--border-default)]" />
 
-          <ActionItem onClick={() => handleAction("modifyDuration")}>Modificar duración</ActionItem>
-          <ActionItem onClick={() => handleAction("addComment")}>Agregar comentario</ActionItem>
-          <ActionItem disabled={!canReschedule} onClick={() => handleAction("changeDate")}>Cambiar fecha</ActionItem>
-          <ActionItem onClick={() => handleAction("changeStatus")}>Cambiar estado</ActionItem>
-          <ActionItem onClick={() => handleAction("notifyEmail")}>Notificar por email</ActionItem>
-          <ActionItem onClick={() => handleAction("viewHistory")}>Ver historial de cambios</ActionItem>
-          <ActionItem onClick={() => handleAction("cancel")}>Anular</ActionItem>
-        </div>
-      )}
+              <ActionItem onClick={() => handleAction("modifyDuration")}>Modificar duración</ActionItem>
+              <ActionItem onClick={() => handleAction("addComment")}>Agregar comentario</ActionItem>
+              <ActionItem disabled={!canReschedule} onClick={() => handleAction("changeDate")}>Cambiar fecha</ActionItem>
+              <ActionItem onClick={() => handleAction("changeStatus")}>Cambiar estado</ActionItem>
+              <ActionItem onClick={() => handleAction("notifyEmail")}>Notificar por email</ActionItem>
+              <ActionItem onClick={() => handleAction("viewHistory")}>Ver historial de cambios</ActionItem>
+              <ActionItem onClick={() => handleAction("cancel")}>Anular</ActionItem>
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   );
 }
@@ -195,7 +222,7 @@ function ActionItem({
       role="menuitem"
       disabled={disabled}
       onClick={onClick}
-      className="block h-6 w-full px-4 text-left text-[11px] font-normal leading-6 text-[#3f3f46] transition-colors hover:bg-[#f3f4f6] focus:bg-[#f3f4f6] focus:outline-none disabled:cursor-not-allowed disabled:text-[#a1a1aa] disabled:hover:bg-transparent"
+      className="block h-6 w-full px-4 text-left text-[11px] font-normal leading-6 text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-subtle)] focus:bg-[var(--bg-subtle)] focus:outline-none disabled:cursor-not-allowed disabled:text-[var(--text-secondary)] disabled:opacity-40 disabled:hover:bg-transparent"
     >
       {children}
     </button>

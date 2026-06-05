@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -148,7 +149,24 @@ export function ExpensesSettingsPage() {
         {activeTab === "detalle" ? (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div className="w-full sm:max-w-[280px]">
-              <Input placeholder="Buscar..." value={search} onChange={(event) => setSearch(event.target.value)} className="h-9" />
+              <EntitySearchBox
+                placeholder="Buscar..."
+                value={search}
+                onValueChange={setSearch}
+                items={search.trim() ? expenses.data ?? [] : []}
+                onSelect={(expense) => setSearch(expense.description)}
+                getItemKey={(expense) => expense.id}
+                emptyMessage="Sin gastos encontrados"
+                inputClassName="h-9"
+                renderItem={(expense) => (
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{expense.description}</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                      {expense.category.name} · ${Number(expense.total).toLocaleString("es-MX")}
+                    </p>
+                  </div>
+                )}
+              />
             </div>
             <Button onClick={() => setIsModalOpen(true)} className="h-9 bg-emerald-500 hover:bg-emerald-600">
               + Agregar gasto

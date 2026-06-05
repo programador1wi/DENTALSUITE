@@ -1,7 +1,8 @@
-import { Eye, Plus, Search, Settings, Upload } from "lucide-react";
+import { Eye, Plus, Settings, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils/cn";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
@@ -221,8 +222,8 @@ export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
             className={cn(
               "border-b-2 pb-3 font-medium transition-colors",
               activeTab === tab.id
-                ? "border-[#0679c8] text-[#0679c8]"
-                : "border-transparent text-slate-700 hover:text-slate-950"
+                ? "border-[var(--border-brand)] text-[var(--text-brand)]"
+                : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             )}
           >
             {tab.label}
@@ -297,7 +298,7 @@ export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
             <Button type="button" variant="secondary" onClick={() => setDrawer(null)}>
               Cancelar
             </Button>
-            <Button type="button" className="bg-[#5cb85c] hover:bg-[#4cae4c]" onClick={() => setDrawer(null)}>
+            <Button type="button" onClick={() => setDrawer(null)}>
               Guardar
             </Button>
           </>
@@ -312,13 +313,26 @@ export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
         title="Habilitar o deshabilitar sucursales"
       >
         <div className="space-y-4 p-5">
-          <label className="relative block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
+          <label className="block">
+            <EntitySearchBox
               value={branchSearch}
-              onChange={(event) => setBranchSearch(event.target.value)}
+              onValueChange={setBranchSearch}
+              items={branchSearch.trim() ? filteredBranches : []}
+              onSelect={(branch) => {
+                setBranchSearch(branch.name);
+                toggleBranch(branch);
+              }}
+              getItemKey={(branch) => branch.id}
               placeholder="Buscar sucursal"
-              className="pl-9"
+              emptyMessage="Sin sucursales encontradas"
+              renderItem={(branch) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{branch.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {settings.allowedBranches[branch.id] ?? true ? "Habilitada" : "Deshabilitada"}
+                  </p>
+                </div>
+              )}
             />
           </label>
           <div className="divide-y divide-slate-200">
@@ -547,7 +561,7 @@ function ProfessionalSettings({ mode }: { mode: SchedulingMode }) {
       </p>
       <Link
         to="/settings/online-scheduling/schedules"
-        className="mt-4 inline-flex rounded bg-[#0679c8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0566a8]"
+        className="mt-4 inline-flex h-[38px] items-center justify-center rounded-[var(--radius-md)] bg-[var(--action-brand)] px-[var(--space-4)] text-[var(--text-base)] font-medium text-[var(--text-inverse)] hover:bg-[var(--action-brand-hover)] transition-colors"
       >
         Gestionar horarios
       </Link>
@@ -692,7 +706,7 @@ function BrandingSettings({
 }) {
   return (
     <div className="space-y-8 p-6">
-      <Button type="button" variant="secondary" className="border-0 bg-sky-50 text-[#0679c8] shadow-none">
+      <Button type="button" variant="secondary" className="border-0 bg-[var(--bg-brand-light)] text-[var(--text-brand)] shadow-none">
         Previsualizar agenda <Eye className="ml-1.5 h-4 w-4" />
       </Button>
 
@@ -724,8 +738,8 @@ function BrandingSettings({
               type="button"
               onClick={() => update("brandColor", color)}
               className={cn(
-                "h-5 w-5 rounded-full border border-slate-300",
-                settings.brandColor === color && "ring-2 ring-[#0679c8] ring-offset-2"
+                "h-5 w-5 rounded-full border border-[var(--border-strong)]",
+                settings.brandColor === color && "ring-2 ring-[var(--border-brand)] ring-offset-2"
               )}
               style={{ backgroundColor: color }}
               title={color}
@@ -825,7 +839,7 @@ function SettingsButton({ onClick, title }: { onClick: () => void; title: string
       title={title}
       aria-label={title}
       onClick={onClick}
-      className="h-8 w-12 rounded bg-[#0679c8] p-0 hover:bg-[#0566a8]"
+      className="h-8 w-12 rounded bg-[var(--action-brand)] p-0 hover:bg-[var(--action-brand-hover)] border-0"
     >
       <Settings className="h-4 w-4" />
     </Button>
@@ -839,7 +853,7 @@ function SegmentButton({ active, label, onClick }: { active: boolean; label: str
       onClick={onClick}
       className={cn(
         "rounded px-4 py-1.5 text-sm font-medium transition-colors",
-        active ? "bg-[#5cb85c] text-white" : "bg-[#f1f1f1] text-slate-700 hover:bg-slate-200"
+        active ? "bg-[var(--action-primary)] text-[var(--text-inverse)]" : "bg-[var(--bg-subtle)] text-[var(--text-primary)] hover:bg-[var(--border-default)]"
       )}
     >
       {label}
@@ -849,8 +863,8 @@ function SegmentButton({ active, label, onClick }: { active: boolean; label: str
 
 function ToggleLabel({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
-    <div className="flex items-center gap-2 whitespace-nowrap text-base text-slate-600">
-      <span className={checked ? "font-medium text-[#0679c8]" : ""}>{checked ? "Habilitado" : "Deshabilitado"}</span>
+    <div className="flex items-center gap-2 whitespace-nowrap text-base text-[var(--text-secondary)]">
+      <span className={checked ? "font-medium text-[var(--text-brand)]" : ""}>{checked ? "Habilitado" : "Deshabilitado"}</span>
       <Toggle checked={checked} onChange={onChange} />
     </div>
   );
@@ -887,7 +901,7 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: () => void 
       onClick={onChange}
       className={cn(
         "relative h-6 w-11 shrink-0 rounded-full transition-colors",
-        checked ? "bg-[#0695cf]" : "bg-slate-300"
+        checked ? "bg-[var(--action-brand)]" : "bg-[var(--border-strong)]"
       )}
     >
       <span

@@ -1,10 +1,11 @@
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { Building2, ChevronDown, LogOut, Megaphone, Menu, Search, UserRound, X } from "lucide-react";
+import { Building2, ChevronDown, LogOut, Megaphone, Menu, UserRound, X } from "lucide-react";
 import { useLogout } from "@/features/auth/hooks/use-logout";
 import { useAuthStore } from "@/stores/auth.store";
 import { useBranchStore } from "@/stores/branch.store";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+import { PatientSearchBox } from "@/features/patients/components/patient-search-box";
 import { itemMatchesPath, visibleNavigation } from "@/components/layout/navigation";
 import { cn } from "@/lib/utils/cn";
 
@@ -59,18 +60,13 @@ export function Header({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const goToPatientSearch = () => {
-    const term = globalSearch.trim();
+  const goToPatientSearch = (nextSearch = globalSearch) => {
+    const term = nextSearch.trim();
     if (!term) return;
     const params = new URLSearchParams({ search: term });
     if (activeBranchId) params.set("branchId", activeBranchId);
     navigate(`/patients?${params.toString()}`);
     setGlobalSearch("");
-  };
-
-  const submitSearch = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    goToPatientSearch();
   };
 
   const initials = `${user?.firstName?.charAt(0) ?? "P"}${user?.lastName?.charAt(0) ?? ""}`.toUpperCase();
@@ -93,21 +89,19 @@ export function Header({
           <h1 className="truncate text-[var(--text-xl)] font-semibold leading-tight text-[var(--text-brand-strong)]">{section}</h1>
         </div>
 
-        <form onSubmit={submitSearch} className="relative ml-auto hidden w-full max-w-[420px] md:block">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-secondary)]" />
-          <input
+        <div className="relative ml-auto hidden w-full max-w-[420px] md:block">
+          <PatientSearchBox
             value={globalSearch}
-            onChange={(event) => setGlobalSearch(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                event.preventDefault();
-                goToPatientSearch();
-              }
+            onValueChange={setGlobalSearch}
+            onSubmit={(value) => goToPatientSearch(value)}
+            onSelect={(patient) => {
+              navigate(`/patients/${patient.id}/profile`);
+              setGlobalSearch("");
             }}
-            className="h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-page)] pl-10 pr-3 text-[var(--text-sm)] text-[var(--text-primary)] outline-none transition-[border-color,background-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-default)] placeholder:text-[var(--text-secondary)] hover:border-[var(--border-strong)] focus:border-[var(--border-brand)] focus:bg-[var(--bg-surface)] focus:ring-2 focus:ring-[var(--focus-ring)]"
             placeholder="Buscar pacientes por nombre o documento"
+            inputClassName="bg-[var(--bg-page)] hover:border-[var(--border-strong)] focus:bg-[var(--bg-surface)]"
           />
-        </form>
+        </div>
 
         <button
           type="button"

@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -125,7 +126,26 @@ export function AgreementsSettingsPage() {
 
         {activeTab === "list" && (
           <div className="grid gap-3 md:grid-cols-3">
-            <Input placeholder="Buscar convenio" value={search} onChange={(event) => setSearch(event.target.value)} />
+            <EntitySearchBox
+              placeholder="Buscar convenio"
+              value={search}
+              onValueChange={setSearch}
+              items={search.trim() ? agreements.data ?? [] : []}
+              onSelect={(agreement) => {
+                setSearch(agreement.name);
+                editAgreement(agreement);
+              }}
+              getItemKey={(agreement) => agreement.id}
+              emptyMessage="Sin convenios encontrados"
+              renderItem={(agreement) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{agreement.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {agreement.description || `${agreement.discountPercent}% descuento`}
+                  </p>
+                </div>
+              )}
+            />
             <Select value={active} onChange={(event) => setActive(event.target.value)}>
               <option value="">Todos los estados</option>
               <option value="true">Activos</option>

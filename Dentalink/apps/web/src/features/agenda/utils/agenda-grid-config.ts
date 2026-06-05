@@ -102,12 +102,36 @@ export function buildTimeSlotsFromRange(
 ) {
   const slots: string[] = [];
   const endExclusive = options?.endExclusive ?? false;
+  if (!Number.isFinite(startMinutes) || !Number.isFinite(endMinutes) || !Number.isFinite(stepMinutes)) return slots;
+  if (stepMinutes <= 0 || endMinutes < startMinutes) return slots;
 
   for (let minutes = startMinutes; endExclusive ? minutes < endMinutes : minutes <= endMinutes; minutes += stepMinutes) {
     slots.push(minutesToTime(minutes));
   }
 
   return slots;
+}
+
+export function buildTimelineMarkersFromRange(
+  startMinutes: number,
+  endMinutes: number,
+  stepMinutes: number,
+  scale: { slotMinutes: number; slotHeight: number },
+  options?: { endExclusive?: boolean }
+) {
+  if (scale.slotMinutes <= 0 || scale.slotHeight <= 0) return [];
+
+  return buildTimeSlotsFromRange(startMinutes, endMinutes, stepMinutes, options).flatMap((time) => {
+    const minutes = timeToMinutes(time);
+    if (minutes === null) return [];
+
+    return [
+      {
+        time,
+        top: ((minutes - startMinutes) / scale.slotMinutes) * scale.slotHeight
+      }
+    ];
+  });
 }
 
 export function timeToMinutes(value: string) {

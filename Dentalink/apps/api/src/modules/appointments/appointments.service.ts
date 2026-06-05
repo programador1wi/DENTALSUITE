@@ -863,7 +863,8 @@ export class AppointmentsService {
       professional: true,
       chair: true,
       specialty: true,
-      createdBy: { select: { id: true, firstName: true, lastName: true } }
+      createdBy: { select: { id: true, firstName: true, lastName: true } },
+      _count: { select: { appointmentNotes: true } }
     } satisfies Prisma.AppointmentInclude;
   }
 

@@ -24,7 +24,8 @@ const APPOINTMENT_PREFIX = "[AGENDA RESET]";
 const GENERAL_SPECIALTY_NAME = "OdontologÃ­a General (Integral)";
 const ORTHODONTICS_SPECIALTY_NAME = "Ortodoncia";
 const WORK_START_TIME = "10:00";
-const WORK_END_TIME = "21:00";
+const WORK_END_TIME = "19:00";
+const SATURDAY_WORK_END_TIME = "15:00";
 const BREAK_START_TIME = "14:00";
 const BREAK_END_TIME = "15:00";
 const SLOT_MINUTES = 20;
@@ -174,7 +175,7 @@ async function seedBranchAgenda(input: {
     data: {
       agendaSlotMinutes: SLOT_MINUTES,
       agendaStartHour: 10,
-      agendaEndHour: 21
+      agendaEndHour: 19
     }
   });
 
@@ -342,14 +343,14 @@ async function resetProfessionalLinks(professionalId: string, branchId: string, 
 
 async function seedSchedules(professionalId: string, branchId: string) {
   await prisma.professionalSchedule.createMany({
-    data: [0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
+    data: [1, 2, 3, 4, 5, 6].map((dayOfWeek) => ({
       professionalId,
       branchId,
       dayOfWeek,
       startTime: WORK_START_TIME,
-      endTime: WORK_END_TIME,
-      breakStartTime: BREAK_START_TIME,
-      breakEndTime: BREAK_END_TIME,
+      endTime: dayOfWeek === 6 ? SATURDAY_WORK_END_TIME : WORK_END_TIME,
+      breakStartTime: dayOfWeek === 6 ? null : BREAK_START_TIME,
+      breakEndTime: dayOfWeek === 6 ? null : BREAK_END_TIME,
       isActive: true
     }))
   });

@@ -365,7 +365,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         </div>
 
         {/* Color status legend */}
-        <div className="border-t border-zinc-100 mt-1 -mx-1">
+        <div className="border-t border-[var(--border-default)] mt-1 -mx-1">
           <StatusLegend />
         </div>
       </Card>

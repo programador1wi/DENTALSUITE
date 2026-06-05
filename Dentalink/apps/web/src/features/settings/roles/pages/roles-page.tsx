@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Eye, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { UsersModuleNav } from "@/features/settings/users/components/users-module-nav";
@@ -16,6 +16,7 @@ import { useDeactivateRole, useRolesQuery } from "../hooks/use-roles";
 import type { RoleListItem } from "../services/roles.service";
 
 export function RolesPage() {
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [active, setActive] = useState("");
   const [removing, setRemoving] = useState<RoleListItem | null>(null);
@@ -36,10 +37,23 @@ export function RolesPage() {
           <PageHeader title="Perfiles" description="Control de perfiles y permisos de usuarios" />
 
           <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-3">
-            <Input
+            <EntitySearchBox
               placeholder="Buscar por nombre o codigo"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onValueChange={setSearch}
+              items={search.trim() ? roles.data ?? [] : []}
+              onSelect={(role) => {
+                setSearch(role.name);
+                navigate(`/settings/roles/${role.id}`);
+              }}
+              getItemKey={(role) => role.id}
+              emptyMessage="Sin perfiles encontrados"
+              renderItem={(role) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{role.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{role.code || "Sin codigo"}</p>
+                </div>
+              )}
             />
             <Select value={active} onChange={(event) => setActive(event.target.value)}>
               <option value="">Todos</option>

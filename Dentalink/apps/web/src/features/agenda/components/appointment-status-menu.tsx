@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
@@ -36,8 +37,10 @@ export function AppointmentStatusMenu({
 }: AppointmentStatusMenuProps) {
   const [open, setOpen] = useState(false);
   const [openUp, setOpenUp] = useState(false);
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const palette = appointmentColorPalette[appointment.status] ?? appointmentColorPalette.SCHEDULED;
   const menuItems = useMemo(
     () => getAppointmentStatusMenuItems(appointment.status).filter((item) => canRunStatusAction(item, {
@@ -58,7 +61,12 @@ export function AppointmentStatusMenu({
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (!rootRef.current || rootRef.current.contains(event.target as Node)) return;
+      if (
+        buttonRef.current?.contains(event.target as Node) ||
+        menuRef.current?.contains(event.target as Node)
+      ) {
+        return;
+      }
       setOpen(false);
     };
 
@@ -66,21 +74,34 @@ export function AppointmentStatusMenu({
       if (event.key === "Escape") setOpen(false);
     };
 
-    document.addEventListener("mousedown", handleClickOutside);
-    document.addEventListener("keydown", handleEscape);
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+      document.addEventListener("keydown", handleEscape);
+      window.addEventListener("scroll", () => setOpen(false), { capture: true });
+      window.addEventListener("resize", () => setOpen(false));
+    }
+
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("scroll", () => setOpen(false), { capture: true });
+      window.removeEventListener("resize", () => setOpen(false));
     };
-  }, []);
+  }, [open]);
 
   const toggleMenu = () => {
     if (!canOpen) return;
     const nextOpen = !open;
     if (nextOpen && buttonRef.current) {
       const rect = buttonRef.current.getBoundingClientRect();
-      const menuHeight = Math.min(320, 40 + menuItems.length * 32);
-      setOpenUp(rect.bottom + menuHeight > window.innerHeight && rect.top > menuHeight);
+      const menuHeight = Math.min(320, 8 + menuItems.length * 32);
+      const menuWidth = 232;
+      const isUp = rect.bottom + menuHeight > window.innerHeight && rect.top > menuHeight;
+      setOpenUp(isUp);
+
+      const top = isUp ? rect.top - menuHeight - 4 + window.scrollY : rect.bottom + 4 + window.scrollY;
+      const left = Math.max(12, rect.right - menuWidth + window.scrollX);
+      setCoords({ top, left });
     }
     setOpen(nextOpen);
   };
@@ -145,13 +166,15 @@ export function AppointmentStatusMenu({
         {canOpen ? <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-180")} /> : null}
       </button>
 
-      {open ? (
+      {open && coords && typeof document !== "undefined" ? createPortal(
         <div
+          ref={menuRef}
           role="menu"
-          className={cn(
-            "absolute right-0 z-[1000] w-[232px] overflow-hidden rounded-[4px] border border-[#d7d7d7] bg-white py-1 text-[11px] font-normal leading-none text-[#3f3f46] shadow-[0_8px_22px_rgba(15,23,42,0.14)] ring-1 ring-black/[0.02] animate-in fade-in-0 zoom-in-95",
-            openUp ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]"
-          )}
+          className="absolute z-[1000] w-[232px] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] py-1 text-[11px] font-normal leading-none text-[var(--text-primary)] shadow-[var(--shadow-modal)] ring-1 ring-black/[0.02] animate-in fade-in-0 zoom-in-95"
+          style={{
+            top: coords.top,
+            left: coords.left
+          }}
         >
           {menuItems.map((item) => (
             <button
@@ -160,17 +183,18 @@ export function AppointmentStatusMenu({
               role="menuitem"
               onClick={() => executeAction(item)}
               className={cn(
-                "block h-8 w-full px-3 text-left text-[11px] font-medium leading-8 transition-colors hover:bg-[#f3f4f6] focus:bg-[#f3f4f6] focus:outline-none",
-                item.tone === "success" && "text-emerald-700",
-                item.tone === "warning" && "text-amber-700",
-                item.tone === "danger" && "text-red-700",
-                item.tone === "brand" && "text-blue-700"
+                "block h-8 w-full px-3 text-left text-[11px] font-medium leading-8 transition-colors hover:bg-[var(--bg-subtle)] focus:bg-[var(--bg-subtle)] focus:outline-none",
+                item.tone === "success" && "text-[var(--text-success)]",
+                item.tone === "warning" && "text-[var(--text-warning)]",
+                item.tone === "danger" && "text-[var(--text-danger)]",
+                item.tone === "brand" && "text-[var(--text-brand)]"
               )}
             >
               {item.label}
             </button>
           ))}
-        </div>
+        </div>,
+        document.body
       ) : null}
     </div>
   );

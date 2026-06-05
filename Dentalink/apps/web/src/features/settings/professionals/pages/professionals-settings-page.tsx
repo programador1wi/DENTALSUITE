@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Tabs } from "@/components/ui/tabs";
@@ -356,10 +357,25 @@ export function ProfessionalsSettingsPage() {
             ]}
           />
           <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
+            <EntitySearchBox
               placeholder="Buscar nombre, correo o cedula"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onValueChange={setSearch}
+              items={search.trim() ? professionals.data ?? [] : []}
+              onSelect={(professional) => {
+                setSearch(displayName(professional));
+                openEdit(professional);
+              }}
+              getItemKey={(professional) => professional.id}
+              emptyMessage="Sin profesionales encontrados"
+              renderItem={(professional) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{displayName(professional)}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {[professional.email, professional.licenseNumber].filter(Boolean).join(" · ") || "Sin contacto"}
+                  </p>
+                </div>
+              )}
               className="sm:w-72"
             />
             <Button onClick={openCreate}>Nuevo profesional</Button>

@@ -5,6 +5,7 @@ import type { Appointment, AppointmentStatus } from "../services/appointments.se
 import { appointmentColorPalette, appointmentStatusLabel } from "./appointment-status";
 import { AppointmentActionsMenu, type AppointmentMenuAction } from "./appointment-actions-menu";
 import { AppointmentStatusMenu } from "./appointment-status-menu";
+import { hasAppointmentNotes } from "../utils/appointment-notes";
 
 type AppointmentCardProps = {
   appointment: Appointment;
@@ -48,6 +49,7 @@ export function AppointmentCard({
   const patientFirstName = patientName.split(" ")[0] || patientName;
   const patientLastName = appointment.patient?.lastName.split(" ")[0] ?? "";
   const palette = appointmentColorPalette[appointment.status] || appointmentColorPalette.SCHEDULED;
+  const showNoteIcon = hasAppointmentNotes(appointment);
 
   const handleMenuAction = (action: AppointmentMenuAction) => {
     if (action === "changeDate") {
@@ -95,7 +97,7 @@ export function AppointmentCard({
           </span>
 
           <div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
-            <MessageSquare className="h-3 w-3 text-[var(--text-brand)]" />
+            {showNoteIcon ? <MessageSquare className="h-3 w-3 text-[var(--text-brand)]" aria-label="Cita con nota" /> : null}
             <AppointmentActionsMenu
               appointment={appointment}
               triggerVariant="compact"
@@ -144,7 +146,10 @@ export function AppointmentCard({
             {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
             {end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </p>
-          <h4 className="truncate font-semibold leading-tight text-[var(--text-primary)]">{appointment.title}</h4>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <h4 className="truncate font-semibold leading-tight text-[var(--text-primary)]">{appointment.title}</h4>
+            {showNoteIcon ? <MessageSquare className="h-3.5 w-3.5 shrink-0 text-[var(--text-brand)]" aria-label="Cita con nota" /> : null}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <AppointmentStatusMenu

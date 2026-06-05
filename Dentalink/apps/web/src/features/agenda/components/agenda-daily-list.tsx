@@ -1,8 +1,11 @@
 import { useState, useMemo, useRef, useEffect } from "react";
+import { MessageSquare } from "lucide-react";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import { appointmentColorPalette } from "./appointment-status";
 import { AppointmentActionsMenu, type AppointmentMenuAction } from "./appointment-actions-menu";
 import { AppointmentStatusMenu } from "./appointment-status-menu";
+import { hasAppointmentNotes } from "../utils/appointment-notes";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -22,6 +25,23 @@ const ALL_STATUSES: { status: AppointmentStatus; label: string }[] = [
   { status: "CANCELLED_BY_CLINIC",  label: "Cancelada (clínica)" },
   { status: "BLOCKED",              label: "Bloqueada" },
 ];
+
+function appointmentPatientName(appointment: Appointment) {
+  return appointment.patient
+    ? `${appointment.patient.firstName} ${appointment.patient.lastName}`.trim()
+    : "Bloqueo clinico";
+}
+
+function appointmentSearchLabel(appointment: Appointment) {
+  return appointment.patient ? appointmentPatientName(appointment) : appointment.title;
+}
+
+function appointmentMatchesTerm(appointment: Appointment, term: string) {
+  const q = term.toLowerCase();
+  const name = appointment.patient ? appointmentPatientName(appointment).toLowerCase() : "";
+  const phone = appointment.patient?.phone?.toLowerCase() ?? "";
+  return name.includes(q) || phone.includes(q) || appointment.title.toLowerCase().includes(q);
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -56,6 +76,7 @@ export function AgendaDailyList({
   const [search, setSearch]               = useState("");
   const [activeStatuses, setActiveStatuses] = useState<Set<AppointmentStatus>>(new Set());
   const [page, setPage]                   = useState(1);
+  const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
 
   // ── Date helpers ──
   const navigate = (delta: number) => {
@@ -94,15 +115,31 @@ export function AgendaDailyList({
     if (activeStatuses.size > 0)
       list = list.filter(a => activeStatuses.has(a.status));
     if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(a => {
-        const name  = a.patient ? `${a.patient.firstName} ${a.patient.lastName}`.toLowerCase() : "";
-        const phone = a.patient?.phone?.toLowerCase() ?? "";
-        return name.includes(q) || phone.includes(q) || a.title.toLowerCase().includes(q);
-      });
+      list = list.filter(a => appointmentMatchesTerm(a, search));
     }
     return list;
   }, [appointments, activeStatuses, search]);
+
+  const appointmentSuggestions = useMemo(() => {
+    const q = search.trim();
+    if (!q) return [];
+    return [...appointments]
+      .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+      .filter((appointment) => appointmentMatchesTerm(appointment, q));
+  }, [appointments, search]);
+
+  const selectAppointment = (appointment: Appointment) => {
+    const label = appointmentSearchLabel(appointment);
+    const narrowed = [...appointments]
+      .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+      .filter((item) => appointmentMatchesTerm(item, label));
+    const index = Math.max(0, narrowed.findIndex((item) => item.id === appointment.id));
+
+    setSearch(label);
+    setActiveStatuses(new Set());
+    setSelectedAppointmentId(appointment.id);
+    setPage(Math.floor(index / PAGE_SIZE) + 1);
+  };
 
   // ── Pagination ──
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
@@ -234,16 +271,34 @@ export function AgendaDailyList({
           </div>
 
           {/* Search */}
-          <div className="flex-1 min-w-[200px] relative">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-zinc-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              type="text"
+          <div className="flex-1 min-w-[200px]">
+            <EntitySearchBox
               value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1); }}
+              onValueChange={(value) => {
+                setSearch(value);
+                setPage(1);
+                setSelectedAppointmentId(null);
+              }}
+              items={appointmentSuggestions}
+              onSelect={selectAppointment}
+              getItemKey={(appointment) => appointment.id}
               placeholder="Buscar paciente, teléfono o tratamiento..."
-              className="w-full pl-9 pr-3 py-1.5 rounded-lg border border-zinc-200 bg-zinc-50/80 text-xs text-zinc-700 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300 transition"
+              inputClassName="h-8 rounded-lg border-zinc-200 bg-zinc-50/80 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 focus:border-blue-300 focus:ring-blue-200"
+              emptyMessage="Sin citas encontradas"
+              renderItem={(appointment) => {
+                const start = new Date(appointment.startAt);
+                return (
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">
+                      {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-xs font-semibold text-zinc-800">{appointmentPatientName(appointment)}</span>
+                      <span className="block truncate text-[10px] text-zinc-400">{appointment.title}</span>
+                    </span>
+                  </div>
+                );
+              }}
             />
           </div>
 
@@ -292,6 +347,7 @@ export function AgendaDailyList({
                   <AgendaListRow
                     key={appointment.id}
                     appointment={appointment}
+                    highlighted={appointment.id === selectedAppointmentId}
                     {...handlers}
                   />
                 ))}
@@ -376,8 +432,9 @@ function AgendaListRow({
   onStart,
   onComplete,
   onNoShow,
-  onMenuAction
-}: { appointment: Appointment } & ActionHandlers) {
+  onMenuAction,
+  highlighted
+}: { appointment: Appointment; highlighted?: boolean } & ActionHandlers) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -396,13 +453,15 @@ function AgendaListRow({
     ? `${appointment.patient.firstName} ${appointment.patient.lastName}`
     : "Bloqueo clínico";
 
+  const showNoteIcon = hasAppointmentNotes(appointment);
+
   // Determine inline primary action based on status flow
   const primaryAction = useMemo(() => getPrimaryAction(appointment.status, appointment.id, {
     onConfirm, onArrive, onWaitingRoom, onStart, onComplete,
   }), [appointment.status, appointment.id, onConfirm, onArrive, onWaitingRoom, onStart, onComplete]);
 
   return (
-    <tr className="hover:bg-blue-50/20 transition-colors duration-100 group">
+    <tr className={`${highlighted ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "hover:bg-blue-50/20"} transition-colors duration-100 group`}>
 
       {/* Hour block */}
       <td className="px-3 py-2.5">
@@ -418,7 +477,10 @@ function AgendaListRow({
 
       {/* Patient */}
       <td className="px-4 py-2.5">
-        <p className="font-semibold text-zinc-900 text-[12px] leading-snug">{patientName}</p>
+        <div className="flex min-w-0 items-center gap-1.5">
+          <p className="truncate font-semibold text-zinc-900 text-[12px] leading-snug">{patientName}</p>
+          {showNoteIcon ? <MessageSquare className="h-3.5 w-3.5 shrink-0 text-blue-600" aria-label="Cita con nota" /> : null}
+        </div>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {appointment.patient?.phone && (
             <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">

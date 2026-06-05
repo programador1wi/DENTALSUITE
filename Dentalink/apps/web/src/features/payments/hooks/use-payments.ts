@@ -37,7 +37,7 @@ export function usePatientPayments(patientId: string) {
   });
 }
 
-export function useAccountsReceivable(params?: { branchId?: string; search?: string }) {
+export function useAccountsReceivable(params?: { branchId?: string; patientId?: string; search?: string }) {
   return useQuery({
     queryKey: ["accounts-receivable", params],
     queryFn: () => listAccountsReceivable(params)
@@ -58,7 +58,7 @@ export function useInstallments(params?: { patientId?: string; installmentPlanId
   });
 }
 
-export function useCashRegisters(params?: { branchId?: string; status?: CashRegisterStatus | "" }) {
+export function useCashRegisters(params?: { branchId?: string; status?: CashRegisterStatus | ""; search?: string }) {
   return useQuery({
     queryKey: ["cash-register", params],
     queryFn: () => listCashRegisters(params)

@@ -7,6 +7,15 @@ import { PrismaService } from "../../database/prisma.service";
 import { CreateProfessionalScheduleDto } from "./dto/create-professional-schedule.dto";
 import { UpdateProfessionalScheduleDto } from "./dto/update-professional-schedule.dto";
 
+const FIXED_END_TIMES_BY_DAY: Partial<Record<number, string>> = {
+  1: "19:00",
+  2: "19:00",
+  3: "19:00",
+  4: "19:00",
+  5: "19:00",
+  6: "15:00"
+};
+
 @Injectable()
 export class ProfessionalSchedulesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -55,6 +64,8 @@ export class ProfessionalSchedulesService {
   async create(actor: AuthUser, dto: CreateProfessionalScheduleDto) {
     await this.validateReferences(actor, dto.professionalId, dto.branchId, dto.chairId);
     this.validateTimeRange(dto.startTime, dto.endTime, dto.breakStartTime, dto.breakEndTime);
+    this.validateClinicEndTimePolicy(dto.dayOfWeek, dto.endTime);
+    this.validateClinicBreakPolicy(dto.dayOfWeek, dto.breakStartTime, dto.breakEndTime);
     await this.validateInsideBranchHours(actor, dto.branchId, dto.startTime, dto.endTime);
     await this.ensureNoOverlap(actor, {
       professionalId: dto.professionalId,
@@ -117,12 +128,17 @@ export class ProfessionalSchedulesService {
     const endTime = dto.endTime ?? current.endTime;
     const breakStartTime = "breakStartTime" in dto ? dto.breakStartTime ?? undefined : current.breakStartTime ?? undefined;
     const breakEndTime = "breakEndTime" in dto ? dto.breakEndTime ?? undefined : current.breakEndTime ?? undefined;
+    const isActive = dto.isActive ?? current.isActive;
 
     await this.validateReferences(actor, professionalId, branchId, chairId);
     this.validateTimeRange(startTime, endTime, breakStartTime, breakEndTime);
+    if (isActive) {
+      this.validateClinicEndTimePolicy(dayOfWeek, endTime);
+      this.validateClinicBreakPolicy(dayOfWeek, breakStartTime, breakEndTime);
+    }
     await this.validateInsideBranchHours(actor, branchId, startTime, endTime);
     await this.ensureNoOverlap(actor, { professionalId, branchId, dayOfWeek, startTime, endTime }, id);
-    if (chairId && (dto.isActive ?? current.isActive)) {
+    if (chairId && isActive) {
       await this.ensureNoChairOverlap(actor, { chairId, dayOfWeek, startTime, endTime }, id);
     }
 
@@ -251,6 +267,19 @@ export class ProfessionalSchedulesService {
         throw new BadRequestException("Break must be inside the schedule range");
       }
     }
+  }
+
+  private validateClinicEndTimePolicy(dayOfWeek: number, endTime: string) {
+    const expectedEndTime = FIXED_END_TIMES_BY_DAY[dayOfWeek];
+    if (!expectedEndTime || endTime === expectedEndTime) return;
+
+    throw new BadRequestException(`endTime must be ${expectedEndTime} for selected day`);
+  }
+
+  private validateClinicBreakPolicy(dayOfWeek: number, breakStartTime?: string, breakEndTime?: string) {
+    if (dayOfWeek !== 6 || (!breakStartTime && !breakEndTime)) return;
+
+    throw new BadRequestException("Saturday schedules must not include a break");
   }
 
   private async ensureNoOverlap(

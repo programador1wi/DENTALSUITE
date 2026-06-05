@@ -11,7 +11,6 @@ import {
   LayoutGrid,
   List,
   LockKeyhole,
-  Search,
   ScanLine,
   Upload,
   X,
@@ -19,6 +18,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -265,9 +265,27 @@ export function PatientFilesPage() {
 
       <section className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-[var(--space-4)]">
         <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_190px_190px_auto]">
-          <label className="relative block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]" size={16} />
-            <Input className="pl-9" placeholder="Buscar por nombre, tipo o formato" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <label className="block">
+            <EntitySearchBox
+              placeholder="Buscar por nombre, tipo o formato"
+              value={query}
+              onValueChange={setQuery}
+              items={query.trim() ? visibleFiles : []}
+              onSelect={(file) => {
+                setQuery(file.originalName);
+                setSelectedFile(file);
+              }}
+              getItemKey={(file) => file.id}
+              emptyMessage="Sin archivos encontrados"
+              renderItem={(file) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{file.originalName}</p>
+                  <p className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">
+                    {getCategory(file.category).label} · {formatBytes(file.size)}
+                  </p>
+                </div>
+              )}
+            />
           </label>
           <Select value={category} onChange={(event) => setCategory(event.target.value)}>
             <option value="">Todos los tipos</option>

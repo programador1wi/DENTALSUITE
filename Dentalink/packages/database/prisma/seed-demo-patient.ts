@@ -980,9 +980,9 @@ async function main() {
           branchId: activeBranch.id,
           dayOfWeek,
           startTime: "10:00",
-          endTime: "19:00",
-          breakStartTime: "14:00",
-          breakEndTime: "15:00",
+          endTime: dayOfWeek === 6 ? "15:00" : "19:00",
+          breakStartTime: dayOfWeek === 6 ? null : "14:00",
+          breakEndTime: dayOfWeek === 6 ? null : "15:00",
           isActive: true
         }))
       )

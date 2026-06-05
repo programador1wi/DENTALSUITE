@@ -1,6 +1,7 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -243,10 +244,23 @@ export function LabProceduresPage() {
         </LabInfoBanner>
 
         <div className="grid gap-3 lg:grid-cols-[minmax(260px,420px)_1fr]">
-          <Input
+          <EntitySearchBox
             placeholder="Buscar procedimiento por codigo o nombre"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onValueChange={setSearch}
+            items={search.trim() ? labProcedures : []}
+            onSelect={(procedure) => {
+              setSearch(procedure.name);
+              openEdit(procedure);
+            }}
+            getItemKey={(procedure) => procedure.id}
+            emptyMessage="Sin procedimientos encontrados"
+            renderItem={(procedure) => (
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{procedure.name}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">{procedure.code} · {procedure.category.name}</p>
+              </div>
+            )}
           />
           <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 text-sm text-slate-600">
             <span className="font-semibold">Listado generico:</span>

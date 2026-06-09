@@ -1,6 +1,7 @@
 import { type ReactNode, useMemo, useState } from "react";
 import { Droplet } from "lucide-react";
 import { Card } from "@/components/ui/card";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import type { PeriodontalMeasurement } from "../services/clinical.service";
 
 const OUTER_POSITIONS = ["MB", "B", "DB"] as const;
@@ -211,13 +212,14 @@ export function PeriodontalChartTable({
     const active = Boolean(current);
 
     return (
-      <button
-        type="button"
-        onClick={() => updateMeasurement(toothNumber, position, { furcation: nextFurcationGrade(current) })}
-        className="flex h-[22px] w-full items-center justify-center gap-0.5 transition hover:bg-sky-50"
-        aria-pressed={active}
-        title="Click para cambiar grado de furca"
-      >
+      <HelpTooltip content="Click para cambiar grado de furca" position="top" triggerClassName="w-full">
+        <button
+          type="button"
+          onClick={() => updateMeasurement(toothNumber, position, { furcation: nextFurcationGrade(current) })}
+          className="flex h-[22px] w-full items-center justify-center gap-0.5 transition hover:bg-sky-50"
+          aria-label="Cambiar grado de furca"
+          aria-pressed={active}
+        >
         {current === "III" ? (
           <div className="switch-container flex h-full w-full items-center justify-center">
             <div className="switch furca_3 flex items-center justify-center">
@@ -241,7 +243,8 @@ export function PeriodontalChartTable({
         ) : (
           <span className="h-1.5 w-1.5 rounded-full bg-sky-200" />
         )}
-      </button>
+        </button>
+      </HelpTooltip>
     );
   };
 

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { ConsentStatus, Prisma } from "@prisma/client";
+import { ConsentStatus, Prisma, RadiographyAnalysisProvider, RadiographyAnalysisStatus } from "@prisma/client";
 import { randomUUID } from "node:crypto";
 import { createReadStream, type ReadStream } from "node:fs";
 import { mkdir, stat, writeFile } from "node:fs/promises";
@@ -17,6 +17,7 @@ import {
   PatientConsentsQueryDto,
   PatientFilesQueryDto,
   SignConsentDto,
+  UpsertRadiographyAnalysisDto,
   UploadBinaryFileAttachmentDto,
   UpdateClinicalDocumentTemplateSettingsDto,
   UpdateConsentTemplateDto,
@@ -28,6 +29,15 @@ type UploadedPatientFile = {
   mimetype: string;
   size: number;
   buffer?: Buffer;
+};
+
+type NormalizedRadiographyFinding = {
+  id: string;
+  tooth: string;
+  label: string;
+  bbox: { x: number; y: number; width: number; height: number };
+  visible: boolean;
+  source: "MANUAL";
 };
 
 const PATIENT_FILE_STORAGE_ROOT = resolve(process.cwd(), "storage", "patient-files");
@@ -168,6 +178,55 @@ export class DocumentsService {
       mimeType: file.mimeType,
       downloadName: this.safeDownloadName(file.originalName)
     };
+  }
+
+  async getPatientRadiographyAnalysis(actor: AuthUser, patientId: string, fileId: string) {
+    const file = await this.ensureRadiographyImageFile(actor, patientId, fileId);
+    const analysis = await this.prisma.radiographyAnalysis.findUnique({
+      where: { fileAttachmentId: file.id }
+    });
+
+    return analysis ? this.serializeRadiographyAnalysis(analysis) : null;
+  }
+
+  async upsertPatientRadiographyAnalysis(actor: AuthUser, patientId: string, fileId: string, dto: UpsertRadiographyAnalysisDto) {
+    const file = await this.ensureRadiographyImageFile(actor, patientId, fileId);
+    const findings = this.normalizeRadiographyFindings(dto.findings);
+    const status = dto.status ?? RadiographyAnalysisStatus.DRAFT;
+
+    const saved = await this.prisma.radiographyAnalysis.upsert({
+      where: { fileAttachmentId: file.id },
+      create: {
+        organizationId: actor.organizationId,
+        patientId,
+        fileAttachmentId: file.id,
+        provider: RadiographyAnalysisProvider.MANUAL,
+        status,
+        findings,
+        createdById: actor.id,
+        updatedById: actor.id
+      },
+      update: {
+        provider: RadiographyAnalysisProvider.MANUAL,
+        status,
+        findings,
+        updatedById: actor.id
+      }
+    });
+
+    await this.audit(actor, {
+      entity: "RadiographyAnalysis",
+      entityId: saved.id,
+      action: "upsert",
+      after: {
+        patientId,
+        fileAttachmentId: file.id,
+        findingsCount: findings.length,
+        status
+      }
+    });
+
+    return this.serializeRadiographyAnalysis(saved);
   }
 
   async listUserFiles(actor: AuthUser, userId: string, query: PatientFilesQueryDto) {
@@ -622,6 +681,81 @@ export class DocumentsService {
     });
     if (!procedure) throw new NotFoundException("Procedure not found");
     return procedure;
+  }
+
+  private async ensureRadiographyImageFile(actor: AuthUser, patientId: string, fileId: string) {
+    await this.ensurePatient(actor, patientId);
+    const file = await this.prisma.fileAttachment.findFirst({
+      where: {
+        id: fileId,
+        organizationId: actor.organizationId,
+        patientId,
+        patient: { branchId: branchScope(actor) }
+      }
+    });
+    if (!file) throw new NotFoundException("File not found");
+    if (file.category !== "XRAY" || !file.mimeType.startsWith("image/")) {
+      throw new BadRequestException("Radiography analysis is available only for XRAY image files");
+    }
+    return file;
+  }
+
+  private normalizeRadiographyFindings(findings: UpsertRadiographyAnalysisDto["findings"]) {
+    return findings.map<NormalizedRadiographyFinding>((finding) => {
+      const tooth = finding.tooth.trim();
+      const label = finding.label.trim();
+      if (!tooth || !label) throw new BadRequestException("Finding tooth and label are required");
+
+      const x = this.clampCoordinate(finding.bbox.x);
+      const y = this.clampCoordinate(finding.bbox.y);
+      const width = this.clampSize(finding.bbox.width, x);
+      const height = this.clampSize(finding.bbox.height, y);
+
+      return {
+        id: finding.id?.trim() || randomUUID(),
+        tooth,
+        label,
+        bbox: { x, y, width, height },
+        visible: finding.visible,
+        source: "MANUAL"
+      };
+    });
+  }
+
+  private serializeRadiographyAnalysis(analysis: {
+    id: string;
+    organizationId: string;
+    patientId: string;
+    fileAttachmentId: string;
+    provider: RadiographyAnalysisProvider;
+    status: RadiographyAnalysisStatus;
+    findings: Prisma.JsonValue;
+    createdById: string | null;
+    updatedById: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }) {
+    return {
+      id: analysis.id,
+      organizationId: analysis.organizationId,
+      patientId: analysis.patientId,
+      fileAttachmentId: analysis.fileAttachmentId,
+      provider: analysis.provider,
+      status: analysis.status,
+      findings: Array.isArray(analysis.findings) ? analysis.findings : [],
+      createdById: analysis.createdById,
+      updatedById: analysis.updatedById,
+      createdAt: analysis.createdAt,
+      updatedAt: analysis.updatedAt
+    };
+  }
+
+  private clampCoordinate(value: number) {
+    return Math.min(0.99, Math.max(0, value));
+  }
+
+  private clampSize(value: number, origin: number) {
+    return Math.min(1 - origin, Math.max(0.01, value));
   }
 
   private getPatientFileDirectory(organizationId: string, patientId: string) {

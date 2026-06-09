@@ -329,6 +329,149 @@ function branchLabel(branch: BranchSeed) {
   return branch.city ?? branch.code ?? branch.name;
 }
 
+function fullDemoAssetUrl(title: string, subtitle: string, tone: "xray" | "photo" = "xray") {
+  const dark = tone === "xray";
+  const background = dark ? "#0b1220" : "#e8f7f0";
+  const accent = dark ? "#38bdf8" : "#059669";
+  const muted = dark ? "#94a3b8" : "#475569";
+  const text = dark ? "#f8fafc" : "#0f172a";
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+      <rect width="1200" height="760" fill="${background}"/>
+      <rect x="70" y="70" width="1060" height="620" rx="26" fill="none" stroke="${accent}" stroke-width="5" opacity="0.75"/>
+      <g opacity="${dark ? "0.55" : "0.35"}" stroke="${accent}" stroke-width="7" fill="none">
+        <path d="M340 230 C300 310 300 450 365 545 C410 605 482 586 493 505 C505 415 438 383 452 310 C461 261 397 221 340 230Z"/>
+        <path d="M660 230 C610 300 608 455 682 545 C729 602 800 580 804 500 C809 410 742 380 756 309 C766 260 713 222 660 230Z"/>
+        <path d="M505 255 C472 327 480 467 540 560"/>
+        <path d="M807 255 C845 330 835 470 780 560"/>
+        <path d="M275 585 C435 635 762 640 925 585"/>
+      </g>
+      <circle cx="970" cy="168" r="58" fill="${accent}" opacity="0.18"/>
+      <text x="92" y="140" fill="${muted}" font-family="Arial, sans-serif" font-size="28" font-weight="700">FULL DEMO</text>
+      <text x="92" y="610" fill="${text}" font-family="Arial, sans-serif" font-size="52" font-weight="700">${title}</text>
+      <text x="92" y="660" fill="${muted}" font-family="Arial, sans-serif" font-size="30">${subtitle}</text>
+    </svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+const fullDemoRadiographyFindings = [
+  { id: "implant-16", tooth: "1.6", label: "Implante", bbox: { x: 0.41, y: 0.42, width: 0.07, height: 0.13 }, visible: true, source: "MANUAL" },
+  { id: "wisdom-18", tooth: "1.8", label: "Muela del juicio", bbox: { x: 0.28, y: 0.34, width: 0.09, height: 0.2 }, visible: true, source: "MANUAL" },
+  { id: "implant-31", tooth: "3.1", label: "Implante", bbox: { x: 0.58, y: 0.43, width: 0.05, height: 0.12 }, visible: true, source: "MANUAL" },
+  { id: "cavity-32", tooth: "3.2", label: "Cavidad", bbox: { x: 0.62, y: 0.7, width: 0.04, height: 0.05 }, visible: true, source: "MANUAL" },
+  { id: "filling-32", tooth: "3.2", label: "Empaste no metalico", bbox: { x: 0.63, y: 0.74, width: 0.07, height: 0.07 }, visible: true, source: "MANUAL" },
+  { id: "cavity-35", tooth: "3.5", label: "Cavidad", bbox: { x: 0.72, y: 0.76, width: 0.04, height: 0.05 }, visible: true, source: "MANUAL" },
+  { id: "filling-36", tooth: "3.6", label: "Empaste no metalico", bbox: { x: 0.74, y: 0.71, width: 0.08, height: 0.07 }, visible: true, source: "MANUAL" },
+  { id: "implant-36", tooth: "3.6", label: "Implante", bbox: { x: 0.75, y: 0.43, width: 0.07, height: 0.13 }, visible: true, source: "MANUAL" },
+  { id: "calculus-43", tooth: "4.3", label: "Calculo dental", bbox: { x: 0.56, y: 0.78, width: 0.04, height: 0.05 }, visible: true, source: "MANUAL" }
+];
+
+async function seedFullDemoPatientFiles(input: {
+  organizationId: string;
+  patientId: string;
+  uploadedById: string;
+  patientLabel: string;
+  token: string;
+}) {
+  const safeLabel = normalizeToken(input.patientLabel).replace(/\./g, "-") || "paciente";
+  const baseUrl = "https://demo.dentalwarner.local/full-demo";
+  await prisma.fileAttachment.createMany({
+    data: [
+      {
+        organizationId: input.organizationId,
+        patientId: input.patientId,
+        uploadedById: input.uploadedById,
+        fileName: `${safeLabel}-rx-panoramica.svg`,
+        originalName: "[FULLDEMO] RX panoramica inicial.svg",
+        mimeType: "image/svg+xml",
+        size: 1480000,
+        url: fullDemoAssetUrl("RX panoramica", input.patientLabel, "xray"),
+        category: "XRAY",
+        createdAt: demoDateAt(10, 15, -3)
+      },
+      {
+        organizationId: input.organizationId,
+        patientId: input.patientId,
+        uploadedById: input.uploadedById,
+        fileName: `${safeLabel}-foto-intraoral.svg`,
+        originalName: "[FULLDEMO] Foto clinica intraoral.svg",
+        mimeType: "image/svg+xml",
+        size: 860000,
+        url: fullDemoAssetUrl("Foto clinica", input.patientLabel, "photo"),
+        category: "PHOTO",
+        createdAt: demoDateAt(10, 35, -3)
+      },
+      {
+        organizationId: input.organizationId,
+        patientId: input.patientId,
+        uploadedById: input.uploadedById,
+        fileName: `${safeLabel}-plan-diagnostico.pdf`,
+        originalName: "[FULLDEMO] Plan diagnostico.pdf",
+        mimeType: "application/pdf",
+        size: 245000,
+        url: `${baseUrl}/${input.token}/plan-diagnostico.pdf`,
+        category: "DOCUMENT",
+        createdAt: demoDateAt(11, 0, -3)
+      },
+      {
+        organizationId: input.organizationId,
+        patientId: input.patientId,
+        uploadedById: input.uploadedById,
+        fileName: `${safeLabel}-consentimiento.pdf`,
+        originalName: "[FULLDEMO] Consentimiento informado firmado.pdf",
+        mimeType: "application/pdf",
+        size: 198000,
+        url: `${baseUrl}/${input.token}/consentimiento-firmado.pdf`,
+        category: "CONSENT",
+        createdAt: demoDateAt(11, 20, -3)
+      },
+      {
+        organizationId: input.organizationId,
+        patientId: input.patientId,
+        uploadedById: input.uploadedById,
+        fileName: `${safeLabel}-referencia.zip`,
+        originalName: "[FULLDEMO] Adjuntos administrativos.zip",
+        mimeType: "application/zip",
+        size: 512000,
+        url: `${baseUrl}/${input.token}/adjuntos-administrativos.zip`,
+        category: "OTHER",
+        createdAt: demoDateAt(11, 40, -3)
+      }
+    ]
+  });
+
+  const xrayFile = await prisma.fileAttachment.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      patientId: input.patientId,
+      fileName: `${safeLabel}-rx-panoramica.svg`,
+      category: "XRAY"
+    },
+    select: { id: true }
+  });
+  if (xrayFile) {
+    await prisma.radiographyAnalysis.upsert({
+      where: { fileAttachmentId: xrayFile.id },
+      create: {
+        organizationId: input.organizationId,
+        patientId: input.patientId,
+        fileAttachmentId: xrayFile.id,
+        provider: "MANUAL",
+        status: "DRAFT",
+        findings: fullDemoRadiographyFindings,
+        createdById: input.uploadedById,
+        updatedById: input.uploadedById
+      },
+      update: {
+        provider: "MANUAL",
+        status: "DRAFT",
+        findings: fullDemoRadiographyFindings,
+        updatedById: input.uploadedById
+      }
+    });
+  }
+}
+
 function licenseFor(prefix: string, index: number) {
   return `FD-${prefix}-${String(index + 1).padStart(3, "0")}`;
 }
@@ -524,6 +667,14 @@ async function cleanFullDemoData() {
   await prisma.clinicalDocument.deleteMany({
     where: {
       patient: { email: { endsWith: FULL_DEMO_EMAIL_SUFFIX } }
+    }
+  });
+  await prisma.fileAttachment.deleteMany({
+    where: {
+      OR: [
+        { patient: { email: { endsWith: FULL_DEMO_EMAIL_SUFFIX } } },
+        { originalName: { startsWith: "[FULLDEMO]" } }
+      ]
     }
   });
   await prisma.prescriptionItem.deleteMany({
@@ -1572,6 +1723,13 @@ async function seedPatient(input: {
       source: "FULLDEMO",
       status: input.status
     }
+  });
+  await seedFullDemoPatientFiles({
+    organizationId: input.branch.organizationId,
+    patientId: patient.id,
+    uploadedById: input.createdById,
+    patientLabel: `${input.firstName} ${input.lastName}`,
+    token: `${input.token}.${input.kind}`
   });
 
   await prisma.patientAddress.create({

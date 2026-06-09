@@ -1,15 +1,22 @@
 import { Type } from "class-transformer";
-import { ConsentStatus } from "@prisma/client";
+import { ConsentStatus, RadiographyAnalysisStatus } from "@prisma/client";
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsNotEmpty,
+  IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUrl,
+  Max,
   MaxLength,
-  Min
+  Min,
+  ValidateNested
 } from "class-validator";
 import { PaginationQueryDto } from "../../../common/dto/pagination-query.dto";
 
@@ -55,6 +62,73 @@ export class UploadBinaryFileAttachmentDto {
   @IsOptional()
   @IsString()
   professionalId?: string;
+}
+
+export class RadiographyFindingBboxDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  x!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  y!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  @Max(1)
+  width!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0.01)
+  @Max(1)
+  height!: number;
+}
+
+export class RadiographyFindingDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  id?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(12)
+  tooth!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  label!: string;
+
+  @IsObject()
+  @ValidateNested()
+  @Type(() => RadiographyFindingBboxDto)
+  bbox!: RadiographyFindingBboxDto;
+
+  @IsBoolean()
+  visible!: boolean;
+
+  @IsOptional()
+  @IsIn(["MANUAL", "AI"])
+  source?: "MANUAL" | "AI";
+}
+
+export class UpsertRadiographyAnalysisDto {
+  @IsOptional()
+  @IsEnum(RadiographyAnalysisStatus)
+  status?: RadiographyAnalysisStatus;
+
+  @IsArray()
+  @ArrayMaxSize(80)
+  @ValidateNested({ each: true })
+  @Type(() => RadiographyFindingDto)
+  findings!: RadiographyFindingDto[];
 }
 
 export class ConsentTemplatesQueryDto extends PaginationQueryDto {

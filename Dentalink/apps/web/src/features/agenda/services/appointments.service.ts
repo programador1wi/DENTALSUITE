@@ -31,11 +31,14 @@ export type Appointment = {
   durationMinutes: number;
   notes?: string | null;
   cancellationReason?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
   branch: { id: string; name: string };
   patient?: { id: string; firstName: string; lastName: string; phone?: string | null; email?: string | null } | null;
   professional: { id: string; firstName: string; lastName: string; color?: string | null };
   chair?: { id: string; name: string } | null;
   specialty?: { id: string; name: string } | null;
+  treatmentPlan?: { id: string; name: string; status: string } | null;
   createdBy?: { id: string; firstName: string; lastName: string } | null;
   statusHistory?: AppointmentStatusHistory[];
   appointmentNotes?: AppointmentNote[];

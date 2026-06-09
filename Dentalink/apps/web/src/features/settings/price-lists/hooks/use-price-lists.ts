@@ -4,6 +4,7 @@ import {
   createPriceListCategory,
   deactivatePriceList,
   deactivatePriceListCategory,
+  getPriceList,
   getPriceListAvailabilityMatrix,
   listPriceLists,
   updatePriceList,
@@ -18,6 +19,14 @@ export function usePriceLists(search?: string, active?: string, branchId?: strin
   return useQuery({
     queryKey: ["settings", "price-lists", search, active, branchId],
     queryFn: () => listPriceLists({ search, active, branchId })
+  });
+}
+
+export function usePriceList(id?: string) {
+  return useQuery({
+    queryKey: ["settings", "price-lists", id],
+    queryFn: () => getPriceList(id ?? ""),
+    enabled: Boolean(id)
   });
 }
 

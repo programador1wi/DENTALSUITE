@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -6,14 +6,19 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/feedback/empty-state";
+import { usePatient } from "@/features/patients/hooks/use-patients";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
+import { useBranchStore } from "@/stores/branch.store";
 import { ClinicalShell } from "../components/clinical-shell";
 import { useClinicalMutations, useClinicalPrescriptions } from "../hooks/use-clinical";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 
 export function ClinicalPrescriptionsPage() {
   const { id = "" } = useParams();
-  const professionals = useProfessionals(undefined, "true");
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const patient = usePatient(id);
+  const branchId = patient.data?.branchId ?? activeBranchId;
+  const professionals = useProfessionals(undefined, "true", { branchId: branchId || undefined, pageSize: 100 });
   const prescriptions = useClinicalPrescriptions(id);
   const mutations = useClinicalMutations(id);
   const [form, setForm] = useState({
@@ -27,6 +32,12 @@ export function ClinicalPrescriptionsPage() {
     instructions: ""
   });
   const [printText, setPrintText] = useState("");
+
+  useEffect(() => {
+    if (!form.professionalId || !professionals.data) return;
+    const isVisible = professionals.data.some((professional) => professional.id === form.professionalId);
+    if (!isVisible) setForm((prev) => ({ ...prev, professionalId: "" }));
+  }, [form.professionalId, professionals.data]);
 
   const create = async () => {
     await mutations.createPrescription.mutateAsync({

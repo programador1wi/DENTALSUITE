@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -38,6 +39,7 @@ import {
   type SchedulePayload
 } from "@/features/settings/schedules/services/schedules.service";
 import { useAuthStore } from "@/stores/auth.store";
+import { useBranchStore } from "@/stores/branch.store";
 import { UsersModuleNav } from "../components/users-module-nav";
 import { useCreateUser, useDeactivateUser, useUpdateUser, useUsersQuery } from "../hooks/use-users";
 import type { UserListItem } from "../services/users.service";
@@ -174,6 +176,7 @@ function numberOrUndefined(value: string) {
 
 export function UsersPage() {
   const actorId = useAuthStore((state) => state.user?.id);
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const [search, setSearch] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const [editing, setEditing] = useState<UserListItem | null>(null);
@@ -187,11 +190,11 @@ export function UsersPage() {
 
   const routeStatus = searchParams.get("status") ?? "";
   const status = supportedStatuses.has(routeStatus) ? routeStatus : "";
-  const users = useUsersQuery(search || undefined, status || undefined);
+  const users = useUsersQuery(search || undefined, status || undefined, activeBranchId || undefined);
   const roles = useRolesQuery(undefined, "true");
   const branches = useBranches(undefined, "ACTIVE");
   const specialties = useSpecialties(undefined, "true");
-  const professionals = useProfessionals(undefined, undefined);
+  const professionals = useProfessionals(undefined, undefined, { branchId: activeBranchId || undefined, pageSize: 100 });
   const chairs = useChairs(undefined, "true", userForm.primaryBranchId || undefined);
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
@@ -232,10 +235,11 @@ export function UsersPage() {
 
     setEditing(null);
     setUserKind("PROFESSIONAL");
+    const initialBranchIds = branchIds.length ? branchIds : activeBranchId ? [activeBranchId] : [];
     setUserForm({
       ...emptyUserForm,
-      branchIds,
-      primaryBranchId: branchIds[0] ?? ""
+      branchIds: initialBranchIds,
+      primaryBranchId: initialBranchIds[0] ?? ""
     });
     setProfessionalForm({ ...emptyProfessionalForm, enabled: true, applyWeeklySchedule: true });
     setDocumentFiles({});
@@ -249,11 +253,12 @@ export function UsersPage() {
       },
       { replace: true }
     );
-  }, [searchParams, setSearchParams, userFormOpen]);
+  }, [activeBranchId, searchParams, setSearchParams, userFormOpen]);
 
   const openCreate = () => {
+    const initialBranchIds = activeBranchId ? [activeBranchId] : [];
     setEditing(null);
-    setUserForm(emptyUserForm);
+    setUserForm({ ...emptyUserForm, branchIds: initialBranchIds, primaryBranchId: initialBranchIds[0] ?? "" });
     setProfessionalForm(emptyProfessionalForm);
     setDocumentFiles({});
     setUserKind("STAFF");
@@ -734,6 +739,9 @@ export function UsersPage() {
                   </option>
                 ))}
               </Select>
+              <span className="text-xs leading-relaxed text-slate-500">
+                Los permisos se administran desde Perfiles; este usuario hereda todo desde el rol seleccionado.
+              </span>
             </label>
           </div>
 
@@ -1082,27 +1090,31 @@ function ActionButton({
   title: string;
 }) {
   return (
-    <button
-      type="button"
-      title={title}
-      disabled={disabled}
-      onClick={onClick}
-      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-[#0679c8] disabled:cursor-not-allowed disabled:opacity-40"
-    >
-      {children}
-    </button>
+    <HelpTooltip content={title} position="top">
+      <button
+        type="button"
+        aria-label={title}
+        disabled={disabled}
+        onClick={onClick}
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-[#0679c8] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {children}
+      </button>
+    </HelpTooltip>
   );
 }
 
 function ActionLink({ children, title, to }: { children: ReactNode; title: string; to: string }) {
   return (
-    <Link
-      title={title}
-      to={to}
-      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-[#0679c8]"
-    >
-      {children}
-    </Link>
+    <HelpTooltip content={title} position="top">
+      <Link
+        aria-label={title}
+        to={to}
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-[#0679c8]"
+      >
+        {children}
+      </Link>
+    </HelpTooltip>
   );
 }
 

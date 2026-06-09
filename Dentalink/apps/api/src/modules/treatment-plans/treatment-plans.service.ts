@@ -1,10 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { BudgetStatus, Prisma, ToothProcedureStatus, TreatmentPlanItemStatus, TreatmentPlanStatus } from "@prisma/client";
+import {
+  AppointmentStatus,
+  BudgetStatus,
+  Prisma,
+  ProfessionalBranchStatus,
+  ToothProcedureStatus,
+  TreatmentPlanItemStatus,
+  TreatmentPlanStatus
+} from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
+  ChangeTreatmentPlanBranchDto,
   CreateAlternativeDto,
   CreateBudgetDto,
   CreateTreatmentPlanDto,
@@ -52,7 +61,7 @@ export class TreatmentPlansService {
   async createTreatmentPlan(actor: AuthUser, dto: CreateTreatmentPlanDto) {
     await this.validateBranch(actor, dto.branchId);
     const patient = await this.validatePatient(actor, dto.patientId);
-    await this.validateProfessional(actor, dto.professionalId);
+    await this.validateProfessional(actor, dto.professionalId, dto.branchId);
     if (dto.parentTreatmentPlanId) await this.ensureTreatmentPlan(actor, dto.parentTreatmentPlanId);
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -164,7 +173,9 @@ export class TreatmentPlansService {
   async updateTreatmentPlan(actor: AuthUser, id: string, dto: UpdateTreatmentPlanDto) {
     const current = await this.ensureTreatmentPlan(actor, id);
     if (dto.branchId) await this.validateBranch(actor, dto.branchId);
-    if (dto.professionalId) await this.validateProfessional(actor, dto.professionalId);
+    if (dto.branchId || dto.professionalId) {
+      await this.validateProfessional(actor, dto.professionalId ?? current.professionalId, dto.branchId ?? current.branchId);
+    }
 
     const updated = await this.prisma.treatmentPlan.update({
       where: { id },
@@ -181,6 +192,82 @@ export class TreatmentPlansService {
 
     await this.audit(actor, "TreatmentPlan", id, "update", current as Prisma.InputJsonValue, updated as Prisma.InputJsonValue);
     return this.getTreatmentPlan(actor, id);
+  }
+
+  async changeBranch(actor: AuthUser, id: string, dto: ChangeTreatmentPlanBranchDto) {
+    const current = await this.ensureTreatmentPlan(actor, id);
+    await this.validateBranch(actor, dto.branchId);
+    await this.validateProfessional(actor, dto.professionalId, dto.branchId);
+
+    const futureAppointmentWhere: Prisma.AppointmentWhereInput = {
+      organizationId: actor.organizationId,
+      patientId: current.patientId,
+      treatmentPlanId: id,
+      startAt: { gte: new Date() },
+      status: {
+        notIn: [
+          AppointmentStatus.COMPLETED,
+          AppointmentStatus.CANCELLED_BY_PATIENT,
+          AppointmentStatus.CANCELLED_BY_CLINIC,
+          AppointmentStatus.NO_SHOW,
+          AppointmentStatus.RESCHEDULED,
+          AppointmentStatus.BLOCKED
+        ]
+      }
+    };
+    const futureAppointmentsCount = await this.prisma.appointment.count({ where: futureAppointmentWhere });
+
+    const movedFutureAppointmentsCount = await this.prisma.$transaction(async (tx) => {
+      await tx.patient.update({
+        where: { id: current.patientId },
+        data: { branchId: dto.branchId }
+      });
+
+      await tx.treatmentPlan.update({
+        where: { id },
+        data: {
+          branchId: dto.branchId,
+          professionalId: dto.professionalId
+        }
+      });
+
+      if (!dto.moveFutureAppointments || futureAppointmentsCount === 0) return 0;
+
+      const result = await tx.appointment.updateMany({
+        where: futureAppointmentWhere,
+        data: {
+          branchId: dto.branchId,
+          professionalId: dto.professionalId,
+          chairId: null,
+          updatedById: actor.id
+        }
+      });
+      return result.count;
+    });
+
+    await this.audit(
+      actor,
+      "TreatmentPlan",
+      id,
+      "change_branch",
+      {
+        patientId: current.patientId,
+        branchId: current.branchId,
+        professionalId: current.professionalId
+      } as Prisma.InputJsonValue,
+      {
+        branchId: dto.branchId,
+        professionalId: dto.professionalId,
+        futureAppointmentsCount,
+        movedFutureAppointmentsCount
+      } as Prisma.InputJsonValue
+    );
+
+    return {
+      ...(await this.getTreatmentPlan(actor, id)),
+      futureAppointmentsCount,
+      movedFutureAppointmentsCount
+    };
   }
 
   async addSection(actor: AuthUser, treatmentPlanId: string, dto: TreatmentPlanSectionInputDto) {
@@ -287,36 +374,7 @@ export class TreatmentPlansService {
       });
 
       if (dto.syncOdontogram && item.toothNumber) {
-        const toothNumber = this.normalizeToothNumber(item.toothNumber);
-        const surface = this.normalizeSurface(item.surface ?? undefined);
-        const record = await tx.odontogramRecord.create({
-          data: {
-            patientId: plan.patientId,
-            professionalId: plan.professionalId,
-            toothNumber,
-            surface,
-            condition: "TOOTH_PROCEDURE",
-            diagnosis: dto.notes?.trim(),
-            procedureId: item.procedureId,
-            status: ToothProcedureStatus.PLANNED,
-            notes: dto.notes?.trim()
-          }
-        });
-
-        await tx.toothProcedure.create({
-          data: {
-            patientId: plan.patientId,
-            professionalId: plan.professionalId,
-            procedureId: item.procedureId,
-            treatmentPlanId: plan.id,
-            odontogramRecordId: record.id,
-            toothNumber,
-            surface,
-            diagnosis: dto.notes?.trim(),
-            status: ToothProcedureStatus.PLANNED,
-            notes: dto.notes?.trim()
-          }
-        });
+        await this.syncTreatmentItemOdontogram(tx, plan, item, dto.notes?.trim());
       }
 
       return item;
@@ -364,21 +422,30 @@ export class TreatmentPlansService {
     
     const total = this.computeTotal(quantity, unitPrice, discount);
 
-    const updated = await this.prisma.treatmentPlanItem.update({
-      where: { id: current.id },
-      data: {
-        sectionId: dto.sectionId ?? current.sectionId,
-        procedureId: dto.procedureId ?? current.procedureId,
-        toothNumber: dto.toothNumber ?? current.toothNumber,
-        surface: dto.surface ?? current.surface,
-        quantity: this.decimal(quantity),
-        unitPrice: this.decimal(unitPrice),
-        discount: this.decimal(discount),
-        total: this.decimal(total),
-        notes: dto.notes ?? current.notes,
-        agreementId: agreement?.id || null,
-        agreementCoverage: this.decimal(agreementCoverage)
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.treatmentPlanItem.update({
+        where: { id: current.id },
+        data: {
+          sectionId: dto.sectionId ?? current.sectionId,
+          procedureId: dto.procedureId ?? current.procedureId,
+          toothNumber: dto.toothNumber ?? current.toothNumber,
+          surface: dto.surface ?? current.surface,
+          quantity: this.decimal(quantity),
+          unitPrice: this.decimal(unitPrice),
+          discount: this.decimal(discount),
+          total: this.decimal(total),
+          notes: dto.notes ?? current.notes,
+          plannedAt: dto.plannedAt === undefined ? current.plannedAt : dto.plannedAt ? new Date(dto.plannedAt) : null,
+          agreementId: agreement?.id || null,
+          agreementCoverage: this.decimal(agreementCoverage)
+        }
+      });
+
+      if (dto.syncOdontogram && row.toothNumber) {
+        await this.syncTreatmentItemOdontogram(tx, plan, row, dto.notes?.trim());
       }
+
+      return row;
     });
 
     if (
@@ -428,10 +495,11 @@ export class TreatmentPlansService {
       data: {
         status: dto.status,
         notes: dto.notes ?? current.notes,
-        plannedAt: current.plannedAt ?? (dto.status === TreatmentPlanItemStatus.PLANNED ? new Date() : current.plannedAt),
         completedAt: dto.status === TreatmentPlanItemStatus.COMPLETED ? current.completedAt ?? new Date() : current.completedAt
       }
     });
+
+    await this.syncTreatmentItemProcedureStatus(itemId, dto.status);
 
     await this.audit(
       actor,
@@ -791,9 +859,134 @@ export class TreatmentPlansService {
   private normalizeSurface(value?: string) {
     if (!value) return undefined;
     const surface = value.trim().toUpperCase();
-    const allowed = new Set(["O", "I", "M", "D", "B", "L", "P", "C", "MO", "DO", "MOD", "ALL"]);
-    if (!allowed.has(surface)) throw new BadRequestException("Invalid tooth surface");
-    return surface;
+    const allowedSingle = new Set(["O", "I", "M", "D", "B", "L", "P", "C"]);
+    const allowedLegacy = new Set(["MO", "DO", "MOD", "ALL"]);
+    if (allowedSingle.has(surface) || allowedLegacy.has(surface)) return surface;
+
+    const preferredOrder = ["P", "M", "B", "D", "O", "I", "L", "C"];
+    const parts = [...new Set(surface.split(",").map((part) => part.trim()).filter(Boolean))];
+    if (!parts.length || parts.some((part) => !allowedSingle.has(part))) throw new BadRequestException("Invalid tooth surface");
+    parts.sort((left, right) => preferredOrder.indexOf(left) - preferredOrder.indexOf(right));
+    return parts.join(",");
+  }
+
+  private mapItemStatusToToothProcedureStatus(status: TreatmentPlanItemStatus) {
+    if (status === TreatmentPlanItemStatus.IN_PROGRESS) return ToothProcedureStatus.IN_PROGRESS;
+    if (status === TreatmentPlanItemStatus.COMPLETED) return ToothProcedureStatus.COMPLETED;
+    if (status === TreatmentPlanItemStatus.CANCELLED) return ToothProcedureStatus.CANCELLED;
+    if (status === TreatmentPlanItemStatus.ACCEPTED || status === TreatmentPlanItemStatus.PAID) return ToothProcedureStatus.ACCEPTED;
+    return ToothProcedureStatus.PLANNED;
+  }
+
+  private async syncTreatmentItemOdontogram(
+    tx: Prisma.TransactionClient,
+    plan: { id: string; patientId: string; professionalId: string },
+    item: {
+      id: string;
+      procedureId: string;
+      toothNumber: string | null;
+      surface: string | null;
+      status: TreatmentPlanItemStatus;
+      notes: string | null;
+    },
+    notes?: string
+  ) {
+    if (!item.toothNumber) return;
+
+    const toothNumber = this.normalizeToothNumber(item.toothNumber);
+    const surface = this.normalizeSurface(item.surface ?? undefined);
+    const status = this.mapItemStatusToToothProcedureStatus(item.status);
+    const diagnosis = notes ?? item.notes?.trim();
+    const current = await tx.toothProcedure.findUnique({
+      where: { treatmentPlanItemId: item.id },
+      include: { odontogramRecord: true }
+    });
+
+    const recordPayload = {
+      patientId: plan.patientId,
+      professionalId: plan.professionalId,
+      toothNumber,
+      surface,
+      condition: "TOOTH_PROCEDURE",
+      diagnosis,
+      procedureId: item.procedureId,
+      status,
+      notes: diagnosis
+    };
+
+    if (current) {
+      if (current.odontogramRecordId) {
+        await tx.odontogramRecord.update({
+          where: { id: current.odontogramRecordId },
+          data: recordPayload
+        });
+      } else {
+        const record = await tx.odontogramRecord.create({ data: recordPayload });
+        await tx.toothProcedure.update({
+          where: { id: current.id },
+          data: { odontogramRecordId: record.id }
+        });
+      }
+
+      await tx.toothProcedure.update({
+        where: { id: current.id },
+        data: {
+          patientId: plan.patientId,
+          professionalId: plan.professionalId,
+          procedureId: item.procedureId,
+          treatmentPlanId: plan.id,
+          treatmentPlanItemId: item.id,
+          toothNumber,
+          surface,
+          diagnosis,
+          status,
+          notes: diagnosis,
+          completedAt: status === ToothProcedureStatus.COMPLETED ? current.completedAt ?? new Date() : null
+        }
+      });
+      return;
+    }
+
+    const record = await tx.odontogramRecord.create({ data: recordPayload });
+    await tx.toothProcedure.create({
+      data: {
+        patientId: plan.patientId,
+        professionalId: plan.professionalId,
+        procedureId: item.procedureId,
+        treatmentPlanId: plan.id,
+        treatmentPlanItemId: item.id,
+        odontogramRecordId: record.id,
+        toothNumber,
+        surface,
+        diagnosis,
+        status,
+        notes: diagnosis,
+        completedAt: status === ToothProcedureStatus.COMPLETED ? new Date() : null
+      }
+    });
+  }
+
+  private async syncTreatmentItemProcedureStatus(itemId: string, itemStatus: TreatmentPlanItemStatus) {
+    const status = this.mapItemStatusToToothProcedureStatus(itemStatus);
+    const current = await this.prisma.toothProcedure.findUnique({
+      where: { treatmentPlanItemId: itemId },
+      select: { id: true, odontogramRecordId: true, completedAt: true }
+    });
+    if (!current) return;
+
+    const completedAt = status === ToothProcedureStatus.COMPLETED ? current.completedAt ?? new Date() : null;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.toothProcedure.update({
+        where: { id: current.id },
+        data: { status, completedAt }
+      });
+      if (current.odontogramRecordId) {
+        await tx.odontogramRecord.update({
+          where: { id: current.odontogramRecordId },
+          data: { status }
+        });
+      }
+    });
   }
 
   private async ensureTreatmentPlan(actor: AuthUser, treatmentPlanId: string) {
@@ -825,9 +1018,26 @@ export class TreatmentPlansService {
     return row;
   }
 
-  private async validateProfessional(actor: AuthUser, professionalId: string) {
+  private async validateProfessional(actor: AuthUser, professionalId: string, branchId?: string) {
+    const now = new Date();
     const row = await this.prisma.professional.findFirst({
-      where: { id: professionalId, organizationId: actor.organizationId, isActive: true }
+      where: {
+        id: professionalId,
+        organizationId: actor.organizationId,
+        isActive: true,
+        ...(branchId
+          ? {
+              branches: {
+                some: {
+                  branchId,
+                  status: ProfessionalBranchStatus.ACTIVE,
+                  startsAt: { lte: now },
+                  OR: [{ endsAt: null }, { endsAt: { gt: now } }]
+                }
+              }
+            }
+          : {})
+      }
     });
     if (!row) throw new BadRequestException("Invalid professionalId");
   }

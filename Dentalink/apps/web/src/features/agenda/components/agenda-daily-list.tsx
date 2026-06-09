@@ -5,7 +5,6 @@ import type { Appointment, AppointmentStatus } from "../services/appointments.se
 import { appointmentColorPalette } from "./appointment-status";
 import { AppointmentActionsMenu, type AppointmentMenuAction } from "./appointment-actions-menu";
 import { AppointmentStatusMenu } from "./appointment-status-menu";
-import { hasAppointmentNotes } from "../utils/appointment-notes";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -453,12 +452,36 @@ function AgendaListRow({
     ? `${appointment.patient.firstName} ${appointment.patient.lastName}`
     : "Bloqueo clínico";
 
-  const showNoteIcon = hasAppointmentNotes(appointment);
+  const hasAppointmentComment = Boolean(
+    appointment.notes?.trim() ||
+      appointment.appointmentNotes?.length ||
+      (appointment._count?.appointmentNotes ?? 0) > 0
+  );
+  const commentButtonLabel = hasAppointmentComment ? "Editar comentario de cita" : "Agregar comentario de cita";
 
   // Determine inline primary action based on status flow
   const primaryAction = useMemo(() => getPrimaryAction(appointment.status, appointment.id, {
     onConfirm, onArrive, onWaitingRoom, onStart, onComplete,
   }), [appointment.status, appointment.id, onConfirm, onArrive, onWaitingRoom, onStart, onComplete]);
+
+  const handleMenuAction = (action: AppointmentMenuAction) => {
+    if (action === "changeDate") {
+      onReschedule(appointment);
+      return;
+    }
+
+    if (action === "cancel") {
+      onCancel(appointment, "clinic");
+      return;
+    }
+
+    if (!onMenuAction && (action === "modifyDuration" || action === "addComment" || action === "changeStatus")) {
+      onEdit(appointment);
+      return;
+    }
+
+    onMenuAction?.(appointment, action);
+  };
 
   return (
     <tr className={`${highlighted ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "hover:bg-blue-50/20"} transition-colors duration-100 group`}>
@@ -479,7 +502,20 @@ function AgendaListRow({
       <td className="px-4 py-2.5">
         <div className="flex min-w-0 items-center gap-1.5">
           <p className="truncate font-semibold text-zinc-900 text-[12px] leading-snug">{patientName}</p>
-          {showNoteIcon ? <MessageSquare className="h-3.5 w-3.5 shrink-0 text-blue-600" aria-label="Cita con nota" /> : null}
+          <button
+            type="button"
+            aria-label={commentButtonLabel}
+            title={commentButtonLabel}
+            onClick={(event) => {
+              event.stopPropagation();
+              handleMenuAction("addComment");
+            }}
+            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+              hasAppointmentComment ? "text-blue-600" : "text-zinc-400 hover:text-blue-600"
+            }`}
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+          </button>
         </div>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
           {appointment.patient?.phone && (
@@ -555,24 +591,7 @@ function AgendaListRow({
             appointment={appointment}
             triggerVariant="list"
             placement="auto"
-            onAction={(action) => {
-              if (action === "changeDate") {
-                onReschedule(appointment);
-                return;
-              }
-
-              if (action === "cancel") {
-                onCancel(appointment, "clinic");
-                return;
-              }
-
-              if (!onMenuAction && (action === "modifyDuration" || action === "addComment" || action === "changeStatus")) {
-                onEdit(appointment);
-                return;
-              }
-
-              onMenuAction?.(appointment, action);
-            }}
+            onAction={handleMenuAction}
           />
 
           <div className="hidden" ref={menuRef}>

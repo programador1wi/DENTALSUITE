@@ -17,6 +17,29 @@ export type FileAttachment = {
   updatedAt: string;
 };
 
+export type RadiographyFinding = {
+  id: string;
+  tooth: string;
+  label: string;
+  bbox: { x: number; y: number; width: number; height: number };
+  visible: boolean;
+  source: "MANUAL" | "AI";
+};
+
+export type RadiographyAnalysis = {
+  id: string;
+  organizationId: string;
+  patientId: string;
+  fileAttachmentId: string;
+  provider: "MANUAL" | "AI";
+  status: "DRAFT" | "CONFIRMED";
+  findings: RadiographyFinding[];
+  createdById?: string | null;
+  updatedById?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ConsentTemplate = {
   id: string;
   organizationId: string;
@@ -99,6 +122,20 @@ export async function uploadUserBinaryFile(
 export async function getPatientFileBlob(file: FileAttachment) {
   const path = normalizeFilePath(file.url);
   const { data } = await http.get<Blob>(path, { responseType: "blob" });
+  return data;
+}
+
+export async function getPatientRadiographyAnalysis(patientId: string, fileId: string) {
+  const { data } = await http.get<RadiographyAnalysis | null>(`/patients/${patientId}/files/${fileId}/radiography-analysis`);
+  return data;
+}
+
+export async function savePatientRadiographyAnalysis(
+  patientId: string,
+  fileId: string,
+  payload: { status?: "DRAFT" | "CONFIRMED"; findings: RadiographyFinding[] }
+) {
+  const { data } = await http.put<RadiographyAnalysis>(`/patients/${patientId}/files/${fileId}/radiography-analysis`, payload);
   return data;
 }
 

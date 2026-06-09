@@ -62,7 +62,7 @@ export class TreatmentPlanItemInputDto {
 
   @IsOptional()
   @IsDateString()
-  plannedAt?: string;
+  plannedAt?: string | null;
 
   @IsOptional()
   @IsBoolean()
@@ -133,6 +133,18 @@ export class UpdateTreatmentPlanDto {
   status?: TreatmentPlanStatus;
 }
 
+export class ChangeTreatmentPlanBranchDto {
+  @IsString()
+  branchId!: string;
+
+  @IsString()
+  professionalId!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  moveFutureAppointments?: boolean;
+}
+
 export class CreateAlternativeDto extends CreateTreatmentPlanDto {}
 
 export class ListTreatmentPlansQueryDto extends PaginationQueryDto {
@@ -194,7 +206,7 @@ export class UpdateTreatmentPlanItemDto {
 
   @IsOptional()
   @IsDateString()
-  plannedAt?: string;
+  plannedAt?: string | null;
 
   @IsOptional()
   @IsBoolean()

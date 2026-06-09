@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useProcedures } from "@/features/settings/procedures/hooks/use-procedures";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { useTreatmentMutations } from "@/features/treatments/hooks/use-treatments";
+import { useBranchStore } from "@/stores/branch.store";
 
 type ItemForm = {
   procedureId: string;
@@ -36,15 +37,30 @@ export function PatientTreatmentNewPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const branches = useBranches(undefined, "ACTIVE");
-  const professionals = useProfessionals(undefined, "true");
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const procedures = useProcedures(undefined, "true");
   const mutations = useTreatmentMutations();
 
   const [branchId, setBranchId] = useState("");
   const [professionalId, setProfessionalId] = useState("");
+  const professionalBranchId = branchId || activeBranchId;
+  const professionals = useProfessionals(undefined, "true", {
+    branchId: professionalBranchId || undefined,
+    pageSize: 100
+  });
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [items, setItems] = useState<ItemForm[]>([newItem()]);
+
+  useEffect(() => {
+    if (!branchId && activeBranchId) setBranchId(activeBranchId);
+  }, [activeBranchId, branchId]);
+
+  useEffect(() => {
+    if (!professionalId || !professionals.data) return;
+    const isVisible = professionals.data.some((professional) => professional.id === professionalId);
+    if (!isVisible) setProfessionalId("");
+  }, [professionalId, professionals.data]);
 
   const updateItem = (index: number, patch: Partial<ItemForm>) => {
     setItems((previous) => previous.map((item, currentIndex) => (currentIndex === index ? { ...item, ...patch } : item)));
@@ -89,7 +105,10 @@ export function PatientTreatmentNewPage() {
     <PatientSectionPage patientId={id} title="Nuevo plan de tratamiento" description="Crear plan clinico, procedimientos y valores base.">
       <Card>
         <div className="grid gap-3 md:grid-cols-3">
-          <Select value={branchId} onChange={(event) => setBranchId(event.target.value)}>
+          <Select value={branchId} onChange={(event) => {
+            setBranchId(event.target.value);
+            setProfessionalId("");
+          }}>
             <option value="">Sucursal</option>
             {branches.data?.map((branch) => (
               <option key={branch.id} value={branch.id}>

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Eye, Trash2 } from "lucide-react";
+import { Eye, Plus, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -9,19 +9,45 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { usePermissions } from "@/hooks/use-permissions";
+import { usePermissionsQuery } from "@/features/settings/permissions/hooks/use-permissions";
 import { UsersModuleNav } from "@/features/settings/users/components/users-module-nav";
-import { useDeactivateRole, useRolesQuery } from "../hooks/use-roles";
+import { PermissionChecklist } from "../components/permission-checklist";
+import { useCreateRole, useDeactivateRole, useRolesQuery } from "../hooks/use-roles";
 import type { RoleListItem } from "../services/roles.service";
+
+const emptyRoleForm = {
+  description: "",
+  name: "",
+  permissionIds: [] as string[]
+};
+
+function isSuperAdminRole(role: Pick<RoleListItem, "code" | "name">) {
+  return role.code === "super_admin" || role.name === "SUPER_ADMIN";
+}
 
 export function RolesPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [active, setActive] = useState("");
   const [removing, setRemoving] = useState<RoleListItem | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [roleForm, setRoleForm] = useState(emptyRoleForm);
   const roles = useRolesQuery(search || undefined, active || undefined);
+  const allPermissions = usePermissionsQuery(undefined, undefined, "true");
+  const createRole = useCreateRole();
   const deactivateRole = useDeactivateRole();
+  const { can } = usePermissions();
+  const canManageAll = can("system.manage_all");
+  const canCreateRole = canManageAll || can("roles.create");
+  const canDeactivateRole = canManageAll || can("roles.deactivate");
+  const activePermissionIds = allPermissions.data?.map((permission) => permission.id) ?? [];
+  const copyableRoles = roles.data?.filter((role) => role.isActive && role.permissions.length > 0) ?? [];
 
   const removeRole = async () => {
     if (!removing) return;
@@ -30,9 +56,52 @@ export function RolesPage() {
     setRemoving(null);
   };
 
+  const openCreate = () => {
+    setRoleForm(emptyRoleForm);
+    setCreating(true);
+  };
+
+  const closeCreate = () => {
+    setCreating(false);
+    setRoleForm(emptyRoleForm);
+  };
+
+  const submitCreate = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const name = roleForm.name.trim();
+    if (!name) return;
+
+    const created = await createRole.mutateAsync({
+      name,
+      description: roleForm.description.trim() || undefined,
+      permissionIds: roleForm.permissionIds
+    });
+    closeCreate();
+    navigate(`/settings/roles/${created.id}`);
+  };
+
+  const copyPermissionsFromRole = (roleId: string) => {
+    const sourceRole = roles.data?.find((role) => role.id === roleId);
+    if (!sourceRole) return;
+
+    setRoleForm((current) => ({
+      ...current,
+      permissionIds: sourceRole.permissions.map((permission) => permission.id)
+    }));
+  };
+
   return (
     <div className="space-y-4">
-      <UsersModuleNav>
+      <UsersModuleNav
+        actions={
+          canCreateRole ? (
+            <Button type="button" onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              Nuevo perfil
+            </Button>
+          ) : null
+        }
+      >
         <div className="space-y-4">
           <PageHeader title="Perfiles" description="Control de perfiles y permisos de usuarios" />
 
@@ -64,7 +133,9 @@ export function RolesPage() {
 
           {roles.isLoading ? <LoadingState message="Cargando perfiles..." /> : null}
           {roles.isError ? <ErrorState message={roles.error.message} /> : null}
+          {allPermissions.isError ? <ErrorState message={allPermissions.error.message} /> : null}
           {deactivateRole.isError ? <ErrorState message={deactivateRole.error.message} /> : null}
+          {createRole.isError ? <ErrorState message={createRole.error.message} /> : null}
 
           {roles.data ? (
             <DataTable
@@ -104,23 +175,29 @@ export function RolesPage() {
                         <Eye className="h-3.5 w-3.5" />
                         Ver permisos
                       </Link>
-                      <Button
-                        type="button"
-                        variant="danger"
-                        size="sm"
-                        title={
-                          row.isSystem
-                            ? "Los perfiles del sistema no se pueden eliminar."
+                      <HelpTooltip
+                        content={
+                          isSuperAdminRole(row)
+                            ? "El perfil super admin no se puede eliminar."
                             : row.isActive
-                              ? "Eliminar perfil"
+                              ? canDeactivateRole
+                                ? "Eliminar perfil"
+                                : "No tienes permiso para eliminar perfiles."
                               : "El perfil ya esta inactivo."
                         }
-                        disabled={row.isSystem || !row.isActive || deactivateRole.isPending}
-                        onClick={() => setRemoving(row)}
+                        position="top"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Eliminar
-                      </Button>
+                        <Button
+                          type="button"
+                          variant="danger"
+                          size="sm"
+                          disabled={isSuperAdminRole(row) || !row.isActive || !canDeactivateRole || deactivateRole.isPending}
+                          onClick={() => setRemoving(row)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Eliminar
+                        </Button>
+                      </HelpTooltip>
                     </div>
                   )
                 }
@@ -146,6 +223,104 @@ export function RolesPage() {
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal open={creating} title="Nuevo perfil" size="2xl" onClose={closeCreate}>
+        <form className="space-y-5" onSubmit={submitCreate}>
+          <div className="grid gap-3 md:grid-cols-[minmax(220px,0.9fr)_minmax(280px,1.1fr)]">
+            <section className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
+              <div className="space-y-3">
+                <label className="grid gap-1 text-sm text-slate-700">
+                  Nombre del perfil
+                  <Input
+                    required
+                    value={roleForm.name}
+                    placeholder="Ej. Recepcion caja"
+                    onChange={(event) => setRoleForm((current) => ({ ...current, name: event.target.value }))}
+                  />
+                </label>
+                <label className="grid gap-1 text-sm text-slate-700">
+                  Descripcion
+                  <Textarea
+                    value={roleForm.description}
+                    placeholder="Responsabilidad operativa del perfil"
+                    onChange={(event) =>
+                      setRoleForm((current) => ({ ...current, description: event.target.value }))
+                    }
+                  />
+                </label>
+                <div className="rounded-md border border-sky-100 bg-white p-3 text-xs leading-relaxed text-slate-500">
+                  El codigo interno se genera automaticamente desde el nombre. Los permisos no se asignan por usuario;
+                  se heredan siempre desde este perfil.
+                </div>
+              </div>
+            </section>
+
+            <section className="min-h-[420px] rounded-lg border border-slate-200 bg-white p-4">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-semibold text-slate-900">Permisos del perfil</h4>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Selecciona los modulos y acciones que heredaran los usuarios con este perfil.
+                  </p>
+                </div>
+                <Badge value={`${roleForm.permissionIds.length} activos`} tone="success" />
+              </div>
+
+              <div className="mb-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3 md:grid-cols-[1fr_auto_auto]">
+                <Select
+                  value=""
+                  disabled={!copyableRoles.length}
+                  onChange={(event) => copyPermissionsFromRole(event.target.value)}
+                  aria-label="Copiar permisos de otro perfil"
+                >
+                  <option value="">Copiar permisos de otro perfil</option>
+                  {copyableRoles.map((role) => (
+                    <option key={role.id} value={role.id}>
+                      {role.name} ({role.permissions.length})
+                    </option>
+                  ))}
+                </Select>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={!activePermissionIds.length}
+                  onClick={() => setRoleForm((current) => ({ ...current, permissionIds: activePermissionIds }))}
+                >
+                  Marcar todos
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={!roleForm.permissionIds.length}
+                  onClick={() => setRoleForm((current) => ({ ...current, permissionIds: [] }))}
+                >
+                  Limpiar
+                </Button>
+              </div>
+
+              {allPermissions.isLoading ? <LoadingState message="Cargando permisos..." /> : null}
+              {allPermissions.data ? (
+                <div className="max-h-[56vh] overflow-y-auto pr-1">
+                  <PermissionChecklist
+                    allPermissions={allPermissions.data}
+                    selectedIds={roleForm.permissionIds}
+                    onChange={(permissionIds) => setRoleForm((current) => ({ ...current, permissionIds }))}
+                  />
+                </div>
+              ) : null}
+            </section>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={closeCreate}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={!roleForm.name.trim() || createRole.isPending}>
+              {createRole.isPending ? "Creando..." : "Crear perfil"}
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

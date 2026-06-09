@@ -46,6 +46,8 @@ import type { Appointment, AppointmentPayload, AppointmentReminderPayload, Appoi
 import type { AppointmentMenuAction } from "../components/appointment-actions-menu";
 import { resolveAgendaViewConfig } from "../utils/agenda-grid-config";
 
+type CommentPopoverAnchor = Pick<DOMRect, "top" | "right" | "bottom" | "left" | "width" | "height">;
+
 export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "list" }) {
   const [searchParams] = useSearchParams();
   const prefillPatientId = searchParams.get("patientId") ?? "";
@@ -62,7 +64,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const [rescheduling, setRescheduling] = useState<Appointment | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [durationEditing, setDurationEditing] = useState<Appointment | null>(null);
-  const [commenting, setCommenting] = useState<Appointment | null>(null);
+  const [commenting, setCommenting] = useState<{ appointment: Appointment; anchorRect: CommentPopoverAnchor | null } | null>(null);
   const [statusChanging, setStatusChanging] = useState<Appointment | null>(null);
   const [historyViewing, setHistoryViewing] = useState<Appointment | null>(null);
   const [emailAction, setEmailAction] = useState<{ appointment: Appointment; mode: AppointmentEmailMode } | null>(null);
@@ -251,7 +253,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         setDurationEditing(appointment);
         break;
       case "addComment":
-        setCommenting(appointment);
+        setCommenting({ appointment, anchorRect: getActiveElementRect() });
         break;
       case "changeDate":
         setRescheduling(appointment);
@@ -500,10 +502,11 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         onConfirm={updateAppointmentFromAction}
       />
       <AppointmentCommentModal
-        appointment={commenting}
+        appointment={commenting?.appointment ?? null}
+        anchorRect={commenting?.anchorRect ?? null}
         onClose={() => setCommenting(null)}
-        onConfirm={async (id, note, isPrivate) => {
-          await addAppointmentNote.mutateAsync({ id, payload: { note, isPrivate } });
+        onConfirm={async (id, comment) => {
+          await addAppointmentNote.mutateAsync({ id, payload: { note: comment } });
         }}
       />
       <AppointmentStatusModal
@@ -553,6 +556,24 @@ function getWeekStartDateInput(value: string) {
 function getDayOfWeek(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(year, month - 1, day, 0, 0, 0, 0).getDay();
+}
+
+function getActiveElementRect(): CommentPopoverAnchor | null {
+  if (typeof document === "undefined") return null;
+  const activeElement = document.activeElement;
+  if (!(activeElement instanceof HTMLElement)) return null;
+
+  const rect = activeElement.getBoundingClientRect();
+  if (!rect.width && !rect.height) return null;
+
+  return {
+    top: rect.top,
+    right: rect.right,
+    bottom: rect.bottom,
+    left: rect.left,
+    width: rect.width,
+    height: rect.height
+  };
 }
 
 function isBranchAssignmentActiveOn(

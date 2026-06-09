@@ -152,6 +152,73 @@ export class PaymentsService {
     return this.getPayment(actor, paymentId);
   }
 
+  async removeAllocation(actor: AuthUser, allocationId: string) {
+    const allocation = await this.prisma.paymentAllocation.findFirst({
+      where: {
+        id: allocationId,
+        payment: {
+          organizationId: actor.organizationId,
+          branchId: branchScope(actor)
+        }
+      },
+      include: {
+        payment: true,
+        treatmentPlanItem: true
+      }
+    });
+    if (!allocation) throw new NotFoundException("Payment allocation not found");
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.paymentAllocation.delete({ where: { id: allocation.id } });
+
+      const paymentAllocatedAfter = await tx.paymentAllocation.aggregate({
+        _sum: { amount: true },
+        where: { paymentId: allocation.paymentId }
+      });
+      const allocatedOnPayment = Number(paymentAllocatedAfter._sum.amount ?? 0);
+      await tx.payment.update({
+        where: { id: allocation.paymentId },
+        data: {
+          status:
+            allocatedOnPayment <= 0
+              ? PaymentStatus.RECEIVED
+              : allocatedOnPayment >= Number(allocation.payment.amount)
+                ? PaymentStatus.ALLOCATED
+                : PaymentStatus.PARTIALLY_ALLOCATED
+        }
+      });
+
+      const itemAllocatedAfter = await tx.paymentAllocation.aggregate({
+        _sum: { amount: true },
+        where: { treatmentPlanItemId: allocation.treatmentPlanItemId }
+      });
+      const allocatedOnItem = Number(itemAllocatedAfter._sum.amount ?? 0);
+      if (allocatedOnItem < Number(allocation.treatmentPlanItem.total) && allocation.treatmentPlanItem.status === TreatmentPlanItemStatus.PAID) {
+        await tx.treatmentPlanItem.update({
+          where: { id: allocation.treatmentPlanItemId },
+          data: { status: TreatmentPlanItemStatus.ACCEPTED }
+        });
+      }
+
+      await this.audit(tx, actor, {
+        entity: "PaymentAllocation",
+        entityId: allocation.id,
+        action: "delete",
+        before: {
+          paymentId: allocation.paymentId,
+          treatmentPlanItemId: allocation.treatmentPlanItemId,
+          amount: allocation.amount
+        },
+        after: {
+          paymentId: allocation.paymentId,
+          unallocatedAmount: allocation.amount
+        }
+      });
+    });
+
+    return this.getPayment(actor, allocation.paymentId);
+  }
+
   async voidPayment(actor: AuthUser, paymentId: string, dto: VoidPaymentDto) {
     const payment = await this.prisma.payment.findFirst({
       where: { id: paymentId, organizationId: actor.organizationId, branchId: branchScope(actor) },
@@ -522,32 +589,26 @@ export class PaymentsService {
       throw new BadRequestException("You already have an open cash register in this branch");
     }
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      const register = await tx.cashRegister.create({
-        data: {
-          organizationId: actor.organizationId,
-          branchId: dto.branchId,
-          openedById: actor.id,
-          openingAmount: this.toDecimal(dto.openingAmount),
-          status: CashRegisterStatus.OPEN,
-          openedAt: new Date()
-        }
-      });
-
-      await tx.cashMovement.create({
-        data: {
-          cashRegisterId: register.id,
-          type: CashMovementType.OPENING,
-          amount: this.toDecimal(dto.openingAmount),
-          description: "Apertura de caja",
-          createdById: actor.id
-        }
-      });
-
-      return register.id;
-    });
+    const created = await this.openCashRegisterInternal(actor, dto.branchId, dto.openingAmount);
 
     return this.getCashRegister(actor, created);
+  }
+
+  async getCurrentCashRegister(actor: AuthUser, branchId: string) {
+    await this.ensureBranch(actor, branchId);
+
+    const register = await this.prisma.cashRegister.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        branchId,
+        openedById: actor.id,
+        status: CashRegisterStatus.OPEN
+      },
+      select: { id: true }
+    });
+
+    if (!register) return null;
+    return this.getCashRegister(actor, register.id);
   }
 
   async closeCashRegister(actor: AuthUser, id: string, dto: CloseCashRegisterDto) {
@@ -728,7 +789,7 @@ export class PaymentsService {
 
   async getPatientPayments(actor: AuthUser, patientId: string) {
     await this.ensurePatient(actor, patientId);
-    const [payments, links, installments] = await Promise.all([
+    const [payments, links, installments, treatmentPlans] = await Promise.all([
       this.prisma.payment.findMany({
         where: { organizationId: actor.organizationId, patientId },
         include: {
@@ -746,14 +807,44 @@ export class PaymentsService {
         orderBy: { createdAt: "desc" }
       }),
       this.prisma.installment.findMany({
-        where: { patientId, patient: { organizationId: actor.organizationId } },
-        include: { installmentPlan: true },
+        where: { patientId, patient: { organizationId: actor.organizationId, branchId: branchScope(actor) } },
+        include: { installmentPlan: { include: { treatmentPlan: { select: { id: true, name: true } } } } },
         orderBy: [{ dueDate: "asc" }, { number: "asc" }]
+      }),
+      this.prisma.treatmentPlan.findMany({
+        where: {
+          organizationId: actor.organizationId,
+          patientId,
+          branchId: branchScope(actor),
+          isAlternative: false
+        },
+        include: {
+          professional: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true
+            }
+          },
+          items: {
+            where: { status: { not: TreatmentPlanItemStatus.CANCELLED } },
+            include: {
+              procedure: { select: { id: true, code: true, name: true } },
+              section: { select: { id: true, name: true } },
+              paymentAllocations: {
+                include: { payment: { select: { id: true, status: true } } }
+              }
+            },
+            orderBy: { createdAt: "asc" }
+          }
+        },
+        orderBy: { createdAt: "desc" }
       })
     ]);
 
     const balance = await this.getPatientBalance(actor, patientId);
-    return { payments, links, installments, balance };
+    const { payablePlans, payableItems } = this.buildPayableTreatmentSummaries(treatmentPlans);
+    return { payments, links, installments, balance, payablePlans, payableItems };
   }
 
   async getPatientBalance(actor: AuthUser, patientId: string) {
@@ -975,11 +1066,43 @@ export class PaymentsService {
         organizationId: actor.organizationId,
         ...(query.patientId ? { patientId: query.patientId } : {}),
         ...(query.status ? { status: query.status } : {}),
+        ...(query.treatmentPlanId
+          ? {
+              payment: {
+                allocations: {
+                  some: {
+                    treatmentPlanItem: {
+                      treatmentPlanId: query.treatmentPlanId
+                    }
+                  }
+                }
+              }
+            }
+          : {}),
         branchId: branchScope(actor)
       },
       include: {
         patient: { select: { id: true, firstName: true, lastName: true } },
-        payment: { select: { id: true, amount: true, status: true } },
+        payment: {
+          select: {
+            id: true,
+            amount: true,
+            status: true,
+            allocations: {
+              include: {
+                treatmentPlanItem: {
+                  select: {
+                    id: true,
+                    treatmentPlanId: true,
+                    toothNumber: true,
+                    surface: true,
+                    procedure: { select: { id: true, code: true, name: true } }
+                  }
+                }
+              }
+            }
+          }
+        },
         processedBy: { select: { id: true, firstName: true, lastName: true } }
       },
       skip,
@@ -1028,6 +1151,120 @@ export class PaymentsService {
     });
     if (!register) throw new NotFoundException("Cash register not found");
     return register;
+  }
+
+  private buildPayableTreatmentSummaries(
+    treatmentPlans: Array<{
+      id: string;
+      name: string;
+      status: string;
+      createdAt: Date;
+      professional: { id: string; firstName: string; lastName: string };
+      items: Array<{
+        id: string;
+        toothNumber: string | null;
+        surface: string | null;
+        quantity: Prisma.Decimal;
+        unitPrice: Prisma.Decimal;
+        discount: Prisma.Decimal;
+        total: Prisma.Decimal;
+        status: TreatmentPlanItemStatus;
+        plannedAt: Date | null;
+        completedAt: Date | null;
+        procedure: { id: string; code: string; name: string };
+        section: { id: string; name: string } | null;
+        paymentAllocations: Array<{
+          amount: Prisma.Decimal;
+          payment: { id: string; status: PaymentStatus };
+        }>;
+      }>;
+    }>
+  ) {
+    const payableStatuses = new Set<PaymentStatus>([
+      PaymentStatus.RECEIVED,
+      PaymentStatus.PARTIALLY_ALLOCATED,
+      PaymentStatus.ALLOCATED
+    ]);
+    const payableItems: Array<{
+      id: string;
+      treatmentPlanId: string;
+      treatmentPlanName: string;
+      treatmentPlanStatus: string;
+      procedure: { id: string; code: string; name: string };
+      section: { id: string; name: string } | null;
+      toothNumber: string | null;
+      surface: string | null;
+      quantity: number;
+      unitPrice: number;
+      discount: number;
+      total: number;
+      paidAmount: number;
+      outstandingAmount: number;
+      status: TreatmentPlanItemStatus;
+      plannedAt: Date | null;
+      completedAt: Date | null;
+    }> = [];
+
+    const payablePlans = treatmentPlans
+      .map((plan) => {
+        const items = plan.items.map((item) => {
+          const paidAmount = this.roundMoney(
+            item.paymentAllocations.reduce((sum, allocation) => {
+              if (!payableStatuses.has(allocation.payment.status)) return sum;
+              return sum + Number(allocation.amount);
+            }, 0)
+          );
+          const total = Number(item.total);
+          const outstandingAmount = this.roundMoney(Math.max(total - paidAmount, 0));
+          const summary = {
+            id: item.id,
+            treatmentPlanId: plan.id,
+            treatmentPlanName: plan.name,
+            treatmentPlanStatus: plan.status,
+            procedure: item.procedure,
+            section: item.section,
+            toothNumber: item.toothNumber,
+            surface: item.surface,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            discount: Number(item.discount),
+            total: this.roundMoney(total),
+            paidAmount,
+            outstandingAmount,
+            status: item.status,
+            plannedAt: item.plannedAt,
+            completedAt: item.completedAt
+          };
+
+          if (outstandingAmount > 0) payableItems.push(summary);
+          return summary;
+        });
+
+        const totalBudget = this.roundMoney(items.reduce((sum, item) => sum + item.total, 0));
+        const paidAmount = this.roundMoney(items.reduce((sum, item) => sum + item.paidAmount, 0));
+        const outstandingAmount = this.roundMoney(items.reduce((sum, item) => sum + item.outstandingAmount, 0));
+        const realizedAmount = this.roundMoney(
+          items
+            .filter((item) => item.status === TreatmentPlanItemStatus.COMPLETED)
+            .reduce((sum, item) => sum + item.total, 0)
+        );
+
+        return {
+          id: plan.id,
+          name: plan.name,
+          status: plan.status,
+          professional: plan.professional,
+          createdAt: plan.createdAt,
+          totalBudget,
+          paidAmount,
+          realizedAmount,
+          outstandingAmount,
+          items: items.filter((item) => item.outstandingAmount > 0)
+        };
+      })
+      .filter((plan) => plan.outstandingAmount > 0);
+
+    return { payablePlans, payableItems };
   }
 
   private async enrichCashRegister<T extends { branchId: string; openedAt: Date; movements: Array<{ type: CashMovementType; amount: Prisma.Decimal; payment?: { paymentMethod?: { name: string; type: string } | null } | null }> }>(
@@ -1093,6 +1330,43 @@ export class PaymentsService {
     return institution;
   }
 
+  private async openCashRegisterInternal(actor: AuthUser, branchId: string, openingAmount: number) {
+    return this.prisma.$transaction(async (tx) => {
+      const register = await tx.cashRegister.create({
+        data: {
+          organizationId: actor.organizationId,
+          branchId,
+          openedById: actor.id,
+          openingAmount: this.toDecimal(openingAmount),
+          status: CashRegisterStatus.OPEN,
+          openedAt: new Date()
+        }
+      });
+
+      await tx.cashMovement.create({
+        data: {
+          cashRegisterId: register.id,
+          type: CashMovementType.OPENING,
+          amount: this.toDecimal(openingAmount),
+          description: "Apertura de caja",
+          createdById: actor.id
+        }
+      });
+
+      await this.audit(tx, actor, {
+        entity: "CashRegister",
+        entityId: register.id,
+        action: "open",
+        after: {
+          branchId,
+          openingAmount
+        }
+      });
+
+      return register.id;
+    });
+  }
+
   private async ensureOpenCashRegister(actor: AuthUser, branchId: string) {
     const register = await this.prisma.cashRegister.findFirst({
       where: {
@@ -1105,8 +1379,9 @@ export class PaymentsService {
 
     if (register) return register;
 
-    if (this.hasAnyPermission(actor, ["payments.override.closed_cash", "system.manage_all"])) {
-      return null;
+    if (this.hasAnyPermission(actor, ["cash_register.open", "system.manage_all"])) {
+      const registerId = await this.openCashRegisterInternal(actor, branchId, 0);
+      return this.prisma.cashRegister.findUniqueOrThrow({ where: { id: registerId } });
     }
 
     throw new BadRequestException("No open cash register found for this user and branch");
@@ -1304,6 +1579,211 @@ export class PaymentsService {
     return Math.round(value * 100) / 100;
   }
 
+  private dateKey(date: Date) {
+    return date.toISOString().slice(0, 10);
+  }
+
+  private resolveReportRange(dateFrom?: string, dateTo?: string): { start: Date; end: Date } {
+    const now = new Date();
+    const start = dateFrom ? new Date(dateFrom) : new Date(now.getTime() - 9 * 24 * 60 * 60 * 1000);
+    const end = dateTo ? new Date(dateTo) : new Date(now);
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+
+  // ─── Reporte: Resumen de recaudación últimos 10 días ─────────────────────
+  async getCollectionSummary(actor: AuthUser, query: { branchId?: string; dateFrom?: string; dateTo?: string }) {
+    const { start, end } = this.resolveReportRange(query.dateFrom, query.dateTo);
+    const branchWhere = query.branchId ? branchScope(actor, query.branchId) : branchScope(actor);
+
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        branchId: branchWhere,
+        status: { not: PaymentStatus.VOIDED },
+        paidAt: { gte: start, lte: end }
+      },
+      select: { amount: true, paidAt: true }
+    });
+
+    const byDayMap = new Map<string, number>();
+    let total = 0;
+    for (const p of payments) {
+      const key = this.dateKey(p.paidAt);
+      byDayMap.set(key, this.roundMoney((byDayMap.get(key) ?? 0) + Number(p.amount)));
+      total += Number(p.amount);
+    }
+
+    const byDay = [...byDayMap.entries()]
+      .map(([date, amount]) => ({ date, amount }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return {
+      dateFrom: start.toISOString(),
+      dateTo: end.toISOString(),
+      total: this.roundMoney(total),
+      byDay
+    };
+  }
+
+  // ─── Reporte: Resumen cajas (por medio de pago) ───────────────────────────
+  async getBoxSummary(actor: AuthUser, query: { branchId?: string; dateFrom?: string; dateTo?: string }) {
+    const { start, end } = this.resolveReportRange(query.dateFrom, query.dateTo);
+    const branchWhere = query.branchId ? branchScope(actor, query.branchId) : branchScope(actor);
+
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        branchId: branchWhere,
+        status: { not: PaymentStatus.VOIDED },
+        paidAt: { gte: start, lte: end }
+      },
+      select: {
+        amount: true,
+        patientId: true,
+        paymentMethod: { select: { name: true, type: true } }
+      }
+    });
+
+    const methodMap = new Map<string, { type: string; method: string; count: number; amount: number }>();
+    const patientSet = new Set<string>();
+    let total = 0;
+
+    for (const p of payments) {
+      const key = p.paymentMethod.name;
+      const current = methodMap.get(key) ?? { type: "Pagos", method: p.paymentMethod.name, count: 0, amount: 0 };
+      current.count += 1;
+      current.amount = this.roundMoney(current.amount + Number(p.amount));
+      methodMap.set(key, current);
+      patientSet.add(p.patientId);
+      total += Number(p.amount);
+    }
+
+    return {
+      total: this.roundMoney(total),
+      patientsCount: patientSet.size,
+      rows: [...methodMap.values()].sort((a, b) => b.amount - a.amount)
+    };
+  }
+
+  // ─── Reporte: Pagos recibidos por período ────────────────────────────────
+  async getPaymentsByPeriod(actor: AuthUser, query: { branchId?: string; dateFrom?: string; dateTo?: string }) {
+    const { start, end } = this.resolveReportRange(query.dateFrom, query.dateTo);
+    const branchWhere = query.branchId ? branchScope(actor, query.branchId) : branchScope(actor);
+
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        branchId: branchWhere,
+        status: { not: PaymentStatus.VOIDED },
+        paidAt: { gte: start, lte: end }
+      },
+      include: {
+        patient: { select: { firstName: true, lastName: true, documentNumber: true } },
+        receivedBy: { select: { firstName: true, lastName: true } },
+        paymentMethod: { select: { name: true, type: true } },
+        cashMovements: { select: { cashRegister: { select: { branch: { select: { name: true } } } } }, take: 1 }
+      },
+      orderBy: { paidAt: "desc" }
+    });
+
+    const byDayMap = new Map<string, number>();
+    let total = 0;
+    for (const p of payments) {
+      const key = this.dateKey(p.paidAt);
+      byDayMap.set(key, this.roundMoney((byDayMap.get(key) ?? 0) + Number(p.amount)));
+      total += Number(p.amount);
+    }
+
+    const byDay = [...byDayMap.entries()]
+      .map(([date, amount]) => ({ date, amount }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const paymentsList = payments.map((p, index) => ({
+      id: p.id,
+      number: index + 1,
+      date: p.paidAt.toISOString(),
+      patient: `${p.patient.firstName} ${p.patient.lastName}`.trim(),
+      responsible: p.cashMovements[0]?.cashRegister?.branch?.name ?? `${p.receivedBy.firstName} ${p.receivedBy.lastName}`.trim(),
+      documentNumber: p.patient.documentNumber ?? "0",
+      paymentType: "Pago",
+      paymentMethod: p.paymentMethod.name,
+      total: this.roundMoney(Number(p.amount))
+    }));
+
+    return {
+      dateFrom: start.toISOString(),
+      dateTo: end.toISOString(),
+      total: this.roundMoney(total),
+      byDay,
+      payments: paymentsList
+    };
+  }
+
+  // ─── Reporte: Pagos por período por profesional ──────────────────────────
+  async getPaymentsByProfessional(
+    actor: AuthUser,
+    query: { branchId?: string; dateFrom?: string; dateTo?: string; professionalId?: string }
+  ) {
+    const { start, end } = this.resolveReportRange(query.dateFrom, query.dateTo);
+    const branchWhere = query.branchId ? branchScope(actor, query.branchId) : branchScope(actor);
+
+    const payments = await this.prisma.payment.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        branchId: branchWhere,
+        status: { not: PaymentStatus.VOIDED },
+        paidAt: { gte: start, lte: end },
+        ...(query.professionalId
+          ? {
+              allocations: {
+                some: {
+                  treatmentPlanItem: {
+                    treatmentPlan: { professionalId: query.professionalId }
+                  }
+                }
+              }
+            }
+          : {})
+      },
+      include: {
+        patient: { select: { firstName: true, lastName: true } },
+        receivedBy: { select: { firstName: true, lastName: true } },
+        paymentMethod: { select: { name: true } },
+        allocations: {
+          take: 1,
+          select: {
+            treatmentPlanItem: {
+              select: { treatmentPlan: { select: { id: true } } }
+            }
+          }
+        }
+      },
+      orderBy: { paidAt: "desc" }
+    });
+
+    let total = 0;
+    const paymentsList = payments.map((p, index) => {
+      total += Number(p.amount);
+      return {
+        number: index + 1,
+        treatmentNumber: p.allocations[0]?.treatmentPlanItem?.treatmentPlan?.id?.slice(-6).toUpperCase() ?? "-",
+        paymentMethod: p.paymentMethod.name,
+        patientName: `${p.patient.firstName} ${p.patient.lastName}`.trim(),
+        reception: `${p.receivedBy.firstName} ${p.receivedBy.lastName}`.trim(),
+        amount: this.roundMoney(Number(p.amount))
+      };
+    });
+
+    return {
+      dateFrom: start.toISOString(),
+      dateTo: end.toISOString(),
+      total: this.roundMoney(total),
+      payments: paymentsList
+    };
+  }
+
   private async audit(
     tx: Prisma.TransactionClient | PrismaService,
     actor: AuthUser,
@@ -1329,3 +1809,4 @@ export class PaymentsService {
     });
   }
 }
+

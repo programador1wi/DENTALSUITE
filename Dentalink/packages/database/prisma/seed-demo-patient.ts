@@ -44,6 +44,142 @@ function demoDateRange(hours: number, minutes: number, durationMinutes: number, 
   return { startAt, endAt, durationMinutes };
 }
 
+function demoAssetUrl(title: string, subtitle: string, tone: "xray" | "photo" = "xray") {
+  const dark = tone === "xray";
+  const background = dark ? "#0b1220" : "#e8f7f0";
+  const accent = dark ? "#38bdf8" : "#059669";
+  const muted = dark ? "#94a3b8" : "#475569";
+  const text = dark ? "#f8fafc" : "#0f172a";
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760">
+      <rect width="1200" height="760" fill="${background}"/>
+      <rect x="70" y="70" width="1060" height="620" rx="26" fill="none" stroke="${accent}" stroke-width="5" opacity="0.75"/>
+      <g opacity="${dark ? "0.55" : "0.35"}" stroke="${accent}" stroke-width="7" fill="none">
+        <path d="M340 230 C300 310 300 450 365 545 C410 605 482 586 493 505 C505 415 438 383 452 310 C461 261 397 221 340 230Z"/>
+        <path d="M660 230 C610 300 608 455 682 545 C729 602 800 580 804 500 C809 410 742 380 756 309 C766 260 713 222 660 230Z"/>
+        <path d="M505 255 C472 327 480 467 540 560"/>
+        <path d="M807 255 C845 330 835 470 780 560"/>
+        <path d="M275 585 C435 635 762 640 925 585"/>
+      </g>
+      <circle cx="970" cy="168" r="58" fill="${accent}" opacity="0.18"/>
+      <text x="92" y="140" fill="${muted}" font-family="Arial, sans-serif" font-size="28" font-weight="700">ARCHIVO DEMO</text>
+      <text x="92" y="610" fill="${text}" font-family="Arial, sans-serif" font-size="52" font-weight="700">${title}</text>
+      <text x="92" y="660" fill="${muted}" font-family="Arial, sans-serif" font-size="30">${subtitle}</text>
+    </svg>`;
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+}
+
+const demoRadiographyFindings = [
+  { id: "implant-16", tooth: "1.6", label: "Implante", bbox: { x: 0.41, y: 0.42, width: 0.07, height: 0.13 }, visible: true, source: "MANUAL" },
+  { id: "wisdom-18", tooth: "1.8", label: "Muela del juicio", bbox: { x: 0.28, y: 0.34, width: 0.09, height: 0.2 }, visible: true, source: "MANUAL" },
+  { id: "implant-31", tooth: "3.1", label: "Implante", bbox: { x: 0.58, y: 0.43, width: 0.05, height: 0.12 }, visible: true, source: "MANUAL" },
+  { id: "cavity-32", tooth: "3.2", label: "Cavidad", bbox: { x: 0.62, y: 0.7, width: 0.04, height: 0.05 }, visible: true, source: "MANUAL" },
+  { id: "filling-32", tooth: "3.2", label: "Empaste no metalico", bbox: { x: 0.63, y: 0.74, width: 0.07, height: 0.07 }, visible: true, source: "MANUAL" },
+  { id: "cavity-35", tooth: "3.5", label: "Cavidad", bbox: { x: 0.72, y: 0.76, width: 0.04, height: 0.05 }, visible: true, source: "MANUAL" },
+  { id: "filling-36", tooth: "3.6", label: "Empaste no metalico", bbox: { x: 0.74, y: 0.71, width: 0.08, height: 0.07 }, visible: true, source: "MANUAL" },
+  { id: "implant-36", tooth: "3.6", label: "Implante", bbox: { x: 0.75, y: 0.43, width: 0.07, height: 0.13 }, visible: true, source: "MANUAL" },
+  { id: "calculus-43", tooth: "4.3", label: "Calculo dental", bbox: { x: 0.56, y: 0.78, width: 0.04, height: 0.05 }, visible: true, source: "MANUAL" }
+];
+
+async function seedDemoPatientFiles(input: {
+  organizationId: string;
+  patientId: string;
+  uploadedById: string;
+  patientLabel: string;
+  dateOffset?: number;
+}) {
+  const createdAt = demoDateAt(10, 15, input.dateOffset ?? -3);
+  const safeLabel = input.patientLabel.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase();
+  const baseUrl = "https://demo.dentalwarner.local/files";
+  const files = [
+    {
+      fileName: `${safeLabel}-rx-panoramica.svg`,
+      originalName: "[DEMO] RX panoramica inicial.svg",
+      mimeType: "image/svg+xml",
+      size: 1480000,
+      url: demoAssetUrl("RX panoramica", input.patientLabel, "xray"),
+      category: "XRAY",
+      createdAt
+    },
+    {
+      fileName: `${safeLabel}-foto-intraoral.svg`,
+      originalName: "[DEMO] Foto clinica intraoral.svg",
+      mimeType: "image/svg+xml",
+      size: 860000,
+      url: demoAssetUrl("Foto clinica", input.patientLabel, "photo"),
+      category: "PHOTO",
+      createdAt: demoDateAt(10, 35, input.dateOffset ?? -3)
+    },
+    {
+      fileName: `${safeLabel}-plan-diagnostico.pdf`,
+      originalName: "[DEMO] Plan diagnostico.pdf",
+      mimeType: "application/pdf",
+      size: 245000,
+      url: `${baseUrl}/${safeLabel}/plan-diagnostico.pdf`,
+      category: "DOCUMENT",
+      createdAt: demoDateAt(11, 0, input.dateOffset ?? -3)
+    },
+    {
+      fileName: `${safeLabel}-consentimiento.pdf`,
+      originalName: "[DEMO] Consentimiento informado firmado.pdf",
+      mimeType: "application/pdf",
+      size: 198000,
+      url: `${baseUrl}/${safeLabel}/consentimiento-firmado.pdf`,
+      category: "CONSENT",
+      createdAt: demoDateAt(11, 20, input.dateOffset ?? -3)
+    },
+    {
+      fileName: `${safeLabel}-referencia.zip`,
+      originalName: "[DEMO] Adjuntos administrativos.zip",
+      mimeType: "application/zip",
+      size: 512000,
+      url: `${baseUrl}/${safeLabel}/adjuntos-administrativos.zip`,
+      category: "OTHER",
+      createdAt: demoDateAt(11, 40, input.dateOffset ?? -3)
+    }
+  ];
+
+  await prisma.fileAttachment.createMany({
+    data: files.map((file) => ({
+      organizationId: input.organizationId,
+      patientId: input.patientId,
+      uploadedById: input.uploadedById,
+      ...file
+    }))
+  });
+
+  const xrayFile = await prisma.fileAttachment.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      patientId: input.patientId,
+      fileName: `${safeLabel}-rx-panoramica.svg`,
+      category: "XRAY"
+    },
+    select: { id: true }
+  });
+  if (xrayFile) {
+    await prisma.radiographyAnalysis.upsert({
+      where: { fileAttachmentId: xrayFile.id },
+      create: {
+        organizationId: input.organizationId,
+        patientId: input.patientId,
+        fileAttachmentId: xrayFile.id,
+        provider: "MANUAL",
+        status: "DRAFT",
+        findings: demoRadiographyFindings,
+        createdById: input.uploadedById,
+        updatedById: input.uploadedById
+      },
+      update: {
+        provider: "MANUAL",
+        status: "DRAFT",
+        findings: demoRadiographyFindings,
+        updatedById: input.uploadedById
+      }
+    });
+  }
+}
+
 async function upsertSystemUser(input: {
   organizationId: string;
   branchId: string;
@@ -389,7 +525,23 @@ async function cleanOldDemoData() {
     }
   });
 
-  // 29. Items de Orden de Laboratorio (LabOrderItem)
+  // 29. Adjuntos de expediente (FileAttachment)
+  await prisma.fileAttachment.deleteMany({
+    where: {
+      OR: [
+        {
+          patient: {
+            email: { endsWith: "@dentalwarner.local" }
+          }
+        },
+        {
+          originalName: { startsWith: "[DEMO]" }
+        }
+      ]
+    }
+  });
+
+  // 30. Items de Orden de Laboratorio (LabOrderItem)
   await prisma.labOrderItem.deleteMany({
     where: {
       labOrder: {
@@ -1386,6 +1538,13 @@ async function main() {
       status: "DEBTOR"
     }
   });
+  await seedDemoPatientFiles({
+    organizationId: organization.id,
+    patientId: patientJuan.id,
+    uploadedById: adminUser.id,
+    patientLabel: "Juan Demostracion",
+    dateOffset: -8
+  });
 
   // Diagnóstico Médico Juan
   await prisma.medicalHistory.create({
@@ -1693,6 +1852,13 @@ async function main() {
       source: "Instagram Ads",
       status: "IN_TREATMENT"
     }
+  });
+  await seedDemoPatientFiles({
+    organizationId: organization.id,
+    patientId: patientSofia.id,
+    uploadedById: adminUser.id,
+    patientLabel: "Sofia Castro",
+    dateOffset: -7
   });
 
   // Ficha médica
@@ -2014,6 +2180,13 @@ async function main() {
       status: "COMPLETED"
     }
   });
+  await seedDemoPatientFiles({
+    organizationId: organization.id,
+    patientId: patientCarlos.id,
+    uploadedById: adminUser.id,
+    patientLabel: "Carlos Montes",
+    dateOffset: -6
+  });
 
   await prisma.medicalHistory.create({
     data: {
@@ -2215,6 +2388,13 @@ async function main() {
       source: "Convenio Institucional",
       status: "ACTIVE"
     }
+  });
+  await seedDemoPatientFiles({
+    organizationId: organization.id,
+    patientId: patientMateo.id,
+    uploadedById: adminUser.id,
+    patientLabel: "Mateo Diaz",
+    dateOffset: -5
   });
 
   // Odontograma selladores preventivos
@@ -2426,6 +2606,13 @@ async function main() {
       source: "Recomendado Directo",
       status: "IN_TREATMENT"
     }
+  });
+  await seedDemoPatientFiles({
+    organizationId: organization.id,
+    patientId: patientLucia.id,
+    uploadedById: adminUser.id,
+    patientLabel: "Lucia Fernandez",
+    dateOffset: -4
   });
 
   await prisma.medicalHistory.create({
@@ -3233,6 +3420,13 @@ async function main() {
         status: seed.status
       }
     });
+    await seedDemoPatientFiles({
+      organizationId: organization.id,
+      patientId: patient.id,
+      uploadedById: adminUser.id,
+      patientLabel: `${seed.firstName} ${seed.lastName}`,
+      dateOffset: -2
+    });
 
     await prisma.patientNote.create({
       data: {
@@ -3302,6 +3496,13 @@ async function main() {
               : PatientStatus.DEBTOR,
         source: "SEED_BRANCH"
       }
+    });
+    await seedDemoPatientFiles({
+      organizationId: organization.id,
+      patientId: patient.id,
+      uploadedById: adminUser.id,
+      patientLabel: `Demo Sucursal ${activeBranch.name}`,
+      dateOffset: -1
     });
 
     await prisma.patientNote.create({

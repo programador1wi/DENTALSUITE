@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { Info, Plus, Printer, Stethoscope } from "lucide-react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { CheckCircle2, Info, Plus, Printer, Stethoscope, X } from "lucide-react";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { cn } from "@/lib/utils/cn";
-import { useOdontogramStore, type OdontogramTool } from "@/stores/odontogram.store";
+import { useOdontogramStore, type OdontogramContextMenu, type OdontogramTool } from "@/stores/odontogram.store";
 import type { OdontogramRecord, ToothCondition, ToothProcedure } from "../services/clinical.service";
 import { getDiagnosisMark, type DiagnosisMark } from "./tooth-diagnosis-symbols";
 
@@ -101,15 +102,20 @@ function symbolIdsFromRecords(sources: WarnerSuiteSymbolSource[]) {
   return [...ids];
 }
 
-function warnerSuiteActivationCss(symbolIds: string[], selectedTooth: string) {
-  const visibleIds = [...symbolIds, selectedTooth ? `hover_${selectedTooth}` : ""].filter(Boolean);
+function uniqueValues(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function warnerSuiteActivationCss(symbolIds: string[], activeTeeth: string[]) {
+  const activeIds = activeTeeth.map((tooth) => `hover_${tooth}`);
+  const visibleIds = [...symbolIds, ...activeIds].filter(Boolean);
   if (!visibleIds.length) return "";
 
   return `
     ${visibleIds.map((id) => `#${id}`).join(", ")} {
       display: inline !important;
     }
-    ${selectedTooth ? `#hover_${selectedTooth} { fill-opacity: 0.13 !important; stroke-opacity: 1 !important; }` : ""}
+    ${activeIds.length ? `${activeIds.map((id) => `#${id}`).join(", ")} { fill-opacity: 0.13 !important; stroke-opacity: 1 !important; }` : ""}
   `;
 }
 
@@ -195,20 +201,28 @@ function ClinicalSvg({
   teethUpper,
   teethLower,
   selectedTooth,
+  selectedTeeth,
+  hoveredTooth,
   latestByTooth,
   conditions,
   records,
   procedures,
-  onSelectTooth
+  onSelectTooth,
+  onHoverTooth,
+  onOpenContextMenu
 }: {
   teethUpper: string[];
   teethLower: string[];
   selectedTooth: string;
+  selectedTeeth: string[];
+  hoveredTooth: string;
   latestByTooth: Record<string, OdontogramRecord>;
   conditions?: ToothCondition[];
   records?: OdontogramRecord[];
   procedures?: ToothProcedure[];
-  onSelectTooth: (tooth: string) => void;
+  onSelectTooth: (tooth: string, options?: { additive?: boolean }) => void;
+  onHoverTooth: (tooth: string) => void;
+  onOpenContextMenu: (tooth: string, event: MouseEvent<SVGRectElement>) => void;
 }) {
   const [svgMarkup, setSvgMarkup] = useState("");
   const upperStartX = 12;
@@ -220,8 +234,9 @@ function ClinicalSvg({
     [conditions, latestByTooth, procedures, records]
   );
   const symbolIds = useMemo(() => symbolIdsFromRecords(symbolSources), [symbolSources]);
-  const visibleIds = useMemo(() => [...symbolIds, selectedTooth ? `hover_${selectedTooth}` : ""].filter(Boolean), [selectedTooth, symbolIds]);
-  const activationCss = useMemo(() => warnerSuiteActivationCss(symbolIds, selectedTooth), [selectedTooth, symbolIds]);
+  const activeTeeth = useMemo(() => uniqueValues([selectedTooth, hoveredTooth, ...selectedTeeth]), [hoveredTooth, selectedTeeth, selectedTooth]);
+  const visibleIds = useMemo(() => [...symbolIds, ...activeTeeth.map((tooth) => `hover_${tooth}`)].filter(Boolean), [activeTeeth, symbolIds]);
+  const activationCss = useMemo(() => warnerSuiteActivationCss(symbolIds, activeTeeth), [activeTeeth, symbolIds]);
   const activatedSvgMarkup = useMemo(() => activateWarnerSuiteSvgMarkup(svgMarkup, visibleIds), [svgMarkup, visibleIds]);
 
   useEffect(() => {
@@ -264,13 +279,26 @@ function ClinicalSvg({
       >
         {teethUpper.map((tooth, index) => {
           const x = upperStartX + index * toothWidth;
-          const selected = selectedTooth === tooth;
+          const selected = activeTeeth.includes(tooth);
           return (
             <g key={`upper-hit-${tooth}`}>
-              {selected ? <rect x={x} y="29" width="72" height="260" rx="30" fill="#008aca" opacity="0.13" style={{ pointerEvents: "none" }} /> : null}
+              {selected ? (
+                <rect
+                  data-testid={`tooth-highlight-${tooth}`}
+                  x={x}
+                  y="29"
+                  width="72"
+                  height="260"
+                  rx="30"
+                  fill="#008aca"
+                  opacity="0.13"
+                  style={{ pointerEvents: "none" }}
+                />
+              ) : null}
               <rect
                 role="button"
                 tabIndex={0}
+                aria-pressed={selectedTeeth.includes(tooth)}
                 aria-label={`Pieza ${fdiLabel(tooth)}`}
                 x={x}
                 y="29"
@@ -281,7 +309,12 @@ function ClinicalSvg({
                 fillOpacity="0"
                 className="cursor-pointer"
                 style={{ pointerEvents: "all" }}
-                onClick={() => onSelectTooth(tooth)}
+                onMouseEnter={() => onHoverTooth(tooth)}
+                onMouseLeave={() => onHoverTooth("")}
+                onFocus={() => onHoverTooth(tooth)}
+                onBlur={() => onHoverTooth("")}
+                onClick={(event) => onSelectTooth(tooth, { additive: event.ctrlKey || event.metaKey })}
+                onContextMenu={(event) => onOpenContextMenu(tooth, event)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") onSelectTooth(tooth);
                 }}
@@ -291,13 +324,26 @@ function ClinicalSvg({
         })}
         {teethLower.map((tooth, index) => {
           const x = lowerStartX + index * toothWidth;
-          const selected = selectedTooth === tooth;
+          const selected = activeTeeth.includes(tooth);
           return (
             <g key={`lower-hit-${tooth}`}>
-              {selected ? <rect x={x} y="318" width="72" height="260" rx="30" fill="#008aca" opacity="0.13" style={{ pointerEvents: "none" }} /> : null}
+              {selected ? (
+                <rect
+                  data-testid={`tooth-highlight-${tooth}`}
+                  x={x}
+                  y="318"
+                  width="72"
+                  height="260"
+                  rx="30"
+                  fill="#008aca"
+                  opacity="0.13"
+                  style={{ pointerEvents: "none" }}
+                />
+              ) : null}
               <rect
                 role="button"
                 tabIndex={0}
+                aria-pressed={selectedTeeth.includes(tooth)}
                 aria-label={`Pieza ${fdiLabel(tooth)}`}
                 x={x}
                 y="318"
@@ -308,7 +354,12 @@ function ClinicalSvg({
                 fillOpacity="0"
                 className="cursor-pointer"
                 style={{ pointerEvents: "all" }}
-                onClick={() => onSelectTooth(tooth)}
+                onMouseEnter={() => onHoverTooth(tooth)}
+                onMouseLeave={() => onHoverTooth("")}
+                onFocus={() => onHoverTooth(tooth)}
+                onBlur={() => onHoverTooth("")}
+                onClick={(event) => onSelectTooth(tooth, { additive: event.ctrlKey || event.metaKey })}
+                onContextMenu={(event) => onOpenContextMenu(tooth, event)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") onSelectTooth(tooth);
                 }}
@@ -318,6 +369,119 @@ function ClinicalSvg({
         })}
         <title>{interactiveTeeth.length ? "Selecciona una pieza dental" : "Odontograma"}</title>
       </svg>
+    </div>
+  );
+}
+
+function contextMenuPosition(menu: NonNullable<OdontogramContextMenu>) {
+  const width = 248;
+  const height = 332;
+  if (typeof window === "undefined") return { left: menu.x, top: menu.y };
+  return {
+    left: Math.min(menu.x, window.innerWidth - width - 12),
+    top: Math.min(menu.y, window.innerHeight - height - 12)
+  };
+}
+
+function OdontogramContextMenuView({
+  menu,
+  mode,
+  selectedCount,
+  onClose,
+  onOpenPreexistence,
+  onOpenLesion,
+  onOpenTreatment,
+  onOpenInformation,
+  onApplyQuickDiagnosis,
+  onOpenMultiHelp
+}: {
+  menu: OdontogramContextMenu;
+  mode: "clinical" | "treatment-plan";
+  selectedCount: number;
+  onClose: () => void;
+  onOpenPreexistence: () => void;
+  onOpenLesion: () => void;
+  onOpenTreatment: () => void;
+  onOpenInformation: () => void;
+  onApplyQuickDiagnosis?: (diagnosis: string) => void;
+  onOpenMultiHelp: () => void;
+}) {
+  useEffect(() => {
+    if (!menu) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [menu, onClose]);
+
+  if (!menu) return null;
+
+  const position = contextMenuPosition(menu);
+  const targetLabel = selectedCount > 1 ? `${selectedCount} piezas` : `pieza ${fdiLabel(menu.toothNumber)}`;
+  const procedureEnabled = mode === "treatment-plan";
+  const itemClass = "flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white";
+
+  return (
+    <div className="fixed inset-0 z-40" role="presentation" onMouseDown={onClose}>
+      <div
+        role="menu"
+        aria-label={`Opciones de pieza ${fdiLabel(menu.toothNumber)}`}
+        className="fixed w-[248px] overflow-hidden rounded-sm border border-slate-200 bg-white text-sm shadow-[0_12px_26px_rgba(15,23,42,0.22)]"
+        style={{ left: position.left, top: position.top }}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-start justify-between gap-2 bg-[#0789d4] px-3 py-3 text-white">
+          <div>
+            <p className="text-sm font-bold">Opciones</p>
+            <p className="mt-0.5 text-xs text-sky-100">Aplicar estos cambios a {targetLabel}</p>
+          </div>
+          <button type="button" aria-label="Cerrar opciones" className="rounded p-0.5 text-white/85 hover:bg-white/10 hover:text-white" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="py-1">
+          <button type="button" role="menuitem" className={itemClass} onClick={onOpenPreexistence}>
+            <span className="grid h-5 w-5 place-items-center rounded bg-[#58ba5b] text-white">
+              <Plus className="h-3.5 w-3.5" />
+            </span>
+            Agregar preexistencia
+          </button>
+          <button type="button" role="menuitem" className={itemClass} onClick={onOpenLesion}>
+            <span className="grid h-5 w-5 place-items-center rounded bg-black text-white">
+              <Stethoscope className="h-3.5 w-3.5" />
+            </span>
+            Definir lesion
+          </button>
+          <button type="button" role="menuitem" className={itemClass} disabled={!procedureEnabled} onClick={onOpenTreatment}>
+            <span className={cn("grid h-5 w-5 place-items-center rounded text-white", procedureEnabled ? "bg-slate-500" : "bg-slate-300")}>
+              <Plus className="h-3.5 w-3.5" />
+            </span>
+            Agregar prestacion
+          </button>
+        </div>
+
+        <div className="border-t border-slate-200 py-1">
+          <button type="button" role="menuitem" className={itemClass} onClick={() => onApplyQuickDiagnosis?.("Sin erupcionar")}>
+            Sin erupcionar
+          </button>
+          <button type="button" role="menuitem" className={itemClass} onClick={() => onApplyQuickDiagnosis?.("Diente sano")}>
+            Diente sano
+          </button>
+        </div>
+
+        <div className="border-t border-slate-200 py-1">
+          <button type="button" role="menuitem" className={itemClass} onClick={onOpenInformation}>
+            <Info className="h-4 w-4 text-slate-400" />
+            Ver Informacion
+          </button>
+          <button type="button" role="menuitem" className={itemClass} onClick={onOpenMultiHelp}>
+            <CheckCircle2 className="h-4 w-4 text-slate-400" />
+            Seleccionar multiples piezas
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -332,6 +496,7 @@ function recordSurface(value?: string | null) {
 }
 
 export function OdontogramView({
+  mode = "clinical",
   selectedTooth,
   latestByTooth,
   conditions,
@@ -339,27 +504,44 @@ export function OdontogramView({
   procedures,
   onSelectTooth,
   onOpenDiagnosis,
+  onOpenPreexistence,
+  onOpenLesion,
   onOpenTreatment,
+  onOpenProcedureCatalog,
   onOpenInformation,
+  onApplyQuickDiagnosis,
   onCancelRecord,
   showHistoryTable = true
 }: {
+  mode?: "clinical" | "treatment-plan";
   selectedTooth: string;
   latestByTooth: Record<string, OdontogramRecord>;
   conditions?: ToothCondition[];
   records?: OdontogramRecord[];
   procedures?: ToothProcedure[];
-  onSelectTooth: (toothNumber: string) => void;
+  onSelectTooth: (toothNumber: string, options?: { additive?: boolean }) => void;
   onOpenDiagnosis: () => void;
+  onOpenPreexistence?: () => void;
+  onOpenLesion?: () => void;
   onOpenTreatment: () => void;
+  onOpenProcedureCatalog?: () => void;
   onOpenInformation: () => void;
+  onApplyQuickDiagnosis?: (diagnosis: string) => void;
   onCancelRecord?: (odontogramRecordId: string) => void;
   showHistoryTable?: boolean;
 }) {
   const dentition = useOdontogramStore((state) => state.dentition);
   const activeTool = useOdontogramStore((state) => state.activeTool);
+  const selectedTeeth = useOdontogramStore((state) => state.selectedTeeth);
+  const hoveredTooth = useOdontogramStore((state) => state.hoveredTooth);
+  const contextMenu = useOdontogramStore((state) => state.contextMenu);
   const showOnlyDiagnosis = useOdontogramStore((state) => state.showOnlyDiagnosis);
+  const setHoveredTooth = useOdontogramStore((state) => state.setHoveredTooth);
   const setDentition = useOdontogramStore((state) => state.setDentition);
+  const openContextMenu = useOdontogramStore((state) => state.openContextMenu);
+  const closeContextMenu = useOdontogramStore((state) => state.closeContextMenu);
+  const openModal = useOdontogramStore((state) => state.openModal);
+  const enableMultiSelectMode = useOdontogramStore((state) => state.enableMultiSelectMode);
   const toggleShowOnlyDiagnosis = useOdontogramStore((state) => state.toggleShowOnlyDiagnosis);
 
   const activeRecords = useMemo(() => (records ?? []).filter((record) => record.status !== "CANCELLED"), [records]);
@@ -400,6 +582,16 @@ export function OdontogramView({
 
   const upper = dentition === "permanent" ? PERMANENT_UPPER : TEMPORAL_UPPER;
   const lower = dentition === "permanent" ? PERMANENT_LOWER : TEMPORAL_LOWER;
+  const actionTeethCount = Math.max(selectedTeeth.length, selectedTooth ? 1 : 0);
+  const handleOpenContextMenu = (toothNumber: string, event: MouseEvent<SVGRectElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openContextMenu({ toothNumber, x: event.clientX, y: event.clientY });
+  };
+  const handleMenuAction = (action: () => void) => {
+    closeContextMenu();
+    action();
+  };
   const toolButtonClass = (tool: OdontogramTool) =>
     cn(
       "inline-flex h-9 items-center gap-1 rounded border px-3 font-bold transition-colors disabled:opacity-55",
@@ -481,11 +673,15 @@ export function OdontogramView({
             teethUpper={upper}
             teethLower={lower}
             selectedTooth={selectedTooth}
+            selectedTeeth={selectedTeeth}
+            hoveredTooth={hoveredTooth}
             latestByTooth={latestByTooth}
             conditions={activeConditions}
             records={activeRecords}
             procedures={activeProcedures}
             onSelectTooth={onSelectTooth}
+            onHoverTooth={setHoveredTooth}
+            onOpenContextMenu={handleOpenContextMenu}
           />
           <div className="mx-auto mt-3 flex w-full max-w-[980px] justify-center">
             <SextantsMandibleSvg />
@@ -494,9 +690,15 @@ export function OdontogramView({
 
         <div className="mt-2 flex items-center justify-between gap-3">
           <div className="flex gap-2">
-            <span className="h-3 w-3 rounded bg-black" title="Diagnostico" />
-            <span className="h-3 w-3 rounded bg-[#d2182a]" title="Anulado o ausente" />
-            <span className="h-3 w-3 rounded bg-[#1f77d0]" title="Planificado" />
+            <HelpTooltip content="Diagnostico" position="top">
+              <span className="h-3 w-3 rounded bg-black" />
+            </HelpTooltip>
+            <HelpTooltip content="Anulado o ausente" position="top">
+              <span className="h-3 w-3 rounded bg-[#d2182a]" />
+            </HelpTooltip>
+            <HelpTooltip content="Planificado" position="top">
+              <span className="h-3 w-3 rounded bg-[#1f77d0]" />
+            </HelpTooltip>
           </div>
           <button type="button" className="text-sm text-[#0879d5]">
             Arcadas y Sextantes v
@@ -549,6 +751,19 @@ export function OdontogramView({
           </tbody>
         </table>
       </div> : null}
+
+      <OdontogramContextMenuView
+        menu={contextMenu}
+        mode={mode}
+        selectedCount={actionTeethCount}
+        onClose={closeContextMenu}
+        onOpenPreexistence={() => handleMenuAction(onOpenPreexistence ?? (() => openModal("preexistence")))}
+        onOpenLesion={() => handleMenuAction(onOpenLesion ?? (() => openModal("lesion")))}
+        onOpenTreatment={() => handleMenuAction(onOpenProcedureCatalog ?? onOpenTreatment)}
+        onOpenInformation={() => handleMenuAction(onOpenInformation)}
+        onApplyQuickDiagnosis={(diagnosis) => handleMenuAction(() => onApplyQuickDiagnosis?.(diagnosis))}
+        onOpenMultiHelp={() => handleMenuAction(enableMultiSelectMode)}
+      />
     </section>
   );
 }

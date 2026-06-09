@@ -10,6 +10,7 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useTreatmentMutations, useTreatmentPlans } from "../hooks/use-treatments";
 import type { TreatmentPlanStatus } from "../services/treatments.service";
@@ -17,7 +18,7 @@ import type { TreatmentPlanStatus } from "../services/treatments.service";
 const STATUS_OPTIONS: TreatmentPlanStatus[] = ["DRAFT", "PRESENTED", "ACCEPTED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "REJECTED"];
 
 export function TreatmentPlansPage() {
-  const [branchId, setBranchId] = useState("");
+  const { branchId, setBranchId } = useActiveBranchFilter();
   const [status, setStatus] = useState<TreatmentPlanStatus | "">("");
   const [patientId, setPatientId] = useState("");
   const [selectedPlanId, setSelectedPlanId] = useState("");
@@ -58,7 +59,7 @@ export function TreatmentPlansPage() {
         {/* Filtro sucursal */}
         <div className="flex items-center gap-1.5">
           <Select value={branchId} onChange={(event) => setBranchId(event.target.value)} className="flex-1">
-            <option value="">Todas las sucursales</option>
+            <option value="">Sucursal activa</option>
             {branches.data?.map((branch) => (
               <option key={branch.id} value={branch.id}>
                 {branch.name}

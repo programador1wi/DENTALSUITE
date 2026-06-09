@@ -11,6 +11,7 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useUsersQuery } from "@/features/settings/users/hooks/use-users";
 import { useCollectionCases, useCollectionMutations } from "../hooks/use-collections";
@@ -20,7 +21,7 @@ const STATUS_OPTIONS: CollectionCaseStatus[] = ["PENDING", "CONTACTED", "PROMISE
 
 export function CollectionsPage() {
   const [status, setStatus] = useState<CollectionCaseStatus | "">("");
-  const [branchId, setBranchId] = useState("");
+  const { branchId, setBranchId } = useActiveBranchFilter();
   const [assignedToId, setAssignedToId] = useState("");
   const [detectDays, setDetectDays] = useState("1");
 
@@ -33,7 +34,7 @@ export function CollectionsPage() {
   const [newNextContactAt, setNewNextContactAt] = useState("");
 
   const branches = useBranches(undefined, "ACTIVE");
-  const users = useUsersQuery(undefined, "ACTIVE");
+  const users = useUsersQuery(undefined, "ACTIVE", branchId || undefined);
   const cases = useCollectionCases({
     status: status || undefined,
     branchId: branchId || undefined,
@@ -85,7 +86,7 @@ export function CollectionsPage() {
           <div className="flex items-center gap-1.5">
             <div className="flex-1">
               <Select value={branchId} onChange={(event) => setBranchId(event.target.value)}>
-                <option value="">Todas las sucursales</option>
+                <option value="">Sucursal activa</option>
                 {branches.data?.map((branch) => (
                   <option key={branch.id} value={branch.id}>
                     {branch.name}

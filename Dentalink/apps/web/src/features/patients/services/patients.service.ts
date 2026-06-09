@@ -44,6 +44,7 @@ export type PatientMedicalAlertInput = {
 
 export type PatientPayload = {
   branchId: string;
+  agreementId?: string | null;
   firstName: string;
   lastName: string;
   birthDate?: string;
@@ -71,6 +72,56 @@ export type PatientDuplicate = {
   documentNumber?: string | null;
   createdAt: string;
   status: PatientStatus;
+};
+
+export type PatientNoteAttachment = {
+  id: string;
+  fileAttachmentId: string;
+  createdAt: string;
+  fileAttachment: {
+    id: string;
+    fileName: string;
+    originalName: string;
+    mimeType: string;
+    size: number;
+    url: string;
+    category: string;
+    createdAt: string;
+  };
+};
+
+export type PatientNote = {
+  id: string;
+  note: string;
+  isPrivate: boolean;
+  createdAt: string;
+  user: { id: string; firstName: string; lastName: string };
+  attachments?: PatientNoteAttachment[];
+};
+
+export type PatientTaskStatus = "PENDING" | "COMPLETED";
+
+export type PatientTask = {
+  id: string;
+  patientId: string;
+  type: string;
+  detail: string;
+  dueDate?: string | null;
+  assignedToId?: string | null;
+  assignedTo?: { id: string; firstName: string; lastName: string; email?: string | null } | null;
+  createdBy: { id: string; firstName: string; lastName: string; email?: string | null };
+  status: PatientTaskStatus;
+  completedAt?: string | null;
+  completedBy?: { id: string; firstName: string; lastName: string; email?: string | null } | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PatientTaskPayload = {
+  type: string;
+  detail: string;
+  dueDate?: string;
+  assignedToId?: string;
 };
 
 export type PatientDetail = {
@@ -121,13 +172,7 @@ export type PatientDetail = {
     isActive: boolean;
     createdAt: string;
   }>;
-  notes: Array<{
-    id: string;
-    note: string;
-    isPrivate: boolean;
-    createdAt: string;
-    user: { id: string; firstName: string; lastName: string };
-  }>;
+  notes: PatientNote[];
   summary: {
     nextAppointment: string | null;
     lastAppointment: string | null;
@@ -278,8 +323,30 @@ export async function getPatientTimeline(id: string) {
   return data;
 }
 
-export async function addPatientNote(id: string, payload: { note: string; isPrivate?: boolean }) {
-  const { data } = await http.post(`/patients/${id}/notes`, payload);
+export async function addPatientNote(id: string, payload: { note: string; isPrivate?: boolean; fileAttachmentIds?: string[] }) {
+  const { data } = await http.post<PatientNote>(`/patients/${id}/notes`, payload);
+  return data;
+}
+
+export async function listPatientTasks(id: string, includeCompleted = false) {
+  const { data } = await http.get<PatientTask[]>(`/patients/${id}/tasks`, {
+    params: { includeCompleted: includeCompleted ? "true" : "false" }
+  });
+  return data;
+}
+
+export async function createPatientTask(id: string, payload: PatientTaskPayload) {
+  const { data } = await http.post<PatientTask>(`/patients/${id}/tasks`, payload);
+  return data;
+}
+
+export async function updatePatientTask(id: string, taskId: string, payload: Partial<PatientTaskPayload>) {
+  const { data } = await http.patch<PatientTask>(`/patients/${id}/tasks/${taskId}`, payload);
+  return data;
+}
+
+export async function completePatientTask(id: string, taskId: string) {
+  const { data } = await http.post<PatientTask>(`/patients/${id}/tasks/${taskId}/complete`);
   return data;
 }
 

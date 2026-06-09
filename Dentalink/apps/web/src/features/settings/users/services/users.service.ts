@@ -7,15 +7,6 @@ export type UserListItem = {
   lastName: string;
   phone?: string | null;
   status: string;
-  permissions: {
-    id: string;
-    key: string;
-    code?: string | null;
-    name: string;
-    module: string;
-    action?: string | null;
-    resource?: string | null;
-  }[];
   role: { id: string; code?: string | null; name: string } | null;
   branches: { id: string; code?: string | null; name: string; isPrimary: boolean }[];
   professional?: {

@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { createPortal } from "react-dom";
-import { Check, Info, LockKeyhole, Save } from "lucide-react";
+import { useState } from "react";
+import { Check, LockKeyhole, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { cn } from "@/lib/utils/cn";
 import {
@@ -9,27 +9,15 @@ import {
   PATIENT_FIELD_DEFINITIONS,
   type PatientFieldContext,
   type PatientFieldDefinition,
-  type PatientFieldSettings,
   usePatientFieldSettings
 } from "../config/patient-field-settings";
 import { PatientsModuleTabs } from "../components/patients-module-tabs";
 
 type PermissionKind = "present" | "required";
-type TooltipState = {
-  field: PatientFieldDefinition;
-  left: number;
-  placement: "top" | "bottom";
-  top: number;
-};
-
-const tooltipWidth = 320;
-const tooltipGap = 8;
-const viewportMargin = 16;
 
 export function PatientsConfigurationPage() {
   const [settings, setSettings] = usePatientFieldSettings();
   const [saved, setSaved] = useState(false);
-  const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 
   const togglePermission = (field: PatientFieldDefinition, context: PatientFieldContext, kind: PermissionKind) => {
     if (field.isSystemRequired) return;
@@ -49,31 +37,6 @@ export function PatientsConfigurationPage() {
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1800);
   };
-
-  const openTooltip = (field: PatientFieldDefinition, anchor: HTMLElement) => {
-    const rect = anchor.getBoundingClientRect();
-    const maxLeft = window.innerWidth - tooltipWidth - viewportMargin;
-    const showAbove = rect.top > 150;
-    setTooltip({
-      field,
-      left: Math.max(viewportMargin, Math.min(rect.left - tooltipWidth / 2 + rect.width / 2, Math.max(viewportMargin, maxLeft))),
-      placement: showAbove ? "top" : "bottom",
-      top: showAbove ? rect.top - tooltipGap : rect.bottom + tooltipGap
-    });
-  };
-
-  useEffect(() => {
-    if (!tooltip) return;
-
-    const closeTooltip = () => setTooltip(null);
-    window.addEventListener("resize", closeTooltip);
-    window.addEventListener("scroll", closeTooltip, true);
-
-    return () => {
-      window.removeEventListener("resize", closeTooltip);
-      window.removeEventListener("scroll", closeTooltip, true);
-    };
-  }, [tooltip]);
 
   return (
     <WarnerSuitePanel>
@@ -128,7 +91,19 @@ export function PatientsConfigurationPage() {
                     <td className="sticky left-0 z-10 border-r border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] py-[var(--space-3)] transition-[background-color] duration-[var(--duration-fast)] ease-[var(--ease-default)] group-hover:bg-[var(--bg-subtle)]">
                       <div className="flex w-full items-center gap-[var(--space-2)] text-left">
                         <span className="font-medium text-[var(--text-primary)]">{field.label}</span>
-                        <FieldInfoButton field={field} onClose={() => setTooltip(null)} onOpen={openTooltip} />
+                        <HelpTooltip
+                          label={`Informacion de ${field.label}`}
+                          position="right"
+                          content={
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">{field.label}</p>
+                              <p className="mt-1 text-[13px] leading-[1.45] text-slate-700">{field.description}</p>
+                              {field.isSystemRequired ? (
+                                <p className="mt-2 text-[12px] font-medium text-slate-500">Campo bloqueado del expediente.</p>
+                              ) : null}
+                            </div>
+                          }
+                        />
                         {field.isSystemRequired ? <LockKeyhole className="h-3.5 w-3.5 text-[var(--text-secondary)]" /> : null}
                       </div>
                     </td>
@@ -152,66 +127,7 @@ export function PatientsConfigurationPage() {
           </div>
         </section>
       </div>
-      {tooltip ? <FloatingFieldTooltip field={tooltip.field} left={tooltip.left} placement={tooltip.placement} top={tooltip.top} /> : null}
     </WarnerSuitePanel>
-  );
-}
-
-function FieldInfoButton({
-  field,
-  onClose,
-  onOpen
-}: {
-  field: PatientFieldDefinition;
-  onClose: () => void;
-  onOpen: (field: PatientFieldDefinition, anchor: HTMLElement) => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={`Informacion de ${field.label}`}
-      className="inline-flex h-4 w-4 items-center justify-center rounded-[var(--radius-full)] bg-[var(--bg-brand-light)] text-[var(--text-brand)] outline-none ring-offset-2 ring-offset-[var(--bg-surface)] transition-[background-color,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:bg-[var(--border-brand-light)] focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)]"
-      onBlur={onClose}
-      onFocus={(event) => onOpen(field, event.currentTarget)}
-      onMouseEnter={(event) => onOpen(field, event.currentTarget)}
-      onMouseLeave={onClose}
-    >
-      <Info className="h-3 w-3" />
-    </button>
-  );
-}
-
-function FloatingFieldTooltip({
-  field,
-  left,
-  placement,
-  top
-}: {
-  field: PatientFieldDefinition;
-  left: number;
-  placement: "top" | "bottom";
-  top: number;
-}) {
-  if (typeof document === "undefined") return null;
-
-  return createPortal(
-    <div
-      role="tooltip"
-      className={cn(
-        "pointer-events-none fixed z-[1000] w-[320px] max-w-[calc(100vw-32px)] rounded-[var(--radius-md)] bg-[var(--bg-nav)] p-[var(--space-3)] text-left text-[var(--text-inverse)] shadow-[var(--shadow-modal)]",
-        placement === "top" && "-translate-y-full"
-      )}
-      style={{ left, top }}
-    >
-      <p className="text-[var(--text-xs)] font-semibold uppercase text-[var(--text-inverse)]">{field.label}</p>
-      <p className="mt-[var(--space-1)] text-[var(--text-xs)] leading-[var(--leading-xs)] text-[var(--text-inverse)] opacity-90">{field.description}</p>
-      {field.isSystemRequired ? (
-        <p className="mt-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-inverse)] opacity-75">
-          Campo bloqueado del expediente.
-        </p>
-      ) : null}
-    </div>,
-    document.body
   );
 }
 

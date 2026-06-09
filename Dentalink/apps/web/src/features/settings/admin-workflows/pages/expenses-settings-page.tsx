@@ -13,6 +13,7 @@ import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useCreateExpense, useExpenses } from "../hooks/use-admin-workflows";
 
@@ -39,7 +40,7 @@ const YEARS = ["2024", "2025", "2026", "2027", "2028"];
 
 export function ExpensesSettingsPage() {
   const [search, setSearch] = useState("");
-  const [branchId, setBranchId] = useState("");
+  const { branchId, setBranchId } = useActiveBranchFilter();
   const [categoryName, setCategoryName] = useState("");
   const [description, setDescription] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -136,7 +137,7 @@ export function ExpensesSettingsPage() {
               ))}
             </Select>
             <Select value={branchId} onChange={(event) => setBranchId(event.target.value)} className="h-9 sm:col-span-2 lg:col-span-1">
-              <option value="">Todas las sucursales</option>
+              <option value="">Sucursal activa</option>
               {branches.data?.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {branch.name}
@@ -178,7 +179,7 @@ export function ExpensesSettingsPage() {
       <Modal open={isModalOpen} onClose={() => setIsModalOpen(false)} title="Agregar gasto">
         <form className="grid gap-3" onSubmit={submit}>
           <Select value={branchId} onChange={(event) => setBranchId(event.target.value)} required>
-            <option value="">Selecciona sucursal</option>
+            <option value="">Sucursal activa</option>
             {branches.data?.map((branch) => (
               <option key={branch.id} value={branch.id}>
                 {branch.name}

@@ -3,6 +3,7 @@ import { Clock, Printer } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/feedback/error-state";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { Select } from "@/components/ui/select";
 import { ClinicalShell } from "../components/clinical-shell";
@@ -87,9 +88,11 @@ export function ClinicalHistoryPage() {
               ))}
             </Select>
           </label>
-          <Button type="button" variant="secondary" size="sm" className="ml-auto h-10 w-11 px-0" onClick={() => window.print()} title="Imprimir historial">
-            <Printer className="h-4 w-4" />
-          </Button>
+          <HelpTooltip content="Imprimir historial" position="left" triggerClassName="ml-auto">
+            <Button type="button" variant="secondary" size="sm" className="h-10 w-11 px-0" onClick={() => window.print()} aria-label="Imprimir historial">
+              <Printer className="h-4 w-4" />
+            </Button>
+          </HelpTooltip>
           <label className="inline-flex h-10 items-center gap-2 rounded bg-slate-100 px-3 text-sm text-slate-800">
             <input type="checkbox" checked={showCancelled} onChange={(event) => setShowCancelled(event.target.checked)} />
             Mostrar anuladas

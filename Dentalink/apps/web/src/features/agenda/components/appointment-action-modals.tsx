@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
+import { MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { Appointment, AppointmentPayload, AppointmentReminderPayload, AppointmentStatus } from "../services/appointments.service";
+import type { Appointment, AppointmentNote, AppointmentPayload, AppointmentReminderPayload, AppointmentStatus } from "../services/appointments.service";
 import { getAppointment } from "../services/appointments.service";
+import { useAppointmentNotes } from "../hooks/use-appointments";
 import { getDirectAppointmentStatusOptions } from "../utils/appointment-status-flow";
 import { appointmentStatusLabel } from "./appointment-status";
 
@@ -82,63 +85,172 @@ export function AppointmentDurationModal({
 
 export function AppointmentCommentModal({
   appointment,
+  anchorRect,
   onClose,
   onConfirm
 }: {
   appointment: Appointment | null;
+  anchorRect?: Pick<DOMRect, "top" | "right" | "bottom" | "left" | "width" | "height"> | null;
   onClose: () => void;
-  onConfirm: (id: string, note: string, isPrivate?: boolean) => Promise<void>;
+  onConfirm: (id: string, comment: string) => Promise<void>;
 }) {
+  const popoverRef = useRef<HTMLDivElement>(null);
   const [comment, setComment] = useState("");
-  const [isPrivate, setIsPrivate] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const nextComment = comment.trim();
+  const comments = useAppointmentNotes(appointment?.id ?? "", Boolean(appointment));
+  const legacyComment = useMemo(() => buildLegacyAppointmentComment(appointment), [appointment]);
+  const historicalComments = useMemo(
+    () => [legacyComment, ...(comments.data ?? [])].filter(Boolean) as AppointmentCommentHistoryItem[],
+    [comments.data, legacyComment]
+  );
 
   useEffect(() => {
     if (!appointment) return;
     setComment("");
-    setIsPrivate(false);
   }, [appointment]);
 
+  useEffect(() => {
+    if (!appointment) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (popoverRef.current?.contains(event.target as Node)) return;
+      onClose();
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    window.addEventListener("resize", onClose);
+    window.addEventListener("scroll", onClose, { capture: true });
+
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+      window.removeEventListener("resize", onClose);
+      window.removeEventListener("scroll", onClose, { capture: true });
+    };
+  }, [appointment, onClose]);
+
   const confirm = async () => {
-    if (!appointment || !comment.trim()) return;
+    if (!appointment || !nextComment) return;
 
     setSubmitting(true);
     try {
-      await onConfirm(appointment.id, comment.trim(), isPrivate);
-      onClose();
+      await onConfirm(appointment.id, nextComment);
+      setComment("");
+      await comments.refetch();
     } finally {
       setSubmitting(false);
     }
   };
 
-  return (
-    <Modal open={Boolean(appointment)} title="Agregar comentario" onClose={onClose}>
-      <div className="space-y-3">
-        {appointment?.notes ? (
-          <div className="max-h-28 overflow-y-auto whitespace-pre-wrap rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-subtle)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">
-            <p className="mb-1 font-semibold text-[var(--text-primary)]">Notas heredadas</p>
-            {appointment.notes}
-          </div>
-        ) : null}
-        <Textarea rows={4} placeholder="Comentario" value={comment} onChange={(event) => setComment(event.target.value)} />
-        <label className="flex items-center gap-2 text-[var(--text-sm)] text-[var(--text-secondary)]">
-          <input
-            type="checkbox"
-            checked={isPrivate}
-            onChange={(event) => setIsPrivate(event.target.checked)}
-            className="h-4 w-4 rounded border-[var(--border-strong)] accent-[var(--action-brand)]"
-          />
-          Comentario privado
-        </label>
-        <div className="flex justify-end gap-2">
+  if (!appointment || typeof document === "undefined") return null;
+
+  const position = resolveCommentPopoverPosition(anchorRect);
+
+  return createPortal(
+    <div
+      ref={popoverRef}
+      role="dialog"
+      aria-modal="false"
+      aria-labelledby="appointment-comment-title"
+      className="fixed z-[1100] w-[min(420px,calc(100vw-24px))] overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[var(--shadow-modal)] ring-1 ring-black/[0.04] animate-in fade-in-0 zoom-in-95"
+      style={{ top: position.top, left: position.left }}
+      onClick={(event) => event.stopPropagation()}
+    >
+      <div className="flex items-center justify-between border-b border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-4)] py-[var(--space-3)]">
+        <h3 id="appointment-comment-title" className="text-[var(--text-base)] font-semibold text-[var(--text-primary)]">
+          Comentario
+        </h3>
+        <Button variant="secondary" size="sm" onClick={onClose}>
+          Cerrar
+        </Button>
+      </div>
+      <div className="space-y-3 px-[var(--space-4)] py-[var(--space-3)]">
+        <Textarea
+          rows={3}
+          placeholder="Ingrese un nuevo comentario"
+          value={comment}
+          onChange={(event) => setComment(event.target.value)}
+        />
+        <div className="max-h-44 space-y-2 overflow-y-auto border-y border-[var(--border-default)] py-[var(--space-2)]">
+          {comments.isLoading ? (
+            <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">Cargando comentarios...</p>
+          ) : comments.isError ? (
+            <p className="text-[var(--text-xs)] text-[var(--text-danger)]">
+              {comments.error instanceof Error ? comments.error.message : "No se pudo cargar el historial de comentarios"}
+            </p>
+          ) : historicalComments.length ? (
+            historicalComments.map((item) => (
+              <div key={item.id} className="flex gap-2 rounded-[var(--radius-sm)] px-[var(--space-1)] py-[var(--space-1)]">
+                <span className="mt-0.5 text-[var(--text-secondary)]">
+                  <MessageSquare className="h-3.5 w-3.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">
+                  {formatUser(item.user)} - {formatDateTime(item.createdAt)}
+                  </p>
+                  <p className="mt-0.5 whitespace-pre-wrap text-[var(--text-sm)] text-[var(--text-primary)]">{item.note}</p>
+                </div>
+              </div>
+            ))
+          ) : (
+            <p className="text-center text-[var(--text-xs)] text-[var(--text-secondary)]">Sin comentarios registrados.</p>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-[var(--border-default)] pt-[var(--space-3)]">
           <Button variant="secondary" onClick={onClose} type="button">Cerrar</Button>
-          <Button disabled={submitting || !comment.trim()} onClick={() => void confirm()}>
-            {submitting ? "Guardando..." : "Guardar"}
+          <Button disabled={submitting || !nextComment} onClick={() => void confirm()}>
+            {submitting ? "Agregando..." : "Agregar"}
           </Button>
         </div>
       </div>
-    </Modal>
+    </div>,
+    document.body
   );
+}
+
+type AppointmentCommentHistoryItem = Pick<AppointmentNote, "id" | "note" | "createdAt" | "user">;
+
+function buildLegacyAppointmentComment(appointment: Appointment | null): AppointmentCommentHistoryItem | null {
+  const note = appointment?.notes?.trim();
+  if (!appointment || !note) return null;
+
+  return {
+    id: `${appointment.id}-initial-comment`,
+    note,
+    createdAt: appointment.createdAt ?? appointment.updatedAt ?? appointment.startAt,
+    user: appointment.createdBy ?? null
+  };
+}
+
+function resolveCommentPopoverPosition(anchorRect?: Pick<DOMRect, "top" | "right" | "bottom" | "left" | "width" | "height"> | null) {
+  const popoverWidth = Math.min(420, Math.max(320, window.innerWidth - 24));
+  const estimatedHeight = 320;
+  const margin = 12;
+
+  if (!anchorRect) {
+    return {
+      top: Math.max(margin, (window.innerHeight - estimatedHeight) / 2),
+      left: Math.max(margin, (window.innerWidth - popoverWidth) / 2)
+    };
+  }
+
+  const anchorCenter = anchorRect.left + anchorRect.width / 2;
+  const opensUp = anchorRect.bottom + estimatedHeight + margin > window.innerHeight && anchorRect.top > estimatedHeight;
+  const top = opensUp ? anchorRect.top - estimatedHeight - 8 : anchorRect.bottom + 8;
+  const left = Math.min(
+    window.innerWidth - popoverWidth - margin,
+    Math.max(margin, anchorCenter - popoverWidth / 2)
+  );
+
+  return {
+    top: Math.max(margin, top),
+    left
+  };
 }
 
 export function AppointmentStatusModal({

@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -11,6 +11,7 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { usePaymentMethods } from "@/features/settings/payment-methods/hooks/use-payment-methods";
 import { useFinancialInstitutions } from "@/features/settings/financial-institutions/hooks/use-financial-institutions";
@@ -50,7 +51,7 @@ function paymentMatchesTerm(payment: Payment, term: string) {
 export function PaymentsPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<PaymentStatus | "">("");
-  const [branchId, setBranchId] = useState("");
+  const { activeBranchId, branchId, setBranchId } = useActiveBranchFilter();
 
   const [newBranchId, setNewBranchId] = useState("");
   const [newPatientId, setNewPatientId] = useState("");
@@ -106,6 +107,12 @@ export function PaymentsPage() {
     });
   };
 
+  useEffect(() => {
+    if (activeBranchId && newBranchId !== activeBranchId) {
+      setNewBranchId(activeBranchId);
+    }
+  }, [activeBranchId, newBranchId]);
+
   const handleRefund = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canRefund) return;
@@ -135,8 +142,15 @@ export function PaymentsPage() {
         </div>
         <form className="grid gap-3 md:grid-cols-6" onSubmit={handleCreate}>
           <div className="flex items-center gap-1.5 w-full">
-            <Select value={newBranchId} onChange={(event) => setNewBranchId(event.target.value)} className="flex-1">
-              <option value="">Sucursal</option>
+            <Select
+              value={newBranchId}
+              onChange={(event) => {
+                setNewBranchId(event.target.value);
+                setBranchId(event.target.value);
+              }}
+              className="flex-1"
+            >
+              <option value="">Sucursal activa</option>
               {branches.data?.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {branch.name}
@@ -311,7 +325,7 @@ export function PaymentsPage() {
 
         <div className="flex items-center gap-1.5 w-full">
           <Select value={branchId} onChange={(event) => setBranchId(event.target.value)} className="flex-1">
-            <option value="">Todas las sucursales</option>
+            <option value="">Sucursal activa</option>
             {branches.data?.map((branch) => (
               <option key={branch.id} value={branch.id}>
                 {branch.name}

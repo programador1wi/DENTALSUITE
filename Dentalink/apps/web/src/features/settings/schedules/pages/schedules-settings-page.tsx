@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
@@ -15,6 +16,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useChairs } from "@/features/settings/chairs/hooks/use-chairs";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
+import { useBranchStore } from "@/stores/branch.store";
 import { toast } from "sonner";
 import {
   useCreateSchedule,
@@ -155,8 +157,13 @@ export function SchedulesSettingsPage() {
   const [blockOpen, setBlockOpen] = useState(false);
   const [blockForm, setBlockForm] = useState<BlockForm>(emptyBlockForm());
   const [intervalOpen, setIntervalOpen] = useState(false);
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const professionalBranchFilterId = selectedBranchId || (!selectedProfessionalId ? activeBranchId : "");
 
-  const professionals = useProfessionals(undefined, "true");
+  const professionals = useProfessionals(undefined, "true", {
+    branchId: professionalBranchFilterId || undefined,
+    pageSize: 100
+  });
   const branches = useBranches(undefined, "ACTIVE");
   const chairs = useChairs(undefined, "true", selectedBranchId || undefined);
   const schedules = useSchedules({
@@ -213,6 +220,27 @@ export function SchedulesSettingsPage() {
   );
   const needsBranchSelection = Boolean(selectedProfessional && !hasSingleBranch && professionalBranches.length > 1);
   const actionPending = createSchedule.isPending || updateSchedule.isPending || updateAgendaConfig.isPending || branchActiveSchedules.isLoading;
+
+  useEffect(() => {
+    if (selectedBranchId || selectedProfessionalId || !activeBranchId) return;
+    setParams((current) => {
+      if (current.get("branchId") || current.get("professionalId")) return current;
+      const next = new URLSearchParams(current);
+      next.set("branchId", activeBranchId);
+      return next;
+    });
+  }, [activeBranchId, selectedBranchId, selectedProfessionalId, setParams]);
+
+  useEffect(() => {
+    if (!selectedProfessionalId || !professionalBranchFilterId || !professionals.data) return;
+    const isVisible = professionals.data.some((professional) => professional.id === selectedProfessionalId);
+    if (isVisible) return;
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("professionalId");
+      return next;
+    });
+  }, [professionalBranchFilterId, professionals.data, selectedProfessionalId, setParams]);
 
   const blockRange = blockDateRange(blockForm);
   const blockConflictQuery = useScheduleBlockConflicts(
@@ -493,7 +521,7 @@ export function SchedulesSettingsPage() {
                   <tr>
                     <th className="w-[120px] sm:w-[150px] md:w-[180px] px-[var(--space-2)] sm:px-[var(--space-3)] py-[var(--space-3)]">Configuracion</th> // ← RESPONSIVE
                     {days.map((day) => (
-                      <th key={day.value} className="px-[var(--space-1.5)] sm:px-[var(--space-3)] py-[var(--space-3)] text-center"> // ← RESPONSIVE
+                      <th key={day.value} className="px-1.5 py-[var(--space-3)] text-center sm:px-[var(--space-3)]"> // ← RESPONSIVE
                         {day.label}
                       </th>
                     ))}
@@ -666,15 +694,17 @@ export function SchedulesSettingsPage() {
                         <td className="hidden md:table-cell px-[var(--space-3)] py-[var(--space-3)]">{formatCreatedBy(block)}</td> // ← RESPONSIVE
                         <td className="hidden sm:table-cell px-[var(--space-3)] py-[var(--space-3)]">{block.chair?.name ?? "Profesional"}</td> // ← RESPONSIVE
                         <td className="px-[var(--space-3)] py-[var(--space-3)] text-right">
-                          <button
-                            type="button"
-                            title="Eliminar bloqueo"
-                            disabled={deleteBlock.isPending}
-                            onClick={() => void deleteBlock.mutateAsync(block.id)}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-danger)] transition-[background-color,color] hover:bg-[var(--status-danger-bg)] disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          <HelpTooltip content="Eliminar bloqueo" position="left">
+                            <button
+                              type="button"
+                              aria-label="Eliminar bloqueo"
+                              disabled={deleteBlock.isPending}
+                              onClick={() => void deleteBlock.mutateAsync(block.id)}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-danger)] transition-[background-color,color] hover:bg-[var(--status-danger-bg)] disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </HelpTooltip>
                         </td>
                       </tr>
                     ))}

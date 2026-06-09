@@ -1,4 +1,5 @@
 import { EmptyState } from "@/components/feedback/empty-state";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import type { Professional } from "@/features/settings/professionals/services/professionals.service";
 import type { Schedule } from "@/features/settings/schedules/services/schedules.service";
@@ -530,12 +531,15 @@ export function CalendarView({
                           if (!placement) return null;
 
                           return (
-                            <div
+                            <HelpTooltip
                               key={`working-${schedule.id}`}
-                              className="absolute left-1 right-1 z-0 rounded-lg border border-[var(--border-default)] bg-[var(--status-success-bg)]/80 shadow-[inset_3px_0_0_var(--status-success-text)]"
-                              style={{ top: placement.top, height: placement.height }}
-                              title={`Horario laboral ${schedule.startTime} - ${schedule.endTime}`}
-                            />
+                              content={`Horario laboral ${schedule.startTime} - ${schedule.endTime}`}
+                              position="right"
+                              triggerClassName="absolute left-1 right-1 z-0 block"
+                              triggerStyle={{ top: placement.top, height: placement.height }}
+                            >
+                              <div className="h-full w-full rounded-lg border border-[var(--border-default)] bg-[var(--status-success-bg)]/80 shadow-[inset_3px_0_0_var(--status-success-text)]" />
+                            </HelpTooltip>
                           );
                         })}
 
@@ -736,31 +740,35 @@ function BlockedAppointmentBlock({
   const range = `${formatDisplayTime(appointment.startAt)} - ${formatDisplayTime(appointment.endAt)}`;
 
   return (
-    <button
-      type="button"
-      onClick={() => onEdit(appointment)}
-      title={`${appointment.title} ${range}`}
-      className="flex h-full w-full flex-col justify-center overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] px-2 py-1 text-left text-[var(--text-brand-strong)] shadow-sm transition-[border-color,box-shadow] hover:border-[var(--border-brand)] hover:shadow-[var(--shadow-card-hover)]"
-    >
-      <span className="truncate text-[10px] font-semibold uppercase tracking-[0.08em]">{compact ? "Bloqueo" : "Horario bloqueado"}</span>
-      <span className="truncate text-[11px] font-semibold">{appointment.title || "Bloqueo programado"}</span>
-      <span className="truncate text-[10px] font-medium text-[var(--text-brand)]">{range}</span>
-    </button>
+    <HelpTooltip content={`${appointment.title} ${range}`} position="top" triggerClassName="h-full w-full">
+      <button
+        type="button"
+        onClick={() => onEdit(appointment)}
+        className="flex h-full w-full flex-col justify-center overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] px-2 py-1 text-left text-[var(--text-brand-strong)] shadow-sm transition-[border-color,box-shadow] hover:border-[var(--border-brand)] hover:shadow-[var(--shadow-card-hover)]"
+      >
+        <span className="truncate text-[10px] font-semibold uppercase tracking-[0.08em]">{compact ? "Bloqueo" : "Horario bloqueado"}</span>
+        <span className="truncate text-[11px] font-semibold">{appointment.title || "Bloqueo programado"}</span>
+        <span className="truncate text-[10px] font-medium text-[var(--text-brand)]">{range}</span>
+      </button>
+    </HelpTooltip>
   );
 }
 
 function BreakBlock({ top, height, range }: { top: number; height: number; range: string }) {
   return (
-    <div
-      className="absolute left-1 right-1 z-[2] flex select-none items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-blue-900/30 bg-blue-900 bg-[repeating-linear-gradient(-45deg,transparent,transparent_8px,rgba(255,255,255,0.1)_8px,rgba(255,255,255,0.1)_16px)] px-2 text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-sm"
-      style={{
+    <HelpTooltip
+      content={`Horario de comida ${range}`}
+      position="right"
+      triggerClassName="absolute left-1 right-1 z-[2] block"
+      triggerStyle={{
         top,
         height
       }}
-      title={`Horario de comida ${range}`}
     >
-      <span className="truncate">Comida {range}</span>
-    </div>
+      <div className="flex h-full w-full select-none items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-blue-900/30 bg-blue-900 bg-[repeating-linear-gradient(-45deg,transparent,transparent_8px,rgba(255,255,255,0.1)_8px,rgba(255,255,255,0.1)_16px)] px-2 text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-sm">
+        <span className="truncate">Comida {range}</span>
+      </div>
+    </HelpTooltip>
   );
 }
 

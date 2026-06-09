@@ -861,6 +861,7 @@ export class AppointmentsService {
       branch: true,
       patient: true,
       professional: true,
+      treatmentPlan: { select: { id: true, name: true, status: true } },
       chair: true,
       specialty: true,
       createdBy: { select: { id: true, firstName: true, lastName: true } },

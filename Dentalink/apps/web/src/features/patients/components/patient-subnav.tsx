@@ -6,11 +6,8 @@ const tabs = [
   { key: "profile", label: "Datos personales", permission: "patients.read" },
   { key: "clinical/history", label: "Ficha clinica", permission: "clinical.read" },
   { key: "treatments", label: "Planes de tratamiento", permission: "treatment_plans.read" },
-  { key: "payments", label: "Facturacion y pagos", permission: "payments.read" },
-  { key: "appointments", label: "Citas", permission: "appointments.read" },
-  { key: "crm", label: "Gestion CRM", permission: "patients.read" },
-  { key: "consents", label: "Consentimientos", permission: "consents.read" },
-  { key: "files", label: "Archivos", permission: "files.read" }
+  { key: "billing", label: "Facturacion y pagos", permission: "payments.read" },
+  { key: "payments", label: "Recibir pago", permission: "payments.read" }
 ] as const;
 
 export function PatientSubnav({ patientId }: { patientId: string }) {
@@ -25,7 +22,10 @@ export function PatientSubnav({ patientId }: { patientId: string }) {
           const active =
             location.pathname === href ||
             (tab.key === "profile" && location.pathname === `/patients/${patientId}`) ||
-            (tab.key === "clinical/history" && location.pathname.startsWith(`/patients/${patientId}/clinical`));
+            (tab.key === "profile" && location.pathname.startsWith(`/patients/${patientId}/profile`)) ||
+            (tab.key === "clinical/history" && location.pathname.startsWith(`/patients/${patientId}/clinical`)) ||
+            (tab.key === "treatments" && location.pathname.startsWith(`/patients/${patientId}/treatments`)) ||
+            (tab.key === "billing" && location.pathname.startsWith(`/patients/${patientId}/billing`));
 
           return (
             <Link

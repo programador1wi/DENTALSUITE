@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -13,17 +13,34 @@ import { useAppointmentActions, useAppointments } from "../hooks/use-appointment
 import { useChairs } from "@/features/settings/chairs/hooks/use-chairs";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { useBranchStore } from "@/stores/branch.store";
 
 export function WaitingRoomPage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [branchId, setBranchId] = useState("");
   const [professionalId, setProfessionalId] = useState("");
   const [chairId, setChairId] = useState("");
+  const { activeBranchId, setActiveBranchId } = useBranchStore();
+  const branchId = activeBranchId;
   const branches = useBranches(undefined, "ACTIVE");
-  const professionals = useProfessionals(undefined, "true");
+  const professionals = useProfessionals(undefined, "true", { branchId: branchId || undefined, pageSize: 100 });
   const chairs = useChairs(undefined, "true");
   const appointments = useAppointments({ date, view: "day", branchId: branchId || undefined, professionalId: professionalId || undefined, chairId: chairId || undefined });
   const actions = useAppointmentActions();
+  const visibleProfessionals = professionals.data ?? [];
+  const visibleChairs = useMemo(
+    () => (chairs.data ?? []).filter((chair) => !branchId || chair.branchId === branchId),
+    [branchId, chairs.data]
+  );
+
+  useEffect(() => {
+    if (!professionalId || visibleProfessionals.some((professional) => professional.id === professionalId)) return;
+    setProfessionalId("");
+  }, [professionalId, visibleProfessionals]);
+
+  useEffect(() => {
+    if (!chairId || visibleChairs.some((chair) => chair.id === chairId)) return;
+    setChairId("");
+  }, [chairId, visibleChairs]);
 
   if (appointments.isLoading) return <LoadingState message="Cargando sala de espera..." />;
   if (appointments.isError) return <ErrorState message={appointments.error.message} />;
@@ -48,15 +65,15 @@ export function WaitingRoomPage() {
             <HelpTooltip content="Filtra el flujo de sala de espera para una fecha específica. Por defecto muestra el día de hoy." />
           </div>
           <div className="flex items-center gap-1.5 w-full">
-            <BranchFilter value={branchId} branches={branches.data ?? []} onChange={setBranchId} />
+            <BranchFilter value={branchId} branches={branches.data ?? []} onChange={setActiveBranchId} />
             <HelpTooltip content="Muestra los pacientes citados en la sucursal seleccionada. Las recepcionistas y clínicos solo verán las sucursales a las que tienen acceso asignado." />
           </div>
           <div className="flex items-center gap-1.5 w-full">
-            <ProfessionalFilter value={professionalId} professionals={professionals.data ?? []} onChange={setProfessionalId} />
+            <ProfessionalFilter value={professionalId} professionals={visibleProfessionals} onChange={setProfessionalId} />
             <HelpTooltip content="Filtra a los pacientes en espera según el odontólogo asignado para su atención en el día." />
           </div>
           <div className="flex items-center gap-1.5 w-full">
-            <ChairFilter value={chairId} chairs={(chairs.data ?? []).filter((chair) => !branchId || chair.branchId === branchId)} onChange={setChairId} />
+            <ChairFilter value={chairId} chairs={visibleChairs} onChange={setChairId} />
             <HelpTooltip content="Muestra los pacientes citados y distribuidos según el sillón clínico asignado, ideal para optimizar el espacio físico." />
           </div>
         </div>

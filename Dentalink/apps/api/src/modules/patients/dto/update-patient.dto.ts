@@ -81,6 +81,10 @@ export class UpdatePatientDto {
 
   @IsOptional()
   @IsString()
+  agreementId?: string | null;
+
+  @IsOptional()
+  @IsString()
   @MinLength(2)
   firstName?: string;
 

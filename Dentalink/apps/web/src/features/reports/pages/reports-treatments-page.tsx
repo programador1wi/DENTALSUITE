@@ -6,6 +6,7 @@ import { LoadingState } from "@/components/feedback/loading-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
 import { useTreatmentsReport } from "../hooks/use-reports";
 import { ReportsFilters } from "../components/reports-filters";
 import { downloadReportExport, getTreatmentsReport } from "../services/reports.service";
@@ -22,7 +23,7 @@ function monthStartIso() {
 export function ReportsTreatmentsPage() {
   const [dateFrom, setDateFrom] = useState(monthStartIso());
   const [dateTo, setDateTo] = useState(todayIso());
-  const [branchId, setBranchId] = useState("");
+  const { branchId, setBranchId } = useActiveBranchFilter();
 
   const branches = useBranches(undefined, "ACTIVE");
   const report = useTreatmentsReport({ dateFrom, dateTo, branchId: branchId || undefined });

@@ -10,9 +10,11 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { createAppointment } from "@/features/agenda/services/appointments.service";
+import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { useAuthStore } from "@/stores/auth.store";
+import { useBranchStore } from "@/stores/branch.store";
 import { UsersModuleNav } from "../components/users-module-nav";
 import { useLockAllUserAccess, useUsersQuery } from "../hooks/use-users";
 
@@ -32,14 +34,14 @@ type AgendaBlockSummary = {
 
 export function AgendaUsersBlockPage() {
   const queryClient = useQueryClient();
-  const [branchId, setBranchId] = useState("");
+  const { branchId, setBranchId } = useActiveBranchFilter();
   const [title, setTitle] = useState("Bloqueo general");
   const [notes, setNotes] = useState("");
   const [startAt, setStartAt] = useState("");
   const [endAt, setEndAt] = useState("");
 
   const branches = useBranches(undefined, "ACTIVE");
-  const professionals = useProfessionals(undefined, "true");
+  const professionals = useProfessionals(undefined, "true", { branchId: branchId || undefined, pageSize: 100 });
   const availableProfessionals = useMemo(
     () =>
       (professionals.data ?? []).filter((professional) =>
@@ -218,8 +220,9 @@ export function AgendaUsersBlockPage() {
 export function AccessUsersBlockPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const actorId = useAuthStore((state) => state.user?.id);
-  const activeUsers = useUsersQuery(undefined, "ACTIVE");
-  const lockedUsers = useUsersQuery(undefined, "LOCKED");
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const activeUsers = useUsersQuery(undefined, "ACTIVE", activeBranchId || undefined);
+  const lockedUsers = useUsersQuery(undefined, "LOCKED", activeBranchId || undefined);
   const lockAccess = useLockAllUserAccess();
   const visibleLockableUsers = (activeUsers.data ?? []).filter((user) => user.id !== actorId);
 

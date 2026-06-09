@@ -5,7 +5,6 @@ import type { Appointment, AppointmentStatus } from "../services/appointments.se
 import { appointmentColorPalette, appointmentStatusLabel } from "./appointment-status";
 import { AppointmentActionsMenu, type AppointmentMenuAction } from "./appointment-actions-menu";
 import { AppointmentStatusMenu } from "./appointment-status-menu";
-import { hasAppointmentNotes } from "../utils/appointment-notes";
 
 type AppointmentCardProps = {
   appointment: Appointment;
@@ -49,7 +48,12 @@ export function AppointmentCard({
   const patientFirstName = patientName.split(" ")[0] || patientName;
   const patientLastName = appointment.patient?.lastName.split(" ")[0] ?? "";
   const palette = appointmentColorPalette[appointment.status] || appointmentColorPalette.SCHEDULED;
-  const showNoteIcon = hasAppointmentNotes(appointment);
+  const hasAppointmentComment = Boolean(
+    appointment.notes?.trim() ||
+      appointment.appointmentNotes?.length ||
+      (appointment._count?.appointmentNotes ?? 0) > 0
+  );
+  const commentButtonLabel = hasAppointmentComment ? "Editar comentario de cita" : "Agregar comentario de cita";
 
   const handleMenuAction = (action: AppointmentMenuAction) => {
     if (action === "changeDate") {
@@ -68,6 +72,10 @@ export function AppointmentCard({
     }
 
     onMenuAction?.(appointment, action);
+  };
+
+  const handleCommentClick = () => {
+    handleMenuAction("addComment");
   };
 
   if (compact) {
@@ -97,7 +105,18 @@ export function AppointmentCard({
           </span>
 
           <div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
-            {showNoteIcon ? <MessageSquare className="h-3 w-3 text-[var(--text-brand)]" aria-label="Cita con nota" /> : null}
+            <button
+              type="button"
+              aria-label={commentButtonLabel}
+              title={commentButtonLabel}
+              onClick={handleCommentClick}
+              className={cn(
+                "flex h-4 w-4 items-center justify-center rounded-[var(--radius-sm)] transition-colors hover:bg-[var(--bg-surface)]/80 focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]",
+                hasAppointmentComment ? "text-[var(--text-brand)]" : "text-[var(--text-secondary)] hover:text-[var(--text-brand)]"
+              )}
+            >
+              <MessageSquare className="h-3 w-3" />
+            </button>
             <AppointmentActionsMenu
               appointment={appointment}
               triggerVariant="compact"
@@ -148,7 +167,18 @@ export function AppointmentCard({
           </p>
           <div className="flex min-w-0 items-center gap-1.5">
             <h4 className="truncate font-semibold leading-tight text-[var(--text-primary)]">{appointment.title}</h4>
-            {showNoteIcon ? <MessageSquare className="h-3.5 w-3.5 shrink-0 text-[var(--text-brand)]" aria-label="Cita con nota" /> : null}
+            <button
+              type="button"
+              aria-label={commentButtonLabel}
+              title={commentButtonLabel}
+              onClick={handleCommentClick}
+              className={cn(
+                "flex h-5 w-5 shrink-0 items-center justify-center rounded-[var(--radius-sm)] transition-colors hover:bg-[var(--bg-subtle)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]",
+                hasAppointmentComment ? "text-[var(--text-brand)]" : "text-[var(--text-secondary)] hover:text-[var(--text-brand)]"
+              )}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+            </button>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">

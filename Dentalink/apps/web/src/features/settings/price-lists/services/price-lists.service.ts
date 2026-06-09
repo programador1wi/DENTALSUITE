@@ -122,6 +122,11 @@ export async function listPriceLists(params?: { search?: string; active?: string
   return data;
 }
 
+export async function getPriceList(id: string) {
+  const { data } = await http.get<PriceList>(`/price-lists/${id}`);
+  return data;
+}
+
 export async function getPriceListAvailabilityMatrix() {
   const { data } = await http.get<PriceListAvailabilityMatrix>("/price-lists/availability-matrix");
   return data;

@@ -5,6 +5,7 @@ import {
   activateAlternative,
   addTreatmentPlanItem,
   addTreatmentPlanSection,
+  changeTreatmentPlanBranch,
   createAlternative,
   createBudget,
   createTreatmentPlan,
@@ -41,10 +42,11 @@ export function useTreatmentPlan(id: string) {
   });
 }
 
-export function useBudgets(params?: { patientId?: string; treatmentPlanId?: string; status?: BudgetStatus }) {
+export function useBudgets(params?: { patientId?: string; treatmentPlanId?: string; status?: BudgetStatus }, enabled = true) {
   return useQuery({
     queryKey: ["budgets", params],
-    queryFn: () => listBudgets(params)
+    queryFn: () => listBudgets(params),
+    enabled
   });
 }
 
@@ -80,6 +82,21 @@ export function useTreatmentMutations() {
     updateTreatmentPlan: useMutation({
       mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateTreatmentPlanPayload> & { status?: TreatmentPlanStatus } }) =>
         updateTreatmentPlan(id, payload),
+      onSuccess: invalidate,
+      onError
+    }),
+    changeBranch: useMutation({
+      mutationFn: ({
+        id,
+        branchId,
+        professionalId,
+        moveFutureAppointments
+      }: {
+        id: string;
+        branchId: string;
+        professionalId: string;
+        moveFutureAppointments?: boolean;
+      }) => changeTreatmentPlanBranch(id, { branchId, professionalId, moveFutureAppointments }),
       onSuccess: invalidate,
       onError
     }),

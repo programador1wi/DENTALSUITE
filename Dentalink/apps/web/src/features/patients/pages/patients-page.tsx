@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
@@ -164,7 +165,8 @@ export function PatientsPage() {
   const [expandedPatientId, setExpandedPatientId] = useState<string | null>(null);
 
   const branchQuery = useBranches(undefined, "ACTIVE");
-  const selectedBranchId = filters.branchId || activeBranchId;
+  const isGlobalHeaderSearch = Boolean(filters.search.trim()) && !filters.branchId && !searchParams.has("branchId");
+  const selectedBranchId = isGlobalHeaderSearch ? "" : filters.branchId || activeBranchId;
   const patientQuery = usePatients({
     search: filters.search || undefined,
     status: filters.status || undefined,
@@ -190,6 +192,7 @@ export function PatientsPage() {
 
   useEffect(() => {
     if (!activeBranchId) return;
+    if (searchParams.get("search")?.trim() && !searchParams.get("branchId")) return;
     if (filters.branchId !== activeBranchId) {
       setFilters((prev) => ({ ...prev, branchId: activeBranchId }));
     }
@@ -346,17 +349,19 @@ export function PatientsPage() {
                         <td className="px-3 py-4 text-center">{treatmentCount(patient)}</td>
                         <td className="px-3 py-4">{patient.hasDebt ? "$ Pendiente" : "No tiene"}</td>
                         <td className="px-3 py-4 text-center">
-                          <button
-                            className="text-xl font-bold text-slate-500"
-                            type="button"
-                            title="Desactivar"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setConfirmId(patient.id);
-                            }}
-                          >
-                            ...
-                          </button>
+                          <HelpTooltip content="Desactivar" position="left">
+                            <button
+                              className="text-xl font-bold text-slate-500"
+                              type="button"
+                              aria-label="Desactivar"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setConfirmId(patient.id);
+                              }}
+                            >
+                              ...
+                            </button>
+                          </HelpTooltip>
                         </td>
                       </tr>
                       {isExpanded ? <PatientPreview patient={patient} number={number} /> : null}

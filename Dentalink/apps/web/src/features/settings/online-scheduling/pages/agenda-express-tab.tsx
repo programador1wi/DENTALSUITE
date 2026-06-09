@@ -1,4 +1,5 @@
 import { Copy } from "lucide-react";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Select } from "@/components/ui/select";
 import { OnlineSchedulingNav } from "../components/online-scheduling-nav";
 import { SchedulingConfigSection } from "../components/scheduling-config-section";
@@ -18,9 +19,11 @@ export function AgendaExpressTab() {
               className="flex-1 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
               value="https://ff.healthatom.io/GtPq0L"
             />
-            <button type="button" className="bg-slate-800 px-3 text-white hover:bg-slate-700" title="Copiar link" aria-label="Copiar link">
-              <Copy className="h-4 w-4" />
-            </button>
+            <HelpTooltip content="Copiar link" position="left">
+              <button type="button" className="bg-slate-800 px-3 text-white hover:bg-slate-700" aria-label="Copiar link">
+                <Copy className="h-4 w-4" />
+              </button>
+            </HelpTooltip>
           </div>
         </div>
         <SchedulingConfigSection mode="express" />

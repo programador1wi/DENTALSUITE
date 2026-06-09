@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Circle, Pencil } from "lucide-react";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -12,6 +12,7 @@ import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { usePriceLists } from "@/features/settings/price-lists/hooks/use-price-lists";
 import { useProcedureCategories } from "@/features/settings/procedures/hooks/use-procedures";
 import { useProfessionals, useUpdateProfessional } from "@/features/settings/professionals/hooks/use-professionals";
+import { useBranchStore } from "@/stores/branch.store";
 import type { Professional } from "@/features/settings/professionals/services/professionals.service";
 import { UsersModuleNav } from "../components/users-module-nav";
 
@@ -186,6 +187,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 // ─── Page ───────────────────────────────────────────────────────────────────
 
 export function UsersBulkContractsPage() {
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const [step, setStep] = useState<StepKey>(1);
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<SelectionMap>({});
@@ -197,12 +199,32 @@ export function UsersBulkContractsPage() {
   const [updatedCount, setUpdatedCount] = useState<number | null>(null);
 
   const branches = useBranches(undefined, "ACTIVE");
-  const professionals = useProfessionals(search || undefined, "true");
-  const priceLists = usePriceLists(undefined, "true");
+  const professionals = useProfessionals(search || undefined, "true", { branchId: activeBranchId || undefined, pageSize: 100 });
+  const priceLists = usePriceLists(undefined, "true", activeBranchId || undefined);
   const categories = useProcedureCategories(undefined, "true");
   const updateProfessional = useUpdateProfessional();
 
   const rows = professionals.data ?? [];
+  const visibleBranches = useMemo(
+    () => (branches.data ?? []).filter((branch) => !activeBranchId || branch.id === activeBranchId),
+    [activeBranchId, branches.data]
+  );
+  const visibleBranchIds = useMemo(() => new Set(visibleBranches.map((branch) => branch.id)), [visibleBranches]);
+
+  useEffect(() => {
+    setSelection((current) => {
+      let changed = false;
+      const next: SelectionMap = {};
+
+      for (const [professionalId, branchIds] of Object.entries(current)) {
+        const filtered = branchIds.filter((branchId) => visibleBranchIds.has(branchId));
+        if (filtered.length !== branchIds.length) changed = true;
+        if (filtered.length) next[professionalId] = filtered;
+      }
+
+      return changed ? next : current;
+    });
+  }, [visibleBranchIds]);
 
   // ── Selection helpers ────────────────────────────────────────────────────
 
@@ -235,7 +257,7 @@ export function UsersBulkContractsPage() {
   };
 
   const toggleProfessional = (professional: Professional) => {
-    const allIds = professional.branches.map((b) => b.id);
+    const allIds = professional.branches.map((b) => b.id).filter((id) => visibleBranchIds.has(id));
     const allSelected = allIds.every((id) => selection[professional.id]?.includes(id));
     setSelection((cur) => {
       const updated = { ...cur };
@@ -379,7 +401,7 @@ export function UsersBulkContractsPage() {
                           <th className="sticky left-0 z-10 w-[290px] border-b border-slate-200 bg-white px-4 py-3 text-left">
                             Profesional
                           </th>
-                          {(branches.data ?? []).map((branch) => (
+                          {visibleBranches.map((branch) => (
                             <th
                               key={branch.id}
                               className="w-24 border-b border-slate-200 px-2 py-3 text-center align-bottom"
@@ -406,7 +428,7 @@ export function UsersBulkContractsPage() {
                                 <span className="text-xs text-slate-400">Todos</span>
                               </button>
                             </th>
-                            {(branches.data ?? []).map((branch) => {
+                            {visibleBranches.map((branch) => {
                               const available = professional.branches.some(
                                 (b) => b.id === branch.id
                               );

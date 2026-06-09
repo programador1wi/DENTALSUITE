@@ -27,6 +27,38 @@ export type Payment = {
   refunds: Array<{ id: string; amount: string; status: string; createdAt: string }>;
 };
 
+export type RefundStatus = "PENDING" | "PROCESSED" | "REJECTED";
+
+export type Refund = {
+  id: string;
+  branchId: string;
+  paymentId: string;
+  patientId: string;
+  amount: string;
+  reason?: string | null;
+  status: RefundStatus;
+  processedAt?: string | null;
+  createdAt: string;
+  patient: { id: string; firstName: string; lastName: string };
+  payment: {
+    id: string;
+    amount: string;
+    status: PaymentStatus;
+    allocations: Array<{
+      id: string;
+      amount: string;
+      treatmentPlanItem: {
+        id: string;
+        treatmentPlanId: string;
+        toothNumber?: string | null;
+        surface?: string | null;
+        procedure?: { id: string; code: string; name: string } | null;
+      };
+    }>;
+  };
+  processedBy?: { id: string; firstName: string; lastName: string } | null;
+};
+
 export type PaymentLink = {
   id: string;
   amount: string;
@@ -51,7 +83,56 @@ export type Installment = {
   paidAt?: string | null;
   isOverdue?: boolean;
   patient?: { id: string; firstName: string; lastName: string };
-  installmentPlan?: { id: string; treatmentPlanId: string };
+  installmentPlan?: { id: string; treatmentPlanId: string; treatmentPlan?: { id: string; name: string } };
+};
+
+export type PayableTreatmentItem = {
+  id: string;
+  treatmentPlanId: string;
+  treatmentPlanName: string;
+  treatmentPlanStatus: string;
+  procedure: { id: string; code: string; name: string };
+  section?: { id: string; name: string } | null;
+  toothNumber?: string | null;
+  surface?: string | null;
+  quantity: number;
+  unitPrice: number;
+  discount: number;
+  total: number;
+  paidAmount: number;
+  outstandingAmount: number;
+  status: string;
+  plannedAt?: string | null;
+  completedAt?: string | null;
+};
+
+export type PayableTreatmentPlan = {
+  id: string;
+  name: string;
+  status: string;
+  professional: { id: string; firstName: string; lastName: string };
+  createdAt: string;
+  totalBudget: number;
+  paidAmount: number;
+  realizedAmount: number;
+  outstandingAmount: number;
+  items: PayableTreatmentItem[];
+};
+
+export type PatientPaymentsResponse = {
+  payments: Payment[];
+  links: Array<{ id: string; amount: string; status: string; url: string; expiresAt?: string | null; paidAt?: string | null }>;
+  installments: Installment[];
+  balance: {
+    plannedAmount: number;
+    allocatedPaidAmount: number;
+    totalPaidAmount: number;
+    outstandingAmount: number;
+    unallocatedCredit: number;
+    overdueInstallments: number;
+  };
+  payablePlans: PayableTreatmentPlan[];
+  payableItems: PayableTreatmentItem[];
 };
 
 export type CashRegister = {
@@ -165,8 +246,18 @@ export async function addPaymentAllocations(paymentId: string, allocations: Arra
   return data;
 }
 
+export async function removePaymentAllocation(allocationId: string) {
+  const { data } = await http.delete<Payment>(`/payments/allocations/${allocationId}`);
+  return data;
+}
+
 export async function createRefund(paymentId: string, payload: { amount: number; reason?: string }) {
   const { data } = await http.post(`/payments/${paymentId}/refund`, payload);
+  return data;
+}
+
+export async function listRefunds(params?: { patientId?: string; treatmentPlanId?: string; status?: RefundStatus }) {
+  const { data } = await http.get<Refund[]>("/refunds", { params });
   return data;
 }
 
@@ -176,19 +267,7 @@ export async function voidPayment(paymentId: string, payload: { reason: string }
 }
 
 export async function listPatientPayments(patientId: string) {
-  const { data } = await http.get<{
-    payments: Payment[];
-    links: Array<{ id: string; amount: string; status: string; url: string; expiresAt?: string | null; paidAt?: string | null }>;
-    installments: Installment[];
-    balance: {
-      plannedAmount: number;
-      allocatedPaidAmount: number;
-      totalPaidAmount: number;
-      outstandingAmount: number;
-      unallocatedCredit: number;
-      overdueInstallments: number;
-    };
-  }>(`/patients/${patientId}/payments`);
+  const { data } = await http.get<PatientPaymentsResponse>(`/patients/${patientId}/payments`);
   return data;
 }
 
@@ -258,6 +337,11 @@ export async function getCashRegister(registerId: string) {
   return data;
 }
 
+export async function getCurrentCashRegister(branchId: string) {
+  const { data } = await http.get<CashRegister | null>("/cash-register/current", { params: { branchId } });
+  return data;
+}
+
 export async function openCashRegister(payload: { branchId: string; openingAmount: number }) {
   const { data } = await http.post<CashRegister>("/cash-register/open", payload);
   return data;
@@ -278,3 +362,79 @@ export async function createCashMovement(
   const { data } = await http.post(`/cash-register/${registerId}/movements`, payload);
   return data;
 }
+
+// ─── Tipos de reportes de caja ───────────────────────────────────────────────
+
+export type CashReportQuery = {
+  branchId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+};
+
+export type CollectionSummaryResponse = {
+  dateFrom: string;
+  dateTo: string;
+  total: number;
+  byDay: Array<{ date: string; amount: number }>;
+};
+
+export type BoxSummaryResponse = {
+  total: number;
+  patientsCount: number;
+  rows: Array<{ type: string; method: string; count: number; amount: number }>;
+};
+
+export type PaymentsByPeriodResponse = {
+  dateFrom: string;
+  dateTo: string;
+  total: number;
+  byDay: Array<{ date: string; amount: number }>;
+  payments: Array<{
+    id: string;
+    number: number;
+    date: string;
+    patient: string;
+    responsible: string;
+    documentNumber: string;
+    paymentType: string;
+    paymentMethod: string;
+    total: number;
+  }>;
+};
+
+export type PaymentsByProfessionalResponse = {
+  dateFrom: string;
+  dateTo: string;
+  total: number;
+  payments: Array<{
+    number: number;
+    treatmentNumber: string;
+    paymentMethod: string;
+    patientName: string;
+    reception: string;
+    amount: number;
+  }>;
+};
+
+// ─── Funciones HTTP de reportes ──────────────────────────────────────────────
+
+export async function getCashCollectionSummary(params?: CashReportQuery) {
+  const { data } = await http.get<CollectionSummaryResponse>("/cash-register/reports/collection-summary", { params });
+  return data;
+}
+
+export async function getCashBoxSummary(params?: CashReportQuery) {
+  const { data } = await http.get<BoxSummaryResponse>("/cash-register/reports/box-summary", { params });
+  return data;
+}
+
+export async function getCashPaymentsByPeriod(params?: CashReportQuery) {
+  const { data } = await http.get<PaymentsByPeriodResponse>("/cash-register/reports/payments-by-period", { params });
+  return data;
+}
+
+export async function getCashPaymentsByProfessional(params?: CashReportQuery & { professionalId?: string }) {
+  const { data } = await http.get<PaymentsByProfessionalResponse>("/cash-register/reports/payments-by-professional", { params });
+  return data;
+}
+

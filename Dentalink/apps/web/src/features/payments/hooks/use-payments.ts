@@ -8,18 +8,27 @@ import {
   createPayment,
   createPaymentLink,
   createRefund,
+  getCashBoxSummary,
+  getCashCollectionSummary,
+  getCashPaymentsByPeriod,
+  getCashPaymentsByProfessional,
   getCashRegister,
-  listPaymentLinks,
+  getCurrentCashRegister,
   listAccountsReceivable,
   listCashRegisters,
   listInstallments,
   listPatientPayments,
+  listPaymentLinks,
   listPayments,
+  listRefunds,
   openCashRegister,
   payInstallment,
+  removePaymentAllocation,
   voidPayment,
+  type CashReportQuery,
   type CashRegisterStatus,
-  type PaymentStatus
+  type PaymentStatus,
+  type RefundStatus
 } from "../services/payments.service";
 
 export function usePayments(params?: { patientId?: string; branchId?: string; search?: string; status?: PaymentStatus }) {
@@ -34,6 +43,14 @@ export function usePatientPayments(patientId: string) {
     queryKey: ["patient-payments", patientId],
     queryFn: () => listPatientPayments(patientId),
     enabled: Boolean(patientId)
+  });
+}
+
+export function useRefunds(params?: { patientId?: string; treatmentPlanId?: string; status?: RefundStatus }, enabled = true) {
+  return useQuery({
+    queryKey: ["refunds", params],
+    queryFn: () => listRefunds(params),
+    enabled
   });
 }
 
@@ -73,6 +90,14 @@ export function useCashRegisterDetail(registerId?: string | null) {
   });
 }
 
+export function useCurrentCashRegister(branchId?: string | null) {
+  return useQuery({
+    queryKey: ["cash-register", "current", branchId],
+    queryFn: () => getCurrentCashRegister(branchId as string),
+    enabled: Boolean(branchId)
+  });
+}
+
 export function usePaymentsMutations() {
   const queryClient = useQueryClient();
   const invalidate = () => {
@@ -84,6 +109,8 @@ export function usePaymentsMutations() {
     queryClient.invalidateQueries({ queryKey: ["payment-links"] });
     queryClient.invalidateQueries({ queryKey: ["patient"] });
     queryClient.invalidateQueries({ queryKey: ["patients"] });
+    queryClient.invalidateQueries({ queryKey: ["treatment-plans"] });
+    queryClient.invalidateQueries({ queryKey: ["treatment-plan"] });
   };
   const onError = (error: Error) => toast.error(error.message);
 
@@ -101,6 +128,14 @@ export function usePaymentsMutations() {
         addPaymentAllocations(paymentId, allocations),
       onSuccess: () => {
         toast.success("Pago aplicado");
+        invalidate();
+      },
+      onError
+    }),
+    removeAllocation: useMutation({
+      mutationFn: (allocationId: string) => removePaymentAllocation(allocationId),
+      onSuccess: () => {
+        toast.success("Pago desasociado");
         invalidate();
       },
       onError
@@ -198,4 +233,41 @@ export function usePaymentsMutations() {
       onError
     })
   };
+}
+
+// ─── Hooks de reportes de caja ───────────────────────────────────────────────
+
+export function useCashCollectionSummary(params?: CashReportQuery) {
+  return useQuery({
+    queryKey: ["cash-report", "collection-summary", params],
+    queryFn: () => getCashCollectionSummary(params),
+    enabled: Boolean(params?.branchId)
+  });
+}
+
+export function useCashBoxSummary(params?: CashReportQuery, enabled = false) {
+  return useQuery({
+    queryKey: ["cash-report", "box-summary", params],
+    queryFn: () => getCashBoxSummary(params),
+    enabled: enabled && Boolean(params?.branchId && params?.dateFrom && params?.dateTo)
+  });
+}
+
+export function useCashPaymentsByPeriod(params?: CashReportQuery, enabled = false) {
+  return useQuery({
+    queryKey: ["cash-report", "payments-by-period", params],
+    queryFn: () => getCashPaymentsByPeriod(params),
+    enabled: enabled && Boolean(params?.branchId && params?.dateFrom && params?.dateTo)
+  });
+}
+
+export function useCashPaymentsByProfessional(
+  params?: CashReportQuery & { professionalId?: string },
+  enabled = false
+) {
+  return useQuery({
+    queryKey: ["cash-report", "payments-by-professional", params],
+    queryFn: () => getCashPaymentsByProfessional(params),
+    enabled: enabled && Boolean(params?.branchId && params?.professionalId && params?.dateFrom && params?.dateTo)
+  });
 }

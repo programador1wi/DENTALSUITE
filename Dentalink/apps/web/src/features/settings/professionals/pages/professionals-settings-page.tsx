@@ -15,6 +15,7 @@ import { Tabs } from "@/components/ui/tabs";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useSpecialties } from "@/features/settings/specialties/hooks/use-specialties";
 import { useUsersQuery } from "@/features/settings/users/hooks/use-users";
+import { useBranchStore } from "@/stores/branch.store";
 import {
   useCreateProfessional,
   useDeactivateProfessional,
@@ -115,6 +116,7 @@ function isBranchCurrentlyAssignable(branch: Professional["branches"][number]) {
 
 export function ProfessionalsSettingsPage() {
   const navigate = useNavigate();
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"true" | "false">("true");
   const [searchParams, setSearchParams] = useSearchParams();
@@ -129,10 +131,10 @@ export function ProfessionalsSettingsPage() {
   const [transferModalHidden, setTransferModalHidden] = useState(false);
   const [createdTransferReplacement, setCreatedTransferReplacement] = useState<Professional | null>(null);
 
-  const professionals = useProfessionals(search || undefined, view);
+  const professionals = useProfessionals(search || undefined, view, { branchId: activeBranchId || undefined, pageSize: 100 });
   const specialties = useSpecialties(undefined, "true");
   const branches = useBranches(undefined, "ACTIVE");
-  const users = useUsersQuery(undefined, "ACTIVE");
+  const users = useUsersQuery(undefined, "ACTIVE", activeBranchId || undefined);
   const createProfessional = useCreateProfessional();
   const updateProfessional = useUpdateProfessional();
   const deactivateProfessional = useDeactivateProfessional();
@@ -199,7 +201,11 @@ export function ProfessionalsSettingsPage() {
       lastName: user.lastName,
       email: user.email,
       phone: user.phone ?? "",
-      branchIds: branchIds.length ? [branchIds[0]] : user.branches.slice(0, 1).map((branch) => branch.id)
+      branchIds: branchIds.length
+        ? [branchIds[0]]
+        : activeBranchId && user.branches.some((branch) => branch.id === activeBranchId)
+          ? [activeBranchId]
+          : user.branches.slice(0, 1).map((branch) => branch.id)
     });
     setFormOpen(true);
     setSearchParams(
@@ -211,11 +217,11 @@ export function ProfessionalsSettingsPage() {
       },
       { replace: true }
     );
-  }, [editing, formOpen, searchParams, setSearchParams, users.data]);
+  }, [activeBranchId, editing, formOpen, searchParams, setSearchParams, users.data]);
 
   const openCreate = () => {
     setEditing(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, branchIds: activeBranchId ? [activeBranchId] : [] });
     setProfessionalFormContext("default");
     setFormOpen(true);
   };
@@ -275,7 +281,9 @@ export function ProfessionalsSettingsPage() {
   };
 
   const openTransfer = (professional: Professional) => {
-    const firstBranch = professional.branches.find((branch) => isBranchCurrentlyAssignable(branch));
+    const firstBranch =
+      professional.branches.find((branch) => branch.id === activeBranchId && isBranchCurrentlyAssignable(branch)) ??
+      professional.branches.find((branch) => isBranchCurrentlyAssignable(branch));
     setTransferProfessional(professional);
     setTransferModalHidden(false);
     setCreatedTransferReplacement(null);

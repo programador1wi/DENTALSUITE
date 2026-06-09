@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
+import { useBranchStore } from "@/stores/branch.store";
 import { OnlineSchedulingDrawer } from "../components/online-scheduling-drawer";
 import { OnlineSchedulingNav } from "../components/online-scheduling-nav";
 
@@ -24,11 +25,12 @@ function slug(value: string) {
 }
 
 export function CampaignsTab() {
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const [isCreating, setIsCreating] = useState(false);
   const [campaigns, setCampaigns] = useState<{name: string, code: string, prof: string}[]>([]);
   const [formData, setFormData] = useState({name: "", code: "", prof: "Todos los profesionales"});
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const professionals = useProfessionals(undefined, "true");
+  const professionals = useProfessionals(undefined, "true", { branchId: activeBranchId || undefined, pageSize: 100 });
 
   const handleCreate = () => {
     if (formData.name && formData.code) {
@@ -104,7 +106,11 @@ export function CampaignsTab() {
               <label className="block text-sm font-bold text-slate-700 mb-1">Selección de profesional</label>
               <Select className="max-w-md" value={formData.prof} onChange={(e) => setFormData({...formData, prof: e.target.value})}>
                 <option>Todos los profesionales</option>
-                <option>Dr. Juan Pérez</option>
+                {professionals.data?.map((professional) => (
+                  <option key={professional.id} value={`${professional.firstName} ${professional.lastName}`.trim()}>
+                    {professional.firstName} {professional.lastName}
+                  </option>
+                ))}
               </Select>
             </div>
             <div className="pt-6">

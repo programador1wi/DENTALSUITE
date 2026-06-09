@@ -1,141 +1,192 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Lock, Save, Shield } from "lucide-react";
+import { toast } from "sonner";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { usePermissions } from "@/hooks/use-permissions";
 import { UsersModuleNav } from "@/features/settings/users/components/users-module-nav";
 import { usePermissionsQuery } from "@/features/settings/permissions/hooks/use-permissions";
-import { useRoleDetailQuery, useUpdateRolePermissions } from "../hooks/use-roles";
 import { PermissionChecklist } from "../components/permission-checklist";
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+import { useRoleDetailQuery, useRolesQuery, useUpdateRole } from "../hooks/use-roles";
 
 function arraysEqual(a: string[], b: string[]) {
   if (a.length !== b.length) return false;
-  const sa = [...a].sort();
-  const sb = [...b].sort();
-  return sa.every((v, i) => v === sb[i]);
+  const left = [...a].sort();
+  const right = [...b].sort();
+  return left.every((value, index) => value === right[index]);
 }
 
-// ─── Página ───────────────────────────────────────────────────────────────────
+function isSuperAdminRole(role: { code?: string | null; name: string }) {
+  return role.code === "super_admin" || role.name === "SUPER_ADMIN";
+}
 
 export function RoleDetailPage() {
   const { id = "" } = useParams<{ id: string }>();
   const navigate = useNavigate();
 
   const role = useRoleDetailQuery(id);
+  const roles = useRolesQuery(undefined, "true");
   const allPermissions = usePermissionsQuery(undefined, undefined, "true");
-  const updatePermissions = useUpdateRolePermissions();
+  const updateRole = useUpdateRole();
+  const { can } = usePermissions();
+  const canManageAll = can("system.manage_all");
+  const canUpdateRole = canManageAll || can("roles.update");
 
-  // IDs seleccionados (estado local, se inicializa desde el rol)
+  const [loadedRoleId, setLoadedRoleId] = useState<string | null>(null);
+  const [roleName, setRoleName] = useState("");
+  const [roleDescription, setRoleDescription] = useState("");
+  const [roleActive, setRoleActive] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [initialized, setInitialized] = useState(false);
 
-  // Inicializar la selección cuando llega el rol del servidor
   useEffect(() => {
-    if (role.data && !initialized) {
-      setSelectedIds(role.data.permissions.map((p) => p.id));
-      setInitialized(true);
-    }
-  }, [role.data, initialized]);
+    if (!role.data || loadedRoleId === role.data.id) return;
 
-  // Detectar si hay cambios sin guardar
-  const originalIds = role.data?.permissions.map((p) => p.id) ?? [];
-  const hasChanges = initialized && !arraysEqual(selectedIds, originalIds);
+    setLoadedRoleId(role.data.id);
+    setRoleName(role.data.name);
+    setRoleDescription(role.data.description ?? "");
+    setRoleActive(role.data.isActive);
+    setSelectedIds(role.data.permissions.map((permission) => permission.id));
+  }, [loadedRoleId, role.data]);
 
-  const isReadonly = role.data?.isSystem ?? false;
-
-  const handleSave = async () => {
-    if (!id || !hasChanges) return;
-    await updatePermissions.mutateAsync({ id, permissionIds: selectedIds });
-  };
-
-  // ─── Loading / Error ─────────────────────────────────────────────────────
-
+  const originalIds = role.data?.permissions.map((permission) => permission.id) ?? [];
+  const isSystemRole = role.data?.isSystem ?? false;
+  const isSuperAdmin = role.data ? isSuperAdminRole(role.data) : false;
+  const isReadonly = isSuperAdmin || !canUpdateRole;
+  const permissionChanges = role.data ? !arraysEqual(selectedIds, originalIds) : false;
+  const metadataChanges = role.data
+    ? roleName.trim() !== role.data.name ||
+      roleDescription.trim() !== (role.data.description ?? "") ||
+      roleActive !== role.data.isActive
+    : false;
+  const hasChanges = !isReadonly && (permissionChanges || metadataChanges);
   const isLoading = role.isLoading || allPermissions.isLoading;
   const isError = role.isError || allPermissions.isError;
   const errorMessage = role.error?.message ?? allPermissions.error?.message ?? "Error al cargar datos.";
+  const canSave = hasChanges && roleName.trim().length > 0 && !updateRole.isPending;
+  const activePermissionIds = allPermissions.data?.map((permission) => permission.id) ?? [];
+  const copyableRoles = roles.data?.filter((sourceRole) => sourceRole.id !== id && sourceRole.permissions.length > 0) ?? [];
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  const handleSave = async () => {
+    if (!id || !canSave) return;
+
+    await updateRole.mutateAsync({
+      id,
+      payload: {
+        name: roleName.trim(),
+        description: roleDescription.trim(),
+        isActive: roleActive,
+        permissionIds: selectedIds
+      }
+    });
+    toast.success("Cambios actualizados correctamente");
+  };
+
+  const copyPermissionsFromRole = (roleId: string) => {
+    const sourceRole = roles.data?.find((currentRole) => currentRole.id === roleId);
+    if (!sourceRole) return;
+
+    setSelectedIds(sourceRole.permissions.map((permission) => permission.id));
+  };
 
   return (
     <div className="space-y-4">
       <UsersModuleNav>
-        {/* ── Botón volver ─────────────────────────────────────────────── */}
         <button
           type="button"
           onClick={() => navigate("/settings/users/profiles")}
-          className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-[#0784d8] transition-colors"
+          className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 transition-colors hover:text-[#0784d8]"
         >
           <ArrowLeft className="h-4 w-4" />
           Volver a Perfiles
         </button>
 
-        {/* ── Header del perfil ─────────────────────────────────────────── */}
-        {role.data && (
+        {role.data ? (
           <div className="mb-6 rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              {/* Info izquierda */}
-              <div className="flex items-start gap-4">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div className="flex min-w-0 items-start gap-4">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-sky-100 text-sky-600">
                   <Shield className="h-6 w-6" />
                 </div>
-                <div className="space-y-1.5">
+                <div className="min-w-0 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h1 className="text-xl font-semibold text-slate-900">
-                      {role.data.name}
-                    </h1>
+                    <h1 className="text-xl font-semibold text-slate-900">{role.data.name}</h1>
                     <Badge
                       value={role.data.isActive ? "ACTIVO" : "INACTIVO"}
                       tone={role.data.isActive ? "success" : "warning"}
                     />
-                    {role.data.isSystem && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700 border border-amber-200">
+                    {isSystemRole ? (
+                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">
                         <Lock className="h-3 w-3" />
                         Sistema
                       </span>
-                    )}
+                    ) : null}
                   </div>
-                  <p className="text-xs text-slate-400 font-mono">
-                    Código: <span className="text-slate-600">{role.data.code}</span>
+                  <p className="font-mono text-xs text-slate-400">
+                    Codigo: <span className="text-slate-600">{role.data.code}</span>
                   </p>
-                  {role.data.description && (
-                    <p className="text-sm text-slate-500">{role.data.description}</p>
-                  )}
+                  <p className="max-w-2xl text-sm text-slate-500">
+                    Los usuarios heredan permisos desde este perfil. No se administran permisos individuales por usuario.
+                  </p>
                 </div>
               </div>
 
-              {/* Acciones derecha */}
               <div className="flex shrink-0 items-center gap-3">
                 {isReadonly ? (
                   <p className="flex items-center gap-1.5 text-sm text-amber-600">
                     <Lock className="h-4 w-4" />
-                    Perfil de solo lectura
+                    {isSuperAdmin ? "Super admin de solo lectura" : "Sin permiso de edicion"}
                   </p>
                 ) : (
                   <>
-                    {updatePermissions.isError && (
-                      <span className="text-xs text-red-600">
-                        {updatePermissions.error.message}
-                      </span>
-                    )}
-                    <Button
-                      type="button"
-                      variant="primary"
-                      disabled={!hasChanges || updatePermissions.isPending}
-                      onClick={() => void handleSave()}
-                    >
+                    {updateRole.isError ? (
+                      <span className="max-w-[280px] text-xs text-red-600">{updateRole.error.message}</span>
+                    ) : null}
+                    <Button type="button" variant="primary" disabled={!canSave} onClick={() => void handleSave()}>
                       <Save className="h-4 w-4" />
-                      {updatePermissions.isPending ? "Guardando..." : "Guardar cambios"}
+                      {updateRole.isPending ? "Guardando..." : "Guardar cambios"}
                     </Button>
                   </>
                 )}
               </div>
             </div>
 
-            {/* Resumen rápido */}
+            <div className="mt-5 grid gap-3 border-t border-slate-100 pt-5 lg:grid-cols-[minmax(220px,0.9fr)_minmax(260px,1.1fr)_180px]">
+              <label className="grid gap-1 text-sm text-slate-700">
+                Nombre del perfil
+                <Input
+                  value={roleName}
+                  disabled={isReadonly}
+                  onChange={(event) => setRoleName(event.target.value)}
+                />
+              </label>
+              <label className="grid gap-1 text-sm text-slate-700">
+                Descripcion
+                <Textarea
+                  className="min-h-10"
+                  value={roleDescription}
+                  disabled={isReadonly}
+                  onChange={(event) => setRoleDescription(event.target.value)}
+                />
+              </label>
+              <label className="grid gap-1 text-sm text-slate-700">
+                Estado
+                <Select
+                  value={roleActive ? "true" : "false"}
+                  disabled={isReadonly}
+                  onChange={(event) => setRoleActive(event.target.value === "true")}
+                >
+                  <option value="true">Activo</option>
+                  <option value="false">Inactivo</option>
+                </Select>
+              </label>
+            </div>
+
             <div className="mt-4 flex flex-wrap items-center gap-4 border-t border-slate-100 pt-4">
               <div className="text-center">
                 <p className="text-lg font-bold text-emerald-600">{selectedIds.length}</p>
@@ -143,40 +194,70 @@ export function RoleDetailPage() {
               </div>
               <div className="h-8 w-px bg-slate-200" />
               <div className="text-center">
-                <p className="text-lg font-bold text-slate-700">
-                  {allPermissions.data?.length ?? "—"}
-                </p>
+                <p className="text-lg font-bold text-slate-700">{allPermissions.data?.length ?? "-"}</p>
                 <p className="text-xs text-slate-500">Total disponibles</p>
               </div>
-              {hasChanges && (
+              {hasChanges ? (
                 <>
                   <div className="h-8 w-px bg-slate-200" />
-                  <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 border border-amber-200">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                  <div className="flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                     Cambios sin guardar
                   </div>
                 </>
-              )}
+              ) : null}
             </div>
           </div>
-        )}
+        ) : null}
 
-        {/* ── Estados de carga / error ──────────────────────────────────── */}
-        {isLoading && <LoadingState message="Cargando permisos del perfil..." />}
-        {isError && <ErrorState message={errorMessage} />}
+        {isLoading ? <LoadingState message="Cargando permisos del perfil..." /> : null}
+        {isError ? <ErrorState message={errorMessage} /> : null}
 
-        {/* ── Checklist de permisos ─────────────────────────────────────── */}
-        {role.data && allPermissions.data && (
+        {role.data && allPermissions.data ? (
           <div className="space-y-2">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
-                Permisos por módulo
-              </h2>
-              {!isReadonly && !isLoading && (
-                <p className="text-xs text-slate-400">
-                  Haz clic en un permiso o en el checkbox del módulo para activar/desactivar
-                </p>
-              )}
+            <div className="mb-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-700">Permisos por modulo</h2>
+                {!isReadonly && !isLoading ? (
+                  <p className="text-xs text-slate-400">
+                    Activa o desactiva permisos en el perfil; los cambios aplican a usuarios con este rol.
+                  </p>
+                ) : null}
+              </div>
+
+              {!isReadonly ? (
+                <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3 md:grid-cols-[1fr_auto_auto]">
+                  <Select
+                    value=""
+                    disabled={!copyableRoles.length}
+                    onChange={(event) => copyPermissionsFromRole(event.target.value)}
+                    aria-label="Copiar permisos de otro perfil"
+                  >
+                    <option value="">Copiar permisos de otro perfil</option>
+                    {copyableRoles.map((sourceRole) => (
+                      <option key={sourceRole.id} value={sourceRole.id}>
+                        {sourceRole.name} ({sourceRole.permissions.length})
+                      </option>
+                    ))}
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={!activePermissionIds.length}
+                    onClick={() => setSelectedIds(activePermissionIds)}
+                  >
+                    Marcar todos
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    disabled={!selectedIds.length}
+                    onClick={() => setSelectedIds([])}
+                  >
+                    Limpiar
+                  </Button>
+                </div>
+              ) : null}
             </div>
 
             <PermissionChecklist
@@ -186,38 +267,32 @@ export function RoleDetailPage() {
               readonly={isReadonly}
             />
           </div>
-        )}
+        ) : null}
 
-        {/* ── Barra de guardar flotante (cuando hay cambios) ────────────── */}
-        {hasChanges && !isReadonly && (
+        {hasChanges ? (
           <div className="sticky bottom-4 mt-6 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 shadow-lg">
-            <p className="text-sm font-medium text-amber-800">
-              Tienes cambios sin guardar en los permisos de este perfil.
-            </p>
+            <p className="text-sm font-medium text-amber-800">Tienes cambios sin guardar en este perfil.</p>
             <div className="flex items-center gap-2">
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => {
+                  setRoleName(role.data?.name ?? "");
+                  setRoleDescription(role.data?.description ?? "");
+                  setRoleActive(role.data?.isActive ?? true);
                   setSelectedIds(originalIds);
                 }}
               >
                 Descartar
               </Button>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                disabled={updatePermissions.isPending}
-                onClick={() => void handleSave()}
-              >
+              <Button type="button" variant="primary" size="sm" disabled={!canSave} onClick={() => void handleSave()}>
                 <Save className="h-3.5 w-3.5" />
-                {updatePermissions.isPending ? "Guardando..." : "Guardar"}
+                {updateRole.isPending ? "Guardando..." : "Guardar"}
               </Button>
             </div>
           </div>
-        )}
+        ) : null}
       </UsersModuleNav>
     </div>
   );

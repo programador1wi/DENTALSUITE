@@ -10,10 +10,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
-import { PatientSectionPage } from "../components/patient-section-page";
 import { useConsentPdf, useConsentTemplates, useDocumentsMutations, usePatientConsents } from "@/features/documents/hooks/use-documents";
 import { Modal } from "@/components/ui/modal";
 import { SignaturePad } from "@/components/ui/signature-pad";
+import { ClinicalShell } from "@/features/clinical/components/clinical-shell";
 
 export function PatientConsentsPage() {
   const { id = "" } = useParams();
@@ -66,7 +66,7 @@ export function PatientConsentsPage() {
   if (templates.isError) return <ErrorState message={templates.error.message} />;
 
   return (
-    <PatientSectionPage patientId={id} title="Paciente - Consentimientos" description="Consentimientos generados y firmables.">
+    <ClinicalShell patientId={id} title="Paciente - Consentimientos" description="Consentimientos generados y firmables.">
       <Card>
         <form className="grid gap-3 md:grid-cols-4" onSubmit={createConsent}>
           <Select value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
@@ -156,6 +156,6 @@ export function PatientConsentsPage() {
           ) : null}
         </Card>
       ) : null}
-    </PatientSectionPage>
+    </ClinicalShell>
   );
 }

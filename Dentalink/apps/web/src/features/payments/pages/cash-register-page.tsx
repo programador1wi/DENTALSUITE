@@ -1,19 +1,30 @@
-import { FormEvent, useMemo, useState } from "react";
-import { Search, Printer } from "lucide-react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Search, Printer, ChevronDown, FileDown, RefreshCw } from "lucide-react";
 import { useLocation } from "react-router-dom";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { ModuleTabs } from "@/components/layout/module-tabs";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { useAuthStore } from "@/stores/auth.store";
 import { useBranchStore } from "@/stores/branch.store";
-import { useCashRegisterDetail, useCashRegisters, usePaymentsMutations } from "../hooks/use-payments";
+import {
+  useCashRegisterDetail,
+  useCashRegisters,
+  usePaymentsMutations,
+  useCashCollectionSummary,
+  useCashBoxSummary,
+  useCashPaymentsByPeriod,
+  useCashPaymentsByProfessional
+} from "../hooks/use-payments";
 import type { CashRegister, CashRegisterDetail, CashRegisterMovement, CashRegisterStatus } from "../services/payments.service";
+
 
 const cashTabs = [
   { to: "/cash-register/open", label: "Cajas abiertas" },
@@ -77,7 +88,7 @@ export function CashRegisterPage() {
   const status: CashRegisterStatus | "" = isReports || isSearch ? "" : isClosed ? "CLOSED" : "OPEN";
 
   const user = useAuthStore((state) => state.user);
-  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const { activeBranchId, setActiveBranchId } = useBranchStore();
   const [branchId, setBranchId] = useState("");
   const [openFormVisible, setOpenFormVisible] = useState(false);
   const [openingAmount, setOpeningAmount] = useState("0");
@@ -107,6 +118,12 @@ export function CashRegisterPage() {
         register.branch.name.toLowerCase().includes(term)
     );
   }, [cashRegisters.data, search]);
+
+  useEffect(() => {
+    if (branchId && activeBranchId && branchId !== activeBranchId) {
+      setBranchId("");
+    }
+  }, [activeBranchId, branchId]);
 
   const handleOpen = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -248,7 +265,14 @@ export function CashRegisterPage() {
                 </div>
               )}
             />
-            <select className="h-10 rounded border border-slate-300 px-3" value={branchId} onChange={(event) => setBranchId(event.target.value)}>
+            <select
+              className="h-10 rounded border border-slate-300 px-3"
+              value={branchId || activeBranchId}
+              onChange={(event) => {
+                setBranchId(event.target.value);
+                if (event.target.value) setActiveBranchId(event.target.value);
+              }}
+            >
               <option value="">Sucursal activa</option>
               {branches.data?.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
             </select>
@@ -256,7 +280,7 @@ export function CashRegisterPage() {
         )}
 
         {isReports ? (
-          <CashReports registers={rows} />
+          <CashReports />
         ) : cashRegisters.isLoading ? (
           <LoadingState message="Cargando cajas..." />
         ) : !rows.length ? (
@@ -485,40 +509,643 @@ function DetailRow({
   );
 }
 
-function CashReports({ registers }: { registers: CashRegister[] }) {
-  const totalInitial = registers.reduce((sum, register) => sum + Number(register.openingAmount ?? 0), 0);
-  const totalExpected = registers.reduce((sum, register) => sum + Number(register.expectedClosing ?? register.closingAmount ?? 0), 0);
+function CashReports() {
+  type ReportType = "collection-summary" | "box-summary" | "payments-by-period" | "payments-by-professional";
+
+  const { activeBranchId } = useBranchStore();
+  const [selectedReport, setSelectedReport] = useState<ReportType>("collection-summary");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [showExcelModal, setShowExcelModal] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Cierra el dropdown al hacer click fuera
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    }
+    if (isDropdownOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isDropdownOpen]);
+
+  const reportOptions: { value: ReportType | "excel-export"; label: string }[] = [
+    { value: "collection-summary", label: "Resumen de recaudación últimos 10 días" },
+    { value: "box-summary", label: "Resumen cajas" },
+    { value: "payments-by-period", label: "Pagos recibidos por período" },
+    { value: "payments-by-professional", label: "Pagos recibidos por período por profesional" },
+    { value: "excel-export", label: "Resumen excel de cajas entre dos fechas" }
+  ];
+
+  const selectedLabel = reportOptions.find((opt) => opt.value === selectedReport)?.label ?? "Reportes";
+
+  const handleSelectReport = useCallback(
+    (value: ReportType | "excel-export") => {
+      setIsDropdownOpen(false);
+      if (value === "excel-export") {
+        setShowExcelModal(true);
+      } else {
+        setSelectedReport(value);
+      }
+    },
+    []
+  );
 
   return (
     <div>
-      <div className="relative mb-4 inline-block">
-        <button className="border border-slate-300 bg-white px-6 py-3 text-slate-600">Reportes v</button>
-        <div className="absolute left-0 top-full z-10 w-[370px] border border-slate-300 bg-white py-2 shadow-lg">
-          {[
-            "Resumen de recaudacion ultimos 10 dias",
-            "Resumen cajas",
-            "Pagos recibidos por periodo",
-            "Pagos recibidos por periodo por profesional",
-            "Resumen excel de cajas entre dos fechas"
-          ].map((item) => (
-            <button key={item} className="block w-full px-6 py-2 text-left text-slate-700 hover:bg-slate-50" type="button">{item}</button>
-          ))}
+      {/* ── Dropdown de tipo de reporte ─────────────────────── */}
+      <div className="relative mb-5 inline-block" ref={dropdownRef}>
+        <button
+          type="button"
+          onClick={() => setIsDropdownOpen((open) => !open)}
+          className="flex items-center gap-2 rounded border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+        >
+          {selectedLabel}
+          <ChevronDown className={`h-4 w-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
+        </button>
+
+        {isDropdownOpen && (
+          <div className="absolute left-0 top-full z-20 mt-1 w-[370px] rounded border border-slate-200 bg-white py-1 shadow-xl">
+            {/* Grupo 1 */}
+            {reportOptions.slice(0, 2).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => handleSelectReport(opt.value)}
+                className={`block w-full px-5 py-2 text-left text-sm ${
+                  opt.value === selectedReport
+                    ? "bg-[#0784d8] font-semibold text-white"
+                    : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+            <div className="my-1 border-t border-slate-100" />
+            {/* Grupo 2 */}
+            {reportOptions.slice(2, 4).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => handleSelectReport(opt.value)}
+                className={`block w-full px-5 py-2 text-left text-sm ${
+                  opt.value === selectedReport
+                    ? "bg-[#0784d8] font-semibold text-white"
+                    : "text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+            <div className="my-1 border-t border-slate-100" />
+            {/* Grupo 3 */}
+            {reportOptions.slice(4).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => handleSelectReport(opt.value)}
+                className="block w-full px-5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── Contenido dinámico según reporte seleccionado ──── */}
+      {selectedReport === "collection-summary" && <CollectionSummaryView branchId={activeBranchId} />}
+      {selectedReport === "box-summary" && <BoxSummaryView branchId={activeBranchId} />}
+      {selectedReport === "payments-by-period" && <PaymentsByPeriodView branchId={activeBranchId} />}
+      {selectedReport === "payments-by-professional" && <PaymentsByProfessionalView branchId={activeBranchId} />}
+
+      {/* ── Modal Excel ──────────────────────────────────────── */}
+      <ExcelExportModal open={showExcelModal} onClose={() => setShowExcelModal(false)} branchId={activeBranchId} />
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Vista 1: Resumen de recaudación últimos 10 días
+// ──────────────────────────────────────────────────────────────────────────────
+function CollectionSummaryView({ branchId }: { branchId: string }) {
+  const report = useCashCollectionSummary({ branchId });
+
+  if (report.isLoading) return <LoadingState message="Cargando resumen..." />;
+  if (report.isError) return <ErrorState message={report.error.message} />;
+
+  const data = report.data;
+  if (!data) return <EmptyState title="Sin datos" description="No hay datos de recaudación para esta sucursal." />;
+
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" });
+
+  const tickFormatter = (iso: string) =>
+    new Date(iso).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+
+  const totalColor = "#c0392b";
+
+  return (
+    <div className="rounded border border-slate-200 bg-white p-4">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-lg font-semibold text-slate-700">
+          Total del <strong>{formatDate(data.dateFrom)}</strong> al <strong>{formatDate(data.dateTo)}</strong>
+        </p>
+        <p className="text-3xl font-bold" style={{ color: totalColor }}>
+          {money(data.total)}
+        </p>
+      </div>
+      {data.byDay.length === 0 ? (
+        <EmptyState title="Sin movimientos" description="No se registraron pagos en los últimos 10 días." />
+      ) : (
+        <ResponsiveContainer width="100%" height={280}>
+          <BarChart data={data.byDay} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <XAxis dataKey="date" tickFormatter={tickFormatter} tick={{ fontSize: 12, fill: "#64748b" }} />
+            <YAxis
+              tickFormatter={(v) => `$${Number(v).toLocaleString("es-MX", { maximumFractionDigits: 0 })}`}
+              tick={{ fontSize: 11, fill: "#64748b" }}
+              width={80}
+            />
+            <Tooltip
+              formatter={(value: any) => [money(Number(value)), "Recaudado"]}
+              labelFormatter={(label: any) => formatDate(String(label))}
+              contentStyle={{ borderRadius: 6, border: "1px solid #e2e8f0" }}
+            />
+            <Bar dataKey="amount" fill="#49ad50" radius={[3, 3, 0, 0]} maxBarSize={60} />
+          </BarChart>
+        </ResponsiveContainer>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Vista 2: Resumen cajas
+// ──────────────────────────────────────────────────────────────────────────────
+function BoxSummaryView({ branchId }: { branchId: string }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [dateFrom, setDateFrom] = useState(today);
+  const [dateTo, setDateTo] = useState(today);
+  const [fetchEnabled, setFetchEnabled] = useState(false);
+
+  const report = useCashBoxSummary({ branchId, dateFrom, dateTo }, fetchEnabled);
+
+  const handleShow = () => setFetchEnabled(true);
+
+  // Cuando cambian las fechas, deshabilitamos para forzar re-fetch al dar click
+  useEffect(() => { setFetchEnabled(false); }, [dateFrom, dateTo]);
+
+  return (
+    <div className="rounded border border-slate-200 bg-white p-4">
+      <h2 className="mb-4 text-xl font-bold text-slate-800">Resumen de cajas</h2>
+
+      {/* Filtros */}
+      <div className="mb-5 flex flex-wrap items-end gap-3">
+        <label className="text-sm text-slate-600">
+          Desde
+          <input
+            type="date"
+            className="mt-1 block h-10 rounded border border-slate-300 px-3 text-sm"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+          />
+        </label>
+        <label className="text-sm text-slate-600">
+          Hasta
+          <input
+            type="date"
+            className="mt-1 block h-10 rounded border border-slate-300 px-3 text-sm"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={handleShow}
+          disabled={report.isFetching}
+          className="flex h-10 items-center gap-2 rounded bg-[#0784d8] px-5 font-semibold text-white hover:bg-[#0c6fb5] disabled:opacity-60"
+        >
+          {report.isFetching ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+          Mostrar
+        </button>
+      </div>
+
+      {report.isLoading && fetchEnabled && <LoadingState message="Cargando resumen..." />}
+      {report.isError && <ErrorState message={report.error.message} />}
+      {report.data && (
+        <>
+          <p className="mb-3 text-sm text-slate-500">
+            Pagos correspondientes a <strong>{report.data.patientsCount}</strong> pacientes
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="bg-slate-50 text-left text-slate-700">
+                  <th className="border border-slate-200 px-4 py-2 font-semibold">Tipo</th>
+                  <th className="border border-slate-200 px-4 py-2 font-semibold">Medio</th>
+                  <th className="border border-slate-200 px-4 py-2 font-semibold">Cantidad movimiento</th>
+                  <th className="border border-slate-200 px-4 py-2 text-right font-semibold text-[#0784d8]">
+                    Total: {money(report.data.total)}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.data.rows.map((row) => (
+                  <tr key={row.method} className="hover:bg-slate-50">
+                    <td className="border border-slate-200 px-4 py-2 text-[#c0392b]">{row.type}</td>
+                    <td className="border border-slate-200 px-4 py-2 text-[#c0392b]">{row.method}</td>
+                    <td className="border border-slate-200 px-4 py-2">{row.count}</td>
+                    <td className="border border-slate-200 px-4 py-2 text-right font-semibold">{money(row.amount)}</td>
+                  </tr>
+                ))}
+                {report.data.rows.length === 0 && (
+                  <tr>
+                    <td className="border border-slate-200 px-4 py-8 text-center text-slate-400" colSpan={4}>
+                      No hay movimientos en el período seleccionado.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {!report.data && !report.isLoading && (
+        <p className="text-sm text-slate-400">Selecciona un rango de fechas y haz click en "Mostrar".</p>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Vista 3: Pagos recibidos por período
+// ──────────────────────────────────────────────────────────────────────────────
+function PaymentsByPeriodView({ branchId }: { branchId: string }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const thirtyDaysAgo = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [dateFrom, setDateFrom] = useState(thirtyDaysAgo);
+  const [dateTo, setDateTo] = useState(today);
+  const [fetchEnabled, setFetchEnabled] = useState(false);
+
+  const report = useCashPaymentsByPeriod({ branchId, dateFrom, dateTo }, fetchEnabled);
+
+  const handleGenerate = () => setFetchEnabled(true);
+  useEffect(() => { setFetchEnabled(false); }, [dateFrom, dateTo]);
+
+  const formatDate = (iso: string) =>
+    new Date(iso).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" });
+  const tickFormatter = (iso: string) =>
+    new Date(iso).toLocaleDateString("es-MX", { day: "2-digit", month: "short" });
+
+  return (
+    <div className="rounded border border-slate-200 bg-white p-4">
+      {/* Header */}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <p className="text-lg font-bold text-slate-700">Total pagos</p>
+        <span className="text-sm text-slate-500">del</span>
+        <input
+          type="date"
+          className="h-9 rounded border border-slate-300 px-2 text-sm"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+        />
+        <span className="text-sm text-slate-500">al</span>
+        <input
+          type="date"
+          className="h-9 rounded border border-slate-300 px-2 text-sm"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+        />
+        <button
+          type="button"
+          onClick={handleGenerate}
+          disabled={report.isFetching}
+          className="flex h-9 items-center gap-1.5 rounded bg-[#49ad50] px-4 font-semibold text-white hover:bg-[#3d9944] disabled:opacity-60"
+        >
+          {report.isFetching ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+          Generar ▶
+        </button>
+        {report.data && (
+          <p className="ml-auto text-2xl font-bold text-[#c0392b]">{money(report.data.total)}</p>
+        )}
+      </div>
+
+      {report.isLoading && fetchEnabled && <LoadingState message="Generando reporte..." />}
+      {report.isError && <ErrorState message={report.error.message} />}
+
+      {report.data && (
+        <>
+          {/* Gráfico */}
+          {report.data.byDay.length > 0 && (
+            <div className="mb-5">
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={report.data.byDay} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="date" tickFormatter={tickFormatter} tick={{ fontSize: 11, fill: "#64748b" }} />
+                  <YAxis
+                    tickFormatter={(v) => `$${Number(v).toLocaleString("es-MX", { maximumFractionDigits: 0 })}`}
+                    tick={{ fontSize: 11, fill: "#64748b" }}
+                    width={80}
+                  />
+                  <Tooltip
+                    formatter={(value: any) => [money(Number(value)), "Recaudado"]}
+                    labelFormatter={(label: any) => formatDate(String(label))}
+                    contentStyle={{ borderRadius: 6, border: "1px solid #e2e8f0" }}
+                  />
+                  <Bar dataKey="amount" fill="#49ad50" radius={[3, 3, 0, 0]} maxBarSize={50} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* Tabla de pagos */}
+          <p className="mb-2 text-sm font-semibold text-slate-600">
+            Pagos del periodo {formatDate(report.data.dateFrom)} al {formatDate(report.data.dateTo)}
+          </p>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] border-collapse text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-left text-slate-700">
+                  {["# Pago", "Fecha", "Paciente", "Responsable", "# Documento", "Tipo pago", "Medio pago", "Total"].map((h) => (
+                    <th key={h} className="border border-slate-200 px-3 py-2 font-semibold">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {report.data.payments.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50">
+                    <td className="border border-slate-200 px-3 py-2 text-slate-500">{p.id.slice(-6).toUpperCase()}</td>
+                    <td className="border border-slate-200 px-3 py-2">
+                      {new Date(p.date).toLocaleString("es-MX", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    </td>
+                    <td className="border border-slate-200 px-3 py-2 font-semibold uppercase text-[#0784d8]">{p.patient}</td>
+                    <td className="border border-slate-200 px-3 py-2 uppercase">{p.responsible}</td>
+                    <td className="border border-slate-200 px-3 py-2 text-center">{p.documentNumber}</td>
+                    <td className="border border-slate-200 px-3 py-2">{p.paymentType}</td>
+                    <td className="border border-slate-200 px-3 py-2">{p.paymentMethod}</td>
+                    <td className="border border-slate-200 px-3 py-2 text-right font-semibold">{money(p.total)}</td>
+                  </tr>
+                ))}
+                {report.data.payments.length === 0 && (
+                  <tr>
+                    <td className="border border-slate-200 px-3 py-8 text-center text-slate-400" colSpan={8}>
+                      No hay pagos en el período seleccionado.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
+      {!report.data && !report.isLoading && (
+        <p className="text-sm text-slate-400">Selecciona un rango de fechas y haz click en "Generar".</p>
+      )}
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Vista 4: Pagos por período por profesional
+// ──────────────────────────────────────────────────────────────────────────────
+function PaymentsByProfessionalView({ branchId }: { branchId: string }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [dateFrom, setDateFrom] = useState(today);
+  const [dateTo, setDateTo] = useState(today);
+  const [professionalId, setProfessionalId] = useState("");
+  const [fetchEnabled, setFetchEnabled] = useState(false);
+  const [showMethodSummary, setShowMethodSummary] = useState(false);
+
+  const professionals = useProfessionals(undefined, "true", { branchId: branchId || undefined, pageSize: 100 });
+  const report = useCashPaymentsByProfessional({ branchId, dateFrom, dateTo, professionalId }, fetchEnabled);
+
+  const handleGenerate = () => { if (professionalId) setFetchEnabled(true); };
+  useEffect(() => { setFetchEnabled(false); }, [dateFrom, dateTo, professionalId]);
+
+  // Agrupar por método de pago para el resumen
+  const methodSummary = useMemo(() => {
+    if (!report.data) return [];
+    const map = new Map<string, { method: string; count: number; amount: number }>();
+    for (const p of report.data.payments) {
+      const current = map.get(p.paymentMethod) ?? { method: p.paymentMethod, count: 0, amount: 0 };
+      current.count += 1;
+      current.amount += p.amount;
+      map.set(p.paymentMethod, current);
+    }
+    return [...map.values()];
+  }, [report.data]);
+
+  return (
+    <div className="rounded border border-slate-200 bg-white p-4">
+      {/* Header con selector de profesional y fechas */}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <div>
+          <p className="mb-1 text-sm font-medium text-slate-600">Pagos período de</p>
+          <select
+            className="h-9 min-w-[220px] rounded border border-slate-300 px-3 text-sm"
+            value={professionalId}
+            onChange={(e) => setProfessionalId(e.target.value)}
+          >
+            <option value="">-- Seleccione un profesional --</option>
+            {professionals.data?.map((prof) => (
+              <option key={prof.id} value={prof.id}>
+                {prof.firstName} {prof.lastName}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-end gap-2">
+          <label className="text-sm text-slate-500">
+            del
+            <input
+              type="date"
+              className="ml-1 h-9 rounded border border-slate-300 px-2 text-sm"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
+          </label>
+          <label className="text-sm text-slate-500">
+            al
+            <input
+              type="date"
+              className="ml-1 h-9 rounded border border-slate-300 px-2 text-sm"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={handleGenerate}
+            disabled={!professionalId || report.isFetching}
+            className="flex h-9 items-center gap-1.5 rounded bg-[#49ad50] px-4 font-semibold text-white hover:bg-[#3d9944] disabled:opacity-50"
+          >
+            {report.isFetching ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
+            Generar ▶
+          </button>
         </div>
       </div>
-      <div className="grid gap-4 md:grid-cols-3">
-        <div className="border border-slate-200 p-4">
-          <p className="text-sm text-slate-500">Resumen cajas</p>
-          <p className="text-3xl font-bold text-[#0784d8]">{registers.length}</p>
+
+      {/* Mostrar/Ocultar resumen tipos de pago */}
+      <button
+        type="button"
+        className="mb-3 text-sm text-[#0784d8] hover:underline"
+        onClick={() => setShowMethodSummary((s) => !s)}
+      >
+        Mostrar/Esconder resumen de tipos de pago
+      </button>
+
+      {/* Resumen de tipos de pago (colapsable) */}
+      {showMethodSummary && report.data && methodSummary.length > 0 && (
+        <div className="mb-4 overflow-x-auto rounded border border-slate-200">
+          <table className="w-full border-collapse text-xs">
+            <thead>
+              <tr className="bg-slate-50 text-left text-slate-700">
+                <th className="border border-slate-200 px-3 py-2">Medio de pago</th>
+                <th className="border border-slate-200 px-3 py-2">Cantidad</th>
+                <th className="border border-slate-200 px-3 py-2 text-right">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {methodSummary.map((row) => (
+                <tr key={row.method}>
+                  <td className="border border-slate-200 px-3 py-2">{row.method}</td>
+                  <td className="border border-slate-200 px-3 py-2">{row.count}</td>
+                  <td className="border border-slate-200 px-3 py-2 text-right font-semibold">{money(row.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        <div className="border border-slate-200 p-4">
-          <p className="text-sm text-slate-500">Saldo inicial</p>
-          <p className="text-3xl font-bold text-[#0784d8]">{money(totalInitial)}</p>
-        </div>
-        <div className="border border-slate-200 p-4">
-          <p className="text-sm text-slate-500">Acumulado</p>
-          <p className="text-3xl font-bold text-[#0784d8]">{money(totalExpected)}</p>
-        </div>
+      )}
+
+      {report.isLoading && fetchEnabled && <LoadingState message="Generando reporte..." />}
+      {report.isError && <ErrorState message={report.error.message} />}
+
+      {/* Tabla de pagos */}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-white text-left text-slate-700">
+              <th className="border border-slate-200 px-3 py-2 font-semibold">#</th>
+              <th className="border border-slate-200 px-3 py-2 font-semibold"># Trat.</th>
+              <th className="border border-slate-200 px-3 py-2 font-semibold">Medio de pago</th>
+              <th className="border border-slate-200 px-3 py-2 font-semibold">Nombre paciente</th>
+              <th className="border border-slate-200 px-3 py-2 font-semibold">Recepción</th>
+              <th className="border border-slate-200 px-3 py-2 text-right font-semibold">
+                {report.data ? `Total: ${money(report.data.total)}` : "Monto"}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.data?.payments.map((p) => (
+              <tr key={p.number} className="hover:bg-slate-50">
+                <td className="border border-slate-200 px-3 py-2 text-slate-500">{p.number}</td>
+                <td className="border border-slate-200 px-3 py-2 text-[#0784d8]">{p.treatmentNumber}</td>
+                <td className="border border-slate-200 px-3 py-2">{p.paymentMethod}</td>
+                <td className="border border-slate-200 px-3 py-2 font-semibold uppercase">{p.patientName}</td>
+                <td className="border border-slate-200 px-3 py-2 uppercase">{p.reception}</td>
+                <td className="border border-slate-200 px-3 py-2 text-right">{money(p.amount)}</td>
+              </tr>
+            ))}
+            {(!report.data || report.data.payments.length === 0) && (
+              <tr>
+                <td className="border border-slate-200 px-3 py-8 text-center text-sm text-[#49ad50]" colSpan={6}>
+                  ↑ Seleccione un profesional e intervalo
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Modal Excel: Resumen de cajas entre dos fechas
+// ──────────────────────────────────────────────────────────────────────────────
+function ExcelExportModal({ open, onClose, branchId }: { open: boolean; onClose: () => void; branchId: string }) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [dateFrom, setDateFrom] = useState(today);
+  const [dateTo, setDateTo] = useState(today);
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownload = async () => {
+    if (!dateFrom || !dateTo) return;
+    setIsDownloading(true);
+    try {
+      const { getCashBoxSummary } = await import("../services/payments.service");
+      const data = await getCashBoxSummary({ branchId, dateFrom, dateTo });
+
+      // Generamos CSV con los datos
+      const rows = [
+        ["Tipo", "Medio de pago", "Cantidad movimientos", "Total"],
+        ...data.rows.map((r) => [r.type, r.method, String(r.count), String(r.amount)]),
+        ["", "", "TOTAL", String(data.total)]
+      ];
+      const csv = rows.map((row) => row.map((cell) => `"${cell}"`).join(",")).join("\n");
+      const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `resumen-cajas-${dateFrom}-${dateTo}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      onClose();
+    } catch (error) {
+      console.error("Error al descargar reporte:", error);
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  return (
+    <Modal open={open} title="Resumen de Cajas" onClose={onClose} size="md">
+      <div className="space-y-5 p-2">
+        <div className="grid grid-cols-2 gap-4">
+          <label className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            DESDE
+            <input
+              type="date"
+              className="mt-1 block h-10 w-full rounded border border-slate-300 px-3 text-sm font-normal"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
+          </label>
+          <label className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            HASTA
+            <input
+              type="date"
+              className="mt-1 block h-10 w-full rounded border border-slate-300 px-3 text-sm font-normal"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
+          </label>
+        </div>
+        <div className="flex items-center justify-end gap-3 border-t border-slate-100 pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded border border-slate-300 bg-white px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleDownload}
+            disabled={isDownloading || !dateFrom || !dateTo}
+            className="flex items-center gap-2 rounded bg-[#49ad50] px-5 py-2 text-sm font-semibold text-white hover:bg-[#3d9944] disabled:opacity-60"
+          >
+            <FileDown className="h-4 w-4" />
+            {isDownloading ? "Descargando..." : "Descargar reporte"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, ToothProcedureStatus } from "@prisma/client";
+import { Prisma, ProfessionalBranchStatus, ToothProcedureStatus } from "@prisma/client";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
@@ -135,8 +135,8 @@ export class ClinicalService {
   }
 
   async createEvolution(actor: AuthUser, patientId: string, dto: CreateClinicalEvolutionDto) {
-    await this.ensurePatient(actor, patientId);
-    await this.validateProfessional(actor, dto.professionalId);
+    const patient = await this.ensurePatient(actor, patientId);
+    await this.validateProfessional(actor, dto.professionalId, patient.branchId);
     if (dto.appointmentId) await this.validateAppointment(actor, patientId, dto.appointmentId);
 
     const evolution = await this.prisma.clinicalEvolution.create({
@@ -157,12 +157,12 @@ export class ClinicalService {
   }
 
   async updateEvolution(actor: AuthUser, patientId: string, evolutionId: string, dto: UpdateClinicalEvolutionDto) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
     const current = await this.prisma.clinicalEvolution.findFirst({ where: { id: evolutionId, patientId } });
     if (!current) throw new NotFoundException("Clinical evolution not found");
     if (current.signedAt) throw new BadRequestException("Signed evolutions cannot be edited directly. Create an addendum.");
 
-    if (dto.professionalId) await this.validateProfessional(actor, dto.professionalId);
+    if (dto.professionalId) await this.validateProfessional(actor, dto.professionalId, patient.branchId);
     if (dto.appointmentId) await this.validateAppointment(actor, patientId, dto.appointmentId);
 
     const updated = await this.prisma.clinicalEvolution.update({
@@ -197,11 +197,11 @@ export class ClinicalService {
   }
 
   async createEvolutionAddendum(actor: AuthUser, patientId: string, evolutionId: string, dto: CreateClinicalEvolutionAddendumDto) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
     const parent = await this.prisma.clinicalEvolution.findFirst({ where: { id: evolutionId, patientId } });
     if (!parent) throw new NotFoundException("Clinical evolution not found");
     if (!parent.signedAt) throw new BadRequestException("Only signed evolutions require addenda");
-    await this.validateProfessional(actor, dto.professionalId);
+    await this.validateProfessional(actor, dto.professionalId, patient.branchId);
 
     const addendum = await this.prisma.clinicalEvolution.create({
       data: {
@@ -227,8 +227,8 @@ export class ClinicalService {
   }
 
   async createPrescription(actor: AuthUser, patientId: string, dto: CreatePrescriptionDto) {
-    await this.ensurePatient(actor, patientId);
-    await this.validateProfessional(actor, dto.professionalId);
+    const patient = await this.ensurePatient(actor, patientId);
+    await this.validateProfessional(actor, dto.professionalId, patient.branchId);
     if (dto.appointmentId) await this.validateAppointment(actor, patientId, dto.appointmentId);
     if (!dto.items.length) throw new BadRequestException("Prescription requires at least one item");
 
@@ -408,8 +408,8 @@ export class ClinicalService {
   }
 
   async createToothCondition(actor: AuthUser, patientId: string, dto: CreateToothConditionDto) {
-    await this.ensurePatient(actor, patientId);
-    await this.validateProfessional(actor, dto.professionalId);
+    const patient = await this.ensurePatient(actor, patientId);
+    await this.validateProfessional(actor, dto.professionalId, patient.branchId);
     if (dto.appointmentId) await this.validateAppointment(actor, patientId, dto.appointmentId);
 
     const toothNumber = this.normalizeToothNumber(dto.toothNumber);
@@ -472,8 +472,8 @@ export class ClinicalService {
   }
 
   async createToothProcedure(actor: AuthUser, patientId: string, dto: CreateToothProcedureDto) {
-    await this.ensurePatient(actor, patientId);
-    await this.validateProfessional(actor, dto.professionalId);
+    const patient = await this.ensurePatient(actor, patientId);
+    await this.validateProfessional(actor, dto.professionalId, patient.branchId);
     if (dto.appointmentId) await this.validateAppointment(actor, patientId, dto.appointmentId);
     if (dto.procedureId) await this.validateProcedure(actor, dto.procedureId);
 
@@ -630,8 +630,8 @@ export class ClinicalService {
   }
 
   async createPeriodontalChart(actor: AuthUser, patientId: string, dto: CreatePeriodontalChartDto) {
-    await this.ensurePatient(actor, patientId);
-    await this.validateProfessional(actor, dto.professionalId);
+    const patient = await this.ensurePatient(actor, patientId);
+    await this.validateProfessional(actor, dto.professionalId, patient.branchId);
     if (dto.appointmentId) await this.validateAppointment(actor, patientId, dto.appointmentId);
     if (!dto.measurements.length) throw new BadRequestException("Periodontal chart requires at least one measurement");
 
@@ -737,9 +737,26 @@ export class ClinicalService {
     return patient;
   }
 
-  private async validateProfessional(actor: AuthUser, professionalId: string) {
+  private async validateProfessional(actor: AuthUser, professionalId: string, branchId?: string) {
+    const now = new Date();
     const professional = await this.prisma.professional.findFirst({
-      where: { id: professionalId, organizationId: actor.organizationId, isActive: true }
+      where: {
+        id: professionalId,
+        organizationId: actor.organizationId,
+        isActive: true,
+        ...(branchId
+          ? {
+              branches: {
+                some: {
+                  branchId,
+                  status: ProfessionalBranchStatus.ACTIVE,
+                  startsAt: { lte: now },
+                  OR: [{ endsAt: null }, { endsAt: { gt: now } }]
+                }
+              }
+            }
+          : {})
+      }
     });
     if (!professional) throw new BadRequestException("Invalid professionalId");
   }
@@ -769,9 +786,15 @@ export class ClinicalService {
   private normalizeSurface(value?: string) {
     if (!value) return undefined;
     const surface = value.trim().toUpperCase();
-    const allowed = new Set(["O", "I", "M", "D", "B", "L", "P", "C", "MO", "DO", "MOD", "ALL"]);
-    if (!allowed.has(surface)) throw new BadRequestException("Invalid tooth surface");
-    return surface;
+    const allowedSingle = new Set(["O", "I", "M", "D", "B", "L", "P", "C"]);
+    const allowedLegacy = new Set(["MO", "DO", "MOD", "ALL"]);
+    if (allowedSingle.has(surface) || allowedLegacy.has(surface)) return surface;
+
+    const preferredOrder = ["P", "M", "B", "D", "O", "I", "L", "C"];
+    const parts = [...new Set(surface.split(",").map((part) => part.trim()).filter(Boolean))];
+    if (!parts.length || parts.some((part) => !allowedSingle.has(part))) throw new BadRequestException("Invalid tooth surface");
+    parts.sort((left, right) => preferredOrder.indexOf(left) - preferredOrder.indexOf(right));
+    return parts.join(",");
   }
 
   private async createEvolutionFromCompletedProcedure(

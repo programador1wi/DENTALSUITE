@@ -40,6 +40,8 @@ export type TreatmentPlanItem = {
   discount: string;
   total: string;
   status: TreatmentPlanItemStatus;
+  plannedAt?: string | null;
+  completedAt?: string | null;
   notes?: string | null;
   paymentAllocations?: Array<{ id: string; amount: string }>;
 };
@@ -74,6 +76,11 @@ export type TreatmentPlanDetail = TreatmentPlan & {
   budgets: Budget[];
 };
 
+export type ChangeTreatmentPlanBranchResult = TreatmentPlanDetail & {
+  futureAppointmentsCount: number;
+  movedFutureAppointmentsCount: number;
+};
+
 export type CreateTreatmentPlanPayload = {
   branchId: string;
   patientId: string;
@@ -104,7 +111,7 @@ export type TreatmentPlanItemPayload = {
   unitPrice?: number;
   discount?: number;
   notes?: string;
-  plannedAt?: string;
+  plannedAt?: string | null;
   syncOdontogram?: boolean;
 };
 
@@ -125,6 +132,14 @@ export async function createTreatmentPlan(payload: CreateTreatmentPlanPayload) {
 
 export async function updateTreatmentPlan(id: string, payload: Partial<CreateTreatmentPlanPayload> & { status?: TreatmentPlanStatus }) {
   const { data } = await http.patch(`/treatment-plans/${id}`, payload);
+  return data;
+}
+
+export async function changeTreatmentPlanBranch(
+  id: string,
+  payload: { branchId: string; professionalId: string; moveFutureAppointments?: boolean }
+) {
+  const { data } = await http.post<ChangeTreatmentPlanBranchResult>(`/treatment-plans/${id}/change-branch`, payload);
   return data;
 }
 

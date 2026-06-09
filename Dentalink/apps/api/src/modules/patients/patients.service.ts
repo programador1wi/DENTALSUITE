@@ -4,6 +4,7 @@ import {
   BudgetStatus,
   InstallmentStatus,
   PaymentStatus,
+  PatientTaskStatus,
   Prisma,
   TreatmentPlanItemStatus,
   TreatmentPlanStatus,
@@ -18,6 +19,7 @@ import { AddPatientNoteDto } from "./dto/add-patient-note.dto";
 import { CreatePatientDto } from "./dto/create-patient.dto";
 import { PatientAnalysisQueryDto } from "./dto/patient-analysis-query.dto";
 import { PatientQueryDto } from "./dto/patient-query.dto";
+import { CreatePatientTaskDto, ListPatientTasksQueryDto, UpdatePatientTaskDto } from "./dto/patient-task.dto";
 import { UpdatePatientDto } from "./dto/update-patient.dto";
 import { MergePatientsDto } from "./dto/merge-patients.dto";
 
@@ -516,7 +518,7 @@ export class PatientsService {
         address: true,
         medicalAlerts: { orderBy: { createdAt: "desc" } },
         notes: {
-          include: { user: { select: { id: true, firstName: true, lastName: true } } },
+          include: this.patientNoteInclude(),
           orderBy: { createdAt: "desc" }
         }
       }
@@ -676,6 +678,7 @@ export class PatientsService {
 
     if (!current) throw new NotFoundException("Patient not found");
     if (dto.branchId) await this.validateBranch(actor, dto.branchId);
+    if (dto.agreementId) await this.validateAgreement(actor, dto.agreementId);
 
     const potentialDuplicates = await this.findPotentialDuplicates(
       actor,
@@ -692,6 +695,7 @@ export class PatientsService {
         where: { id },
         data: {
           branchId: dto.branchId,
+          agreementId: dto.agreementId === undefined ? undefined : dto.agreementId || null,
           firstName: dto.firstName?.trim(),
           lastName: dto.lastName?.trim(),
           birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
@@ -838,33 +842,229 @@ export class PatientsService {
   async addNote(actor: AuthUser, patientId: string, dto: AddPatientNoteDto) {
     await this.ensurePatientExists(actor, patientId);
 
-    const note = await this.prisma.patientNote.create({
-      data: {
-        patientId,
-        userId: actor.id,
-        note: dto.note.trim(),
-        isPrivate: dto.isPrivate ?? false
-      },
-      include: {
-        user: { select: { id: true, firstName: true, lastName: true } }
-      }
-    });
+    const noteText = dto.note.trim();
+    if (!noteText) throw new BadRequestException("Note is required");
 
-    await this.prisma.auditLog.create({
-      data: {
-        organizationId: actor.organizationId,
-        actorUserId: actor.id,
-        entity: "PatientNote",
-        entityId: note.id,
-        action: "create",
-        after: {
+    const fileAttachmentIds = [...new Set((dto.fileAttachmentIds ?? []).map((id) => id.trim()).filter(Boolean))];
+    if (fileAttachmentIds.length) {
+      const files = await this.prisma.fileAttachment.findMany({
+        where: {
+          id: { in: fileAttachmentIds },
+          organizationId: actor.organizationId,
           patientId,
-          isPrivate: note.isPrivate
-        }
+          patient: { branchId: { in: actor.branchIds }, deletedAt: null }
+        },
+        select: { id: true }
+      });
+      if (files.length !== fileAttachmentIds.length) {
+        throw new BadRequestException("One or more attachments do not belong to this patient");
       }
+    }
+
+    const note = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.patientNote.create({
+        data: {
+          patientId,
+          userId: actor.id,
+          note: noteText,
+          isPrivate: dto.isPrivate ?? false
+        }
+      });
+
+      if (fileAttachmentIds.length) {
+        await tx.patientNoteAttachment.createMany({
+          data: fileAttachmentIds.map((fileAttachmentId) => ({
+            patientNoteId: created.id,
+            fileAttachmentId
+          }))
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: actor.organizationId,
+          actorUserId: actor.id,
+          entity: "PatientNote",
+          entityId: created.id,
+          action: "create",
+          after: {
+            patientId,
+            isPrivate: created.isPrivate,
+            attachmentCount: fileAttachmentIds.length
+          }
+        }
+      });
+
+      return tx.patientNote.findUniqueOrThrow({
+        where: { id: created.id },
+        include: this.patientNoteInclude()
+      });
     });
 
     return note;
+  }
+
+  async listTasks(actor: AuthUser, patientId: string, query: ListPatientTasksQueryDto) {
+    await this.ensurePatientExists(actor, patientId);
+
+    const includeCompleted = ["true", "1", "yes"].includes((query.includeCompleted ?? "").toLowerCase());
+
+    return this.prisma.patientTask.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        patientId,
+        ...(includeCompleted ? {} : { status: PatientTaskStatus.PENDING })
+      },
+      include: this.patientTaskInclude(),
+      orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "desc" }]
+    });
+  }
+
+  async createTask(actor: AuthUser, patientId: string, dto: CreatePatientTaskDto) {
+    await this.ensurePatientExists(actor, patientId);
+
+    const type = dto.type.trim();
+    const detail = dto.detail.trim();
+    if (!type || !detail) throw new BadRequestException("Task type and detail are required");
+
+    const assignedToId = await this.validateTaskAssignee(actor, dto.assignedToId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const task = await tx.patientTask.create({
+        data: {
+          organizationId: actor.organizationId,
+          patientId,
+          type,
+          detail,
+          dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
+          assignedToId,
+          createdById: actor.id
+        },
+        include: this.patientTaskInclude()
+      });
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: actor.organizationId,
+          actorUserId: actor.id,
+          entity: "PatientTask",
+          entityId: task.id,
+          action: "create",
+          after: {
+            patientId,
+            type,
+            assignedToId
+          }
+        }
+      });
+
+      return task;
+    });
+  }
+
+  async updateTask(actor: AuthUser, patientId: string, taskId: string, dto: UpdatePatientTaskDto) {
+    await this.ensurePatientExists(actor, patientId);
+    const current = await this.prisma.patientTask.findFirst({
+      where: { id: taskId, organizationId: actor.organizationId, patientId }
+    });
+    if (!current) throw new NotFoundException("Patient task not found");
+
+    const data: Prisma.PatientTaskUncheckedUpdateInput = {};
+
+    if (dto.type !== undefined) {
+      const type = dto.type.trim();
+      if (!type) throw new BadRequestException("Task type is required");
+      data.type = type;
+    }
+    if (dto.detail !== undefined) {
+      const detail = dto.detail.trim();
+      if (!detail) throw new BadRequestException("Task detail is required");
+      data.detail = detail;
+    }
+    if (dto.dueDate !== undefined) {
+      data.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+    }
+    if (dto.assignedToId !== undefined) {
+      data.assignedToId = await this.validateTaskAssignee(actor, dto.assignedToId);
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const task = await tx.patientTask.update({
+        where: { id: current.id },
+        data,
+        include: this.patientTaskInclude()
+      });
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: actor.organizationId,
+          actorUserId: actor.id,
+          entity: "PatientTask",
+          entityId: task.id,
+          action: "update",
+          before: {
+            type: current.type,
+            detail: current.detail,
+            dueDate: current.dueDate,
+            assignedToId: current.assignedToId
+          },
+          after: {
+            type: task.type,
+            detail: task.detail,
+            dueDate: task.dueDate,
+            assignedToId: task.assignedToId
+          }
+        }
+      });
+
+      return task;
+    });
+  }
+
+  async completeTask(actor: AuthUser, patientId: string, taskId: string) {
+    await this.ensurePatientExists(actor, patientId);
+    const current = await this.prisma.patientTask.findFirst({
+      where: { id: taskId, organizationId: actor.organizationId, patientId }
+    });
+    if (!current) throw new NotFoundException("Patient task not found");
+
+    if (current.status === PatientTaskStatus.COMPLETED) {
+      return this.prisma.patientTask.findUniqueOrThrow({
+        where: { id: current.id },
+        include: this.patientTaskInclude()
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const task = await tx.patientTask.update({
+        where: { id: current.id },
+        data: {
+          status: PatientTaskStatus.COMPLETED,
+          completedAt: new Date(),
+          completedById: actor.id
+        },
+        include: this.patientTaskInclude()
+      });
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: actor.organizationId,
+          actorUserId: actor.id,
+          entity: "PatientTask",
+          entityId: task.id,
+          action: "complete",
+          before: {
+            status: current.status
+          },
+          after: {
+            status: task.status,
+            completedAt: task.completedAt
+          }
+        }
+      });
+
+      return task;
+    });
   }
 
   async addAlert(actor: AuthUser, patientId: string, dto: AddPatientAlertDto) {
@@ -958,7 +1158,9 @@ export class PatientsService {
         tx.installment.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
         tx.refund.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
         tx.collectionCase.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
+        tx.patientTask.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
         tx.fileAttachment.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
+        tx.radiographyAnalysis.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
         tx.consent.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
         tx.labOrder.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } })
       ]);
@@ -1015,7 +1217,7 @@ export class PatientsService {
     const [notes, alerts, patient] = await Promise.all([
       this.prisma.patientNote.findMany({
         where: { patientId },
-        include: { user: { select: { id: true, firstName: true, lastName: true } } },
+        include: this.patientNoteInclude(),
         orderBy: { createdAt: "desc" }
       }),
       this.prisma.patientMedicalAlert.findMany({
@@ -1043,7 +1245,8 @@ export class PatientsService {
           id: note.id,
           note: note.note,
           isPrivate: note.isPrivate,
-          user: note.user
+          user: note.user,
+          attachments: note.attachments
         }
       })),
       ...alerts.map((alert) => ({
@@ -1138,6 +1341,69 @@ export class PatientsService {
     });
 
     if (!branch) throw new BadRequestException("Invalid branchId");
+  }
+
+  private async validateAgreement(actor: AuthUser, agreementId: string) {
+    const agreement = await this.prisma.agreement.findFirst({
+      where: {
+        id: agreementId,
+        organizationId: actor.organizationId,
+        isActive: true
+      }
+    });
+
+    if (!agreement) throw new BadRequestException("Invalid agreementId");
+  }
+
+  private patientNoteInclude() {
+    return {
+      user: { select: { id: true, firstName: true, lastName: true } },
+      attachments: {
+        include: {
+          fileAttachment: {
+            select: {
+              id: true,
+              fileName: true,
+              originalName: true,
+              mimeType: true,
+              size: true,
+              url: true,
+              category: true,
+              createdAt: true
+            }
+          }
+        },
+        orderBy: { createdAt: "asc" as const }
+      }
+    };
+  }
+
+  private patientTaskInclude() {
+    const userSelect = { id: true, firstName: true, lastName: true, email: true };
+    return {
+      assignedTo: { select: userSelect },
+      createdBy: { select: userSelect },
+      completedBy: { select: userSelect }
+    };
+  }
+
+  private async validateTaskAssignee(actor: AuthUser, assignedToId?: string | null) {
+    const trimmed = assignedToId?.trim();
+    if (!trimmed) return null;
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: trimmed,
+        organizationId: actor.organizationId,
+        deletedAt: null,
+        isActive: true,
+        branches: { some: { branchId: { in: actor.branchIds } } }
+      },
+      select: { id: true }
+    });
+
+    if (!user) throw new BadRequestException("Invalid assignedToId");
+    return user.id;
   }
 
   private async ensurePatientExists(actor: AuthUser, patientId: string) {

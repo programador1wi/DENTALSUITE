@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   StreamableFile,
   UploadedFile,
@@ -27,6 +28,7 @@ import {
   PatientConsentsQueryDto,
   PatientFilesQueryDto,
   SignConsentDto,
+  UpsertRadiographyAnalysisDto,
   UploadBinaryFileAttachmentDto,
   UpdateClinicalDocumentTemplateSettingsDto,
   UpdateConsentTemplateDto,
@@ -95,6 +97,27 @@ export class DocumentsController {
       type: file.mimeType,
       disposition: `inline; filename="${file.downloadName}"`
     });
+  }
+
+  @Get("patients/:patientId/files/:fileId/radiography-analysis")
+  @RequirePermissions("files.read")
+  getPatientRadiographyAnalysis(
+    @CurrentUser() actor: AuthUser,
+    @Param("patientId") patientId: string,
+    @Param("fileId") fileId: string
+  ) {
+    return this.service.getPatientRadiographyAnalysis(actor, patientId, fileId);
+  }
+
+  @Put("patients/:patientId/files/:fileId/radiography-analysis")
+  @RequirePermissions("files.upload")
+  upsertPatientRadiographyAnalysis(
+    @CurrentUser() actor: AuthUser,
+    @Param("patientId") patientId: string,
+    @Param("fileId") fileId: string,
+    @Body() dto: UpsertRadiographyAnalysisDto
+  ) {
+    return this.service.upsertPatientRadiographyAnalysis(actor, patientId, fileId, dto);
   }
 
   @Get("users/:userId/files")

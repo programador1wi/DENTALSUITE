@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { PageHeader } from "@/components/layout/page-header";
@@ -1212,31 +1213,37 @@ function CategoryDetail({
                     </td>
                     <td className="px-5 py-3">
                       <div className="flex justify-end gap-1.5">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          className="h-8 w-8 px-0"
-                          title="Editar producto"
-                          onClick={() => onEditProduct(procedure)}
-                          disabled={editing}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          className="h-8 w-8 px-0"
-                          title="Eliminar producto"
-                          onClick={() => onRemovePrice(procedure)}
-                          disabled={!price}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                        <Link to="/settings/procedures" title="Configurar en catalogo">
-                          <Button variant="secondary" size="sm" className="h-8 w-8 px-0">
-                            <Settings className="h-4 w-4" />
+                        <HelpTooltip content="Editar producto" position="top">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="h-8 w-8 px-0"
+                            aria-label="Editar producto"
+                            onClick={() => onEditProduct(procedure)}
+                            disabled={editing}
+                          >
+                            <Pencil className="h-4 w-4" />
                           </Button>
-                        </Link>
+                        </HelpTooltip>
+                        <HelpTooltip content="Eliminar producto" position="top">
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            className="h-8 w-8 px-0"
+                            aria-label="Eliminar producto"
+                            onClick={() => onRemovePrice(procedure)}
+                            disabled={!price}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </HelpTooltip>
+                        <HelpTooltip content="Configurar en catalogo" position="top">
+                          <Link to="/settings/procedures" aria-label="Configurar en catalogo">
+                            <Button variant="secondary" size="sm" className="h-8 w-8 px-0">
+                              <Settings className="h-4 w-4" />
+                            </Button>
+                          </Link>
+                        </HelpTooltip>
                       </div>
                     </td>
                   </tr>
@@ -1321,25 +1328,29 @@ function ProductEditRow({
       </td>
       <td className="px-5 py-3">
         <div className="flex justify-end gap-1.5">
-          <Button
-            size="sm"
-            className="h-8 w-8 px-0"
-            title="Guardar producto"
-            onClick={onSave}
-            disabled={saving || !form.code.trim() || !form.name.trim()}
-          >
-            <Check className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            className="h-8 w-8 px-0"
-            title="Cancelar"
-            onClick={onCancel}
-            disabled={saving}
-          >
-            <X className="h-4 w-4" />
-          </Button>
+          <HelpTooltip content="Guardar producto" position="top">
+            <Button
+              size="sm"
+              className="h-8 w-8 px-0"
+              aria-label="Guardar producto"
+              onClick={onSave}
+              disabled={saving || !form.code.trim() || !form.name.trim()}
+            >
+              <Check className="h-4 w-4" />
+            </Button>
+          </HelpTooltip>
+          <HelpTooltip content="Cancelar" position="top">
+            <Button
+              variant="secondary"
+              size="sm"
+              className="h-8 w-8 px-0"
+              aria-label="Cancelar"
+              onClick={onCancel}
+              disabled={saving}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </HelpTooltip>
         </div>
       </td>
     </tr>

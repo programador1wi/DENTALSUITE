@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { SimpleCrudPage } from "@/components/forms/simple-crud-page";
 import { PageHeader } from "@/components/layout/page-header";
@@ -183,15 +184,18 @@ export function ChairsSettingsPage() {
                           className="relative min-h-14 border-r border-slate-200 bg-[repeating-linear-gradient(to_right,transparent_0,transparent_calc(6.666%_-_1px),rgb(226_232_240)_calc(6.666%_-_1px),rgb(226_232_240)_6.666%)]"
                         >
                           {dayAppointments.map((appointment) => (
-                            <div
+                            <HelpTooltip
                               key={appointment.id}
-                              title={`${appointment.title} - ${appointment.professional.firstName} ${appointment.professional.lastName}`}
-                              className={`absolute top-2 h-9 overflow-hidden rounded border px-2 py-1 text-[11px] font-semibold shadow-sm ${statusTone(appointment.status)}`}
-                              style={appointmentBlock(appointment)}
+                              content={`${appointment.title} - ${appointment.professional.firstName} ${appointment.professional.lastName}`}
+                              position="top"
+                              triggerClassName={`absolute top-2 h-9 block overflow-hidden rounded border text-left shadow-sm ${statusTone(appointment.status)}`}
+                              triggerStyle={appointmentBlock(appointment)}
                             >
-                              <span className="block truncate">{appointment.patient ? `${appointment.patient.firstName} ${appointment.patient.lastName}` : appointment.title}</span>
-                              <span className="block truncate text-[10px] font-medium opacity-90">{appointment.professional.firstName} {appointment.professional.lastName}</span>
-                            </div>
+                              <div className="h-full w-full px-2 py-1 text-[11px] font-semibold">
+                                <span className="block truncate">{appointment.patient ? `${appointment.patient.firstName} ${appointment.patient.lastName}` : appointment.title}</span>
+                                <span className="block truncate text-[10px] font-medium opacity-90">{appointment.professional.firstName} {appointment.professional.lastName}</span>
+                              </div>
+                            </HelpTooltip>
                           ))}
                         </div>
                       );

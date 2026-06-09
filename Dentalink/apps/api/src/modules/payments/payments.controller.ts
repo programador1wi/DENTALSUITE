@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -16,6 +17,8 @@ import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import {
   AddPaymentAllocationsDto,
+  CashReportByProfessionalQueryDto,
+  CashReportQueryDto,
   CloseCashRegisterDto,
   CreateCashMovementDto,
   CreateInstallmentPlanDto,
@@ -29,8 +32,7 @@ import {
   ListPaymentsQueryDto,
   ListRefundsQueryDto,
   OpenCashRegisterDto,
-  PayInstallmentDto
-  ,
+  PayInstallmentDto,
   VoidPaymentDto
 } from "./dto/payments.dto";
 import { PaymentsService } from "./payments.service";
@@ -58,6 +60,12 @@ export class PaymentsController {
   @RequirePermissions("payments.allocate")
   addAllocations(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: AddPaymentAllocationsDto) {
     return this.service.addAllocations(actor, id, dto);
+  }
+
+  @Delete("payments/allocations/:allocationId")
+  @RequirePermissions("payments.allocate")
+  removeAllocation(@CurrentUser() actor: AuthUser, @Param("allocationId") allocationId: string) {
+    return this.service.removeAllocation(actor, allocationId);
   }
 
   @Post("payments/:id/refund")
@@ -130,6 +138,36 @@ export class PaymentsController {
   @RequirePermissions("cash_register.read")
   listCashRegisters(@CurrentUser() actor: AuthUser, @Query() query: ListCashRegistersQueryDto) {
     return this.service.listCashRegisters(actor, query);
+  }
+
+  @Get("cash-register/current")
+  @RequirePermissions("payments.create")
+  getCurrentCashRegister(@CurrentUser() actor: AuthUser, @Query("branchId") branchId: string) {
+    return this.service.getCurrentCashRegister(actor, branchId);
+  }
+
+  @Get("cash-register/reports/collection-summary")
+  @RequirePermissions("cash_register.read")
+  collectionSummary(@CurrentUser() actor: AuthUser, @Query() query: CashReportQueryDto) {
+    return this.service.getCollectionSummary(actor, query);
+  }
+
+  @Get("cash-register/reports/box-summary")
+  @RequirePermissions("cash_register.read")
+  boxSummary(@CurrentUser() actor: AuthUser, @Query() query: CashReportQueryDto) {
+    return this.service.getBoxSummary(actor, query);
+  }
+
+  @Get("cash-register/reports/payments-by-period")
+  @RequirePermissions("cash_register.read")
+  paymentsByPeriod(@CurrentUser() actor: AuthUser, @Query() query: CashReportQueryDto) {
+    return this.service.getPaymentsByPeriod(actor, query);
+  }
+
+  @Get("cash-register/reports/payments-by-professional")
+  @RequirePermissions("cash_register.read")
+  paymentsByProfessional(@CurrentUser() actor: AuthUser, @Query() query: CashReportByProfessionalQueryDto) {
+    return this.service.getPaymentsByProfessional(actor, query);
   }
 
   @Get("cash-register/:id")

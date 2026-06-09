@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Activity, Trash2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -237,5 +238,61 @@ export function ToothInformationModal({
         </div>
       </aside>
     </div>
+  );
+}
+
+export function MultipleToothSelectionModal({
+  open,
+  onClose
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  if (!open || typeof document === "undefined") return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" role="presentation" onMouseDown={onClose}>
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="multiple-tooth-selection-title"
+        className="w-full max-w-[560px] rounded bg-white shadow-[0_18px_44px_rgba(0,0,0,0.35)]"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="border-b border-slate-200 px-5 py-4">
+          <h2 id="multiple-tooth-selection-title" className="text-xl font-bold text-slate-900">
+            Como seleccionar multiples piezas?
+          </h2>
+        </header>
+
+        <div className="px-8 py-9 text-center">
+          <div className="flex items-center justify-center gap-10">
+            <div className="grid h-[72px] w-[104px] place-items-center rounded border border-slate-500 bg-slate-50 text-2xl font-serif text-slate-600">
+              Ctrl
+            </div>
+            <span className="text-4xl font-light text-slate-600">+</span>
+            <div className="relative h-[112px] w-[76px] rotate-[-18deg] rounded-[42px] border border-slate-500 bg-slate-50">
+              <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-slate-500" />
+              <div className="absolute left-0 top-[42px] h-px w-full bg-slate-500" />
+              <div className="absolute left-0 top-0 h-[42px] w-1/2 rounded-tl-[42px] bg-slate-600" />
+            </div>
+          </div>
+
+          <div className="mx-auto mt-8 max-w-[460px] text-sm leading-6 text-slate-600">
+            <p>
+              Para seleccionar multiples piezas, manten presionada la tecla <strong>Ctrl</strong> en el teclado, y luego presiona una a una
+              sobre las piezas que desees con el <strong>boton izquierdo del mouse</strong>.
+            </p>
+          </div>
+        </div>
+
+        <footer className="flex justify-end border-t border-slate-200 px-5 py-4">
+          <button type="button" className="rounded bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200" onClick={onClose}>
+            Cerrar
+          </button>
+        </footer>
+      </section>
+    </div>,
+    document.body
   );
 }

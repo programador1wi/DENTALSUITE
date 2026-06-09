@@ -5,9 +5,11 @@ import {
   createPatientConsent,
   deactivateConsentTemplate,
   getConsentPdf,
+  getPatientRadiographyAnalysis,
   listConsentTemplates,
   listPatientConsents,
   listPatientFiles,
+  savePatientRadiographyAnalysis,
   signConsent,
   updateConsentTemplate,
   uploadPatientBinaryFile,
@@ -44,6 +46,40 @@ export function useConsentPdf(consentId: string) {
     queryFn: () => getConsentPdf(consentId),
     enabled: Boolean(consentId)
   });
+}
+
+export function usePatientRadiographyAnalysis(patientId: string, fileId?: string) {
+  return useQuery({
+    queryKey: ["patient-radiography-analysis", patientId, fileId],
+    queryFn: () => getPatientRadiographyAnalysis(patientId, fileId ?? ""),
+    enabled: Boolean(patientId && fileId)
+  });
+}
+
+export function useRadiographyAnalysisMutations() {
+  const queryClient = useQueryClient();
+  const onError = (error: Error) => toast.error(error.message);
+
+  return {
+    savePatientRadiographyAnalysis: useMutation({
+      mutationFn: ({
+        patientId,
+        fileId,
+        findings,
+        status
+      }: {
+        patientId: string;
+        fileId: string;
+        findings: Parameters<typeof savePatientRadiographyAnalysis>[2]["findings"];
+        status?: "DRAFT" | "CONFIRMED";
+      }) => savePatientRadiographyAnalysis(patientId, fileId, { findings, status }),
+      onSuccess: (analysis, variables) => {
+        toast.success("Analisis RX guardado");
+        queryClient.setQueryData(["patient-radiography-analysis", variables.patientId, variables.fileId], analysis);
+      },
+      onError
+    })
+  };
 }
 
 export function useDocumentsMutations() {

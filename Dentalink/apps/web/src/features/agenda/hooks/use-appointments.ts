@@ -27,10 +27,11 @@ import {
   type RescheduleAppointmentPayload
 } from "../services/appointments.service";
 
-export function useAppointments(params: AppointmentQuery) {
+export function useAppointments(params: AppointmentQuery, enabled = true) {
   return useQuery({
     queryKey: ["appointments", params],
-    queryFn: () => listAppointments(params)
+    queryFn: () => listAppointments(params),
+    enabled
   });
 }
 

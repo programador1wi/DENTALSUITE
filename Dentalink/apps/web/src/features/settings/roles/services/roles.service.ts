@@ -26,6 +26,19 @@ export type RoleDetail = RoleListItem & {
   updatedAt?: string;
 };
 
+export type CreateRolePayload = {
+  name: string;
+  description?: string;
+  permissionIds: string[];
+};
+
+export type UpdateRolePayload = {
+  name?: string;
+  description?: string;
+  isActive?: boolean;
+  permissionIds?: string[];
+};
+
 export async function listRoles(params?: { search?: string; active?: string }) {
   const { data } = await http.get<RoleListItem[]>("/roles", { params });
   return data;
@@ -36,8 +49,13 @@ export async function getRoleById(id: string) {
   return data;
 }
 
-export async function updateRolePermissions(id: string, permissionIds: string[]) {
-  const { data } = await http.patch<RoleDetail>(`/roles/${id}`, { permissionIds });
+export async function createRole(payload: CreateRolePayload) {
+  const { data } = await http.post<RoleDetail>("/roles", payload);
+  return data;
+}
+
+export async function updateRole(id: string, payload: UpdateRolePayload) {
+  const { data } = await http.patch<RoleDetail>(`/roles/${id}`, payload);
   return data;
 }
 

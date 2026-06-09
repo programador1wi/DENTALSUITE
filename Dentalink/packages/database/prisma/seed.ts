@@ -96,6 +96,10 @@ const permissionDefinitions = [
   ["patients.deactivate", "Deactivate patients", "Deactivate patients", "patients"],
   ["patients.notes.create", "Create patient notes", "Create patient notes", "patients"],
   ["patients.alerts.create", "Create patient alerts", "Create patient alerts", "patients"],
+  ["patients.tasks.read", "Read patient tasks", "View patient management tasks", "patients"],
+  ["patients.tasks.create", "Create patient tasks", "Create patient management tasks", "patients"],
+  ["patients.tasks.update", "Update patient tasks", "Update patient management tasks", "patients"],
+  ["patients.tasks.complete", "Complete patient tasks", "Complete patient management tasks", "patients"],
   ["appointments.read", "Read appointments", "View appointments", "appointments"],
   ["appointments.create", "Create appointments", "Create appointments", "appointments"],
   ["appointments.update", "Update appointments", "Update appointments", "appointments"],
@@ -250,6 +254,10 @@ const roleDefinitions = [
       "patients.update",
       "patients.notes.create",
       "patients.alerts.create",
+      "patients.tasks.read",
+      "patients.tasks.create",
+      "patients.tasks.update",
+      "patients.tasks.complete",
       "appointments.read",
       "appointments.create",
       "appointments.update",
@@ -305,6 +313,10 @@ const roleDefinitions = [
       "patients.read",
       "patients.notes.create",
       "patients.alerts.create",
+      "patients.tasks.read",
+      "patients.tasks.create",
+      "patients.tasks.update",
+      "patients.tasks.complete",
       "appointments.read",
       "appointments.status.update",
       "clinical.read",
@@ -439,6 +451,10 @@ const roleDefinitions = [
       "patients.deactivate",
       "patients.notes.create",
       "patients.alerts.create",
+      "patients.tasks.read",
+      "patients.tasks.create",
+      "patients.tasks.update",
+      "patients.tasks.complete",
       "appointments.read",
       "appointments.create",
       "appointments.update",
@@ -1108,7 +1124,7 @@ async function main() {
 
   const branchCatalog = new Map(predefinedBranches.map((branch) => [branch.code, branch]));
   const requestedDefaultBranchCode = process.env.SEED_DEFAULT_BRANCH_CODE ?? "TUXTLA";
-  const defaultBranchCode = branchCatalog.has(requestedDefaultBranchCode) ? requestedDefaultBranchCode : "TUXTLA";
+  const defaultBranchCode = requestedDefaultBranchCode;
   const defaultBranchName = process.env.SEED_DEFAULT_BRANCH_NAME ?? "Dental + Suc. Tuxtla";
   if (!branchCatalog.has(defaultBranchCode)) {
     branchCatalog.set(defaultBranchCode, {

@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString } from "class-validator";
+import { IsArray, IsBoolean, IsOptional, IsString } from "class-validator";
 
 export class AddPatientNoteDto {
   @IsString()
@@ -7,4 +7,9 @@ export class AddPatientNoteDto {
   @IsOptional()
   @IsBoolean()
   isPrivate?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  fileAttachmentIds?: string[];
 }

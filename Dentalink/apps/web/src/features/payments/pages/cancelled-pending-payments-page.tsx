@@ -4,10 +4,12 @@ import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
+import { useBranchStore } from "@/stores/branch.store";
 import { usePaymentLinks, usePayments } from "../hooks/use-payments";
 
 export function CancelledPendingPaymentsPage() {
-  const voidedPayments = usePayments({ status: "VOIDED" });
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const voidedPayments = usePayments({ status: "VOIDED", branchId: activeBranchId || undefined });
   const paymentLinks = usePaymentLinks();
   if (voidedPayments.isLoading || paymentLinks.isLoading) return <LoadingState message="Cargando pagos anulados y pendientes..." />;
   if (voidedPayments.isError) return <ErrorState message={voidedPayments.error.message} />;

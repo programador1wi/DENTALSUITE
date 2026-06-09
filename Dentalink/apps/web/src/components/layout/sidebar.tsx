@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { ChevronDown, ChevronRight, Sparkles, X } from "lucide-react";
 import { useAuthStore } from "@/stores/auth.store";
 import { itemMatchesPath, type MainNavItem, type MenuItem, visibleNavigation } from "@/components/layout/navigation";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { cn } from "@/lib/utils/cn";
 
 const EMPTY_PERMISSIONS: string[] = [];
@@ -233,11 +234,9 @@ function SidebarContent({
             const flyoutOpen = flyout?.item.to === item.to;
 
             if (!hasChildren) {
-              return (
+              const navLink = (
                 <Link
-                  key={item.to}
                   to={item.to}
-                  title={collapsed ? item.label : undefined}
                   onClick={onNavigate}
                   className={cn(
                     "group relative isolate flex h-11 animate-[sidebar-item-in_var(--duration-slow)_var(--ease-out)_both] items-center gap-[var(--space-3)] rounded-[var(--radius-md)] px-[var(--space-2)] text-[var(--text-sm)] font-semibold text-[var(--nav-item-default-text)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[rgba(255,255,255,0.07)] hover:text-[var(--text-inverse)]",
@@ -248,39 +247,56 @@ function SidebarContent({
                   <NavItemContent item={item} collapsed={collapsed} active={active} index={index} />
                 </Link>
               );
+
+              return collapsed && !isMobileMenu ? (
+                <HelpTooltip key={item.to} content={item.label} position="right" triggerClassName="w-full">
+                  {navLink}
+                </HelpTooltip>
+              ) : (
+                <div key={item.to}>{navLink}</div>
+              );
             }
+
+            const navButton = (
+              <button
+                type="button"
+                data-sidebar-flyout-trigger={!isMobileMenu ? true : undefined}
+                aria-haspopup={!isMobileMenu ? "menu" : undefined}
+                aria-expanded={isMobileMenu ? open : flyoutOpen}
+                onClick={(event) => {
+                  if (isMobileMenu) {
+                    setOpenSections((state) => ({ ...state, [item.to]: !open }));
+                    return;
+                  }
+                  toggleDesktopFlyout(item, event.currentTarget);
+                }}
+                className={cn(
+                  "group relative isolate flex h-11 w-full animate-[sidebar-item-in_var(--duration-slow)_var(--ease-out)_both] items-center gap-[var(--space-3)] rounded-[var(--radius-md)] px-[var(--space-2)] text-left text-[var(--text-sm)] font-semibold text-[var(--nav-item-default-text)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[rgba(255,255,255,0.07)] hover:text-[var(--text-inverse)]",
+                  active && "bg-[rgba(255,255,255,0.075)] text-[var(--text-inverse)]",
+                  flyoutOpen && "bg-[rgba(255,255,255,0.1)] text-[var(--text-inverse)]"
+                )}
+                style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
+              >
+                <NavItemContent item={item} collapsed={collapsed} active={active} index={index} />
+                {!collapsed ? (
+                  isMobileMenu ? (
+                    <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--nav-item-default-icon)] transition-transform duration-[var(--duration-normal)] ease-[var(--ease-spring)]", open && "rotate-180")} />
+                  ) : (
+                    <ChevronRight className={cn("h-4 w-4 shrink-0 text-[var(--nav-item-default-icon)] transition-transform duration-[var(--duration-normal)] ease-[var(--ease-spring)]", flyoutOpen && "translate-x-0.5 text-[var(--text-inverse)]")} />
+                  )
+                ) : null}
+              </button>
+            );
 
             return (
               <div key={item.to}>
-                <button
-                  type="button"
-                  title={collapsed ? item.label : undefined}
-                  data-sidebar-flyout-trigger={!isMobileMenu ? true : undefined}
-                  aria-haspopup={!isMobileMenu ? "menu" : undefined}
-                  aria-expanded={isMobileMenu ? open : flyoutOpen}
-                  onClick={(event) => {
-                    if (isMobileMenu) {
-                      setOpenSections((state) => ({ ...state, [item.to]: !open }));
-                      return;
-                    }
-                    toggleDesktopFlyout(item, event.currentTarget);
-                  }}
-                  className={cn(
-                    "group relative isolate flex h-11 w-full animate-[sidebar-item-in_var(--duration-slow)_var(--ease-out)_both] items-center gap-[var(--space-3)] rounded-[var(--radius-md)] px-[var(--space-2)] text-left text-[var(--text-sm)] font-semibold text-[var(--nav-item-default-text)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[rgba(255,255,255,0.07)] hover:text-[var(--text-inverse)]",
-                    active && "bg-[rgba(255,255,255,0.075)] text-[var(--text-inverse)]",
-                    flyoutOpen && "bg-[rgba(255,255,255,0.1)] text-[var(--text-inverse)]"
-                  )}
-                  style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
-                >
-                  <NavItemContent item={item} collapsed={collapsed} active={active} index={index} />
-                  {!collapsed ? (
-                    isMobileMenu ? (
-                      <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--nav-item-default-icon)] transition-transform duration-[var(--duration-normal)] ease-[var(--ease-spring)]", open && "rotate-180")} />
-                    ) : (
-                      <ChevronRight className={cn("h-4 w-4 shrink-0 text-[var(--nav-item-default-icon)] transition-transform duration-[var(--duration-normal)] ease-[var(--ease-spring)]", flyoutOpen && "translate-x-0.5 text-[var(--text-inverse)]")} />
-                    )
-                  ) : null}
-                </button>
+                {collapsed && !isMobileMenu ? (
+                  <HelpTooltip content={item.label} position="right" triggerClassName="w-full">
+                    {navButton}
+                  </HelpTooltip>
+                ) : (
+                  navButton
+                )}
 
                 {isMobileMenu && !collapsed && open ? (
                   <div className="ml-[var(--space-5)] mt-1 animate-[sidebar-item-in_var(--duration-normal)_var(--ease-out)_both] space-y-1 border-l border-[var(--nav-border-subtle)] pl-[var(--space-2)]">

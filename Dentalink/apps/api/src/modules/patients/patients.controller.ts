@@ -11,6 +11,7 @@ import { CreatePatientDto } from "./dto/create-patient.dto";
 import { MergePatientsDto } from "./dto/merge-patients.dto";
 import { PatientAnalysisQueryDto } from "./dto/patient-analysis-query.dto";
 import { PatientQueryDto } from "./dto/patient-query.dto";
+import { CreatePatientTaskDto, ListPatientTasksQueryDto, UpdatePatientTaskDto } from "./dto/patient-task.dto";
 import { UpdatePatientDto } from "./dto/update-patient.dto";
 import { PatientsService } from "./patients.service";
 
@@ -79,6 +80,35 @@ export class PatientsController {
   @RequirePermissions("patients.notes.create")
   addNote(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: AddPatientNoteDto) {
     return this.patientsService.addNote(user, id, dto);
+  }
+
+  @Get(":id/tasks")
+  @RequirePermissions("patients.tasks.read")
+  listTasks(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query() query: ListPatientTasksQueryDto) {
+    return this.patientsService.listTasks(user, id, query);
+  }
+
+  @Post(":id/tasks")
+  @RequirePermissions("patients.tasks.create")
+  createTask(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: CreatePatientTaskDto) {
+    return this.patientsService.createTask(user, id, dto);
+  }
+
+  @Patch(":id/tasks/:taskId")
+  @RequirePermissions("patients.tasks.update")
+  updateTask(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("taskId") taskId: string,
+    @Body() dto: UpdatePatientTaskDto
+  ) {
+    return this.patientsService.updateTask(user, id, taskId, dto);
+  }
+
+  @Post(":id/tasks/:taskId/complete")
+  @RequirePermissions("patients.tasks.complete")
+  completeTask(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("taskId") taskId: string) {
+    return this.patientsService.completeTask(user, id, taskId);
   }
 
   @Post(":id/alerts")

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   CartesianGrid,
   Cell,
@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+import { useBranchStore } from "@/stores/branch.store";
 import { usePatientsAnalysis } from "../hooks/use-patients";
 import type { PatientAnalysisDistribution, PatientAnalysisResponse } from "../services/patients.service";
 import { PatientsModuleTabs } from "../components/patients-module-tabs";
@@ -395,25 +396,36 @@ function DetailList({ title, data }: { title: string; data: PatientAnalysisDistr
 }
 
 export function PatientsAnalysisPage() {
+  const { activeBranchId, setActiveBranchId } = useBranchStore();
   const [draftFrom, setDraftFrom] = useState(monthsAgo(11));
   const [draftTo, setDraftTo] = useState(monthsAgo(0));
   const [draftBranchId, setDraftBranchId] = useState("");
   const [filters, setFilters] = useState({ from: draftFrom, to: draftTo, branchId: "" });
+  const effectiveDraftBranchId = draftBranchId || activeBranchId;
+  const effectiveFilterBranchId = filters.branchId || activeBranchId;
 
   const branches = useBranches(undefined, "ACTIVE");
   const analysis = usePatientsAnalysis({
     from: filters.from,
     to: filters.to,
-    branchId: filters.branchId || undefined
+    branchId: effectiveFilterBranchId || undefined
   });
   const selectedBranchName = useMemo(() => {
-    if (!filters.branchId) return "Todas las sucursales";
+    if (!effectiveFilterBranchId) return "Sucursal activa";
     return (
-      branches.data?.find((branch) => branch.id === filters.branchId)?.name ??
+      branches.data?.find((branch) => branch.id === effectiveFilterBranchId)?.name ??
       analysis.data?.filters.branchName ??
       "Sucursal"
     );
-  }, [analysis.data?.filters.branchName, branches.data, filters.branchId]);
+  }, [analysis.data?.filters.branchName, branches.data, effectiveFilterBranchId]);
+
+  useEffect(() => {
+    if (!activeBranchId) return;
+    setDraftBranchId(activeBranchId);
+    setFilters((current) =>
+      current.branchId === activeBranchId ? current : { ...current, branchId: activeBranchId }
+    );
+  }, [activeBranchId]);
 
   return (
     <WarnerSuitePanel className="min-h-[720px]">
@@ -440,11 +452,14 @@ export function PatientsAnalysisPage() {
               aria-label="Mes final"
             />
             <Select
-              value={draftBranchId}
-              onChange={(event) => setDraftBranchId(event.target.value)}
+              value={effectiveDraftBranchId}
+              onChange={(event) => {
+                setDraftBranchId(event.target.value);
+                if (event.target.value) setActiveBranchId(event.target.value);
+              }}
               aria-label="Sucursal"
             >
-              <option value="">Todas las sucursales</option>
+              <option value="">Sucursal activa</option>
               {branches.data?.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {branch.name}
@@ -455,7 +470,7 @@ export function PatientsAnalysisPage() {
               type="button"
               variant="secondary"
               className="h-10 bg-[#086ccc] px-4 text-white hover:bg-[#075eb1] hover:text-white"
-              onClick={() => setFilters({ from: draftFrom, to: draftTo, branchId: draftBranchId })}
+              onClick={() => setFilters({ from: draftFrom, to: draftTo, branchId: effectiveDraftBranchId })}
             >
               <Search className="h-4 w-4" />
               Filtrar

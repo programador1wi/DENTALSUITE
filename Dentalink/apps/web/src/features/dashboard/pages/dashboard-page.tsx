@@ -4,6 +4,7 @@ import { LoadingState } from "@/components/feedback/loading-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
 import { useDashboardReport } from "@/features/reports/hooks/use-reports";
 import { ReportsFilters } from "@/features/reports/components/reports-filters";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, LineChart, Line, Legend } from "recharts";
@@ -41,7 +42,7 @@ function KpiCard({ title, value, icon }: KpiCardProps) {
 export function DashboardPage() {
   const [dateFrom, setDateFrom] = useState(monthStartIso());
   const [dateTo, setDateTo] = useState(todayIso());
-  const [branchId, setBranchId] = useState("");
+  const { branchId, setBranchId } = useActiveBranchFilter();
 
   const branches = useBranches(undefined, "ACTIVE");
   const report = useDashboardReport({ dateFrom, dateTo, branchId: branchId || undefined });

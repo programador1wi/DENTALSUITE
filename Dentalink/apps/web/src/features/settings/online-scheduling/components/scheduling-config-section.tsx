@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils/cn";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
@@ -733,25 +734,28 @@ function BrandingSettings({
         <p className="text-sm text-slate-500">Selecciona el color para tu agenda online.</p>
         <div className="flex flex-wrap gap-4">
           {brandColors.map((color) => (
-            <button
-              key={color}
-              type="button"
-              onClick={() => update("brandColor", color)}
-              className={cn(
-                "h-5 w-5 rounded-full border border-[var(--border-strong)]",
-                settings.brandColor === color && "ring-2 ring-[var(--border-brand)] ring-offset-2"
-              )}
-              style={{ backgroundColor: color }}
-              title={color}
-            />
+            <HelpTooltip key={color} content={`Color ${color}`} position="top">
+              <button
+                type="button"
+                aria-label={`Color ${color}`}
+                onClick={() => update("brandColor", color)}
+                className={cn(
+                  "h-5 w-5 rounded-full border border-[var(--border-strong)]",
+                  settings.brandColor === color && "ring-2 ring-[var(--border-brand)] ring-offset-2"
+                )}
+                style={{ backgroundColor: color }}
+              />
+            </HelpTooltip>
           ))}
-          <button
-            type="button"
-            className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-slate-500"
-            title="Otro color"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
+          <HelpTooltip content="Otro color" position="top">
+            <button
+              type="button"
+              aria-label="Otro color"
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-slate-200 text-slate-500"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          </HelpTooltip>
         </div>
       </section>
 
@@ -834,15 +838,16 @@ function SettingsSection({
 
 function SettingsButton({ onClick, title }: { onClick: () => void; title: string }) {
   return (
-    <Button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className="h-8 w-12 rounded bg-[var(--action-brand)] p-0 hover:bg-[var(--action-brand-hover)] border-0"
-    >
-      <Settings className="h-4 w-4" />
-    </Button>
+    <HelpTooltip content={title} position="left">
+      <Button
+        type="button"
+        aria-label={title}
+        onClick={onClick}
+        className="h-8 w-12 rounded bg-[var(--action-brand)] p-0 hover:bg-[var(--action-brand-hover)] border-0"
+      >
+        <Settings className="h-4 w-4" />
+      </Button>
+    </HelpTooltip>
   );
 }
 

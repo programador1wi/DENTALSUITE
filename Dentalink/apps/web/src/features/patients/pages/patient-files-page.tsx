@@ -26,9 +26,11 @@ import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { cn } from "@/lib/utils/cn";
-import { PatientSectionPage } from "../components/patient-section-page";
+import { ClinicalShell } from "@/features/clinical/components/clinical-shell";
 import { useDocumentsMutations, usePatientFiles } from "@/features/documents/hooks/use-documents";
 import { getPatientFileBlob, type FileAttachment } from "@/features/documents/services/documents.service";
+import { usePatient } from "@/features/patients/hooks/use-patients";
+import { isRadiographyViewerFile, RadiographyViewerModal } from "../components/radiography-viewer-modal";
 
 type ViewMode = "gallery" | "list";
 
@@ -118,6 +120,7 @@ const allowedUploadMimeTypes = new Set([
 export function PatientFilesPage() {
   const { id = "" } = useParams();
   const files = usePatientFiles(id);
+  const patient = usePatient(id);
   const mutations = useDocumentsMutations();
   const uploadInputId = useId();
   const [category, setCategory] = useState("");
@@ -158,6 +161,9 @@ export function PatientFilesPage() {
       count: allFiles.filter((file) => file.category === item.value).length
     }));
   }, [allFiles]);
+  const selectedRadiographyFile = isRadiographyViewerFile(selectedFile) ? selectedFile : null;
+  const selectedPreviewFile = selectedRadiographyFile ? null : selectedFile;
+  const patientName = patient.data ? `${patient.data.firstName} ${patient.data.lastName}`.trim() : "";
 
   const handleSelectFiles = (event: ChangeEvent<HTMLInputElement>) => {
     addPendingFiles(event.target.files);
@@ -214,7 +220,7 @@ export function PatientFilesPage() {
   if (files.isError) return <ErrorState message={files.error.message} />;
 
   return (
-    <PatientSectionPage patientId={id} title="Rx y documentos" description="Imagenes, radiografias y documentos del expediente.">
+    <ClinicalShell patientId={id} title="Rx y documentos" description="Imagenes, radiografias y documentos del expediente.">
       <section className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)]">
         <div className="flex flex-col gap-4 border-b border-[var(--border-default)] p-[var(--space-5)] lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -346,8 +352,9 @@ export function PatientFilesPage() {
         uploading={mutations.uploadPatientBinaryFile.isPending}
       />
 
-      <FilePreviewDrawer file={selectedFile} onClose={() => setSelectedFile(null)} />
-    </PatientSectionPage>
+      <RadiographyViewerModal file={selectedRadiographyFile} patientId={id} patientName={patientName} onClose={() => setSelectedFile(null)} />
+      <FilePreviewDrawer file={selectedPreviewFile} onClose={() => setSelectedFile(null)} />
+    </ClinicalShell>
   );
 }
 

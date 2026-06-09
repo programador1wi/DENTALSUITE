@@ -3,18 +3,23 @@ import { toast } from "sonner";
 import {
   addPatientAlert,
   addPatientNote,
+  completePatientTask,
   createPatient,
+  createPatientTask,
   deactivatePatient,
   getPatient,
   getPatientsAnalysis,
   getPatientTimeline,
+  listPatientTasks,
   listPatients,
   mergePatients,
   searchPatients,
   updatePatient,
+  updatePatientTask,
   type PatientAnalysisQuery,
   type PatientMedicalAlertInput,
   type PatientPayload,
+  type PatientTaskPayload,
   type PatientsQuery
 } from "../services/patients.service";
 
@@ -61,6 +66,14 @@ export function usePatientTimeline(id?: string) {
   });
 }
 
+export function usePatientTasks(id?: string, includeCompleted = false) {
+  return useQuery({
+    queryKey: ["patients", "tasks", id, includeCompleted],
+    queryFn: () => listPatientTasks(id as string, includeCompleted),
+    enabled: Boolean(id)
+  });
+}
+
 export function useCreatePatient() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -102,8 +115,17 @@ export function useDeactivatePatient() {
 export function useAddPatientNote() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, note, isPrivate }: { id: string; note: string; isPrivate?: boolean }) =>
-      addPatientNote(id, { note, isPrivate }),
+    mutationFn: ({
+      id,
+      note,
+      isPrivate,
+      fileAttachmentIds
+    }: {
+      id: string;
+      note: string;
+      isPrivate?: boolean;
+      fileAttachmentIds?: string[];
+    }) => addPatientNote(id, { note, isPrivate, fileAttachmentIds }),
     onSuccess: (_, variables) => {
       toast.success("Nota registrada");
       queryClient.invalidateQueries({ queryKey: ["patients", "detail", variables.id] });
@@ -111,6 +133,49 @@ export function useAddPatientNote() {
     },
     onError: (error: Error) => toast.error(error.message)
   });
+}
+
+export function usePatientTaskMutations() {
+  const queryClient = useQueryClient();
+  const invalidate = (patientId: string) => {
+    queryClient.invalidateQueries({ queryKey: ["patients", "tasks", patientId] });
+    queryClient.invalidateQueries({ queryKey: ["patients", "detail", patientId] });
+  };
+
+  return {
+    createTask: useMutation({
+      mutationFn: ({ id, payload }: { id: string; payload: PatientTaskPayload }) => createPatientTask(id, payload),
+      onSuccess: (_, variables) => {
+        toast.success("Tarea creada");
+        invalidate(variables.id);
+      },
+      onError: (error: Error) => toast.error(error.message)
+    }),
+    updateTask: useMutation({
+      mutationFn: ({
+        id,
+        taskId,
+        payload
+      }: {
+        id: string;
+        taskId: string;
+        payload: Partial<PatientTaskPayload>;
+      }) => updatePatientTask(id, taskId, payload),
+      onSuccess: (_, variables) => {
+        toast.success("Tarea actualizada");
+        invalidate(variables.id);
+      },
+      onError: (error: Error) => toast.error(error.message)
+    }),
+    completeTask: useMutation({
+      mutationFn: ({ id, taskId }: { id: string; taskId: string }) => completePatientTask(id, taskId),
+      onSuccess: (_, variables) => {
+        toast.success("Tarea finalizada");
+        invalidate(variables.id);
+      },
+      onError: (error: Error) => toast.error(error.message)
+    })
+  };
 }
 
 export function useAddPatientAlert() {

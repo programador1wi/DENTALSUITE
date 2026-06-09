@@ -12,6 +12,7 @@ import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useUsersQuery } from "@/features/settings/users/hooks/use-users";
+import { useBranchStore } from "@/stores/branch.store";
 import { useCollectionCase, useCollectionMutations } from "../hooks/use-collections";
 import type { CollectionCaseStatus } from "../services/collections.service";
 
@@ -19,8 +20,9 @@ const STATUS_OPTIONS: CollectionCaseStatus[] = ["PENDING", "CONTACTED", "PROMISE
 
 export function CollectionDetailPage() {
   const { id = "" } = useParams();
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const details = useCollectionCase(id);
-  const users = useUsersQuery(undefined, "ACTIVE");
+  const users = useUsersQuery(undefined, "ACTIVE", activeBranchId || undefined);
   const mutations = useCollectionMutations();
 
   const [status, setStatus] = useState<CollectionCaseStatus | "">("");

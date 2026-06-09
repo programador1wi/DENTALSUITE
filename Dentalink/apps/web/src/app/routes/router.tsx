@@ -1,4 +1,4 @@
-import { Navigate, Outlet, createBrowserRouter, useLocation } from "react-router-dom";
+import { Navigate, Outlet, createBrowserRouter, useLocation, useParams } from "react-router-dom";
 import { PublicLayout } from "@/app/layouts/public-layout";
 import { PrivateLayout } from "@/app/layouts/private-layout";
 import { RequireAuth, RequireGuest, RequirePermissions } from "./guards";
@@ -55,7 +55,6 @@ import { AgreementsSettingsPage } from "@/features/settings/admin-workflows/page
 import { ExpensesSettingsPage } from "@/features/settings/admin-workflows/pages/expenses-settings-page";
 import { PayrollSettingsPage } from "@/features/settings/admin-workflows/pages/payroll-settings-page";
 import { PlansServicesSettingsPage } from "@/features/settings/admin-workflows/pages/plans-services-settings-page";
-import { PatientAppointmentsPage } from "@/features/patients/pages/patient-appointments-page";
 import { PatientClinicalPage } from "@/features/patients/pages/patient-clinical-page";
 import { PatientConsentsPage } from "@/features/patients/pages/patient-consents-page";
 import { PatientDetailPage } from "@/features/patients/pages/patient-detail-page";
@@ -63,7 +62,7 @@ import { PatientFilesPage } from "@/features/patients/pages/patient-files-page";
 import { PatientNewPage } from "@/features/patients/pages/patient-new-page";
 import { PatientMergePage } from "@/features/patients/pages/patient-merge-page";
 import { PatientPaymentsPage } from "@/features/patients/pages/patient-payments-page";
-import { PatientCrmPage } from "@/features/patients/pages/patient-crm-page";
+import { PatientBillingPage } from "@/features/patients/pages/patient-billing-page";
 import { PatientProfilePage } from "@/features/patients/pages/patient-profile-page";
 import { PatientTreatmentNewPage } from "@/features/patients/pages/patient-treatment-new-page";
 import { PatientTreatmentsPage } from "@/features/patients/pages/patient-treatments-page";
@@ -104,6 +103,12 @@ function NotFoundPage() {
 function RedirectWithSearch({ to }: { to: string }) {
   const { search } = useLocation();
   return <Navigate to={`${to}${search}`} replace />;
+}
+
+function RedirectPatientWithSearch({ to }: { to: string }) {
+  const { id = "" } = useParams();
+  const { search } = useLocation();
+  return <Navigate to={`/patients/${id}/${to}${search}`} replace />;
 }
 
 export const router = createBrowserRouter([
@@ -199,13 +204,19 @@ export const router = createBrowserRouter([
               { path: "/patients/merge", element: <PatientMergePage /> },
               { path: "/patients/:id", element: <PatientDetailPage /> },
               { path: "/patients/:id/profile", element: <PatientProfilePage /> },
-              { path: "/patients/:id/crm", element: <PatientCrmPage /> },
+              { path: "/patients/:id/profile/comments", element: <PatientProfilePage /> },
+              { path: "/patients/:id/profile/tasks", element: <PatientProfilePage /> },
+              { path: "/patients/:id/profile/emails", element: <PatientProfilePage /> },
+              { path: "/patients/:id/crm", element: <RedirectPatientWithSearch to="profile/tasks" /> },
               { path: "/patients/:id/treatments/new", element: <PatientTreatmentNewPage /> }
             ]
           },
           {
             element: <RequirePermissions required={["patients.read", "appointments.read"]} />,
-            children: [{ path: "/patients/:id/appointments", element: <PatientAppointmentsPage /> }]
+            children: [
+              { path: "/patients/:id/profile/appointments", element: <PatientProfilePage /> },
+              { path: "/patients/:id/appointments", element: <RedirectPatientWithSearch to="profile/appointments" /> }
+            ]
           },
           {
             element: <RequirePermissions required={["patients.read", "treatment_plans.read"]} />,
@@ -213,15 +224,29 @@ export const router = createBrowserRouter([
           },
           {
             element: <RequirePermissions required={["patients.read", "payments.read"]} />,
-            children: [{ path: "/patients/:id/payments", element: <PatientPaymentsPage /> }]
+            children: [
+              { path: "/patients/:id/billing", element: <PatientBillingPage /> },
+              { path: "/patients/:id/billing/documents", element: <PatientBillingPage /> },
+              { path: "/patients/:id/billing/coverage", element: <PatientBillingPage /> },
+              { path: "/patients/:id/billing/refunds", element: <PatientBillingPage /> },
+              { path: "/patients/:id/billing/deleted", element: <PatientBillingPage /> },
+              { path: "/patients/:id/billing/balance", element: <PatientBillingPage /> },
+              { path: "/patients/:id/payments", element: <PatientPaymentsPage /> }
+            ]
           },
           {
-            element: <RequirePermissions required={["files.read"]} />,
-            children: [{ path: "/patients/:id/files", element: <PatientFilesPage /> }]
+            element: <RequirePermissions required={["clinical.read", "files.read"]} />,
+            children: [
+              { path: "/patients/:id/clinical/files", element: <PatientFilesPage /> },
+              { path: "/patients/:id/files", element: <RedirectPatientWithSearch to="clinical/files" /> }
+            ]
           },
           {
-            element: <RequirePermissions required={["consents.read"]} />,
-            children: [{ path: "/patients/:id/consents", element: <PatientConsentsPage /> }]
+            element: <RequirePermissions required={["clinical.read", "consents.read"]} />,
+            children: [
+              { path: "/patients/:id/clinical/consents", element: <PatientConsentsPage /> },
+              { path: "/patients/:id/consents", element: <RedirectPatientWithSearch to="clinical/consents" /> }
+            ]
           },
           {
             element: <RequirePermissions required={["clinical.read"]} />,

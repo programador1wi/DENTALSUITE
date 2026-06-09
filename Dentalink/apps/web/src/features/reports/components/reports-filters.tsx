@@ -44,7 +44,7 @@ export function ReportsFilters({
         onChange={(event) => onBranchChange(event.target.value)}
         className="h-10"
       >
-        <option value="">Todas las sucursales</option>
+        <option value="">Sucursal activa</option>
         {branches.map((branch) => (
           <option key={branch.id} value={branch.id}>
             {branch.name}
@@ -70,5 +70,4 @@ export function ReportsFilters({
     </div>
   );
 }
-
 

@@ -280,6 +280,30 @@ export class ListRefundsQueryDto extends PaginationQueryDto {
   patientId?: string;
 
   @IsOptional()
+  @IsString()
+  treatmentPlanId?: string;
+
+  @IsOptional()
   @IsEnum(RefundStatus)
   status?: RefundStatus;
+}
+
+export class CashReportQueryDto {
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
+}
+
+export class CashReportByProfessionalQueryDto extends CashReportQueryDto {
+  @IsOptional()
+  @IsString()
+  professionalId?: string;
 }

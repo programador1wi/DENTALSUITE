@@ -1,4 +1,4 @@
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { SimpleCrudPage } from "@/components/forms/simple-crud-page";
+import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import {
   useInventoryItems,
@@ -43,7 +44,7 @@ export function InventoryPage() {
   const view = asInventoryView(params.get("view"));
   const [search, setSearch] = useState("");
   const [active, setActive] = useState("");
-  const [branchId, setBranchId] = useState("");
+  const { branchId, setBranchId } = useActiveBranchFilter();
   const [supplierSearch, setSupplierSearch] = useState("");
   const [supplierActive, setSupplierActive] = useState("");
   const [movementTypeFilter, setMovementTypeFilter] = useState<InventoryMovementType | "">("");
@@ -74,14 +75,24 @@ export function InventoryPage() {
   const mutations = useLabsInventoryMutations();
 
   const branchOptions = useMemo(
-    () => branches.data?.map((branch) => ({ label: branch.name, value: branch.id })) ?? [],
-    [branches.data]
+    () =>
+      branches.data
+        ?.filter((branch) => !branchId || branch.id === branchId)
+        .map((branch) => ({ label: branch.name, value: branch.id })) ?? [],
+    [branchId, branches.data]
   );
   const supplierOptions = useMemo(
     () => suppliers.data?.map((supplier) => ({ label: supplier.name, value: supplier.id })) ?? [],
     [suppliers.data]
   );
   const selectedMovementItem = activeItems.data?.find((item) => item.id === movementForm.inventoryItemId) ?? null;
+
+  useEffect(() => {
+    if (!movementForm.inventoryItemId || !activeItems.data) return;
+    if (!activeItems.data.some((item) => item.id === movementForm.inventoryItemId)) {
+      setMovementForm((current) => ({ ...current, inventoryItemId: "" }));
+    }
+  }, [activeItems.data, movementForm.inventoryItemId]);
 
   const setView = (next: string) => {
     const nextParams = new URLSearchParams(params);
@@ -138,7 +149,7 @@ export function InventoryPage() {
           <label className="text-sm text-slate-700 xl:w-72">
             Sucursal
             <Select value={branchId} onChange={(event) => setBranchId(event.target.value)}>
-              <option value="">Todas las sucursales</option>
+              <option value="">Sucursal activa</option>
               {branches.data?.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {branch.name}
@@ -218,7 +229,7 @@ export function InventoryPage() {
                 unit: String(form.unit || ""),
                 stock: Number(form.stock || 0),
                 minStock: Number(form.minStock || 0),
-                branchId: String(form.branchId || ""),
+                branchId: String(form.branchId || branchId),
                 supplierId: form.supplierId ? String(form.supplierId) : undefined
               }),
               getId: (row) => row.id

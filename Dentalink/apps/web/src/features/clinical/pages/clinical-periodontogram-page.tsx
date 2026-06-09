@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useParams } from "react-router-dom";
 import { Printer } from "lucide-react";
@@ -8,7 +8,9 @@ import { DataTable } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { EmptyState } from "@/components/feedback/empty-state";
+import { usePatient } from "@/features/patients/hooks/use-patients";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
+import { useBranchStore } from "@/stores/branch.store";
 import { ClinicalShell } from "../components/clinical-shell";
 import { PeriodontalComparison } from "../components/periodontal-comparison";
 import { PeriodontalChartTable } from "../components/periodontal-chart-table";
@@ -42,7 +44,10 @@ function serializeMeasurements(measurements: PeriodontalMeasurement[]) {
 
 export function ClinicalPeriodontogramPage() {
   const { id = "" } = useParams();
-  const professionals = useProfessionals(undefined, "true");
+  const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const patient = usePatient(id);
+  const branchId = patient.data?.branchId ?? activeBranchId;
+  const professionals = useProfessionals(undefined, "true", { branchId: branchId || undefined, pageSize: 100 });
   const charts = usePeriodontalCharts(id);
   const mutations = useClinicalMutations(id);
 
@@ -71,6 +76,12 @@ export function ClinicalPeriodontogramPage() {
       ),
     [measurements]
   );
+
+  useEffect(() => {
+    if (!professionalId || !professionals.data) return;
+    const isVisible = professionals.data.some((professional) => professional.id === professionalId);
+    if (!isVisible) setProfessionalId("");
+  }, [professionalId, professionals.data]);
 
   const loadChart = (chart: PeriodontalChart) => {
     setLoadedChartId(chart.id);

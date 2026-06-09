@@ -16,6 +16,7 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import {
+  ChangeTreatmentPlanBranchDto,
   CreateAlternativeDto,
   CreateBudgetDto,
   CreateTreatmentPlanDto,
@@ -57,6 +58,12 @@ export class TreatmentPlansController {
   @RequirePermissions("treatment_plans.update")
   updateTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateTreatmentPlanDto) {
     return this.service.updateTreatmentPlan(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/change-branch")
+  @RequirePermissions("patients.update", "treatment_plans.update")
+  changeBranch(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: ChangeTreatmentPlanBranchDto) {
+    return this.service.changeBranch(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/sections")

@@ -1,10 +1,9 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, ShieldCheck } from "lucide-react";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
-import { cn } from "@/lib/utils/cn";
+import { getPermissionDescription, getPermissionLabel } from "@/features/settings/permissions/permission-labels";
 import type { PermissionListItem } from "@/features/settings/permissions/services/permissions.service";
-
-// ─── Tipos ──────────────────────────────────────────────────────────────────
+import { cn } from "@/lib/utils/cn";
 
 type PermissionChecklistProps = {
   allPermissions: PermissionListItem[];
@@ -13,61 +12,60 @@ type PermissionChecklistProps = {
   readonly?: boolean;
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 const MODULE_LABELS: Record<string, string> = {
+  accounts_receivable: "Cuentas por cobrar",
   agenda: "Agenda",
   appointments: "Citas",
-  patients: "Pacientes",
-  clinical: "Clínica",
-  payments: "Pagos / Cobranzas",
-  cash_register: "Caja",
-  collections: "Cobranzas",
-  accounts_receivable: "Cuentas por cobrar",
-  installments: "Cuotas",
-  reports: "Reportes",
-  users: "Usuarios",
-  roles: "Perfiles",
-  settings: "Configuración",
   branches: "Sucursales",
-  professionals: "Profesionales",
-  specialties: "Especialidades",
-  schedules: "Horarios",
-  chairs: "Sillones",
-  payment_methods: "Métodos de pago",
-  procedures: "Procedimientos",
-  price_lists: "Listas de precio",
-  consent_templates: "Consentimientos",
-  clinical_documents: "Documentos clínicos",
-  lab_providers: "Proveedores de lab.",
-  lab_orders: "Pedidos de lab.",
-  inventory: "Inventario",
   budgets: "Presupuestos",
-  treatment_plans: "Planes de tratamiento",
-  files: "Archivos",
+  cash_register: "Caja",
+  chairs: "Sillones",
+  clinical: "Clinica",
+  clinical_documents: "Documentos clinicos",
+  collections: "Cobranzas",
+  consent_templates: "Consentimientos",
   consents: "Consentimientos",
-  system: "Sistema"
+  files: "Archivos",
+  installments: "Cuotas",
+  inventory: "Inventario",
+  lab_orders: "Ordenes de laboratorio",
+  lab_providers: "Laboratorios",
+  labs: "Laboratorios",
+  payment_methods: "Metodos de pago",
+  payments: "Pagos / Cobranzas",
+  permissions: "Permisos",
+  price_lists: "Listas de precio",
+  procedure_categories: "Categorias de procedimientos",
+  procedures: "Procedimientos",
+  professionals: "Profesionales",
+  reports: "Reportes",
+  roles: "Perfiles",
+  schedules: "Horarios",
+  settings: "Configuracion",
+  specialties: "Especialidades",
+  suppliers: "Proveedores",
+  system: "Sistema",
+  treatment_plans: "Planes de tratamiento",
+  users: "Usuarios"
 };
 
-function getModuleLabel(module: string): string {
-  return MODULE_LABELS[module] ?? module.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+function getModuleLabel(module: string) {
+  return MODULE_LABELS[module] ?? module.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-// ─── Subcomponente: fila de permiso individual ────────────────────────────────
-
 function PermissionRow({
-  permission,
   checked,
-  readonly,
-  onToggle
+  onToggle,
+  permission,
+  readonly
 }: {
-  permission: PermissionListItem;
   checked: boolean;
-  readonly: boolean;
   onToggle: () => void;
+  permission: PermissionListItem;
+  readonly: boolean;
 }) {
-  const label = permission.name ?? permission.key ?? permission.code ?? permission.action;
-  const description = permission.description;
+  const label = getPermissionLabel(permission);
+  const description = getPermissionDescription(permission);
 
   return (
     <label
@@ -77,31 +75,21 @@ function PermissionRow({
         readonly && "cursor-default"
       )}
     >
-      {/* Checkbox visual circular */}
       <span
         onClick={readonly ? undefined : onToggle}
         className={cn(
           "relative flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2 transition-all duration-150",
-          checked
-            ? "border-emerald-500 bg-emerald-500"
-            : "border-slate-300 bg-white group-hover:border-slate-400"
+          checked ? "border-emerald-500 bg-emerald-500" : "border-slate-300 bg-white group-hover:border-slate-400"
         )}
         aria-hidden="true"
       >
-        {checked && (
+        {checked ? (
           <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 12 12" fill="none">
-            <path
-              d="M2 6l3 3 5-5"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-        )}
+        ) : null}
       </span>
 
-      {/* Input real oculto para accesibilidad */}
       <input
         type="checkbox"
         className="sr-only"
@@ -111,118 +99,100 @@ function PermissionRow({
         aria-label={label}
       />
 
-      {/* Texto del permiso */}
-      <span className="flex-1 text-sm text-slate-700 leading-snug">{label}</span>
+      <span className="flex-1 text-sm leading-snug text-slate-700">{label}</span>
 
-      {/* Tooltip de descripción */}
-      {description ? (
-        <HelpTooltip content={description} position="left" />
-      ) : null}
+      {description ? <HelpTooltip content={description} position="left" /> : null}
     </label>
   );
 }
 
-// ─── Subcomponente: sección por módulo ────────────────────────────────────────
-
 function ModuleSection({
   module,
-  permissions,
-  selectedIds,
-  readonly,
   onToggle,
-  onToggleAll
+  onToggleAll,
+  permissions,
+  readonly,
+  selectedIds
 }: {
   module: string;
-  permissions: PermissionListItem[];
-  selectedIds: string[];
-  readonly: boolean;
   onToggle: (id: string) => void;
   onToggleAll: (ids: string[], checked: boolean) => void;
+  permissions: PermissionListItem[];
+  readonly: boolean;
+  selectedIds: string[];
 }) {
   const [open, setOpen] = useState(true);
-  const moduleIds = permissions.map((p) => p.id);
-  const activeCount = permissions.filter((p) => selectedIds.includes(p.id)).length;
+  const moduleIds = permissions.map((permission) => permission.id);
+  const activeCount = permissions.filter((permission) => selectedIds.includes(permission.id)).length;
   const allSelected = activeCount === permissions.length;
   const someSelected = activeCount > 0 && !allSelected;
   const label = getModuleLabel(module);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-      {/* Cabecera del módulo */}
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
       <div
         className={cn(
-          "flex items-center gap-3 px-4 py-3 select-none",
+          "flex select-none items-center gap-3 px-4 py-3",
           !readonly && "cursor-pointer hover:bg-slate-50",
           readonly && "cursor-default"
         )}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen((value) => !value)}
       >
-        {/* Indicador color */}
         <span
           className={cn(
             "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
-            activeCount > 0
-              ? "bg-emerald-100 text-emerald-600"
-              : "bg-slate-100 text-slate-400"
+            activeCount > 0 ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-400"
           )}
         >
           <ShieldCheck className="h-4 w-4" />
         </span>
 
-        {/* Nombre del módulo */}
         <span className="flex-1 text-sm font-semibold text-slate-800">{label}</span>
 
-        {/* Badge conteo */}
         <span
           className={cn(
             "rounded-full px-2.5 py-0.5 text-xs font-medium",
-            activeCount > 0
-              ? "bg-emerald-100 text-emerald-700"
-              : "bg-slate-100 text-slate-500"
+            activeCount > 0 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
           )}
         >
           {activeCount}/{permissions.length}
         </span>
 
-        {/* Checkbox "seleccionar todos" */}
-        {!readonly && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleAll(moduleIds, !allSelected);
-            }}
-            className={cn(
-              "relative flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border-2 transition-all",
-              allSelected
-                ? "border-emerald-500 bg-emerald-500"
-                : someSelected
-                  ? "border-emerald-400 bg-emerald-100"
-                  : "border-slate-300 bg-white hover:border-slate-400"
-            )}
-            title={allSelected ? "Desmarcar todos" : "Marcar todos"}
-            aria-label={`${allSelected ? "Desmarcar" : "Marcar"} todos los permisos de ${label}`}
-          >
-            {allSelected && (
-              <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 12 12" fill="none">
-                <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            )}
-            {someSelected && !allSelected && (
-              <span className="block h-[2px] w-2.5 rounded bg-emerald-600" />
-            )}
-          </button>
-        )}
+        {!readonly ? (
+          <HelpTooltip content={allSelected ? "Desmarcar todos los permisos del modulo." : "Marcar todos los permisos del modulo."} position="left">
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleAll(moduleIds, !allSelected);
+              }}
+              className={cn(
+                "relative flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border-2 transition-all",
+                allSelected
+                  ? "border-emerald-500 bg-emerald-500"
+                  : someSelected
+                    ? "border-emerald-400 bg-emerald-100"
+                    : "border-slate-300 bg-white hover:border-slate-400"
+              )}
+              aria-label={`${allSelected ? "Desmarcar" : "Marcar"} todos los permisos de ${label}`}
+            >
+              {allSelected ? (
+                <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 12 12" fill="none">
+                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              ) : null}
+              {someSelected && !allSelected ? <span className="block h-[2px] w-2.5 rounded bg-emerald-600" /> : null}
+            </button>
+          </HelpTooltip>
+        ) : null}
 
-        {/* Chevron */}
         <span className="text-slate-400 transition-transform duration-200">
           {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
         </span>
       </div>
 
-      {/* Lista de permisos */}
-      {open && (
-        <div className="border-t border-slate-100 px-3 py-2 space-y-0.5">
+      {open ? (
+        <div className="space-y-0.5 border-t border-slate-100 px-3 py-2">
           {permissions.map((permission) => (
             <PermissionRow
               key={permission.id}
@@ -233,43 +203,30 @@ function ModuleSection({
             />
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
 
-// ─── Componente principal ─────────────────────────────────────────────────────
-
-export function PermissionChecklist({
-  allPermissions,
-  selectedIds,
-  onChange,
-  readonly = false
-}: PermissionChecklistProps) {
-  // Agrupar por módulo, ordenados alfabéticamente
+export function PermissionChecklist({ allPermissions, onChange, readonly = false, selectedIds }: PermissionChecklistProps) {
   const grouped = useMemo(() => {
     const map = new Map<string, PermissionListItem[]>();
     for (const permission of allPermissions) {
-      const key = permission.module;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(permission);
+      if (!map.has(permission.module)) map.set(permission.module, []);
+      map.get(permission.module)!.push(permission);
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    return Array.from(map.entries()).sort(([left], [right]) => left.localeCompare(right));
   }, [allPermissions]);
 
   const handleToggle = (id: string) => {
     if (readonly) return;
-    const next = selectedIds.includes(id)
-      ? selectedIds.filter((s) => s !== id)
-      : [...selectedIds, id];
+    const next = selectedIds.includes(id) ? selectedIds.filter((selectedId) => selectedId !== id) : [...selectedIds, id];
     onChange(next);
   };
 
   const handleToggleAll = (ids: string[], selectAll: boolean) => {
     if (readonly) return;
-    const next = selectAll
-      ? [...new Set([...selectedIds, ...ids])]
-      : selectedIds.filter((id) => !ids.includes(id));
+    const next = selectAll ? [...new Set([...selectedIds, ...ids])] : selectedIds.filter((id) => !ids.includes(id));
     onChange(next);
   };
 

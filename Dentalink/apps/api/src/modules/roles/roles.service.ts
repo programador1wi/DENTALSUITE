@@ -53,11 +53,12 @@ export class RolesService {
     await this.validatePermissions(dto.permissionIds);
 
     const role = await this.prisma.$transaction(async (tx) => {
+      const code = await this.generateRoleCode(actor.organizationId, dto.name);
       const created = await tx.role.create({
         data: {
           organizationId: actor.organizationId,
           name: dto.name.trim(),
-          code: this.normalizeCode(dto.code),
+          code,
           description: dto.description?.trim(),
           createdById: actor.id
         }
@@ -90,10 +91,13 @@ export class RolesService {
       where: { id, deletedAt: null, ...this.organizationScope(actor) }
     });
     if (!current) throw new NotFoundException("Role not found");
-    if (current.isSystem && dto.isActive === false) {
-      throw new BadRequestException("System roles cannot be deactivated");
+    if (this.isSuperAdminRole(current)) {
+      throw new BadRequestException("Super admin role cannot be edited");
     }
     if (dto.permissionIds) await this.validatePermissions(dto.permissionIds);
+    if (current.isActive && dto.isActive === false) {
+      await this.assertRoleNotAssignedToActiveUsers(id);
+    }
 
     await this.prisma.$transaction(async (tx) => {
       await tx.role.update({
@@ -131,10 +135,7 @@ export class RolesService {
   }
 
   async deactivate(actor: AuthUser, id: string) {
-    const usersWithRole = await this.prisma.user.count({ where: { roleId: id, deletedAt: null, status: "ACTIVE" } });
-    if (usersWithRole > 0) {
-      throw new BadRequestException("Cannot deactivate a role assigned to active users");
-    }
+    await this.assertRoleNotAssignedToActiveUsers(id);
     return this.update(actor, id, { isActive: false });
   }
 
@@ -153,7 +154,49 @@ export class RolesService {
   }
 
   private normalizeCode(code: string) {
-    return code.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_");
+    const normalized = code
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+
+    return normalized || "perfil";
+  }
+
+  private async assertRoleNotAssignedToActiveUsers(roleId: string) {
+    const usersWithRole = await this.prisma.user.count({ where: { roleId, deletedAt: null, status: "ACTIVE" } });
+    if (usersWithRole > 0) {
+      throw new BadRequestException("Cannot deactivate a role assigned to active users");
+    }
+  }
+
+  private isSuperAdminRole(role: { code: string | null; name: string }) {
+    return role.code === "super_admin" || role.name === "SUPER_ADMIN";
+  }
+
+  private async generateRoleCode(organizationId: string, name: string) {
+    const base = this.normalizeCode(name);
+    const existing = await this.prisma.role.findMany({
+      where: {
+        organizationId,
+        code: {
+          startsWith: base
+        }
+      },
+      select: { code: true }
+    });
+    const used = new Set(existing.map((role) => role.code).filter(Boolean));
+
+    if (!used.has(base)) return base;
+
+    let suffix = 2;
+    let candidate = `${base}_${suffix}`;
+    while (used.has(candidate)) {
+      suffix += 1;
+      candidate = `${base}_${suffix}`;
+    }
+
+    return candidate;
   }
 
   private includeRelations() {

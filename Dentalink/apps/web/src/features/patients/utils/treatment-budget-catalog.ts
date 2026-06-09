@@ -1,0 +1,78 @@
+import type { PriceList, PriceListItem } from "@/features/settings/price-lists/services/price-lists.service";
+
+export const UNCATEGORIZED_BUDGET_CATEGORY_ID = "__uncategorized__";
+
+export type TreatmentBudgetCatalogCategory = {
+  id: string;
+  name: string;
+  description?: string | null;
+  items: PriceListItem[];
+  isUncategorized?: boolean;
+};
+
+function isPricedProcedureItem(item: PriceListItem) {
+  return Boolean(item.procedure?.isActive && item.price !== null && item.price !== undefined);
+}
+
+function uniqueItems(items: PriceListItem[]) {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+}
+
+export function buildTreatmentBudgetCatalog(priceList: PriceList | null): TreatmentBudgetCatalogCategory[] {
+  if (!priceList) return [];
+
+  const categories = (priceList.categories ?? []).filter((category) => category.isActive).sort((a, b) => a.sortOrder - b.sortOrder);
+  const activeItems = (priceList.items ?? []).filter(isPricedProcedureItem);
+  const itemsByCategoryId = new Map<string, PriceListItem[]>();
+  const usedItemIds = new Set<string>();
+
+  activeItems.forEach((item) => {
+    if (!item.priceListCategoryId) return;
+    const rows = itemsByCategoryId.get(item.priceListCategoryId) ?? [];
+    rows.push(item);
+    itemsByCategoryId.set(item.priceListCategoryId, rows);
+  });
+
+  const catalog: TreatmentBudgetCatalogCategory[] = categories.map((category) => {
+    const directItems = itemsByCategoryId.get(category.id) ?? [];
+    const nestedItems = (category.items ?? []).filter(isPricedProcedureItem);
+    const items = uniqueItems([...directItems, ...nestedItems]);
+    items.forEach((item) => usedItemIds.add(item.id));
+    return { id: category.id, name: category.name, description: category.description, items };
+  });
+
+  const uncategorizedItems = activeItems.filter((item) => !usedItemIds.has(item.id));
+  if (uncategorizedItems.length) {
+    catalog.push({
+      id: UNCATEGORIZED_BUDGET_CATEGORY_ID,
+      name: "Sin categoria",
+      items: uncategorizedItems,
+      isUncategorized: true
+    });
+  }
+
+  return catalog;
+}
+
+export function budgetCatalogCategoryMatchesSearch(category: TreatmentBudgetCatalogCategory, search: string) {
+  const term = search.trim().toLowerCase();
+  if (!term) return true;
+  return (
+    category.name.toLowerCase().includes(term) ||
+    category.items.some((item) => budgetCatalogItemMatchesSearch(item, term))
+  );
+}
+
+export function budgetCatalogItemMatchesSearch(item: PriceListItem, search: string) {
+  const term = search.trim().toLowerCase();
+  if (!term) return true;
+  const procedure = item.procedure;
+  return [procedure.code, procedure.name, String(procedure.displayId), procedure.description ?? ""].some((value) =>
+    value.toLowerCase().includes(term)
+  );
+}

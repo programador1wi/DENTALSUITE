@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -57,7 +58,7 @@ function finalizedMatches(row: FinalizedPayroll, search: string) {
 export function PayrollSettingsPage() {
   const [view, setView] = useState<PayrollView>("active");
   const [search, setSearch] = useState("");
-  const [branchId, setBranchId] = useState("");
+  const { branchId, setBranchId } = useActiveBranchFilter();
   const branches = useBranches(undefined, "ACTIVE");
   const payroll = usePayroll(branchId || undefined);
   const finalized = useFinalizedPayroll(branchId || undefined);
@@ -159,7 +160,7 @@ export function PayrollSettingsPage() {
           <label className="text-sm text-slate-700 xl:w-72">
             Sucursal
             <Select value={branchId} onChange={(event) => setBranchId(event.target.value)}>
-              <option value="">Todas las sucursales</option>
+              <option value="">Sucursal activa</option>
               {branches.data?.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {branch.name}

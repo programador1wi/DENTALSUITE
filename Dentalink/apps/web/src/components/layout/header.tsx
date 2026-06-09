@@ -64,7 +64,6 @@ export function Header({
     const term = nextSearch.trim();
     if (!term) return;
     const params = new URLSearchParams({ search: term });
-    if (activeBranchId) params.set("branchId", activeBranchId);
     navigate(`/patients?${params.toString()}`);
     setGlobalSearch("");
   };

@@ -1258,20 +1258,24 @@ model ClinicalEvolution {
 }
 
 model Prescription {
-  id             String             @id @default(cuid())
-  patientId      String
-  patient        Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  professionalId String
-  professional   Professional       @relation(fields: [professionalId], references: [id], onDelete: Restrict)
-  appointmentId  String?
-  appointment    Appointment?       @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-  diagnosis      String?
-  notes          String?
-  items          PrescriptionItem[]
-  createdAt      DateTime           @default(now())
+  id              String             @id @default(cuid())
+  patientId       String
+  patient         Patient            @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  professionalId  String
+  professional    Professional       @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  appointmentId   String?
+  appointment     Appointment?       @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  treatmentPlanId String?
+  treatmentPlan   TreatmentPlan?     @relation(fields: [treatmentPlanId], references: [id], onDelete: SetNull)
+  status          String             @default("ACTIVE")
+  diagnosis       String?
+  notes           String?
+  items           PrescriptionItem[]
+  createdAt       DateTime           @default(now())
 
   @@index([patientId, createdAt])
   @@index([professionalId])
+  @@index([treatmentPlanId])
 }
 
 model PrescriptionItem {
@@ -1463,6 +1467,7 @@ model TreatmentPlan {
   collectionCases       CollectionCase[]
   consents              Consent[]
   labOrders             LabOrder[]
+  prescriptions         Prescription[]
   acceptedAt            DateTime?
   completedAt           DateTime?
   createdAt             DateTime                   @default(now())

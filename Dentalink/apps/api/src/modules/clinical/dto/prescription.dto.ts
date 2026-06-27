@@ -38,6 +38,14 @@ export class CreatePrescriptionDto {
   @IsString()
   notes?: string;
 
+  @IsOptional()
+  @IsString()
+  treatmentPlanId?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => PrescriptionItemDto)

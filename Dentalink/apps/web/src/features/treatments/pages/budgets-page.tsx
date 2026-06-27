@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -35,7 +36,7 @@ export function BudgetsPage() {
         helpText="Los presupuestos son propuestas económicas de tratamientos clínicos que se envían al paciente. Desde aquí puedes enviar planes por correo, registrar la aceptación, marcarlos como rechazados o imprimirlos en formato físico formal."
       />
 
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-3">
+      <Card className="grid gap-[var(--space-4)] md:grid-cols-3">
         <div className="flex items-center gap-1.5">
           <Input
             placeholder="Filtrar por pacienteId"
@@ -61,7 +62,7 @@ export function BudgetsPage() {
           </Select>
           <HelpTooltip content="Filtra los presupuestos por su estado en el ciclo de vida: DRAFT (Borrador sin enviar), SENT (Enviado al paciente), ACCEPTED (Aprobado), REJECTED (Rechazado por el paciente), EXPIRED (Venció sin respuesta), CANCELLED (Cancelado por la clínica)." />
         </div>
-      </div>
+      </Card>
 
       <DataTable
         rows={budgets.data ?? []}
@@ -72,8 +73,8 @@ export function BudgetsPage() {
             title: "Presupuesto",
             render: (row) => (
               <div>
-                <p className="font-medium text-slate-900">{row.id.slice(0, 10)}</p>
-                <p className="text-xs text-slate-500">{row.patient.firstName} {row.patient.lastName}</p>
+                <p className="font-[var(--weight-medium)] text-[var(--text-primary)]">{row.id.slice(0, 10)}</p>
+                <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">{row.patient.firstName} {row.patient.lastName}</p>
               </div>
             )
           },
@@ -88,11 +89,11 @@ export function BudgetsPage() {
             render: (row) => (
               <div className="flex flex-col items-start gap-0.5">
                 {Number(row.discountTotal) > 0 && (
-                  <span className="text-xs text-slate-400 line-through">
+                  <span className="text-[var(--text-xs)] text-[var(--text-secondary)] opacity-80 line-through">
                     ${Number(row.subtotal).toLocaleString()}
                   </span>
                 )}
-                <span className="font-medium text-slate-900">
+                <span className="font-[var(--weight-medium)] text-[var(--text-primary)]">
                   ${Number(row.total).toLocaleString()}
                 </span>
                 {Number(row.discountTotal) > 0 && (

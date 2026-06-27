@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { CheckCircle2, Info, Plus, Printer, Stethoscope, X } from "lucide-react";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { DataTable } from "@/components/ui/data-table";
 import { cn } from "@/lib/utils/cn";
 import { useOdontogramStore, type OdontogramContextMenu, type OdontogramTool } from "@/stores/odontogram.store";
 import type { OdontogramRecord, ToothCondition, ToothProcedure } from "../services/clinical.service";
@@ -420,23 +421,23 @@ function OdontogramContextMenuView({
   const position = contextMenuPosition(menu);
   const targetLabel = selectedCount > 1 ? `${selectedCount} piezas` : `pieza ${fdiLabel(menu.toothNumber)}`;
   const procedureEnabled = mode === "treatment-plan";
-  const itemClass = "flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white";
+  const itemClass = "flex w-full items-center gap-2 px-3 py-2.5 text-left text-[var(--text-sm)] text-[var(--text-primary)] transition-[background-color,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:bg-[var(--bg-subtle)] disabled:cursor-not-allowed disabled:text-[var(--border-strong)] disabled:hover:bg-transparent";
 
   return (
     <div className="fixed inset-0 z-40" role="presentation" onMouseDown={onClose}>
       <div
         role="menu"
         aria-label={`Opciones de pieza ${fdiLabel(menu.toothNumber)}`}
-        className="fixed w-[248px] overflow-hidden rounded-sm border border-slate-200 bg-white text-sm shadow-[0_12px_26px_rgba(15,23,42,0.22)]"
+        className="fixed w-[248px] overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-sm)] shadow-[var(--shadow-modal)]"
         style={{ left: position.left, top: position.top }}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <header className="flex items-start justify-between gap-2 bg-[#0789d4] px-3 py-3 text-white">
+        <header className="flex items-start justify-between gap-2 bg-[var(--bg-nav)] px-3 py-3 text-[var(--text-inverse)]">
           <div>
             <p className="text-sm font-bold">Opciones</p>
-            <p className="mt-0.5 text-xs text-sky-100">Aplicar estos cambios a {targetLabel}</p>
+            <p className="mt-0.5 text-xs text-[rgba(248,250,252,0.65)]">Aplicar estos cambios a {targetLabel}</p>
           </div>
-          <button type="button" aria-label="Cerrar opciones" className="rounded p-0.5 text-white/85 hover:bg-white/10 hover:text-white" onClick={onClose}>
+          <button type="button" aria-label="Cerrar opciones" className="rounded-[var(--radius-sm)] p-0.5 text-[rgba(248,250,252,0.85)] hover:bg-[rgba(255,255,255,0.1)] hover:text-[var(--text-inverse)]" onClick={onClose}>
             <X className="h-4 w-4" />
           </button>
         </header>
@@ -594,28 +595,28 @@ export function OdontogramView({
   };
   const toolButtonClass = (tool: OdontogramTool) =>
     cn(
-      "inline-flex h-9 items-center gap-1 rounded border px-3 font-bold transition-colors disabled:opacity-55",
+      "inline-flex h-9 items-center gap-1 rounded-[var(--radius-md)] border px-3 font-[var(--weight-bold)] transition-[background-color,border-color,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] disabled:opacity-40",
       activeTool === tool
-        ? "border-[#0879d5] bg-[#0879d5] text-white"
+        ? "border-[var(--action-brand)] bg-[var(--action-brand)] text-[var(--text-inverse)] hover:bg-[var(--action-brand-hover)]"
         : selectedTooth && (tool === "procedure" || tool === "info")
-          ? "border-[#b9dcfb] bg-[#eaf4ff] text-[#0879d5]"
-          : "border-transparent bg-slate-100 text-slate-700"
+          ? "border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] text-[var(--text-brand)] hover:bg-[var(--border-brand-light)]"
+          : "border-transparent bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
     );
 
   return (
-    <section className="border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#0b8c89] px-4 py-3">
+    <section className="border-[0.5px] border-[var(--border-default)] rounded-[var(--radius-lg)] bg-[var(--bg-surface)] overflow-hidden shadow-[var(--shadow-card-hover)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3">
         <div className="flex items-center gap-4 text-sm">
           <button
             type="button"
-            className={cn("border-b-2 px-1 pb-2", dentition === "permanent" ? "border-[#0879d5] text-slate-900" : "border-transparent text-slate-500")}
+            className={cn("border-b-2 px-1 pb-2", dentition === "permanent" ? "border-[var(--text-brand)] text-[var(--text-primary)] font-[var(--weight-bold)]" : "border-transparent text-[var(--text-secondary)]")}
             onClick={() => setDentition("permanent")}
           >
             Permanente
           </button>
           <button
             type="button"
-            className={cn("border-b-2 px-1 pb-2", dentition === "temporal" ? "border-[#0879d5] text-slate-900" : "border-transparent text-slate-500")}
+            className={cn("border-b-2 px-1 pb-2", dentition === "temporal" ? "border-[var(--text-brand)] text-[var(--text-primary)] font-[var(--weight-bold)]" : "border-transparent text-[var(--text-secondary)]")}
             onClick={() => setDentition("temporal")}
           >
             Temporal
@@ -655,12 +656,17 @@ export function OdontogramView({
           </button>
           <button
             type="button"
-            className={cn("h-9 rounded px-3 text-slate-700", showOnlyDiagnosis ? "bg-[#d8eef8] font-semibold" : "bg-slate-100")}
+            className={cn(
+              "h-9 rounded-[var(--radius-md)] px-3 text-[var(--text-sm)] transition-[background-color,border-color,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] border",
+              showOnlyDiagnosis
+                ? "bg-[var(--bg-brand-light)] border-[var(--border-brand-light)] text-[var(--text-brand-strong)] font-[var(--weight-bold)]"
+                : "bg-[var(--bg-subtle)] border-transparent text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
+            )}
             onClick={toggleShowOnlyDiagnosis}
           >
             Ver solo diagnostico
           </button>
-          <button type="button" className="grid h-9 w-9 place-items-center rounded bg-slate-100 text-slate-700">
+          <button type="button" className="grid h-9 w-9 place-items-center rounded-[var(--radius-md)] bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:bg-[var(--border-default)] transition-colors">
             <Printer className="h-4 w-4" />
           </button>
         </div>
@@ -706,51 +712,64 @@ export function OdontogramView({
         </div>
       </div>
 
-      {showHistoryTable ? <div className="overflow-x-auto border-t border-slate-200">
-        <table className="w-full min-w-[780px] border-collapse text-sm">
-          <thead>
-            <tr className="bg-white text-left">
-              <th className="border border-slate-200 px-3 py-3 font-bold">Fecha</th>
-              <th className="border border-slate-200 px-3 py-3 font-bold">Pieza</th>
-              <th className="border border-slate-200 px-3 py-3 font-bold">Caras</th>
-              <th className="border border-slate-200 px-3 py-3 font-bold">Estado</th>
-              <th className="border border-slate-200 px-3 py-3 font-bold">Creador</th>
-              <th className="border border-slate-200 px-3 py-3 font-bold">Anular</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length ? (
-              rows.map((row) => (
-                <tr key={row.id} className="align-top">
-                  <td className="border border-slate-200 px-3 py-3">{formatDate(row.date)}</td>
-                  <td className="border border-slate-200 px-3 py-3">{row.tooth}</td>
-                  <td className="border border-slate-200 px-3 py-3">{row.surface}</td>
-                  <td className="border border-slate-200 px-3 py-3">
-                    <p>{row.status}</p>
-                    {row.detail ? <p className="mt-1 uppercase text-slate-400">{row.detail}</p> : null}
-                  </td>
-                  <td className="border border-slate-200 px-3 py-3">{row.creator}</td>
-                  <td className="border border-slate-200 px-3 py-3">
-                    {row.recordId && onCancelRecord ? (
-                      <button type="button" className="rounded bg-orange-400 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-500" onClick={() => onCancelRecord(row.recordId)}>
-                        Anular
-                      </button>
-                    ) : (
-                      <span className="text-slate-300">-</span>
-                    )}
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={6} className="border border-slate-200 px-3 py-8 text-center text-slate-500">
-                  Sin diagnosticos registrados.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div> : null}
+      {showHistoryTable ? (
+        <div className="border-t border-[var(--border-default)]">
+          <DataTable
+            rows={rows as any}
+            empty={
+              <div className="p-[var(--space-8)] text-center text-[var(--text-secondary)]">
+                Sin diagnosticos registrados.
+              </div>
+            }
+            columns={[
+              {
+                key: "date",
+                title: "Fecha",
+                render: (row: any) => formatDate(row.date)
+              },
+              {
+                key: "tooth",
+                title: "Pieza"
+              },
+              {
+                key: "surface",
+                title: "Caras"
+              },
+              {
+                key: "status",
+                title: "Estado",
+                render: (row: any) => (
+                  <div>
+                    <p className="font-[var(--weight-medium)] text-[var(--text-primary)]">{row.status}</p>
+                    {row.detail ? <p className="mt-1 text-[var(--text-xs)] uppercase text-[var(--text-secondary)]">{row.detail}</p> : null}
+                  </div>
+                )
+              },
+              {
+                key: "creator",
+                title: "Creador"
+              },
+              {
+                key: "recordId",
+                title: "Anular",
+                render: (row: any) => (
+                  row.recordId && onCancelRecord ? (
+                    <button
+                      type="button"
+                      className="rounded-[var(--radius-sm)] bg-[var(--status-danger-text)] px-2.5 py-1 text-[var(--text-xs)] font-[var(--weight-bold)] text-[var(--text-inverse)] hover:opacity-90 transition-opacity"
+                      onClick={() => onCancelRecord(row.recordId)}
+                    >
+                      Anular
+                    </button>
+                  ) : (
+                    <span className="text-[var(--border-strong)]">-</span>
+                  )
+                )
+              }
+            ]}
+          />
+        </div>
+      ) : null}
 
       <OdontogramContextMenuView
         menu={contextMenu}

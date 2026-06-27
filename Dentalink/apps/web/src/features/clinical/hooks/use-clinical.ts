@@ -24,6 +24,7 @@ import {
   listEvolutions,
   listPrescriptions,
   printPrescription,
+  updatePrescriptionStatus,
   signEvolution,
   updateToothProcedureStatus,
   upsertMedicalHistory,
@@ -111,6 +112,11 @@ export function useClinicalMutations(patientId: string) {
     }),
     createPrescription: useMutation({ mutationFn: (payload: Record<string, unknown>) => createPrescription(patientId, payload), ...options }),
     printPrescription: useMutation({ mutationFn: (prescriptionId: string) => printPrescription(patientId, prescriptionId), ...options }),
+    updatePrescriptionStatus: useMutation({
+      mutationFn: ({ prescriptionId, status }: { prescriptionId: string; status: string }) =>
+        updatePrescriptionStatus(patientId, prescriptionId, status),
+      ...options
+    }),
     createDocumentFromTemplate: useMutation({ mutationFn: (payload: { templateId: string; title: string }) => createDocumentFromTemplate(patientId, payload), ...options }),
     createDocumentTemplate: useMutation({
       mutationFn: (payload: { name: string; description?: string; content: string }) => createDocumentTemplate(patientId, payload),

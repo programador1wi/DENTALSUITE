@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsOptional, IsString } from "class-validator";
 
 export class CreateClinicalEvolutionDto {
   @IsOptional()
@@ -31,6 +31,10 @@ export class CreateClinicalEvolutionDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrivate?: boolean;
 }
 
 export class UpdateClinicalEvolutionDto extends CreateClinicalEvolutionDto {}
@@ -41,4 +45,8 @@ export class CreateClinicalEvolutionAddendumDto {
 
   @IsString()
   notes!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isPrivate?: boolean;
 }

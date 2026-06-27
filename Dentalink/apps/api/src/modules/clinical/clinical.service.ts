@@ -221,7 +221,7 @@ export class ClinicalService {
     await this.ensurePatient(actor, patientId);
     return this.prisma.prescription.findMany({
       where: { patientId },
-      include: { professional: true, appointment: true, items: true },
+      include: { professional: true, appointment: true, treatmentPlan: true, items: true },
       orderBy: { createdAt: "desc" }
     });
   }
@@ -237,6 +237,8 @@ export class ClinicalService {
         patientId,
         professionalId: dto.professionalId,
         appointmentId: dto.appointmentId,
+        treatmentPlanId: dto.treatmentPlanId,
+        status: dto.status || "ACTIVE",
         diagnosis: dto.diagnosis?.trim(),
         notes: dto.notes?.trim(),
         items: {
@@ -253,6 +255,23 @@ export class ClinicalService {
     });
     await this.audit(actor, patientId, "create_prescription", prescription);
     return prescription;
+  }
+
+  async updatePrescriptionStatus(actor: AuthUser, patientId: string, prescriptionId: string, status: string) {
+    await this.ensurePatient(actor, patientId);
+    const existing = await this.prisma.prescription.findFirst({
+      where: { id: prescriptionId, patientId }
+    });
+    if (!existing) throw new NotFoundException("Prescription not found");
+
+    const updated = await this.prisma.prescription.update({
+      where: { id: prescriptionId },
+      data: { status },
+      include: { professional: true, items: true }
+    });
+
+    await this.audit(actor, patientId, "update_prescription_status", { prescriptionId, previousStatus: existing.status, newStatus: status });
+    return updated;
   }
 
   async printPrescription(actor: AuthUser, patientId: string, prescriptionId: string) {

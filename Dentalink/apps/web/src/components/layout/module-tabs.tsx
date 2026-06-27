@@ -13,9 +13,9 @@ export function ModuleTabs({ tabs, actions }: { tabs: ModuleTab[]; actions?: Rea
   const location = useLocation();
 
   return (
-    <div className="border-b border-[var(--border-strong)] bg-[var(--bg-surface)]">
-      <div className="flex min-h-[48px] items-stretch justify-between">
-        <div className="flex flex-wrap">
+    <div className="border-b border-[var(--border-default)] bg-white px-2">
+      <div className="flex min-h-[56px] items-center justify-between">
+        <div className="flex flex-wrap items-center gap-1">
           {tabs.map((tab) => {
             const active = location.pathname === tab.to || (tab.activeMatch ? location.pathname.startsWith(tab.activeMatch) : false);
             return (
@@ -23,11 +23,13 @@ export function ModuleTabs({ tabs, actions }: { tabs: ModuleTab[]; actions?: Rea
                 key={tab.to}
                 to={tab.to}
                 className={cn(
-                  "flex items-center gap-[var(--space-2)] border-r border-[var(--border-default)] px-[var(--space-4)] text-[var(--text-base)] text-[var(--text-secondary)] transition-[background-color,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-brand)]",
-                  active && "bg-[var(--bg-brand-light)] text-[var(--text-brand-strong)] shadow-[inset_0_-3px_0_var(--border-brand)]"
+                  "flex items-center gap-[var(--space-2)] rounded-full px-4 py-2 text-sm font-semibold transition-all duration-[var(--duration-fast)] ease-[var(--ease-default)]",
+                  active
+                    ? "bg-[var(--action-primary)] text-white shadow-sm"
+                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                 )}
               >
-                {tab.icon && <span className="text-[var(--text-secondary)]">{tab.icon}</span>}
+                {tab.icon && <span className={active ? "text-white/80" : "text-slate-400"}>{tab.icon}</span>}
                 {tab.label}
               </Link>
             );
@@ -41,7 +43,7 @@ export function ModuleTabs({ tabs, actions }: { tabs: ModuleTab[]; actions?: Rea
 
 export function WarnerSuitePanel({ children, className = "" }: React.PropsWithChildren<{ className?: string }>) {
   return (
-    <section className={`mx-auto max-w-[1150px] border border-[var(--border-default)] bg-[var(--bg-surface)] ${className}`}>
+    <section className={`mx-auto max-w-[1150px] overflow-hidden rounded-2xl border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[0_4px_24px_rgba(4,44,83,0.04)] ${className}`}>
       {children}
     </section>
   );

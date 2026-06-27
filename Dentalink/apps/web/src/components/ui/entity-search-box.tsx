@@ -44,6 +44,7 @@ type EntitySearchBoxProps<T> = {
   inputClassName?: string;
   dropdownClassName?: string;
   onSubmit?: (value: string) => void;
+  headerTitle?: string;
 };
 
 export function EntitySearchBox<T>({
@@ -64,7 +65,8 @@ export function EntitySearchBox<T>({
   className,
   inputClassName,
   dropdownClassName,
-  onSubmit
+  onSubmit,
+  headerTitle
 }: EntitySearchBoxProps<T>) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -74,6 +76,25 @@ export function EntitySearchBox<T>({
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [dropdownPosition, setDropdownPosition] = useState<DropdownPosition | null>(null);
+  const [isMac, setIsMac] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && typeof navigator !== "undefined") {
+      setIsMac(/Mac|iPod|iPhone|iPad/.test(navigator.userAgent));
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: globalThis.KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        inputRef.current?.focus();
+        setOpen(true);
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
 
   useEffect(() => {
     onValueChangeRef.current = onValueChange;
@@ -218,36 +239,74 @@ export function EntitySearchBox<T>({
           <div
             ref={dropdownRef}
             className={cn(
-              "fixed z-[1100] overflow-y-auto rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-1 shadow-[var(--shadow-modal)]",
+              "fixed z-[1100] flex flex-col rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[0_20px_50px_rgba(0,0,0,0.12)] overflow-hidden",
               dropdownClassName
             )}
             style={dropdownStyle}
             role="listbox"
           >
-            {loading ? (
-              <div className="px-3 py-2 text-xs font-medium text-[var(--text-secondary)]">{loadingMessage}</div>
-            ) : visibleItems.length ? (
-              visibleItems.map((item, index) => {
-                const active = index === activeIndex;
-                return (
-                  <button
-                    key={getItemKey(item)}
-                    type="button"
-                    role="option"
-                    aria-selected={active}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => selectItem(item)}
-                    className={cn(
-                      "w-full rounded-[var(--radius-sm)] px-3 py-2 text-left transition-colors",
-                      active ? "bg-[var(--bg-brand-light)]" : "hover:bg-[var(--bg-subtle)]"
-                    )}
-                  >
-                    {renderItem(item, active)}
-                  </button>
-                );
-              })
-            ) : (
-              <div className="px-3 py-2 text-xs font-medium text-[var(--text-secondary)]">{emptyMessage}</div>
+            {visibleItems.length > 0 && !loading && (
+              <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--text-secondary)] border-b border-[var(--border-default)] bg-[var(--bg-subtle)]/30 shrink-0">
+                {headerTitle || "Resultados"}
+              </div>
+            )}
+            
+            <div className="overflow-y-auto p-1 max-h-full">
+              {loading ? (
+                <div className="space-y-2 p-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="flex items-center gap-3 animate-pulse px-2 py-1.5">
+                      <div className="h-8 w-8 rounded-full bg-[var(--bg-subtle)] animate-pulse" />
+                      <div className="flex-1 space-y-1.5">
+                        <div className="h-3 w-1/3 rounded bg-[var(--bg-subtle)] animate-pulse" />
+                        <div className="h-2 w-2/3 rounded bg-[var(--bg-subtle)] animate-pulse" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : visibleItems.length ? (
+                visibleItems.map((item, index) => {
+                  const active = index === activeIndex;
+                  return (
+                    <button
+                      key={getItemKey(item)}
+                      type="button"
+                      role="option"
+                      aria-selected={active}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => selectItem(item)}
+                      className={cn(
+                        "w-full rounded-[var(--radius-sm)] px-3 py-2 text-left transition-colors",
+                        active ? "bg-[var(--bg-brand-light)]" : "hover:bg-[var(--bg-subtle)]"
+                      )}
+                    >
+                      {renderItem(item, active)}
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="flex flex-col items-center justify-center py-6 px-4 text-center">
+                  <Search className="h-8 w-8 text-[var(--text-secondary)]/40 mb-2 stroke-[1.5]" />
+                  <p className="text-xs font-semibold text-[var(--text-primary)]">{emptyMessage}</p>
+                  <p className="text-[10px] text-[var(--text-secondary)] mt-0.5">Intenta buscar por otro término o criterio.</p>
+                </div>
+              )}
+            </div>
+
+            {visibleItems.length > 0 && !loading && (
+              <div className="flex items-center justify-between border-t border-[var(--border-default)] px-3 py-1.5 text-[9px] font-medium text-[var(--text-secondary)] bg-[var(--bg-subtle)]/40 shrink-0">
+                <div className="flex gap-3">
+                  <span className="flex items-center gap-1">
+                    <span className="rounded bg-[var(--bg-surface)] border border-[var(--border-default)] px-1 py-0.25">↑↓</span> Navegar
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <span className="rounded bg-[var(--bg-surface)] border border-[var(--border-default)] px-1 py-0.25">↵</span> Seleccionar
+                  </span>
+                </div>
+                <span className="flex items-center gap-1">
+                  <span className="rounded bg-[var(--bg-surface)] border border-[var(--border-default)] px-1 py-0.25">Esc</span> Cerrar
+                </span>
+              </div>
             )}
           </div>,
           document.body
@@ -271,13 +330,17 @@ export function EntitySearchBox<T>({
           }}
           onKeyDown={handleKeyDown}
           className={cn(
-            "h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] pl-10 pr-3 text-[var(--text-sm)] text-[var(--text-primary)] outline-none transition-[border-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-default)] placeholder:text-[var(--text-secondary)] focus:border-[var(--border-brand)] focus:ring-2 focus:ring-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-60",
+            "h-10 w-full rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] pl-10 pr-12 text-[var(--text-sm)] text-[var(--text-primary)] outline-none transition-[border-color,box-shadow] duration-[var(--duration-fast)] ease-[var(--ease-default)] placeholder:text-[var(--text-secondary)] focus:border-[var(--border-brand)] focus:ring-2 focus:ring-[var(--focus-ring)] disabled:cursor-not-allowed disabled:opacity-60",
             inputClassName
           )}
           role="combobox"
           aria-expanded={showDropdown}
           aria-autocomplete="list"
         />
+        <div className="pointer-events-none absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded border border-[var(--border-default)] bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)] shadow-sm">
+          {isMac ? <span className="text-[9px]">⌘</span> : <span className="text-[8px] font-semibold">Ctrl</span>}
+          <span>K</span>
+        </div>
       </div>
       {dropdown}
     </>

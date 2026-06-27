@@ -133,6 +133,17 @@ export class ClinicalController {
     return this.clinicalService.printPrescription(user, patientId, prescriptionId);
   }
 
+  @Patch("prescriptions/:prescriptionId/status")
+  @RequirePermissions("clinical.prescriptions.create")
+  updatePrescriptionStatus(
+    @CurrentUser() user: AuthUser,
+    @Param("patientId") patientId: string,
+    @Param("prescriptionId") prescriptionId: string,
+    @Body("status") status: string
+  ) {
+    return this.clinicalService.updatePrescriptionStatus(user, patientId, prescriptionId, status);
+  }
+
   @Get("documents")
   @RequirePermissions("clinical.read")
   documents(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string) {

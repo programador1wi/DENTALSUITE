@@ -39,9 +39,15 @@ const files: FileAttachment[] = [
   }
 ];
 
-vi.mock("react-router-dom", () => ({
-  useParams: () => ({ id: "patient-1" })
-}));
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>();
+  return {
+    ...actual,
+    Link: ({ to, children, ...props }: any) => <a href={to} {...props}>{children}</a>,
+    useParams: () => ({ id: "patient-1" }),
+    useLocation: () => ({ pathname: "/patients/patient-1/clinical/files" })
+  };
+});
 
 vi.mock("../components/patient-section-page", () => ({
   PatientSectionPage: ({ children }: { children: ReactNode }) => <div>{children}</div>
@@ -49,7 +55,16 @@ vi.mock("../components/patient-section-page", () => ({
 
 vi.mock("@/features/patients/hooks/use-patients", () => ({
   usePatient: () => ({
-    data: { firstName: "Gilberto", lastName: "Dominguez" }
+    data: { id: "patient-1", firstName: "Gilberto", lastName: "Dominguez", status: "ACTIVE" }
+  })
+}));
+
+vi.mock("@/features/clinical/hooks/use-clinical", () => ({
+  useClinicalSummary: () => ({
+    data: {},
+    isLoading: false,
+    isError: false,
+    error: null
   })
 }));
 
@@ -98,7 +113,7 @@ describe("PatientFilesPage radiography viewer", () => {
     openFile("panoramica.jpg");
 
     expect(screen.getByRole("dialog", { name: "Visor radiografico" })).toBeInTheDocument();
-    expect(screen.getByText("Gilberto Dominguez")).toBeInTheDocument();
+    expect(screen.getAllByText(/Gilberto Dominguez/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Analisis RX").length).toBeGreaterThan(0);
     expect(screen.queryByText("Vista de solo lectura")).not.toBeInTheDocument();
   });

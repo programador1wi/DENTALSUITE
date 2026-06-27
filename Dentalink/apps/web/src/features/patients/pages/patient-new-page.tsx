@@ -11,6 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ErrorState } from "@/components/feedback/error-state";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { createPatientFormSchema, type PatientFormValues } from "@/lib/validations/patient";
+import { useBranchStore } from "@/stores/branch.store";
 import { useCreatePatient } from "../hooks/use-patients";
 import { getPatientStatusLabel } from "../components/patient-status";
 import { getRequiredFormFields, getVisibleFormFields, usePatientFieldContext } from "../config/patient-field-settings";
@@ -49,6 +50,7 @@ const defaults: PatientFormValues = {
 
 export function PatientNewPage() {
   const navigate = useNavigate();
+  const { activeBranchId } = useBranchStore();
   const createPatient = useCreatePatient();
   const branchQuery = useBranches(undefined, "ACTIVE");
   const patientFieldConfig = usePatientFieldContext("newPatient");
@@ -66,7 +68,10 @@ export function PatientNewPage() {
 
   const form = useForm<PatientFormValues>({
     resolver: zodResolver(formSchema),
-    defaultValues: defaults
+    defaultValues: {
+      ...defaults,
+      branchId: activeBranchId || ""
+    }
   });
 
   const submitDisabled = createPatient.isPending || !branchQuery.data?.length;

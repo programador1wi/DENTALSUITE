@@ -11,6 +11,7 @@ import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { ModuleTabs } from "@/components/layout/module-tabs";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useAuthStore } from "@/stores/auth.store";
 import { useBranchStore } from "@/stores/branch.store";
@@ -154,14 +155,13 @@ export function CashRegisterPage() {
   };
 
   const actions = (
-    <button
+    <Button
       type="button"
       onClick={() => setOpenFormVisible((visible) => !visible)}
-      className="rounded bg-[#49ad50] px-4 py-2 text-lg font-bold text-white shadow-sm hover:bg-[#3d9944] disabled:cursor-not-allowed disabled:opacity-50"
       disabled={!activeBranchId}
     >
       + Abrir caja
-    </button>
+    </Button>
   );
 
   if (cashRegisters.isError) return <ErrorState message={cashRegisters.error.message} />;
@@ -174,31 +174,31 @@ export function CashRegisterPage() {
       <ModuleTabs tabs={cashTabs} actions={actions} />
 
       <div className="p-3">
-        <div className="mb-3 rounded border border-sky-200 bg-sky-100 px-4 py-3 text-sm text-sky-800">
-          <strong>Atencion:</strong> Los pagos reflejados en los resumenes presentes en estas secciones <strong>no reflejan</strong> los pagos recibidos de descuentos por planilla.
+        <div className="mb-[var(--space-3)] rounded-[var(--radius-md)] border border-[rgba(99,56,6,0.15)] bg-[var(--status-warning-bg)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] text-[var(--status-warning-text)]">
+          <strong>Atención:</strong> Los pagos reflejados en los resúmenes presentes en estas secciones <strong>no reflejan</strong> los pagos recibidos de descuentos por planilla.
         </div>
 
         {openFormVisible && (
-          <form className="mb-4 flex flex-wrap items-end gap-3 rounded border border-slate-200 bg-slate-50 p-3" onSubmit={handleOpen}>
-            <label className="text-sm">
+          <form className="mb-[var(--space-4)] flex flex-wrap items-end gap-[var(--space-3)] rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-subtle)] p-[var(--space-4)]" onSubmit={handleOpen}>
+            <label className="text-[var(--text-sm)] text-[var(--text-primary)] font-[var(--weight-medium)]">
               Sucursal
-              <span className="mt-1 flex h-10 min-w-[300px] items-center rounded border border-slate-300 bg-white px-3 font-semibold text-slate-700">
+              <span className="mt-1 flex h-10 min-w-[300px] items-center rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] font-[var(--weight-bold)] text-[var(--text-primary)]">
                 {activeBranch ? `Suc. ${activeBranch.name}` : "Seleccione sucursal en el encabezado"}
               </span>
             </label>
-            <label className="text-sm">
+            <label className="text-[var(--text-sm)] text-[var(--text-primary)] font-[var(--weight-medium)]">
               Usuario
-              <span className="mt-1 flex h-10 min-w-[220px] items-center rounded border border-slate-300 bg-white px-3 font-semibold text-slate-700">
+              <span className="mt-1 flex h-10 min-w-[220px] items-center rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] font-[var(--weight-bold)] text-[var(--text-primary)]">
                 {personName(user)}
               </span>
             </label>
-            <label className="text-sm">
+            <label className="text-[var(--text-sm)] text-[var(--text-primary)] font-[var(--weight-medium)]">
               Saldo inicial
-              <input className="mt-1 block h-10 w-[160px] rounded border border-slate-300 px-3" type="number" min="0" value={openingAmount} onChange={(event) => setOpeningAmount(event.target.value)} />
+              <input className="mt-1 block h-10 w-[160px] rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] text-[var(--text-primary)] focus:border-[var(--border-brand)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] transition-shadow" type="number" min="0" value={openingAmount} onChange={(event) => setOpeningAmount(event.target.value)} />
             </label>
-            <button className="h-10 rounded bg-[#0784d8] px-5 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50" disabled={!activeBranchId || mutations.openCashRegister.isPending}>
+            <Button type="submit" disabled={!activeBranchId || mutations.openCashRegister.isPending}>
               Abrir caja
-            </button>
+            </Button>
           </form>
         )}
 
@@ -290,21 +290,21 @@ export function CashRegisterPage() {
         )}
 
         {closingRegister && (
-          <form className="mt-4 flex flex-wrap items-end gap-3 rounded border border-slate-200 bg-slate-50 p-3" onSubmit={handleClose}>
+          <form className="mt-[var(--space-4)] flex flex-wrap items-end gap-[var(--space-3)] rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-subtle)] p-[var(--space-4)]" onSubmit={handleClose}>
             <div>
-              <p className="text-sm font-bold">Cerrar caja de {userName(closingRegister)}</p>
-              <p className="text-xs text-slate-500">Saldo esperado: {money(closingRegister.expectedClosing ?? closingRegister.openingAmount)}</p>
+              <p className="text-[var(--text-sm)] font-[var(--weight-bold)] text-[var(--text-primary)]">Cerrar caja de {userName(closingRegister)}</p>
+              <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">Saldo esperado: {money(closingRegister.expectedClosing ?? closingRegister.openingAmount)}</p>
             </div>
-            <label className="text-sm">
+            <label className="text-[var(--text-sm)] text-[var(--text-primary)] font-[var(--weight-medium)]">
               Saldo cierre
-              <input className="mt-1 block h-10 w-[160px] rounded border border-slate-300 px-3" type="number" min="0" value={closeAmount} onChange={(event) => setCloseAmount(event.target.value)} />
+              <input className="mt-1 block h-10 w-[160px] rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] text-[var(--text-primary)] focus:border-[var(--border-brand)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] transition-shadow" type="number" min="0" value={closeAmount} onChange={(event) => setCloseAmount(event.target.value)} />
             </label>
-            <button className="h-10 rounded bg-[#0784d8] px-5 font-bold text-white" disabled={mutations.closeCashRegister.isPending}>
+            <Button type="submit" disabled={mutations.closeCashRegister.isPending}>
               Cerrar caja
-            </button>
-            <button className="h-10 px-3 text-[#0784d8]" type="button" onClick={() => setClosingRegister(null)}>
+            </Button>
+            <Button type="button" variant="ghost" onClick={() => setClosingRegister(null)}>
               Cancelar
-            </button>
+            </Button>
           </form>
         )}
       </div>

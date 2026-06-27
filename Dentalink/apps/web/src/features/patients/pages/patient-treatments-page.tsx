@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -74,8 +74,16 @@ import type {
   TreatmentPlanStatus
 } from "@/features/treatments/services/treatments.service";
 
+function numericId(id: string) {
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = id.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return Math.abs(hash % 1000000).toString().padStart(6, "0");
+}
+
 const PLAN_STATUS_LABELS: Record<TreatmentPlanStatus, string> = {
-  DRAFT: "Borrador",
+  DRAFT: "Diagnóstico",
   PRESENTED: "Presentado",
   ACCEPTED: "Aceptado",
   IN_PROGRESS: "En progreso",
@@ -210,7 +218,17 @@ function priceForProcedure(priceList: PriceList | null, procedureId: string) {
 export function PatientTreatmentsPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const [selectedPlanId, setSelectedPlanId] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedPlanId = searchParams.get("planId") ?? "";
+  
+  const setSelectedPlanId = (newId: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (newId) next.set("planId", newId);
+      else next.delete("planId");
+      return next;
+    });
+  };
   const [procedureModalOpen, setProcedureModalOpen] = useState(false);
   const [sectionModalOpen, setSectionModalOpen] = useState(false);
   const [commentModalOpen, setCommentModalOpen] = useState(false);
@@ -280,9 +298,7 @@ export function PatientTreatmentsPage() {
     resetWorkspace();
   }, [id, resetWorkspace]);
 
-  useEffect(() => {
-    if (!selectedPlanId && planList.length) setSelectedPlanId(planList[0].id);
-  }, [planList, selectedPlanId]);
+  // No auto-selection on load, user must select a plan card manually.
 
   const createPlan = async () => {
     const patientRow = patient.data;
@@ -531,55 +547,40 @@ export function PatientTreatmentsPage() {
   if (plans.isError) return <ErrorState message={plans.error.message} />;
 
   return (
-    <PatientSectionPage patientId={id} title="Paciente - Tratamientos" description="Plan clinico, odontograma, precios y presupuesto.">
+    <PatientSectionPage patientId={id} title="Paciente - Tratamientos" description="Plan clinico, odontograma, precios y presupuesto." hideSubnav={!!selectedPlanId}>
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-slate-900">Plan de tratamiento</span>
-            {planList.length ? (
-              <Select value={selectedPlanId} onChange={(event) => setSelectedPlanId(event.target.value)} className="w-[280px]">
-                {planList.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} - {PLAN_STATUS_LABELS[item.status]}
-                  </option>
-                ))}
-              </Select>
-            ) : null}
-            {plan ? <Badge value={PLAN_STATUS_LABELS[plan.status]} tone={plan.status === "COMPLETED" || plan.status === "ACCEPTED" ? "success" : "warning"} /> : null}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => void createPlan()} disabled={treatmentMutations.createTreatmentPlan.isPending}>
-              <Plus className="mr-1 h-4 w-4" />
-              Nuevo plan
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={!plan || treatmentMutations.createBudget.isPending}
-              onClick={openBudgetDrawer}
-            >
-              <Receipt className="mr-1 h-4 w-4" />
-              Generar presupuesto
-            </Button>
-            <Button variant="secondary" disabled={!latestBudget} onClick={() => void printBudget()}>
-              <Printer className="mr-1 h-4 w-4" />
-              Imprimir
-            </Button>
-          </div>
-        </div>
+        {selectedPlanId ? (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm mb-4">
+              <div className="flex min-w-0 flex-wrap items-center gap-4">
+                <Button variant="ghost" size="sm" onClick={() => setSelectedPlanId("")} className="text-slate-500 hover:text-slate-800 -ml-2">
+                  <ChevronLeft className="mr-1 h-4 w-4" />
+                  Volver a planes
+                </Button>
+                <div className="h-6 w-px bg-slate-200 hidden md:block" />
+                <span className="text-sm font-semibold text-slate-900 truncate max-w-[200px] sm:max-w-[300px]" title={plan?.name}>{plan?.name}</span>
+                {plan ? <Badge value={PLAN_STATUS_LABELS[plan.status]} tone={plan.status === "COMPLETED" || plan.status === "ACCEPTED" ? "success" : plan.status === "DRAFT" ? "default" : "warning"} /> : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={() => void createPlan()} disabled={treatmentMutations.createTreatmentPlan.isPending}>
+                  <Plus className="mr-1 h-4 w-4" />
+                  Nuevo plan
+                </Button>
+                <Button variant="secondary" disabled={!plan || treatmentMutations.createBudget.isPending} onClick={openBudgetDrawer}>
+                  <Receipt className="mr-1 h-4 w-4" />
+                  Generar presupuesto
+                </Button>
+                <Button variant="secondary" disabled={!latestBudget} onClick={() => void printBudget()}>
+                  <Printer className="mr-1 h-4 w-4" />
+                  Imprimir
+                </Button>
+              </div>
+            </div>
 
-        {!planList.length ? (
-          <Card className="text-center">
-            <EmptyState title="Sin planes de tratamiento" description="Crea el primer plan para activar odontograma, precios y presupuesto." />
-            <Button className="mt-3" onClick={() => void createPlan()}>
-              Crear plan inicial
-            </Button>
-          </Card>
-        ) : null}
+            {selectedPlan.isLoading ? <LoadingState message="Cargando detalle del plan..." /> : null}
+            {selectedPlan.isError ? <ErrorState message={selectedPlan.error.message} /> : null}
 
-        {selectedPlan.isLoading ? <LoadingState message="Cargando detalle del plan..." /> : null}
-        {selectedPlan.isError ? <ErrorState message={selectedPlan.error.message} /> : null}
-
-        {plan ? (
+            {plan ? (
           <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
             <PlanSidebar
               plan={plan}
@@ -660,7 +661,136 @@ export function PatientTreatmentsPage() {
               />
             </main>
           </div>
-        ) : null}
+            ) : null}
+          </>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-8 bg-white border border-slate-200 p-4 rounded-md shadow-sm">
+              <div className="flex items-center gap-4">
+                <h2 className="text-xl font-normal text-slate-700">Planes de tratamiento</h2>
+              </div>
+              <div className="flex items-center gap-5">
+                <div className="text-sm font-medium text-sky-600 cursor-pointer flex items-center gap-1 hover:text-sky-700">
+                  Tratamientos activos <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </div>
+                <Button onClick={() => void createPlan()} disabled={treatmentMutations.createTreatmentPlan.isPending} className="bg-[#5cb85c] text-white hover:bg-[#4cae4c] h-10 rounded shadow-sm px-4 font-semibold">
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Nuevo plan de tratamiento
+                </Button>
+              </div>
+            </div>
+
+            {!planList.length ? (
+              <Card className="flex flex-col items-center justify-center py-16 text-center border-dashed border-2">
+                <EmptyState title="Sin planes de tratamiento" description="Crea el primer plan para activar odontograma, precios y presupuesto." />
+                <Button className="mt-4" onClick={() => void createPlan()}>
+                  Crear plan inicial
+                </Button>
+              </Card>
+            ) : (
+              <div className="space-y-8">
+                {(() => {
+                  const renderCard = (item: typeof planList[0]) => {
+                    const numericCode = numericId(item.id);
+                    
+                    return (
+                      <div 
+                        key={item.id} 
+                        className="group flex flex-col overflow-hidden transition-all hover:border-sky-300 hover:shadow-md hover:bg-slate-50/80 border border-slate-200 rounded-lg cursor-pointer bg-white" 
+                        onClick={() => setSelectedPlanId(item.id)}
+                      >
+                        <div className="p-4 sm:p-5 pointer-events-none">
+                          <div className="flex justify-between items-start mb-6 pointer-events-auto">
+                            <div className="flex items-center gap-2">
+                              <span className="text-lg font-bold text-sky-600">
+                                #{numericCode}: {item.name}
+                              </span>
+                              <div className="text-sky-600 p-1 hover:bg-sky-50 rounded-md transition-colors" title="Editar plan">
+                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                              </div>
+                            </div>
+                            <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 w-8" onClick={(e) => { e.stopPropagation(); /* Add delete logic */ }}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 md:gap-2">
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">Profesional</div>
+                              <div className="flex items-start text-sm text-slate-700">
+                                <UserRound className="w-4 h-4 mr-1.5 mt-0.5 text-slate-500 shrink-0" />
+                                <span className="leading-tight font-medium">{item.professional.firstName} {item.professional.lastName}</span>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">Especialidad</div>
+                              <div className="text-sm text-slate-700 font-medium">General</div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">Ultima cita</div>
+                              <div className="text-sm text-slate-700 font-medium">Sin sesiones</div>
+                            </div>
+                            <div className="flex flex-col items-center md:items-start">
+                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">(Progreso)</div>
+                              <div className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-slate-300 text-xs font-semibold text-slate-500">
+                                0%
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">Estado Financiero</div>
+                              <div className="flex items-center text-sm font-bold text-green-700">
+                                <UserRound className="w-4 h-4 mr-1 shrink-0" />
+                                {PLAN_STATUS_LABELS[item.status]}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-5 pt-3 border-t border-slate-100 text-xs font-medium text-slate-500">
+                            Presupuesto vacío
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  };
+
+                  const inProgress = planList.filter(p => p.status === "IN_PROGRESS");
+                  const others = planList.filter(p => p.status !== "IN_PROGRESS");
+
+                  return (
+                    <>
+                      {/* En ejecución */}
+                      <div>
+                        <h3 className="text-2xl font-normal text-sky-600 mb-6">En ejecución</h3>
+                        {inProgress.length === 0 ? (
+                          <div className="text-center py-6 text-slate-400 text-sm font-medium">El paciente no cuenta con tratamientos en ejecución</div>
+                        ) : (
+                          <div className="space-y-4">
+                            {inProgress.map(renderCard)}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Otros */}
+                      <div>
+                        <div className="flex items-center gap-4 mb-6">
+                          <h3 className="text-2xl font-normal text-slate-500">Otros</h3>
+                          <div className="flex-1 h-px bg-slate-200"></div>
+                        </div>
+                        {others.length === 0 ? (
+                          <div className="text-center py-6 text-slate-400 text-sm font-medium">No hay otros planes registrados</div>
+                        ) : (
+                          <div className="space-y-4">
+                            {others.map(renderCard)}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       <BudgetProcedureDrawer
@@ -831,7 +961,7 @@ function PlanSidebar({
             <p className="text-xs font-semibold uppercase text-white/75">Plan de tratamiento</p>
             <h2 className="mt-1 text-xl font-bold leading-tight">{plan.name}</h2>
           </div>
-          <span className="rounded bg-white/15 px-2 py-1 text-xs font-semibold">#{plan.id.slice(-6).toUpperCase()}</span>
+          <span className="rounded bg-white/15 px-2 py-1 text-xs font-semibold">#{numericId(plan.id)}</span>
         </div>
 
         <div className="mt-5 rounded-lg bg-white p-4 text-slate-900 shadow-sm">
@@ -861,7 +991,7 @@ function PlanSidebar({
           {upcomingAppointments.length ? (
             upcomingAppointments.map((appointment) => (
               <div key={appointment.id} className="text-xs text-slate-500">
-                <p className="font-semibold text-slate-800">Cita #{appointment.id.slice(-6).toUpperCase()}</p>
+                <p className="font-semibold text-slate-800">Cita #{numericId(appointment.id)}</p>
                 <p>{formatDateTime(appointment.startAt)}</p>
                 <p>
                   Dr(a). {appointment.professional.firstName} {appointment.professional.lastName}
@@ -1189,7 +1319,7 @@ function RefundsModal({ open, patientId, plan, onClose }: { open: boolean; patie
   return (
     <Modal open={open} title="Reembolsos" onClose={onClose} size="2xl">
       <div className="space-y-4">
-        <p className="text-sm text-slate-500">Tratamiento {plan?.id.slice(-6).toUpperCase() ?? "-"}</p>
+        <p className="text-sm text-slate-500">Tratamiento {plan ? numericId(plan.id) : "-"}</p>
 
         <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-center md:justify-between">
           <div className="relative md:w-[360px]">

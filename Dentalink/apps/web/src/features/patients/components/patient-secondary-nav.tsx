@@ -7,6 +7,7 @@ export type PatientSecondaryTab = {
   label: string;
   activeMatch?: string;
   permission?: string;
+  count?: number;
 };
 
 export function PatientSecondaryNav({ tabs, label }: { tabs: PatientSecondaryTab[]; label: string }) {
@@ -33,6 +34,11 @@ export function PatientSecondaryNav({ tabs, label }: { tabs: PatientSecondaryTab
               )}
             >
               {tab.label}
+              {tab.count != null && tab.count > 0 ? (
+                <span className="ml-1.5 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[#0879d5] px-1.5 text-[10px] font-bold text-white">
+                  {tab.count}
+                </span>
+              ) : null}
             </Link>
           );
         })}

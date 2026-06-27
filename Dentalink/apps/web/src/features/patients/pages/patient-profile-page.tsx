@@ -1,7 +1,7 @@
 import { type BaseSyntheticEvent, type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useLocation } from "react-router-dom";
 import {
   Bold,
   ChevronDown,
@@ -14,7 +14,6 @@ import {
   MessageCircle,
   Paperclip,
   Plus,
-  Printer,
   Search,
   Send,
   Underline
@@ -26,16 +25,18 @@ import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/feedback/loading-state";
+import { PatientAppointmentsTab } from "../components/patient-appointments-tab";
 import { PatientSecondaryNav } from "../components/patient-secondary-nav";
 import { PatientSubnav } from "../components/patient-subnav";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor } from "@/features/clinical/components/rich-text-editor";
 import { patientFormSchema, type PatientFormValues } from "@/lib/validations/patient";
 import { useAppointments } from "@/features/agenda/hooks/use-appointments";
-import type { Appointment, AppointmentStatus } from "@/features/agenda/services/appointments.service";
 import { useDocumentsMutations } from "@/features/documents/hooks/use-documents";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useUsersQuery } from "@/features/settings/users/hooks/use-users";
+import { useBranchStore } from "@/stores/branch.store";
 import { getPatientStatusLabel, getPatientStatusTone } from "../components/patient-status";
 import { PatientHeader } from "../components/patient-header";
 import {
@@ -54,32 +55,12 @@ const EMAIL_PREFIX = "[CRM_EMAIL]";
 
 type ProfileTab = "data" | "appointments" | "comments" | "tasks" | "emails";
 
-const appointmentStatusLabels: Record<AppointmentStatus, string> = {
-  SCHEDULED: "Agendada",
-  CONFIRMED: "Confirmada",
-  PENDING_CONFIRMATION: "Por confirmar",
-  ARRIVED: "Llego",
-  WAITING_ROOM: "Sala de espera",
-  IN_PROGRESS: "En atencion",
-  COMPLETED: "Atendida",
-  CANCELLED_BY_PATIENT: "Cancelada por paciente",
-  CANCELLED_BY_CLINIC: "Cancelada por clinica",
-  NO_SHOW: "No asistio",
-  RESCHEDULED: "Reagendada",
-  BLOCKED: "Bloqueada"
-};
 
-const inactiveAppointmentStatuses = new Set<AppointmentStatus>([
-  "CANCELLED_BY_PATIENT",
-  "CANCELLED_BY_CLINIC",
-  "NO_SHOW",
-  "RESCHEDULED"
-]);
 
-function profileTabs(patientId: string) {
+function profileTabs(patientId: string, appointmentCount?: number) {
   return [
     { to: `/patients/${patientId}/profile`, label: "Datos personales" },
-    { to: `/patients/${patientId}/profile/appointments`, label: "Citas", permission: "appointments.read" },
+    { to: `/patients/${patientId}/profile/appointments`, label: "Citas", permission: "appointments.read", count: appointmentCount },
     { to: `/patients/${patientId}/profile/comments`, label: "Comentarios administrativos" },
     { to: `/patients/${patientId}/profile/tasks`, label: "Tareas de gestion" },
     { to: `/patients/${patientId}/profile/emails`, label: "Emails" }
@@ -96,11 +77,14 @@ function isEmailNote(note: string) {
 }
 
 export function PatientProfilePage() {
-  const { id = "", profileTab } = useParams();
-  const activeTab = normalizeProfileTab(profileTab);
+  const { id = "" } = useParams();
+  const location = useLocation();
+  const activeTabMatch = location.pathname.match(/\/profile\/([^/]+)/);
+  const activeTab = normalizeProfileTab(activeTabMatch ? activeTabMatch[1] : undefined);
+  const { activeBranchId } = useBranchStore();
   const patientQuery = usePatient(id);
   const timelineQuery = usePatientTimeline(id);
-  const appointmentQuery = useAppointments({ patientId: id }, activeTab === "appointments");
+  const appointmentCountQuery = useAppointments({ patientId: id }, true);
   const branchQuery = useBranches(undefined, "ACTIVE");
   const updatePatient = useUpdatePatient();
   const addPatientNote = useAddPatientNote();
@@ -109,9 +93,7 @@ export function PatientProfilePage() {
   const [alertType, setAlertType] = useState("");
   const [alertDescription, setAlertDescription] = useState("");
   const [alertSeverity, setAlertSeverity] = useState("MEDIUM");
-  const [emailTo, setEmailTo] = useState("");
-  const [emailSubject, setEmailSubject] = useState("");
-  const [emailBody, setEmailBody] = useState("");
+
 
   const form = useForm<PatientFormValues>({
     resolver: zodResolver(patientFormSchema),
@@ -149,7 +131,7 @@ export function PatientProfilePage() {
     if (!patientQuery.data) return;
     const emergency = patientQuery.data.contacts.find((contact) => contact.isEmergencyContact);
     form.reset({
-      branchId: patientQuery.data.branchId,
+      branchId: patientQuery.data.branchId || activeBranchId || "",
       firstName: patientQuery.data.firstName,
       lastName: patientQuery.data.lastName,
       birthDate: patientQuery.data.birthDate?.slice(0, 10) ?? "",
@@ -176,12 +158,9 @@ export function PatientProfilePage() {
       alertDescription: "",
       alertSeverity: ""
     });
-  }, [form, patientQuery.data]);
+  }, [form, patientQuery.data, activeBranchId]);
 
-  useEffect(() => {
-    if (!patientQuery.data?.email || emailTo) return;
-    setEmailTo(patientQuery.data.email);
-  }, [emailTo, patientQuery.data?.email]);
+
 
   const patient = patientQuery.data;
   const activeAlerts = useMemo(
@@ -240,28 +219,13 @@ export function PatientProfilePage() {
     await updatePatient.mutateAsync({ id, payload });
   });
 
-  const handleCreateEmail = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const to = emailTo.trim();
-    const subject = emailSubject.trim();
-    const body = emailBody.trim();
-    if (!to || !subject) return;
 
-    await addPatientNote.mutateAsync({
-      id,
-      isPrivate: true,
-      note: [EMAIL_PREFIX, `Para: ${to}`, `Asunto: ${subject}`, `Mensaje: ${body || "-"}`].join("\n")
-    });
-    window.location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    setEmailSubject("");
-    setEmailBody("");
-  };
 
   return (
     <div className="space-y-4">
       <PatientHeader patientId={id} />
       <PatientSubnav patientId={id} />
-      <PatientSecondaryNav tabs={profileTabs(id)} label="Datos personales" />
+      <PatientSecondaryNav tabs={profileTabs(id, appointmentCountQuery.data?.length)} label="Datos personales" />
 
       {activeTab === "data" ? (
         <PatientDataTab
@@ -300,7 +264,7 @@ export function PatientProfilePage() {
         />
       ) : null}
 
-      {activeTab === "appointments" ? <AppointmentsTab patientId={id} appointments={appointmentQuery} /> : null}
+      {activeTab === "appointments" ? <PatientAppointmentsTab patientId={id} /> : null}
 
       {activeTab === "comments" ? (
         <CommentsTab
@@ -316,15 +280,9 @@ export function PatientProfilePage() {
 
       {activeTab === "emails" ? (
         <EmailsTab
+          patientId={id}
+          patientEmail={patient.email ?? ""}
           notes={emailNotes}
-          emailTo={emailTo}
-          setEmailTo={setEmailTo}
-          emailSubject={emailSubject}
-          setEmailSubject={setEmailSubject}
-          emailBody={emailBody}
-          setEmailBody={setEmailBody}
-          onCreateEmail={handleCreateEmail}
-          saving={addPatientNote.isPending}
         />
       ) : null}
     </div>
@@ -507,139 +465,7 @@ function PatientDataTab({
   );
 }
 
-function AppointmentsTab({
-  patientId,
-  appointments
-}: {
-  patientId: string;
-  appointments: ReturnType<typeof useAppointments>;
-}) {
-  const [search, setSearch] = useState("");
-  const [professionalId, setProfessionalId] = useState("");
-  const rows = appointments.data ?? [];
-  const professionals = useMemo(() => {
-    const map = new Map<string, Appointment["professional"]>();
-    rows.forEach((appointment) => map.set(appointment.professional.id, appointment.professional));
-    return [...map.values()].sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`));
-  }, [rows]);
-  const filteredRows = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return rows.filter((appointment) => {
-      if (professionalId && appointment.professional.id !== professionalId) return false;
-      if (!term) return true;
-      return [
-        appointment.id,
-        appointment.title,
-        appointment.reason ?? "",
-        appointment.treatmentPlan?.name ?? "",
-        appointment.branch?.name ?? "",
-        `${appointment.professional.firstName} ${appointment.professional.lastName}`
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(term);
-    });
-  }, [professionalId, rows, search]);
 
-  if (appointments.isLoading) return <LoadingState message="Cargando citas del paciente..." />;
-  if (appointments.isError) return <ErrorState message={appointments.error.message} />;
-
-  return (
-    <section className="border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 px-5 py-5">
-        <h2 className="text-2xl font-light text-slate-900">Citas</h2>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-          <label className="relative w-full max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input
-              className="pl-9"
-              placeholder="Buscar por numero o nombre de tratamiento"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </label>
-          <div className="flex items-center gap-2">
-            <Select className="w-64" value={professionalId} onChange={(event) => setProfessionalId(event.target.value)}>
-              <option value="">Profesional o recurso</option>
-              {professionals.map((professional) => (
-                <option key={professional.id} value={professional.id}>
-                  {professional.firstName} {professional.lastName}
-                </option>
-              ))}
-            </Select>
-            <Button type="button" variant="secondary" aria-label="Imprimir citas" onClick={() => window.print()}>
-              <Printer className="h-4 w-4" />
-            </Button>
-            <Link
-              to={`/agenda/day?patientId=${encodeURIComponent(patientId)}`}
-              className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-[var(--radius-md)] bg-[var(--action-primary)] text-[var(--text-inverse)] transition hover:bg-[var(--action-primary-hover)]"
-              aria-label="Nueva cita"
-            >
-              <Plus className="h-4 w-4" />
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      <div className="overflow-x-auto">
-        <table className="min-w-full border-collapse text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-xs font-semibold text-slate-900">
-              <th className="px-3 py-3"># Tratamiento</th>
-              <th className="px-3 py-3">Sucursal</th>
-              <th className="px-3 py-3">Profesional</th>
-              <th className="px-3 py-3">Fecha</th>
-              <th className="px-3 py-3">Hora</th>
-              <th className="px-3 py-3">Duracion</th>
-              <th className="px-3 py-3">Estado</th>
-              <th className="px-3 py-3">Comentarios</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.map((appointment) => {
-              const startAt = new Date(appointment.startAt);
-              const treatment = appointment.treatmentPlan;
-              return (
-                <tr key={appointment.id} className="border-b border-slate-100 align-top">
-                  <td className="px-3 py-3">
-                    <Link to={`/agenda/day?appointmentId=${appointment.id}`} className="text-brand-700 hover:underline">
-                      {treatment ? `${shortId(treatment.id)}` : shortId(appointment.id)}
-                    </Link>
-                    {treatment ? <span className="ml-1 text-slate-500">{treatment.name}</span> : null}
-                  </td>
-                  <td className="px-3 py-3">
-                    <p className="text-slate-900">{appointment.branch?.name ?? "-"}</p>
-                    <p className="text-xs text-slate-400">{appointment.chair?.name ?? "Sillon 1"}</p>
-                  </td>
-                  <td className="px-3 py-3 text-brand-700">
-                    {appointment.professional.firstName} {appointment.professional.lastName}
-                  </td>
-                  <td className="px-3 py-3">{startAt.toLocaleDateString("es-MX", { month: "short", day: "numeric", year: "numeric" })}</td>
-                  <td className="px-3 py-3">{startAt.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" })}</td>
-                  <td className="px-3 py-3">{appointment.durationMinutes} min</td>
-                  <td className="px-3 py-3">
-                    <Badge value={appointmentStatusLabels[appointment.status]} tone={appointmentStatusTone(appointment)} />
-                  </td>
-                  <td className="px-3 py-3">
-                    <Button type="button" variant="secondary" size="sm">
-                      <MessageCircle className="h-4 w-4" />
-                      Ver
-                    </Button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {!filteredRows.length ? (
-        <div className="p-8">
-          <EmptyState title="Sin citas" description="No hay citas que coincidan con el filtro." />
-        </div>
-      ) : null}
-    </section>
-  );
-}
 
 function CommentsTab({
   patientId,
@@ -685,42 +511,46 @@ function CommentsTab({
       <div className="border-b border-slate-200 px-5 py-5">
         <h2 className="text-2xl font-light text-slate-900">Comentarios administrativos</h2>
       </div>
-      <div className="grid gap-3 p-3 lg:grid-cols-[360px_1fr]">
-        <div className="border border-slate-200 bg-white shadow-sm">
-          <div className="flex h-9 items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 text-slate-700">
-            <Button type="button" variant="ghost" size="sm" className="w-8 px-0" title="Negrita"><Bold className="h-4 w-4" /></Button>
-            <Button type="button" variant="ghost" size="sm" className="w-8 px-0" title="Cursiva"><Italic className="h-4 w-4" /></Button>
-            <Button type="button" variant="ghost" size="sm" className="w-8 px-0" title="Subrayado"><Underline className="h-4 w-4" /></Button>
-            <Button type="button" variant="ghost" size="sm" className="w-8 px-0" title="Lista"><List className="h-4 w-4" /></Button>
-            <Button type="button" variant="ghost" size="sm" className="w-8 px-0" title="Lista numerada"><ListOrdered className="h-4 w-4" /></Button>
-            <Button type="button" variant="ghost" size="sm" className="w-8 px-0" title="Expandir"><Maximize2 className="h-4 w-4" /></Button>
-          </div>
-          <Textarea
-            className="min-h-[270px] resize-none rounded-none border-0 shadow-none focus-visible:ring-0"
+      <div className="grid gap-4 p-4 lg:grid-cols-[460px_1fr] xl:grid-cols-[520px_1fr]">
+        <div className="flex flex-col rounded-md shadow-sm border border-slate-200 bg-white focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 overflow-hidden transition-shadow">
+          <RichTextEditor
             value={newNote}
-            onChange={(event) => setNewNote(event.target.value)}
+            onChange={setNewNote}
+            placeholder="Escribe un comentario..."
+            className="border-0 rounded-none focus-within:ring-0 focus-within:ring-offset-0 shadow-none"
           />
-          <div className="flex items-end justify-between border-t border-slate-200 p-2">
-            <label className="cursor-pointer text-sm text-brand-700">
-              <span className="inline-flex items-center gap-1">
-                <Paperclip className="h-4 w-4" />
+          <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/80 px-4 py-3">
+            <div className="flex flex-col gap-1">
+              <label className="group cursor-pointer inline-flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white border border-slate-200 shadow-sm group-hover:border-blue-300 group-hover:bg-blue-50 transition-all">
+                  <Paperclip className="h-4 w-4" />
+                </div>
                 Adjuntar Archivos
-              </span>
-              <Input
-                className="hidden"
-                type="file"
-                multiple
-                onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-              />
-              <span className="block text-[10px] text-slate-400">(Formatos aceptados: jpg, pdf, xlsx, docx)</span>
-            </label>
-            <Button onClick={onSave} disabled={!newNote.trim() || saving || uploading}>
+                <Input
+                  className="hidden"
+                  type="file"
+                  multiple
+                  onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
+                />
+              </label>
+              <span className="text-[11px] text-slate-400 pl-10">jpg, pdf, xlsx, docx</span>
+            </div>
+            <Button 
+              onClick={onSave} 
+              disabled={!newNote.trim() || saving || uploading}
+              className="shrink-0 font-medium"
+            >
               {saving || uploading ? "Guardando..." : "Agregar comentario"}
             </Button>
           </div>
           {files.length ? (
-            <div className="border-t border-slate-100 px-3 py-2 text-xs text-slate-500">
-              {files.map((file) => file.name).join(", ")}
+            <div className="border-t border-slate-200 bg-white px-4 py-3 flex flex-wrap gap-2">
+              {files.map((file, i) => (
+                <span key={i} className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm">
+                  <Paperclip className="h-3 w-3 text-slate-400" />
+                  <span className="truncate max-w-[200px]">{file.name}</span>
+                </span>
+              ))}
             </div>
           ) : null}
         </div>
@@ -812,29 +642,31 @@ function TasksTab({ patientId, branchId }: { patientId: string; branchId: string
 }
 
 function EmailsTab({
+  patientId,
+  patientEmail,
   notes,
-  emailTo,
-  setEmailTo,
-  emailSubject,
-  setEmailSubject,
-  emailBody,
-  setEmailBody,
-  onCreateEmail,
-  saving
 }: {
+  patientId: string;
+  patientEmail: string;
   notes: PatientDetail["notes"];
-  emailTo: string;
-  setEmailTo: (value: string) => void;
-  emailSubject: string;
-  setEmailSubject: (value: string) => void;
-  emailBody: string;
-  setEmailBody: (value: string) => void;
-  onCreateEmail: (event: FormEvent<HTMLFormElement>) => void;
-  saving: boolean;
 }) {
   const [composeOpen, setComposeOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [month, setMonth] = useState("");
+  const [emailTo, setEmailTo] = useState(patientEmail);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [isCopyRequested, setIsCopyRequested] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  
+  const addPatientNote = useAddPatientNote();
+  const documents = useDocumentsMutations();
+  const saving = addPatientNote.isPending || documents.uploadPatientBinaryFile.isPending;
+
+  useEffect(() => {
+    if (patientEmail && !emailTo) setEmailTo(patientEmail);
+  }, [patientEmail]);
+
   const filteredNotes = useMemo(() => {
     const term = search.trim().toLowerCase();
     return notes.filter((note) => {
@@ -847,43 +679,159 @@ function EmailsTab({
     });
   }, [month, notes, search]);
 
+  const handleCreateEmail = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const to = emailTo.trim();
+    const subject = emailSubject.trim();
+    const body = emailBody.trim();
+    if (!to || !subject) return;
+
+    const uploadedFiles = await Promise.all(
+      files.map((file) =>
+        documents.uploadPatientBinaryFile.mutateAsync({
+          patientId,
+          file,
+          category: "OTHER"
+        })
+      )
+    );
+
+    const htmlNote = `[CRM_EMAIL]
+<div class="mb-3 text-sm">
+  <p><strong>Para:</strong> ${to}</p>
+  <p><strong>Asunto:</strong> ${subject}</p>
+  ${isCopyRequested ? `<p class="text-xs text-slate-500">(Copia enviada al remitente)</p>` : ""}
+</div>
+<div class="prose prose-sm max-w-none border-t border-slate-100 pt-3">
+  ${body || "-"}
+</div>`;
+
+    await addPatientNote.mutateAsync({
+      id: patientId,
+      isPrivate: true,
+      note: htmlNote,
+      fileAttachmentIds: uploadedFiles.map((f) => f.id)
+    });
+    
+    setComposeOpen(false);
+    setEmailSubject("");
+    setEmailBody("");
+    setIsCopyRequested(false);
+    setFiles([]);
+  };
+
   return (
     <section className="border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 px-5 py-8">
-        <h2 className="mb-4 text-2xl font-light text-slate-900">Registro de Emails</h2>
-        <div className="flex flex-wrap items-center gap-3">
-          <Input className="w-48" placeholder="Buscar" value={search} onChange={(event) => setSearch(event.target.value)} />
-          <span className="text-sm font-semibold text-slate-900">Filtrar por mes:</span>
-          <Input className="w-44" type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
-          <span className="text-sm font-semibold text-slate-900">Filtrar por:</span>
-          <Select className="w-52" defaultValue="all">
-            <option value="all">Todos</option>
-          </Select>
-          <Button type="button" onClick={() => setComposeOpen((value) => !value)}>
-            <Plus className="h-4 w-4" />
+      <div className="border-b border-slate-200 px-5 py-6">
+        <h2 className="mb-6 text-2xl font-light text-slate-900">Registro de Emails</h2>
+        
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:flex-wrap flex-1">
+            <Input 
+              className="w-full sm:w-64 shrink-0" 
+              placeholder="Buscar" 
+              value={search} 
+              onChange={(event) => setSearch(event.target.value)} 
+            />
+            
+            <div className="flex items-center gap-2 whitespace-nowrap">
+              <span className="text-sm font-semibold text-slate-900">Filtrar por mes:</span>
+              <Input className="w-36 sm:w-44" type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+            </div>
+            
+            <div className="flex items-center gap-2 whitespace-nowrap">
+              <span className="text-sm font-semibold text-slate-900">Filtrar por:</span>
+              <Select className="w-32 sm:w-44" defaultValue="all">
+                <option value="all">Todos</option>
+              </Select>
+            </div>
+          </div>
+          
+          <Button 
+            type="button" 
+            className="w-full sm:w-auto bg-[#31b866] hover:bg-[#299c56] text-white whitespace-nowrap shrink-0 self-stretch sm:self-auto" 
+            onClick={() => setComposeOpen((value) => !value)}
+          >
+            <Plus className="h-4 w-4 mr-1" />
             Redactar nuevo email
           </Button>
         </div>
+
         {composeOpen ? (
-          <form className="mt-4 grid gap-3 lg:grid-cols-[220px_1fr_auto]" onSubmit={onCreateEmail}>
-            <Input type="email" placeholder="Email destino" value={emailTo} onChange={(event) => setEmailTo(event.target.value)} />
-            <Input placeholder="Asunto" value={emailSubject} onChange={(event) => setEmailSubject(event.target.value)} />
-            <Button type="submit" disabled={!emailTo.trim() || !emailSubject.trim() || saving}>
-              <Send className="h-4 w-4" />
-              Guardar y abrir
-            </Button>
-            <Textarea className="lg:col-span-3" rows={4} placeholder="Mensaje" value={emailBody} onChange={(event) => setEmailBody(event.target.value)} />
+          <form className="mt-6 rounded-lg border border-slate-200 bg-slate-50/50 p-4 shadow-sm" onSubmit={handleCreateEmail}>
+            <div className="mb-4 grid gap-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <Input className="flex-1" placeholder="Asunto" value={emailSubject} onChange={(event) => setEmailSubject(event.target.value)} />
+                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer shrink-0">
+                  <input type="checkbox" className="rounded border-slate-300 text-brand-600 focus:ring-brand-600" checked={isCopyRequested} onChange={(e) => setIsCopyRequested(e.target.checked)} />
+                  Recibir una copia de este correo
+                </label>
+              </div>
+            </div>
+
+            <div className="flex flex-col rounded-md border border-slate-300 bg-white shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-brand-500 focus-within:ring-offset-2 transition-shadow">
+              <RichTextEditor
+                value={emailBody}
+                onChange={setEmailBody}
+                placeholder="Redacta tu mensaje aquí..."
+                className="min-h-[200px] border-0 rounded-none focus-within:ring-0 focus-within:ring-offset-0 shadow-none"
+              />
+            </div>
+
+            <div className="mt-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+              <div className="flex flex-col gap-2">
+                <div className="text-xs text-slate-500">
+                  <strong className="text-slate-700 font-semibold">Importante:</strong><br/>
+                  Solo se puede adjuntar hasta un máximo de 3 archivos por correo, estos no deben superar los 25MB en total.<br/>
+                  Los archivos adjuntos ocuparán espacio de almacenamiento de la clínica.<br/>
+                  Funcionalidad compatible con formatos PNG, JPG, PDF, DOC(X), XLS(X), PPT(X).
+                </div>
+                <label className="cursor-pointer inline-flex items-center justify-center gap-2 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 w-fit">
+                  <Paperclip className="h-4 w-4" />
+                  Adjuntar archivo(s)
+                  <Input
+                    className="hidden"
+                    type="file"
+                    multiple
+                    accept=".png,.jpg,.jpeg,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                    onChange={(event) => {
+                      const selectedFiles = Array.from(event.target.files ?? []);
+                      setFiles((prev) => [...prev, ...selectedFiles].slice(0, 3));
+                    }}
+                  />
+                </label>
+                {files.length > 0 && (
+                  <div className="flex flex-wrap gap-2 mt-1">
+                    {files.map((f, i) => (
+                      <span key={i} className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm">
+                        <span className="truncate max-w-[200px]">{f.name}</span>
+                        <button type="button" className="text-slate-400 hover:text-red-500" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}>&times;</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button type="button" variant="secondary" onClick={() => { setComposeOpen(false); setFiles([]); }}>
+                  Descartar
+                </Button>
+                <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700" disabled={!emailTo.trim() || !emailSubject.trim() || saving}>
+                  <Send className="h-4 w-4 mr-2" />
+                  {saving ? "Guardando..." : "Enviar"}
+                </Button>
+              </div>
+            </div>
           </form>
         ) : null}
       </div>
 
-      <div className="min-h-[400px] p-8">
+      <div className="min-h-[400px] p-8 bg-slate-50/30">
         {!filteredNotes.length ? (
-          <EmptyState title="No se encontro ningun registro de email" description="Aqui podras ver el registro de todos los emails que se envian al paciente." />
+          <EmptyState title="No se encontró ningún registro de email" description="Aquí podrás ver el registro de todos los emails que se envían al paciente." />
         ) : (
-          <div className="mx-auto max-w-3xl space-y-3">
+          <div className="mx-auto max-w-4xl space-y-4">
             {filteredNotes.map((note) => (
-              <NoteCard key={note.id} icon={<Mail className="h-5 w-5 text-sky-600" />} note={note.note} createdAt={note.createdAt} />
+              <NoteCard key={note.id} icon={<Mail className="h-5 w-5 text-sky-600" />} note={note.note} createdAt={note.createdAt} attachments={note.attachments} />
             ))}
           </div>
         )}
@@ -903,6 +851,43 @@ function NoteCard({
   createdAt: string;
   attachments?: PatientDetail["notes"][number]["attachments"];
 }) {
+  let displayNote = note;
+  if (displayNote.startsWith("[CRM_EMAIL]\n")) displayNote = displayNote.replace("[CRM_EMAIL]\n", "");
+  else if (displayNote.startsWith("[CRM_EMAIL]")) displayNote = displayNote.replace("[CRM_EMAIL]", "");
+  
+  const isHtml = displayNote.includes("<") && displayNote.includes(">");
+  
+  if (isHtml) {
+    return (
+      <article className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3">
+        {icon ? <div className="mt-0.5">{icon}</div> : null}
+        <div className="min-w-0 flex-1">
+          <div
+            className="prose prose-sm max-w-none text-slate-700 break-words prose-p:my-1 prose-ul:my-1 prose-ol:my-1 [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6 [&_li]:list-item [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5"
+            dangerouslySetInnerHTML={{ __html: displayNote }}
+          />
+          {attachments?.length ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {attachments.map((attachment) => (
+                <a
+                  key={attachment.id}
+                  href={attachment.fileAttachment.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-brand-700 hover:bg-slate-50"
+                >
+                  <Paperclip className="h-3 w-3" />
+                  {attachment.fileAttachment.originalName}
+                </a>
+              ))}
+            </div>
+          ) : null}
+          <p className="mt-2 text-xs text-slate-400">{new Date(createdAt).toLocaleString("es-MX")}</p>
+        </div>
+      </article>
+    );
+  }
+
   const lines = note.split("\n").filter((line) => !line.startsWith("["));
   return (
     <article className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3">
@@ -1041,8 +1026,3 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function appointmentStatusTone(row: Appointment) {
-  if (row.status === "COMPLETED") return "success";
-  if (inactiveAppointmentStatuses.has(row.status)) return "danger";
-  return "warning";
-}

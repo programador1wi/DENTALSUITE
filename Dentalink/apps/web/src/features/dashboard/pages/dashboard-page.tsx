@@ -53,7 +53,7 @@ export function DashboardPage() {
   if (report.isError) return <ErrorState message={report.error.message} />;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-[var(--space-6)]">
       <PageHeader title="Dashboard" description="Resumen operativo, financiero y clínico." />
 
       <ReportsFilters
@@ -66,7 +66,7 @@ export function DashboardPage() {
         onBranchChange={setBranchId}
       />
 
-      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-[var(--space-6)] md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           title="Citas"
           value={data?.agenda?.total ?? 0}
@@ -89,7 +89,7 @@ export function DashboardPage() {
         />
       </div>
 
-      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-[var(--space-6)] md:grid-cols-2 xl:grid-cols-4">
         <KpiCard
           title="No asistencias"
           value={data?.agenda?.noShow ?? 0}
@@ -111,8 +111,8 @@ export function DashboardPage() {
           icon={<Package className="h-5 w-5" />}
         />
       </div>
-      <div className="grid gap-5 md:grid-cols-2">
-        <Card className="p-6">
+      <div className="grid gap-[var(--space-6)] md:grid-cols-2">
+        <Card>
           <h3 className="mb-[var(--space-6)] text-[var(--text-lg)] font-semibold text-[var(--text-brand-strong)]">Ingresos vs Pendientes (Mensual)</h3>
           <div className="h-72 min-w-0">
             <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
@@ -139,7 +139,7 @@ export function DashboardPage() {
           </div>
         </Card>
 
-        <Card className="p-6">
+        <Card>
           <h3 className="mb-[var(--space-6)] text-[var(--text-lg)] font-semibold text-[var(--text-brand-strong)]">Citas Mensuales</h3>
           <div className="h-72 min-w-0">
             <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>

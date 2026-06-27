@@ -44,6 +44,7 @@ import {
 } from "../hooks/use-appointments";
 import type { Appointment, AppointmentPayload, AppointmentReminderPayload, AppointmentStatus } from "../services/appointments.service";
 import type { AppointmentMenuAction } from "../components/appointment-actions-menu";
+import { useTreatmentMutations } from "@/features/treatments/hooks/use-treatments";
 import { resolveAgendaViewConfig } from "../utils/agenda-grid-config";
 
 type CommentPopoverAnchor = Pick<DOMRect, "top" | "right" | "bottom" | "left" | "width" | "height">;
@@ -137,6 +138,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const addAppointmentNote = useAddAppointmentNote();
   const createAppointmentReminder = useCreateAppointmentReminder();
   const updateAppointmentReminder = useUpdateAppointmentReminder();
+  const treatmentMutations = useTreatmentMutations();
   const actions = useAppointmentActions();
   const hasActiveFilters = Boolean(professionalId || chairId || status);
   const patientsForModal = useMemo<PatientListItem[]>(() => {
@@ -223,9 +225,22 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   };
 
   const submitAppointment = async (payload: AppointmentPayload) => {
+    let finalPayload = { ...payload };
+
+    if (!editing && payload.patientId && !payload.treatmentPlanId) {
+      const treatmentPlan = await treatmentMutations.createTreatmentPlan.mutateAsync({
+        branchId: payload.branchId,
+        patientId: payload.patientId,
+        professionalId: payload.professionalId,
+        name: "Plan de Tratamiento Inicial",
+        status: "DRAFT"
+      });
+      finalPayload.treatmentPlanId = treatmentPlan.id;
+    }
+
     const saved = editing
-      ? await updateAppointment.mutateAsync({ id: editing.id, payload })
-      : await createAppointment.mutateAsync(payload);
+      ? await updateAppointment.mutateAsync({ id: editing.id, payload: finalPayload })
+      : await createAppointment.mutateAsync(finalPayload);
 
     focusSavedAppointment(saved);
   };

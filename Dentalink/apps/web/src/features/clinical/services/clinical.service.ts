@@ -68,6 +68,9 @@ export type Prescription = {
   id: string;
   diagnosis?: string | null;
   notes?: string | null;
+  status: string;
+  treatmentPlanId?: string | null;
+  treatmentPlan?: { id: string; name: string } | null;
   createdAt: string;
   professional: { firstName: string; lastName: string };
   items: Array<{ id: string; medication: string; dosage?: string | null; frequency?: string | null; duration?: string | null; instructions?: string | null }>;
@@ -240,6 +243,11 @@ export async function createPrescription(patientId: string, payload: Record<stri
 
 export async function printPrescription(patientId: string, prescriptionId: string) {
   const { data } = await http.get<Prescription>(`/patients/${patientId}/clinical/prescriptions/${prescriptionId}/print`);
+  return data;
+}
+
+export async function updatePrescriptionStatus(patientId: string, prescriptionId: string, status: string) {
+  const { data } = await http.patch<Prescription>(`/patients/${patientId}/clinical/prescriptions/${prescriptionId}/status`, { status });
   return data;
 }
 

@@ -339,7 +339,7 @@ export function AppointmentModal({
 
   const searchedPatients = useMemo(() => {
     const query = normalizeSearch(patientSearch);
-    if (!query) return filteredPatients.slice(0, 10);
+    if (!query) return [];
     return filteredPatients
       .filter((patient) =>
         normalizeSearch(
@@ -843,9 +843,10 @@ function ReasonStep({
               <Search className="pointer-events-none absolute left-6 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 className="pl-9"
-                placeholder="Buscar motivo existente"
+                placeholder={form.specialtyId ? "Buscar motivo existente" : "Primero selecciona una especialidad..."}
                 value={reasonSearch}
                 onChange={(event) => onReasonSearchChange(event.target.value)}
+                disabled={!form.specialtyId}
               />
             </div>
 
@@ -853,6 +854,15 @@ function ReasonStep({
               {loadingReasons ? (
                 <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
                   Cargando motivos de esta especialidad...
+                </div>
+              ) : !form.specialtyId ? (
+                <div className="rounded-md border border-dashed border-amber-300 bg-amber-50/50 p-4 text-sm text-slate-600">
+                  <div className="flex flex-col items-center justify-center text-center py-2">
+                    <span className="font-semibold text-amber-800">Selecciona una especialidad primero</span>
+                    <span className="text-xs text-slate-500 mt-1">
+                      Debes escoger una especialidad en el panel izquierdo para poder ver y seleccionar un tratamiento.
+                    </span>
+                  </div>
                 </div>
               ) : !activeReasons.length ? (
                 <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600">
@@ -1000,8 +1010,9 @@ function PatientStep({
                 />
               </div>
 
-              <div className="max-h-[290px] overflow-y-auto rounded-md border border-slate-200">
-                {filteredPatients.length ? (
+              {patientSearch.trim().length > 0 && (
+                <div className="max-h-[290px] overflow-y-auto rounded-md border border-slate-200">
+                  {filteredPatients.length ? (
                   filteredPatients.map((patient) => {
                     const selected = patient.id === form.patientId;
                     return (
@@ -1041,7 +1052,8 @@ function PatientStep({
                     No hay pacientes para la busqueda en esta sucursal.
                   </div>
                 )}
-              </div>
+                </div>
+              )}
 
               {selectedPatient ? <PatientSummary patient={selectedPatient} /> : null}
 

@@ -1,8 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
-import { ChevronDown, ChevronRight, Sparkles, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Sparkles, X, Building2, LogOut, UserRound } from "lucide-react";
 import { useAuthStore } from "@/stores/auth.store";
+import { useBranchStore } from "@/stores/branch.store";
+import { useBranches, ORDERED_NAMES, normalizeName } from "@/features/settings/branches/hooks/use-branches";
+import { useLogout } from "@/features/auth/hooks/use-logout";
+import { Select } from "@/components/ui/select";
 import { itemMatchesPath, type MainNavItem, type MenuItem, visibleNavigation } from "@/components/layout/navigation";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { cn } from "@/lib/utils/cn";
@@ -101,6 +105,39 @@ function SidebarContent({
   const [flyout, setFlyout] = useState<FlyoutState | null>(null);
   const flyoutRef = useRef<HTMLDivElement>(null);
   const isMobileMenu = Boolean(onCloseMobile);
+  const logout = useLogout();
+  const { data: branches } = useBranches(undefined, "ACTIVE");
+  const { activeBranchId, setActiveBranchId } = useBranchStore();
+
+  const assignedBranches = useMemo(() => branches ?? [], [branches]);
+
+  const groupedBranches = useMemo(() => {
+    const groups: Record<string, typeof assignedBranches> = {
+      "Plataforma NORTE": [],
+      "Plataforma SUR": [],
+      "Plataforma DJWARNER": [],
+      "Otras sucursales": []
+    };
+
+    assignedBranches.forEach((branch) => {
+      const norm = normalizeName(branch.name);
+      const idx = ORDERED_NAMES.indexOf(norm);
+      if (idx >= 0 && idx <= 10) {
+        groups["Plataforma NORTE"].push(branch);
+      } else if (idx >= 11 && idx <= 25) {
+        groups["Plataforma SUR"].push(branch);
+      } else if (idx >= 26) {
+        groups["Plataforma DJWARNER"].push(branch);
+      } else {
+        groups["Otras sucursales"].push(branch);
+      }
+    });
+
+    return groups;
+  }, [assignedBranches]);
+
+  const initials = `${user?.firstName?.charAt(0) ?? "P"}${user?.lastName?.charAt(0) ?? ""}`.toUpperCase();
+  const fullName = `${user?.firstName || "Soporte"} ${user?.lastName || ""}`.trim();
 
   const closeDesktopFlyout = useCallback(() => {
     setFlyout(null);
@@ -404,6 +441,70 @@ function SidebarContent({
           )
         : null}
 
+      {/* Bottom Section: Branch Switcher & User Profile */}
+      <div className={cn("mt-auto border-t border-slate-800 bg-slate-950/30 transition-all duration-300", collapsed ? "p-2 space-y-0" : "p-4 space-y-4")}>
+        {/* Branch Selector */}
+        {!collapsed && assignedBranches.length > 0 ? (
+          <div className="rounded-xl border border-slate-800/60 bg-slate-900/35 p-3 shadow-inner">
+            <label className="mb-2 text-[9px] font-extrabold uppercase tracking-widest text-[var(--nav-section-label)] flex items-center gap-1.5 opacity-80">
+              <Building2 className="h-3.5 w-3.5 text-sky-400" />
+              Sucursal Activa
+            </label>
+            <Select
+              value={activeBranchId}
+              onChange={(event) => setActiveBranchId(event.target.value)}
+              theme="dark"
+              className="h-9 border-slate-700 bg-slate-950/40 text-slate-200 hover:bg-slate-950/60 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              containerClassName="text-white"
+            >
+              {Object.entries(groupedBranches).map(([groupLabel, list]) => {
+                if (list.length === 0) return null;
+                return (
+                  <optgroup key={groupLabel} label={groupLabel}>
+                    {list.map((branch) => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+            </Select>
+          </div>
+        ) : null}
+
+        {/* User Profile Info & Logout */}
+        <div className={cn(
+          "flex items-center gap-3 transition-all duration-200",
+          collapsed ? "justify-center py-1" : "bg-slate-900/20 border border-slate-850 p-2.5 rounded-xl"
+        )}>
+          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-sky-500 to-indigo-500 p-[1.5px] text-xs font-extrabold text-white border border-slate-700/30 shadow-md">
+            <div className="flex h-full w-full items-center justify-center rounded-full bg-slate-950">
+              {initials}
+            </div>
+            {/* Active online dot */}
+            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-slate-950 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse" />
+          </div>
+          {!collapsed && (
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-bold text-slate-200 leading-tight tracking-[0.01em]">{fullName}</p>
+              <p className="truncate text-[10px] text-slate-500 mt-0.5 leading-none">{user?.email ?? "Usuario activo"}</p>
+            </div>
+          )}
+          {!collapsed && (
+            <button
+              type="button"
+              onClick={() => logout.mutate()}
+              disabled={logout.isPending}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-950/20 text-slate-400 border border-slate-800/40 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20 transition-all active:scale-95"
+              title="Cerrar sesión"
+            >
+              <LogOut className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
     </aside>
   );
 }
@@ -415,19 +516,13 @@ export function Sidebar({
   mobileOpen?: boolean;
   onMobileClose?: () => void;
 }) {
-  const [desktopExpanded, setDesktopExpanded] = useState(false);
+  const [desktopExpanded, setDesktopExpanded] = useState(true);
   const [desktopFlyoutOpen, setDesktopFlyoutOpen] = useState(false);
-  const [desktopPointerInside, setDesktopPointerInside] = useState(false);
   const desktopFlyoutOpenRef = useRef(false);
-
-  useEffect(() => {
-    if (!desktopPointerInside && !desktopFlyoutOpen) setDesktopExpanded(false);
-  }, [desktopFlyoutOpen, desktopPointerInside]);
 
   const handleDesktopFlyoutChange = useCallback((open: boolean) => {
     desktopFlyoutOpenRef.current = open;
     setDesktopFlyoutOpen(open);
-    if (open) setDesktopExpanded(true);
   }, []);
 
   return (
@@ -437,26 +532,25 @@ export function Sidebar({
           "relative z-40 hidden h-[calc(100vh-24px)] shrink-0 transition-[width] duration-[var(--duration-normal)] ease-[var(--ease-default)] lg:sticky lg:top-[var(--space-3)] lg:block",
           desktopExpanded ? "w-60" : "w-[72px]"
         )}
-        onMouseEnter={() => {
-          setDesktopPointerInside(true);
-          setDesktopExpanded(true);
-        }}
-        onMouseLeave={() => {
-          setDesktopPointerInside(false);
-          if (!desktopFlyoutOpenRef.current) setDesktopExpanded(false);
-        }}
-        onFocus={() => setDesktopExpanded(true)}
-        onBlur={(event) => {
-          if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
-          if (desktopFlyoutOpenRef.current) return;
-          setDesktopExpanded(false);
-        }}
       >
         <SidebarContent collapsed={!desktopExpanded} onDesktopFlyoutChange={handleDesktopFlyoutChange} />
-      </div>
 
+        {/* Floating Toggle Button on the right border */}
+        <button
+          type="button"
+          onClick={() => setDesktopExpanded(!desktopExpanded)}
+          className="absolute right-0 top-8 z-50 flex h-6 w-6 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-400 shadow-[0_2px_8px_rgba(0,0,0,0.3)] transition-all hover:bg-slate-800 hover:text-white hover:scale-105 active:scale-95 cursor-pointer"
+          aria-label={desktopExpanded ? "Colapsar menu lateral" : "Expandir menu lateral"}
+        >
+          {desktopExpanded ? (
+            <ChevronLeft className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronRight className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </div>
       {mobileOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        <div className="fixed inset-0 z-60 lg:hidden">
           <button
             type="button"
             className="absolute inset-0 bg-[var(--backdrop-modal)] backdrop-blur-sm"

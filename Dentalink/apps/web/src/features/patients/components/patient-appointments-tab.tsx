@@ -15,14 +15,21 @@ import { AppointmentCommentsModal } from "../../agenda/components/appointment-co
 
 const appointmentStatusLabels: Record<AppointmentStatus, string> = {
   SCHEDULED: "Agendada",
-  CONFIRMED: "Confirmada",
+  CONFIRMED: "Confirmado",
+  CONFIRMED_BY_WHATSAPP: "Confirmado por WhatsApp",
+  CONFIRMED_BY_PHONE: "Confirmado por teléfono",
+  CONFIRMED_BY_EMAIL: "Confirmado por email",
   PENDING_CONFIRMATION: "No confirmado",
+  NOTIFIED_BY_WHATSAPP: "Notificado por WhatsApp",
+  NOTIFIED_BY_EMAIL: "Notificado por email",
   ARRIVED: "Llego",
   WAITING_ROOM: "Sala de espera",
   IN_PROGRESS: "En atencion",
   COMPLETED: "Atendido",
   CANCELLED_BY_PATIENT: "Cancelada por paciente",
   CANCELLED_BY_CLINIC: "Cancelada por clinica",
+  CANCELLED_CONFLICT: "Cancelado por conflicto",
+  CANCELLED_RESCHEDULED: "Anulado por reprogramación",
   NO_SHOW: "No asiste",
   RESCHEDULED: "Cambio de fecha",
   BLOCKED: "Bloqueada"

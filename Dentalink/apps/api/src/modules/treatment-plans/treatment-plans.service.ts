@@ -22,7 +22,10 @@ import {
   TreatmentPlanSectionInputDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
-  UpdateTreatmentPlanItemStatusDto
+  UpdateTreatmentPlanItemStatusDto,
+  ReactivateTreatmentPlanDto,
+  DuplicateTreatmentPlanDto,
+  ReferTreatmentPlanDto
 } from "./dto/treatment-plan.dto";
 
 @Injectable()
@@ -1089,6 +1092,150 @@ export class TreatmentPlansService {
         before,
         after
       }
+    });
+  }
+
+  async reactivateTreatmentPlan(actor: AuthUser, id: string, dto: ReactivateTreatmentPlanDto) {
+    const plan = await this.getTreatmentPlan(actor, id);
+    if (plan.status !== "CANCELLED" && plan.status !== "REJECTED") {
+      throw new BadRequestException("Only cancelled or rejected plans can be reactivated");
+    }
+
+    return this.prisma.treatmentPlan.update({
+      where: { id },
+      data: {
+        status: "DRAFT",
+        description: dto.reason ? `${plan.description || ""}\nReactivated: ${dto.reason}`.trim() : plan.description
+      },
+    });
+  }
+
+  async duplicateTreatmentPlan(actor: AuthUser, id: string, dto: DuplicateTreatmentPlanDto) {
+    const plan = await this.getTreatmentPlan(actor, id);
+
+    // Deep clone the plan, sections, and items
+    return this.prisma.$transaction(async (tx) => {
+      const newPlan = await tx.treatmentPlan.create({
+        data: {
+          organizationId: actor.organizationId,
+          branchId: dto.newBranchId || plan.branchId,
+          patientId: plan.patientId,
+          professionalId: dto.newProfessionalId || plan.professionalId,
+          name: `${plan.name} (Copy)`,
+          description: dto.reason || plan.description,
+          status: "DRAFT",
+          createdById: actor.id,
+        },
+      });
+
+      for (const section of plan.sections) {
+        const newSection = await tx.treatmentPlanSection.create({
+          data: {
+            treatmentPlanId: newPlan.id,
+            name: section.name,
+            sortOrder: section.sortOrder,
+          },
+        });
+
+        const sectionItems = plan.items.filter(item => item.sectionId === section.id);
+        for (const item of sectionItems) {
+          await tx.treatmentPlanItem.create({
+            data: {
+              treatmentPlanId: newPlan.id,
+              sectionId: newSection.id,
+              procedureId: item.procedureId,
+              toothNumber: item.toothNumber,
+              surface: item.surface,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              discount: item.discount,
+              total: item.total,
+              notes: item.notes,
+              status: "PLANNED",
+              createdById: actor.id,
+            },
+          });
+        }
+      }
+
+      return newPlan;
+    });
+  }
+
+  async referTreatmentPlan(actor: AuthUser, id: string, dto: ReferTreatmentPlanDto) {
+    const plan = await this.getTreatmentPlan(actor, id);
+
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Create a referral record
+      const referral = await tx.treatmentPlanReferral.create({
+        data: {
+          treatmentPlanId: id,
+          organizationId: actor.organizationId,
+          fromBranchId: plan.branchId,
+          toBranchId: dto.toBranchId,
+          fromProfessionalId: plan.professionalId,
+          toProfessionalId: dto.toProfessionalId,
+          reason: dto.reason,
+          createdById: actor.id,
+        },
+      });
+
+      // 2. We can either transfer the current plan or duplicate it.
+      // Usually "refer" implies transferring the plan, or duplicating it and cancelling the original.
+      // We'll duplicate it and mark the original as cancelled for tracking.
+      
+      const newPlan = await tx.treatmentPlan.create({
+        data: {
+          organizationId: actor.organizationId,
+          branchId: dto.toBranchId,
+          patientId: plan.patientId,
+          professionalId: dto.toProfessionalId || plan.professionalId,
+          name: `${plan.name} (Referred)`,
+          description: dto.reason,
+          status: "DRAFT",
+          createdById: actor.id,
+        },
+      });
+
+      for (const section of plan.sections) {
+        const newSection = await tx.treatmentPlanSection.create({
+          data: {
+            treatmentPlanId: newPlan.id,
+            name: section.name,
+            sortOrder: section.sortOrder,
+          },
+        });
+
+        const sectionItems = plan.items.filter(item => item.sectionId === section.id);
+        for (const item of sectionItems) {
+          if (item.status === "COMPLETED") continue; // only refer pending work
+
+          await tx.treatmentPlanItem.create({
+            data: {
+              treatmentPlanId: newPlan.id,
+              sectionId: newSection.id,
+              procedureId: item.procedureId,
+              toothNumber: item.toothNumber,
+              surface: item.surface,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              discount: item.discount,
+              total: item.total,
+              notes: item.notes,
+              status: "PLANNED",
+              createdById: actor.id,
+            },
+          });
+        }
+      }
+
+      // Mark original plan as CANCELLED (referred) if we don't want them doing work on it
+      await tx.treatmentPlan.update({
+        where: { id },
+        data: { status: "CANCELLED" }
+      });
+
+      return referral;
     });
   }
 }

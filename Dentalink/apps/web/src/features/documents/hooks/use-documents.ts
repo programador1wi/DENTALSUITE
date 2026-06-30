@@ -9,6 +9,7 @@ import {
   listConsentTemplates,
   listPatientConsents,
   listPatientFiles,
+  deletePatientFile,
   savePatientRadiographyAnalysis,
   signConsent,
   updateConsentTemplate,
@@ -130,6 +131,18 @@ export function useDocumentsMutations() {
       onSuccess: (file, variables) => {
         toast.success("Archivo subido");
         upsertPatientFile(variables.patientId, file);
+      },
+      onError
+    }),
+    deletePatientFile: useMutation({
+      mutationFn: ({ patientId, fileId, reason }: { patientId: string; fileId: string; reason: string }) =>
+        deletePatientFile(patientId, fileId, { reason }),
+      onSuccess: (_, variables) => {
+        toast.success("Archivo eliminado");
+        queryClient.setQueryData<FileAttachment[]>(["patient-files", variables.patientId, undefined], (current) => {
+          return current?.filter((item) => item.id !== variables.fileId) || [];
+        });
+        queryClient.invalidateQueries({ queryKey: ["patient-files", variables.patientId] });
       },
       onError
     }),

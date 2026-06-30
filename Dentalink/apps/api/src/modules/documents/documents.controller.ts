@@ -1,6 +1,6 @@
 import {
   Body,
-  Controller,
+  Controller, Delete,
   Get,
   Param,
   Patch,
@@ -25,6 +25,7 @@ import {
   CreateClinicalDocumentTemplateSettingsDto,
   CreateConsentDto,
   CreateConsentTemplateDto,
+  DeleteFileAttachmentDto,
   PatientConsentsQueryDto,
   PatientFilesQueryDto,
   SignConsentDto,
@@ -60,6 +61,17 @@ export class DocumentsController {
   @RequirePermissions("files.upload")
   uploadPatientFile(@CurrentUser() actor: AuthUser, @Param("patientId") patientId: string, @Body() dto: UploadFileAttachmentDto) {
     return this.service.uploadPatientFile(actor, patientId, dto);
+  }
+
+  @Delete("patients/:patientId/files/:fileId")
+  @RequirePermissions("patients.files.manage")
+  deletePatientFile(
+    @CurrentUser() actor: AuthUser,
+    @Param("patientId") patientId: string,
+    @Param("fileId") fileId: string,
+    @Body() dto: DeleteFileAttachmentDto
+  ) {
+    return this.service.deletePatientFile(actor, patientId, fileId, dto.reason);
   }
 
   @Post("patients/:patientId/files/upload")

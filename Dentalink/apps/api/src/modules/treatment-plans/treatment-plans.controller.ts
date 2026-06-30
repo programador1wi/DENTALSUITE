@@ -25,7 +25,10 @@ import {
   TreatmentPlanSectionInputDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
-  UpdateTreatmentPlanItemStatusDto
+  UpdateTreatmentPlanItemStatusDto,
+  ReactivateTreatmentPlanDto,
+  DuplicateTreatmentPlanDto,
+  ReferTreatmentPlanDto
 } from "./dto/treatment-plan.dto";
 import { TreatmentPlansService } from "./treatment-plans.service";
 
@@ -149,9 +152,27 @@ export class TreatmentPlansController {
     return this.service.rejectBudget(actor, id);
   }
 
-  @Get("budgets/:id/print")
+  @Post("budgets/:id/print")
   @RequirePermissions("budgets.print")
   printBudget(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
     return this.service.printBudget(actor, id);
+  }
+
+  @Post("treatment-plans/:id/reactivate")
+  @RequirePermissions("treatment_plans.status.update")
+  reactivateTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: ReactivateTreatmentPlanDto) {
+    return this.service.reactivateTreatmentPlan(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/duplicate")
+  @RequirePermissions("treatment_plans.create")
+  duplicateTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: DuplicateTreatmentPlanDto) {
+    return this.service.duplicateTreatmentPlan(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/refer")
+  @RequirePermissions("treatment_plans.update")
+  referTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: ReferTreatmentPlanDto) {
+    return this.service.referTreatmentPlan(actor, id, dto);
   }
 }

@@ -12,6 +12,7 @@ import {
   finalizePayroll,
   listFinalizedPayroll,
   listPayroll,
+  recalculatePayroll,
   updateAgreement,
   type AgreementPayload,
   type ExpensePayload
@@ -133,6 +134,18 @@ export function useFinalizePayroll() {
     mutationFn: finalizePayroll,
     onSuccess: () => {
       toast.success("Liquidacion finalizada");
+      queryClient.invalidateQueries({ queryKey: ["settings", "payroll"] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useRecalculatePayroll() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: recalculatePayroll,
+    onSuccess: () => {
+      toast.success("Liquidacion recalculada");
       queryClient.invalidateQueries({ queryKey: ["settings", "payroll"] });
     },
     onError: (error: Error) => toast.error(error.message)

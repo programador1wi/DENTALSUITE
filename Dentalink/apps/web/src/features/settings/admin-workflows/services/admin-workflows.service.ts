@@ -65,24 +65,52 @@ export type PayrollSummary = {
   professionalName: string;
   commissionRate: number;
   completedItems: number;
+  pendingItems: number;
   collectedAmount: number;
   payableAmount: number;
   lastCompletedAt?: string | null;
+  items: PayrollItem[];
 };
 
 export type FinalizedPayroll = {
   id: string;
   professionalId: string;
-  commissionRate: string;
+  commissionRate: number;
   completedItems: number;
-  collectedAmount: string;
-  payableAmount: string;
+  collectedAmount: number;
+  payableAmount: number;
   lastCompletedAt?: string | null;
   finalizedAt: string;
   professional: { id: string; firstName: string; lastName: string };
   branch?: { id: string; name: string } | null;
   finalizedBy: { id: string; firstName: string; lastName: string };
   _count: { items: number };
+  items: PayrollItem[];
+};
+
+export type PayrollItem = {
+  treatmentPlanItemId: string;
+  treatmentNumber: string;
+  patientId: string;
+  patientName: string;
+  action: string;
+  procedureCode: string;
+  completedAt?: string | null;
+  firstPaymentAt?: string | null;
+  lastPaymentAt?: string | null;
+  toothNumber?: string | null;
+  surface?: string | null;
+  treatmentAmount: number;
+  collectedAmount: number;
+  rawCollectedAmount: number;
+  payableAmount: number;
+  commissionRate: number;
+  paymentMethods: string;
+  paymentIds: string[];
+  cashValidated: boolean;
+  isReady: boolean;
+  status: "VALID" | "PARTIAL_PAYMENT" | "FINALIZED";
+  calculationExplanation: string;
 };
 
 export async function listAgreements(params?: { search?: string; active?: string }) {
@@ -142,5 +170,10 @@ export async function listFinalizedPayroll(branchId?: string) {
 
 export async function finalizePayroll(payload: { professionalId: string; branchId?: string }) {
   const { data } = await http.post<FinalizedPayroll>("/settings/payroll/finalize", payload);
+  return data;
+}
+
+export async function recalculatePayroll(payload: { professionalId?: string; branchId?: string }) {
+  const { data } = await http.post<PayrollSummary[]>("/settings/payroll/recalculate", payload);
   return data;
 }

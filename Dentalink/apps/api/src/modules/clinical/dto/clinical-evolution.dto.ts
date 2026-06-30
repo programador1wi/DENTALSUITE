@@ -1,4 +1,25 @@
-import { IsBoolean, IsOptional, IsString } from "class-validator";
+import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, ValidateNested } from "class-validator";
+import { Type } from "class-transformer";
+
+export class EvolutionFieldDto {
+  @IsString()
+  label!: string;
+
+  @IsString()
+  value!: string;
+
+  @IsOptional()
+  @IsString()
+  group?: string;
+}
+
+export class EvolutionMaterialDto {
+  @IsString()
+  inventoryItemId!: string;
+
+  @IsNumber()
+  quantity!: number;
+}
 
 export class CreateClinicalEvolutionDto {
   @IsOptional()
@@ -11,6 +32,10 @@ export class CreateClinicalEvolutionDto {
   @IsOptional()
   @IsString()
   treatmentPlanId?: string;
+
+  @IsOptional()
+  @IsString()
+  treatmentPlanItemId?: string;
 
   @IsOptional()
   @IsString()
@@ -35,6 +60,18 @@ export class CreateClinicalEvolutionDto {
   @IsOptional()
   @IsBoolean()
   isPrivate?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EvolutionFieldDto)
+  fields?: EvolutionFieldDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EvolutionMaterialDto)
+  materials?: EvolutionMaterialDto[];
 }
 
 export class UpdateClinicalEvolutionDto extends CreateClinicalEvolutionDto {}
@@ -49,4 +86,21 @@ export class CreateClinicalEvolutionAddendumDto {
   @IsOptional()
   @IsBoolean()
   isPrivate?: boolean;
+}
+
+export class AnnulClinicalEvolutionDto {
+  @IsString()
+  reason!: string;
+}
+
+export class ListEvolutionsQueryDto {
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  includeAnnulled?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  mineOnly?: boolean;
 }

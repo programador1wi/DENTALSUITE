@@ -1,4 +1,17 @@
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Min, MinLength } from "class-validator";
+import { Type } from "class-transformer";
+import {
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+  MinLength,
+  ValidateNested
+} from "class-validator";
 
 const APPOINTMENT_STATUSES = [
   "SCHEDULED",
@@ -64,4 +77,16 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsString()
   notes?: string;
+}
+
+export class CreateAppointmentsBatchDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreateAppointmentDto)
+  appointments!: CreateAppointmentDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  autoCreateInitialTreatmentPlan?: boolean;
 }

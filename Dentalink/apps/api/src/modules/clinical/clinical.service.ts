@@ -13,7 +13,9 @@ import {
 import {
   CreateClinicalEvolutionAddendumDto,
   CreateClinicalEvolutionDto,
-  UpdateClinicalEvolutionDto
+  UpdateClinicalEvolutionDto,
+  ListEvolutionsQueryDto,
+  AnnulClinicalEvolutionDto
 } from "./dto/clinical-evolution.dto";
 import { CreatePrescriptionDto } from "./dto/prescription.dto";
 import {
@@ -120,16 +122,16 @@ export class ClinicalService {
     return medication;
   }
 
-  async listEvolutions(actor: AuthUser, patientId: string) {
+  async listEvolutions(actor: AuthUser, patientId: string, query: ListEvolutionsQueryDto) {
     await this.ensurePatient(actor, patientId);
     return this.prisma.clinicalEvolution.findMany({
-      where: { patientId },
-      include: {
-        professional: true,
-        appointment: true,
-        signedBy: { select: { id: true, firstName: true, lastName: true } },
-        addenda: { orderBy: { createdAt: "asc" } }
+      where: {
+        patientId,
+        addendumOfId: null,
+        ...(query.includeAnnulled ? {} : { annulledAt: null }),
+        ...(query.mineOnly ? { createdById: actor.id } : {})
       },
+      include: this.clinicalEvolutionInclude(),
       orderBy: { createdAt: "desc" }
     });
   }
@@ -142,17 +144,38 @@ export class ClinicalService {
     const evolution = await this.prisma.clinicalEvolution.create({
       data: {
         patientId,
+        branchId: patient.branchId,
+        createdById: actor.id,
         professionalId: dto.professionalId,
         appointmentId: dto.appointmentId,
         treatmentPlanId: dto.treatmentPlanId,
+        treatmentPlanItemId: dto.treatmentPlanItemId,
         subjective: dto.subjective?.trim(),
         objective: dto.objective?.trim(),
         assessment: dto.assessment?.trim(),
         plan: dto.plan?.trim(),
-        notes: dto.notes?.trim()
-      }
+        notes: dto.notes?.trim(),
+        isPrivate: dto.isPrivate ?? false,
+        fields: {
+          create: (dto.fields || []).map((f, i) => ({
+            label: f.label.trim(),
+            value: f.value.trim(),
+            group: f.group?.trim(),
+            sortOrder: i
+          }))
+        },
+        materials: {
+          create: (dto.materials || []).map((m) => ({
+            inventoryItemId: m.inventoryItemId,
+            quantity: m.quantity,
+            unitSnapshot: "", // Will be populated when signed if needed, or we can fetch it now. Let's just store empty and fill on sign.
+            nameSnapshot: ""
+          }))
+        }
+      },
+      include: this.clinicalEvolutionInclude()
     });
-    await this.audit(actor, patientId, "create_evolution", evolution);
+    await this.audit(actor, patientId, "create_evolution", evolution as any);
     return evolution;
   }
 
@@ -161,39 +184,271 @@ export class ClinicalService {
     const current = await this.prisma.clinicalEvolution.findFirst({ where: { id: evolutionId, patientId } });
     if (!current) throw new NotFoundException("Clinical evolution not found");
     if (current.signedAt) throw new BadRequestException("Signed evolutions cannot be edited directly. Create an addendum.");
+    if (current.annulledAt) throw new BadRequestException("Annulled evolutions cannot be edited.");
 
     if (dto.professionalId) await this.validateProfessional(actor, dto.professionalId, patient.branchId);
     if (dto.appointmentId) await this.validateAppointment(actor, patientId, dto.appointmentId);
 
-    const updated = await this.prisma.clinicalEvolution.update({
-      where: { id: evolutionId },
-      data: {
-        professionalId: dto.professionalId,
-        appointmentId: dto.appointmentId,
-        treatmentPlanId: dto.treatmentPlanId,
-        subjective: dto.subjective?.trim(),
-        objective: dto.objective?.trim(),
-        assessment: dto.assessment?.trim(),
-        plan: dto.plan?.trim(),
-        notes: dto.notes?.trim()
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Recreate fields and materials
+      if (dto.fields) {
+        await tx.clinicalEvolutionField.deleteMany({ where: { evolutionId } });
       }
+      if (dto.materials) {
+        await tx.clinicalEvolutionMaterial.deleteMany({ where: { evolutionId } });
+      }
+
+      return tx.clinicalEvolution.update({
+        where: { id: evolutionId },
+        data: {
+          professionalId: dto.professionalId,
+          appointmentId: dto.appointmentId,
+          treatmentPlanId: dto.treatmentPlanId,
+          treatmentPlanItemId: dto.treatmentPlanItemId,
+          subjective: dto.subjective?.trim(),
+          objective: dto.objective?.trim(),
+          assessment: dto.assessment?.trim(),
+          plan: dto.plan?.trim(),
+          notes: dto.notes?.trim(),
+          isPrivate: dto.isPrivate ?? current.isPrivate,
+          ...(dto.fields
+            ? {
+                fields: {
+                  create: dto.fields.map((f, i) => ({
+                    label: f.label.trim(),
+                    value: f.value.trim(),
+                    group: f.group?.trim(),
+                    sortOrder: i
+                  }))
+                }
+              }
+            : {}),
+          ...(dto.materials
+            ? {
+                materials: {
+                  create: dto.materials.map((m) => ({
+                    inventoryItemId: m.inventoryItemId,
+                    quantity: m.quantity,
+                    unitSnapshot: "",
+                    nameSnapshot: ""
+                  }))
+                }
+              }
+            : {})
+        },
+        include: { fields: true, materials: true }
+      });
     });
-    await this.audit(actor, patientId, "update_evolution", updated);
+
+    await this.audit(actor, patientId, "update_evolution", updated as any);
     return updated;
   }
 
   async signEvolution(actor: AuthUser, patientId: string, evolutionId: string) {
-    await this.ensurePatient(actor, patientId);
-    const current = await this.prisma.clinicalEvolution.findFirst({ where: { id: evolutionId, patientId } });
+    const patient = await this.ensurePatient(actor, patientId);
+    const current = await this.prisma.clinicalEvolution.findFirst({ 
+      where: { id: evolutionId, patientId },
+      include: { materials: true, treatmentPlanItem: { include: { procedure: true } } }
+    });
     if (!current) throw new NotFoundException("Clinical evolution not found");
     if (current.signedAt) return current;
+    if (current.annulledAt) throw new BadRequestException("Annulled evolutions cannot be signed.");
 
-    const signed = await this.prisma.clinicalEvolution.update({
-      where: { id: evolutionId },
-      data: { signedAt: new Date(), signedById: actor.id }
+    const signed = await this.prisma.$transaction(async (tx) => {
+      // 1. Descontar Inventario si aplica
+      for (const material of current.materials) {
+        const inventoryItem = await tx.inventoryItem.findFirst({
+          where: { id: material.inventoryItemId, isActive: true, branchId: patient.branchId! }
+        });
+        
+        if (!inventoryItem) throw new BadRequestException(`Material de inventario inactivo o no disponible en esta sucursal (ID: ${material.inventoryItemId})`);
+        
+        const warehouse = await tx.inventoryWarehouse.findFirst({
+          where: { organizationId: actor.organizationId, branchId: patient.branchId!, isDefault: true }
+        }) ?? await tx.inventoryWarehouse.create({
+          data: {
+            organizationId: actor.organizationId,
+            branchId: patient.branchId!,
+            name: "Bodega central",
+            description: "Bodega creada automaticamente para consumo clinico.",
+            isDefault: true
+          }
+        });
+        const stockRow = await tx.inventoryStock.upsert({
+          where: { inventoryItemId_warehouseId: { inventoryItemId: inventoryItem.id, warehouseId: warehouse.id } },
+          create: {
+            organizationId: actor.organizationId,
+            inventoryItemId: inventoryItem.id,
+            warehouseId: warehouse.id,
+            stock: inventoryItem.stock,
+            minStock: inventoryItem.minStock,
+            averageCost: 0
+          },
+          update: {}
+        });
+
+        const numericQty = Number(material.quantity);
+        const numericStock = Number(stockRow.stock);
+        if (numericStock < numericQty) {
+          throw new BadRequestException(`Stock insuficiente para el material ${inventoryItem.name}. Stock actual: ${numericStock}, Requerido: ${numericQty}.`);
+        }
+        
+        // Crear movimiento
+        const movement = await tx.inventoryMovement.create({
+          data: {
+            inventoryItemId: inventoryItem.id,
+            branchId: patient.branchId!,
+            warehouseId: warehouse.id,
+            type: "OUT",
+            quantity: numericQty,
+            reason: `Consumo por evolución clínica ${current.id}`,
+            source: "CLINICAL",
+            createdById: actor.id,
+            patientId,
+            clinicalEvolutionId: current.id,
+            stockBefore: numericStock,
+            stockAfter: numericStock - numericQty,
+            procedureId: current.treatmentPlanItem?.procedureId,
+            treatmentPlanItemId: current.treatmentPlanItemId,
+            treatmentPlanId: current.treatmentPlanId
+          }
+        });
+
+        // Descontar
+        await tx.inventoryStock.update({
+          where: { id: stockRow.id },
+          data: { stock: { decrement: numericQty } }
+        });
+        await tx.inventoryItem.update({
+          where: { id: inventoryItem.id },
+          data: { stock: { decrement: numericQty } }
+        });
+
+        // Actualizar material snapshot
+        await tx.clinicalEvolutionMaterial.update({
+          where: { id: material.id },
+          data: { 
+            unitSnapshot: inventoryItem.unit,
+            nameSnapshot: inventoryItem.name,
+            inventoryMovementId: movement.id
+          }
+        });
+      }
+
+      // 2. Completar Treatment Plan Item si existe
+      let actionSnapshot = "";
+      if (current.treatmentPlanItemId && current.treatmentPlanItem) {
+        actionSnapshot = current.treatmentPlanItem.procedure.name;
+        if (current.treatmentPlanItem.status !== "COMPLETED") {
+          await tx.treatmentPlanItem.update({
+            where: { id: current.treatmentPlanItemId },
+            data: { 
+              status: "COMPLETED", 
+              completedAt: new Date(),
+              completedByEvolutionId: current.id
+            }
+          });
+        }
+      }
+
+      // 3. Firmar
+      return tx.clinicalEvolution.update({
+        where: { id: evolutionId },
+        data: { 
+          signedAt: new Date(), 
+          signedById: actor.id,
+          actionNameSnapshot: actionSnapshot
+        }
+      });
     });
-    await this.audit(actor, patientId, "sign_evolution", signed);
+
+    await this.audit(actor, patientId, "sign_evolution", signed as any);
     return signed;
+  }
+
+  async annulEvolution(actor: AuthUser, patientId: string, evolutionId: string, dto: AnnulClinicalEvolutionDto) {
+    const patient = await this.ensurePatient(actor, patientId);
+    const current = await this.prisma.clinicalEvolution.findFirst({ 
+      where: { id: evolutionId, patientId },
+      include: { materials: { include: { inventoryMovement: true } }, treatmentPlanItem: true }
+    });
+    if (!current) throw new NotFoundException("Clinical evolution not found");
+    if (current.annulledAt) return current;
+
+    const annulled = await this.prisma.$transaction(async (tx) => {
+      // 1. Revertir inventario
+      for (const material of current.materials) {
+        if (!material.inventoryMovementId || !material.inventoryMovement) continue;
+        
+        const inventoryItem = await tx.inventoryItem.findFirst({
+          where: { id: material.inventoryItemId }
+        });
+        
+        if (inventoryItem) {
+          const numericQty = Number(material.quantity);
+          const numericStock = Number(inventoryItem.stock);
+          
+          const reversal = await tx.inventoryMovement.create({
+            data: {
+              inventoryItemId: inventoryItem.id,
+              branchId: material.inventoryMovement.branchId,
+              warehouseId: material.inventoryMovement.warehouseId,
+              type: "IN",
+              quantity: numericQty,
+              reason: `Reversa por anulación de evolución clínica ${current.id}. Motivo: ${dto.reason}`,
+              source: "CLINICAL_REVERSAL",
+              createdById: actor.id,
+              patientId,
+              clinicalEvolutionId: current.id,
+              stockBefore: numericStock,
+              stockAfter: numericStock + numericQty,
+              reversalOfMovementId: material.inventoryMovement.id
+            }
+          });
+
+          if (material.inventoryMovement.warehouseId) {
+            await tx.inventoryStock.updateMany({
+              where: { inventoryItemId: inventoryItem.id, warehouseId: material.inventoryMovement.warehouseId },
+              data: { stock: { increment: numericQty } }
+            });
+          }
+          await tx.inventoryItem.update({
+            where: { id: inventoryItem.id },
+            data: { stock: { increment: numericQty } }
+          });
+
+          await tx.clinicalEvolutionMaterial.update({
+            where: { id: material.id },
+            data: { reversedMovementId: reversal.id }
+          });
+        }
+      }
+
+      // 2. Revertir estado del item del plan (solo si esta evolución lo completó)
+      if (current.treatmentPlanItemId && current.treatmentPlanItem?.completedByEvolutionId === current.id) {
+        await tx.treatmentPlanItem.update({
+          where: { id: current.treatmentPlanItemId },
+          data: { 
+            status: "PLANNED", 
+            completedAt: null,
+            completedByEvolutionId: null
+          }
+        });
+      }
+
+      // 3. Anular
+      return tx.clinicalEvolution.update({
+        where: { id: evolutionId },
+        data: { 
+          annulledAt: new Date(), 
+          annulledById: actor.id,
+          annulReason: dto.reason.trim()
+        }
+      });
+    });
+
+    await this.audit(actor, patientId, "annul_evolution", annulled as any);
+    return annulled;
   }
 
   async createEvolutionAddendum(actor: AuthUser, patientId: string, evolutionId: string, dto: CreateClinicalEvolutionAddendumDto) {
@@ -850,6 +1105,26 @@ export class ClinicalService {
     return evolution.id;
   }
 
+  private clinicalEvolutionInclude() {
+    return {
+      professional: true,
+      appointment: true,
+      signedBy: { select: { id: true, firstName: true, lastName: true } },
+      addenda: { orderBy: { createdAt: "asc" as const } },
+      createdBy: { select: { id: true, firstName: true, lastName: true } },
+      branch: { select: { id: true, name: true } },
+      fields: { orderBy: { sortOrder: "asc" as const } },
+      materials: { include: { inventoryItem: true } },
+      annulledBy: { select: { id: true, firstName: true, lastName: true } },
+      treatmentPlanItem: {
+        include: {
+          procedure: { select: { id: true, code: true, name: true } },
+          treatmentPlan: { select: { id: true, name: true, displayId: true } }
+        }
+      }
+    };
+  }
+
   private async audit(actor: AuthUser, patientId: string | null, action: string, after: Prisma.InputJsonValue) {
     await this.prisma.auditLog.create({
       data: {
@@ -861,6 +1136,27 @@ export class ClinicalService {
         after
       }
     });
+  }
+
+  async deleteClinicalDocument(actor: AuthUser, patientId: string, documentId: string, reason: string) {
+    const document = await this.prisma.clinicalDocument.findFirst({
+      where: { id: documentId, patientId, deletedAt: null }
+    });
+
+    if (!document) throw new NotFoundException("Clinical document not found or already deleted");
+
+    const updated = await this.prisma.clinicalDocument.update({
+      where: { id: documentId },
+      data: {
+        deletedAt: new Date(),
+        deletedById: actor.id,
+        deleteReason: reason
+      }
+    });
+
+    await this.audit(actor, patientId, "delete_clinical_document", { documentId, reason });
+
+    return updated;
   }
 
   private clean<T extends object>(input: T): T {

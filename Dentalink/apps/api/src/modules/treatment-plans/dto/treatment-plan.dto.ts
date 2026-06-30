@@ -260,3 +260,35 @@ export class UpdateBudgetStatusDto {
   @IsString()
   notes?: string;
 }
+
+export class DuplicateTreatmentPlanDto {
+  @IsOptional()
+  @IsString()
+  newBranchId?: string;
+
+  @IsOptional()
+  @IsString()
+  newProfessionalId?: string;
+  
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class ReferTreatmentPlanDto {
+  @IsString()
+  toBranchId!: string;
+
+  @IsOptional()
+  @IsString()
+  toProfessionalId?: string;
+
+  @IsString()
+  reason!: string;
+}
+
+export class ReactivateTreatmentPlanDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}

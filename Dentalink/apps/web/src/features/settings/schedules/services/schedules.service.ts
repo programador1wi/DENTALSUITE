@@ -27,6 +27,33 @@ export type SchedulePayload = {
   breakEndTime?: string | null;
 };
 
+export type SpecialSchedule = {
+  id: string;
+  professionalId: string;
+  branchId: string;
+  chairId?: string | null;
+  date: string;
+  startTime: string;
+  endTime: string;
+  breakStartTime?: string | null;
+  breakEndTime?: string | null;
+  isActive: boolean;
+  professional: { firstName: string; lastName: string };
+  branch: { name: string };
+  chair?: { id: string; name: string } | null;
+};
+
+export type SpecialSchedulePayload = {
+  professionalId: string;
+  branchId: string;
+  chairId?: string | null;
+  date: string;
+  startTime: string;
+  endTime: string;
+  breakStartTime?: string | null;
+  breakEndTime?: string | null;
+};
+
 export type ScheduleBlockStatus =
   | "SCHEDULED"
   | "CONFIRMED"
@@ -73,7 +100,7 @@ export type ScheduleBlockPayload = {
   notes?: string;
 };
 
-export async function listSchedules(params?: { professionalId?: string; branchId?: string; dayOfWeek?: string; active?: string }) {
+export async function listSchedules(params?: { professionalId?: string; branchId?: string; dayOfWeek?: string; active?: string; pageSize?: number }) {
   const { data } = await http.get<Schedule[]>("/professional-schedules", { params });
   return data;
 }
@@ -147,6 +174,26 @@ export async function updateProfessionalAgendaConfig(
     `/professionals/${professionalId}/branches/${branchId}/agenda-config`,
     payload
   );
+  return data;
+}
+
+export async function listSpecialSchedules(params?: { professionalId?: string; branchId?: string; date?: string; active?: string; pageSize?: number }) {
+  const { data } = await http.get<SpecialSchedule[]>("/professional-schedules/special", { params });
+  return data;
+}
+
+export async function createSpecialSchedule(payload: SpecialSchedulePayload) {
+  const { data } = await http.post<SpecialSchedule>("/professional-schedules/special", payload);
+  return data;
+}
+
+export async function updateSpecialSchedule(id: string, payload: Partial<SpecialSchedulePayload> & { isActive?: boolean }) {
+  const { data } = await http.patch<SpecialSchedule>(`/professional-schedules/special/${id}`, payload);
+  return data;
+}
+
+export async function deactivateSpecialSchedule(id: string) {
+  const { data } = await http.patch<SpecialSchedule>(`/professional-schedules/special/${id}/deactivate`);
   return data;
 }
 

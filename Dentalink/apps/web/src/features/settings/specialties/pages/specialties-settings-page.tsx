@@ -1,4 +1,5 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useMemo, useState } from "react";
+import { Pencil, RotateCcw, X, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -7,11 +8,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor } from "@/features/clinical/components/rich-text-editor";
 import {
   useCreateSpecialty,
   useCreateSpecialtyAppointmentReason,
@@ -56,6 +59,22 @@ type ReasonForm = {
 const emptySpecialtyForm: SpecialtyForm = { name: "", description: "" };
 const emptyTemplateForm: TemplateForm = { name: "", content: "" };
 const emptyReasonForm: ReasonForm = { name: "", durationMinutes: "30", color: "#0ea5e9" };
+const reasonDurationOptions = [5, 10, 15, 20, 30, 40, 60];
+const reasonColorOptions = [
+  "#000000",
+  "#eeeeee",
+  "#ff9900",
+  "#9900ff",
+  "#2ef4c6",
+  "#2a9ce4",
+  "#ff0000",
+  "#00ff00",
+  "#f1c232",
+  "#f4cccc",
+  "#6aa84f",
+  "#999999",
+  "#45818e"
+];
 
 function textOrUndefined(value: string) {
   const normalized = value.trim();
@@ -64,6 +83,19 @@ function textOrUndefined(value: string) {
 
 function templateLabel(type: SpecialtyClinicalTemplateType) {
   return type === "PRESCRIPTION" ? "Prescripciones" : "Evoluciones";
+}
+
+function sortReasonsByLegacyId(reasons: SpecialtyAppointmentReason[]) {
+  return [...reasons].sort((left, right) => {
+    const leftLegacyId = left.legacyId ?? Number.MAX_SAFE_INTEGER;
+    const rightLegacyId = right.legacyId ?? Number.MAX_SAFE_INTEGER;
+    if (leftLegacyId !== rightLegacyId) return leftLegacyId - rightLegacyId;
+    return left.name.localeCompare(right.name, "es");
+  });
+}
+
+function reasonDisplayId(reason: SpecialtyAppointmentReason, index: number) {
+  return typeof reason.legacyId === "number" ? reason.legacyId : index + 1;
 }
 
 export function SpecialtiesSettingsPage() {
@@ -76,6 +108,7 @@ export function SpecialtiesSettingsPage() {
   const [editingTemplate, setEditingTemplate] = useState<SpecialtyClinicalTemplate | null>(null);
   const [templateForm, setTemplateForm] = useState<TemplateForm>(emptyTemplateForm);
   const [reasonSpecialty, setReasonSpecialty] = useState<Specialty | null>(null);
+  const [reasonEditorOpen, setReasonEditorOpen] = useState(false);
   const [editingReason, setEditingReason] = useState<SpecialtyAppointmentReason | null>(null);
   const [reasonForm, setReasonForm] = useState<ReasonForm>(emptyReasonForm);
 
@@ -89,6 +122,7 @@ export function SpecialtiesSettingsPage() {
   const updateTemplate = useUpdateSpecialtyClinicalTemplate();
   const createReason = useCreateSpecialtyAppointmentReason();
   const updateReason = useUpdateSpecialtyAppointmentReason();
+  const sortedReasons = useMemo(() => sortReasonsByLegacyId(reasons.data ?? []), [reasons.data]);
 
   const specialtyPending =
     createSpecialty.isPending || updateSpecialty.isPending || deactivateSpecialty.isPending;
@@ -181,14 +215,22 @@ export function SpecialtiesSettingsPage() {
 
   const openReasons = (specialty: Specialty) => {
     setReasonSpecialty(specialty);
+    setReasonEditorOpen(false);
     setEditingReason(null);
     setReasonForm(emptyReasonForm);
   };
 
   const closeReasons = () => {
     setReasonSpecialty(null);
+    setReasonEditorOpen(false);
     setEditingReason(null);
     setReasonForm(emptyReasonForm);
+  };
+
+  const openNewReason = () => {
+    setEditingReason(null);
+    setReasonForm(emptyReasonForm);
+    setReasonEditorOpen(true);
   };
 
   const editReason = (reason: SpecialtyAppointmentReason) => {
@@ -198,6 +240,13 @@ export function SpecialtiesSettingsPage() {
       durationMinutes: String(reason.durationMinutes),
       color: reason.color ?? "#0ea5e9"
     });
+    setReasonEditorOpen(true);
+  };
+
+  const closeReasonEditor = () => {
+    setEditingReason(null);
+    setReasonForm(emptyReasonForm);
+    setReasonEditorOpen(false);
   };
 
   const submitReason = async (event: FormEvent<HTMLFormElement>) => {
@@ -222,8 +271,16 @@ export function SpecialtiesSettingsPage() {
       await createReason.mutateAsync({ specialtyId: reasonSpecialty.id, payload });
     }
 
-    setEditingReason(null);
-    setReasonForm(emptyReasonForm);
+    closeReasonEditor();
+  };
+
+  const toggleReasonStatus = async (reason: SpecialtyAppointmentReason) => {
+    if (!reasonSpecialty) return;
+    await updateReason.mutateAsync({
+      specialtyId: reasonSpecialty.id,
+      reasonId: reason.id,
+      payload: { isActive: !reason.isActive }
+    });
   };
 
   return (
@@ -409,6 +466,7 @@ export function SpecialtiesSettingsPage() {
             : "Plantillas"
         }
         onClose={closeTemplates}
+        size="xl"
       >
         <div className="space-y-4">
           {templates.isLoading ? <LoadingState message="Cargando plantillas..." /> : null}
@@ -420,7 +478,25 @@ export function SpecialtiesSettingsPage() {
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
                       <p className="font-semibold text-slate-900">{template.name}</p>
-                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">{template.content}</p>
+                      <div className="mt-1 flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+                        <span>Creado el {new Date(template.createdAt).toLocaleDateString()}</span>
+                        {template.createdBy && (
+                          <>
+                            <span>&bull;</span>
+                            <span>Por {template.createdBy.firstName} {template.createdBy.lastName}</span>
+                          </>
+                        )}
+                        {!template.createdBy && (
+                          <>
+                            <span>&bull;</span>
+                            <span>Por el Sistema</span>
+                          </>
+                        )}
+                      </div>
+                      <div 
+                        className="mt-1 line-clamp-2 text-xs text-slate-500 prose prose-sm max-w-none prose-p:my-0 prose-headings:my-0 prose-ul:my-0 prose-ol:my-0"
+                        dangerouslySetInnerHTML={{ __html: template.content }}
+                      />
                     </div>
                     <Badge
                       value={template.isActive ? "ACTIVA" : "INACTIVA"}
@@ -469,17 +545,16 @@ export function SpecialtiesSettingsPage() {
                 onChange={(event) => setTemplateForm((current) => ({ ...current, name: event.target.value }))}
               />
             </label>
-            <label className="block text-sm text-slate-700">
+            <div className="block text-sm text-slate-700">
               Contenido
-              <Textarea
-                required
-                rows={4}
-                value={templateForm.content}
-                onChange={(event) =>
-                  setTemplateForm((current) => ({ ...current, content: event.target.value }))
-                }
-              />
-            </label>
+              <div className="mt-1.5">
+                <RichTextEditor
+                  value={templateForm.content}
+                  onChange={(val) => setTemplateForm((current) => ({ ...current, content: val }))}
+                  placeholder="Redacta el contenido de la plantilla"
+                />
+              </div>
+            </div>
             <div className="flex justify-end gap-2">
               {editingTemplate ? (
                 <Button
@@ -503,123 +578,198 @@ export function SpecialtiesSettingsPage() {
 
       <Modal
         open={Boolean(reasonSpecialty)}
-        title={reasonSpecialty ? `Motivos de atencion de ${reasonSpecialty.name}` : "Motivos de atencion"}
+        title="Motivos de atención de la especialidad"
         onClose={closeReasons}
+        size="2xl"
       >
         <div className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-            Cada motivo define nombre, duracion y color para clasificar la atencion de esa especialidad.
+          <div className="rounded-[var(--radius-md)] border border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] text-[var(--text-brand-strong)]">
+            Los motivos de atención se preguntarán al momento de agendar una cita con la especialidad
+            {reasonSpecialty ? ` ${reasonSpecialty.name}.` : "."}
           </div>
+
           {reasons.isLoading ? <LoadingState message="Cargando motivos..." /> : null}
           {reasons.isError ? <ErrorState message={reasons.error.message} /> : null}
-          {reasons.data?.length ? (
-            <div className="max-h-52 space-y-2 overflow-auto pr-1">
-              {reasons.data.map((reason) => (
-                <div key={reason.id} className="rounded-xl border border-slate-200 p-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="flex items-start gap-3">
-                      <span
-                        className="mt-1 h-3 w-3 rounded-full ring-1 ring-slate-200"
-                        style={{ backgroundColor: reason.color ?? "#0ea5e9" }}
-                      />
-                      <div>
-                        <p className="font-semibold text-slate-900">{reason.name}</p>
-                        <p className="mt-1 text-xs text-slate-500">{reason.durationMinutes} minutos</p>
-                      </div>
-                    </div>
-                    <Badge
-                      value={reason.isActive ? "ACTIVO" : "INACTIVO"}
-                      tone={reason.isActive ? "success" : "warning"}
-                    />
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button variant="secondary" onClick={() => editReason(reason)}>
-                      Editar
-                    </Button>
-                    <Button
-                      variant={reason.isActive ? "danger" : "primary"}
-                      disabled={reasonPending || !reasonSpecialty}
-                      onClick={() =>
-                        reasonSpecialty
-                          ? void updateReason.mutateAsync({
-                              specialtyId: reasonSpecialty.id,
-                              reasonId: reason.id,
-                              payload: { isActive: !reason.isActive }
-                            })
-                          : undefined
-                      }
+
+          {sortedReasons.length ? (
+            <div className="max-h-[58vh] overflow-auto rounded-[var(--radius-lg)] border-[0.5px] border-[var(--border-default)]">
+              <table className="w-full min-w-[760px] border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]">
+                <thead className="sticky top-0 z-10 border-b-[0.5px] border-[var(--border-default)] bg-[var(--bg-subtle)] text-left text-[var(--text-xs)] font-medium uppercase text-[var(--text-secondary)]">
+                  <tr>
+                    <th className="px-[var(--space-4)] py-[var(--space-3)]">ID</th>
+                    <th className="px-[var(--space-4)] py-[var(--space-3)]">Nombre del motivo</th>
+                    <th className="px-[var(--space-4)] py-[var(--space-3)]">Duración</th>
+                    <th className="px-[var(--space-4)] py-[var(--space-3)]">Color</th>
+                    <th className="px-[var(--space-4)] py-[var(--space-3)] text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border-default)]">
+                  {sortedReasons.map((reason, index) => (
+                    <tr
+                      key={reason.id}
+                      className={!reason.isActive ? "bg-[var(--bg-subtle)] text-[var(--text-secondary)]" : undefined}
                     >
-                      {reason.isActive ? "Deshabilitar" : "Habilitar"}
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                      <td className="whitespace-nowrap px-[var(--space-4)] py-[var(--space-3)] font-medium">
+                        {reasonDisplayId(reason, index)}
+                      </td>
+                      <td className="min-w-[320px] px-[var(--space-4)] py-[var(--space-3)]">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={!reason.isActive ? "line-through" : undefined}>{reason.name}</span>
+                          {!reason.isActive ? <Badge value="Suspendido" tone="warning" /> : null}
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-[var(--space-4)] py-[var(--space-3)]">
+                        {reason.durationMinutes} min
+                      </td>
+                      <td className="px-[var(--space-4)] py-[var(--space-3)]">
+                        <span
+                          aria-label={`Color ${reason.color ?? "#0ea5e9"}`}
+                          className="block h-5 w-5 rounded-[var(--radius-full)] border border-[var(--border-strong)]"
+                          style={{ backgroundColor: reason.color ?? "#0ea5e9" }}
+                        />
+                      </td>
+                      <td className="px-[var(--space-4)] py-[var(--space-3)]">
+                        <div className="flex justify-end gap-2">
+                          <HelpTooltip content="Editar motivo" position="top">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`Editar ${reason.name}`}
+                              className="h-8 w-8 px-0 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                              onClick={() => editReason(reason)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </HelpTooltip>
+                          <HelpTooltip content={reason.isActive ? "Suspender motivo" : "Reactivar motivo"} position="top">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`${reason.isActive ? "Suspender" : "Reactivar"} ${reason.name}`}
+                              className={`h-8 w-8 px-0 ${reason.isActive ? "text-red-500 hover:bg-red-50 hover:text-red-600" : "text-green-600 hover:bg-green-50 hover:text-green-700"}`}
+                              disabled={reasonPending}
+                              onClick={() =>
+                                void updateReason.mutateAsync({
+                                  specialtyId: reasonSpecialty!.id,
+                                  reasonId: reason.id,
+                                  payload: { isActive: !reason.isActive }
+                                })
+                              }
+                            >
+                              {reason.isActive ? <Trash2 className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+                            </Button>
+                          </HelpTooltip>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : !reasons.isLoading ? (
             <EmptyState
               title="Sin motivos"
-              description="Configura el primer motivo de atencion para esta especialidad."
+              description="Configura el primer motivo de atención para esta especialidad."
             />
           ) : null}
 
-          <form className="space-y-3 border-t border-slate-200 pt-4" onSubmit={submitReason}>
-            <h4 className="text-sm font-semibold text-slate-900">
-              {editingReason ? "Editar motivo" : "Nuevo motivo"}
-            </h4>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="text-sm text-slate-700">
-                Nombre
-                <Input
-                  required
-                  value={reasonForm.name}
-                  onChange={(event) => setReasonForm((current) => ({ ...current, name: event.target.value }))}
-                />
-              </label>
-              <label className="text-sm text-slate-700">
-                Duracion (minutos)
-                <Input
-                  required
-                  min={5}
-                  max={60}
-                  step={5}
-                  type="number"
-                  value={reasonForm.durationMinutes}
-                  onChange={(event) =>
-                    setReasonForm((current) => ({ ...current, durationMinutes: event.target.value }))
-                  }
-                />
-              </label>
-              <label className="text-sm text-slate-700">
-                Color
-                <Input
-                  type="color"
-                  value={reasonForm.color}
-                  onChange={(event) =>
-                    setReasonForm((current) => ({ ...current, color: event.target.value }))
-                  }
-                  className="h-10 p-1"
-                />
-              </label>
-            </div>
-            <div className="flex justify-end gap-2">
-              {editingReason ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => {
-                    setEditingReason(null);
-                    setReasonForm(emptyReasonForm);
-                  }}
-                >
-                  Cancelar edicion
-                </Button>
-              ) : null}
-              <Button type="submit" disabled={reasonPending}>
-                {editingReason ? "Actualizar motivo" : "Crear motivo"}
-              </Button>
-            </div>
-          </form>
+          <div className="flex flex-col-reverse gap-2 border-t border-[var(--border-default)] pt-[var(--space-4)] sm:flex-row sm:justify-end">
+            <Button type="button" variant="secondary" onClick={closeReasons}>
+              Cerrar
+            </Button>
+            <Button type="button" disabled={!reasonSpecialty} onClick={openNewReason}>
+              Agregar motivo de atención
+            </Button>
+          </div>
         </div>
+      </Modal>
+
+      <Modal
+        open={Boolean(reasonSpecialty && reasonEditorOpen)}
+        title={editingReason ? "Editar motivo de atención" : "Agregar motivo de atención"}
+        onClose={closeReasonEditor}
+        size="lg"
+      >
+        <form className="space-y-4" onSubmit={submitReason}>
+          <label className="block text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+            Nombre
+            <Input
+              required
+              value={reasonForm.name}
+              onChange={(event) => setReasonForm((current) => ({ ...current, name: event.target.value }))}
+            />
+          </label>
+
+          {editingReason ? (
+            <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-subtle)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] text-[var(--text-primary)]">
+              Cambiar el nombre afectará este motivo en esta especialidad; las citas ya creadas conservan su texto histórico.
+            </div>
+          ) : null}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="block text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+              Duración
+              <Select
+                required
+                value={reasonForm.durationMinutes}
+                onChange={(event) =>
+                  setReasonForm((current) => ({ ...current, durationMinutes: event.target.value }))
+                }
+              >
+                {reasonDurationOptions.map((duration) => (
+                  <option key={duration} value={duration}>
+                    {duration} min
+                  </option>
+                ))}
+              </Select>
+            </label>
+
+            <label className="block text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+              Color personalizado
+              <Input
+                type="color"
+                value={reasonForm.color}
+                onChange={(event) =>
+                  setReasonForm((current) => ({ ...current, color: event.target.value }))
+                }
+                className="h-10 p-1"
+              />
+            </label>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-[var(--text-sm)] font-medium text-[var(--text-primary)]">Color</p>
+            <div className="flex flex-wrap gap-2">
+              {reasonColorOptions.map((color) => {
+                const selected = reasonForm.color.toLowerCase() === color;
+                return (
+                  <button
+                    key={color}
+                    type="button"
+                    aria-label={`Color ${color}`}
+                    aria-pressed={selected}
+                    className={`h-7 w-7 rounded-[var(--radius-full)] border border-[var(--border-strong)] transition-[transform,border-color] duration-[var(--duration-fast)] ease-[var(--ease-default)] active:scale-[0.96] ${
+                      selected ? "ring-2 ring-[var(--border-brand)] ring-offset-2" : ""
+                    }`}
+                    style={{ backgroundColor: color }}
+                    onClick={() => setReasonForm((current) => ({ ...current, color }))}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-[var(--border-default)] pt-[var(--space-4)]">
+            <Button type="button" variant="secondary" onClick={closeReasonEditor}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={reasonPending}>
+              Guardar
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

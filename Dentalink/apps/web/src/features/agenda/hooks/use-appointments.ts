@@ -8,8 +8,10 @@ import {
   confirmAppointment,
   createAppointmentReminder,
   createAppointment,
+  createAppointmentsBatch,
   deleteAppointment,
   getAvailability,
+  getAppointment,
   listAppointmentNotes,
   listAppointmentReminders,
   listAppointments,
@@ -24,6 +26,7 @@ import {
   type AppointmentQuery,
   type AppointmentReminderPayload,
   type AppointmentReminderUpdatePayload,
+  type CreateAppointmentsBatchPayload,
   type RescheduleAppointmentPayload
 } from "../services/appointments.service";
 
@@ -32,6 +35,17 @@ export function useAppointments(params: AppointmentQuery, enabled = true) {
     queryKey: ["appointments", params],
     queryFn: () => listAppointments(params),
     enabled
+  });
+}
+
+export function useAppointment(id: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["appointments", id],
+    queryFn: () => {
+      if (!id) throw new Error("ID required");
+      return getAppointment(id);
+    },
+    enabled: enabled && Boolean(id)
   });
 }
 
@@ -71,6 +85,18 @@ export function useCreateAppointment() {
     mutationFn: (payload: AppointmentPayload) => createAppointment(payload),
     onSuccess: () => {
       toast.success("Cita creada");
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useCreateAppointmentsBatch() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateAppointmentsBatchPayload) => createAppointmentsBatch(payload),
+    onSuccess: () => {
+      toast.success("Citas creadas");
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
     },
     onError: (error: Error) => toast.error(error.message)
@@ -156,7 +182,7 @@ export function useAppointmentActions() {
     noShow: useMutation({ mutationFn: noShowAppointment, ...options }),
     remove: useMutation({ mutationFn: deleteAppointment, ...options }),
     cancel: useMutation({
-      mutationFn: ({ id, reason, cancelledBy }: { id: string; reason: string; cancelledBy?: "patient" | "clinic" }) =>
+      mutationFn: ({ id, reason, cancelledBy }: { id: string; reason: string; cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled" }) =>
         cancelAppointment(id, { reason, cancelledBy }),
       ...options
     }),

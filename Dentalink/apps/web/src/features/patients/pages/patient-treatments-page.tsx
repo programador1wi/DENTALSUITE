@@ -322,7 +322,7 @@ export function PatientTreatmentsPage() {
   const createDiagnosisForSelectedTeeth = async (diagnosis: string, notes?: string) => {
     const professionalId = professionalOptions[0]?.id ?? plan?.professional.id;
     if (!professionalId) {
-      toast.error("No hay profesionales activos para registrar el diagnostico.");
+      toast.error("No hay profesionales activos para registrar el diagnóstico.");
       return;
     }
     if (!actionTeeth.length) {
@@ -344,7 +344,7 @@ export function PatientTreatmentsPage() {
         )
       );
       closeOdontogramModal();
-      toast.success(actionTeeth.length > 1 ? `Diagnostico agregado a ${actionTeeth.length} piezas.` : "Diagnostico agregado al odontograma.");
+      toast.success(actionTeeth.length > 1 ? `Diagnóstico agregado a ${actionTeeth.length} piezas.` : "Diagnóstico agregado al odontograma.");
     } catch {
       // El hook de mutacion ya muestra el error de API.
     }
@@ -399,11 +399,11 @@ export function PatientTreatmentsPage() {
       return;
     }
     if (item.procedure.requiresTooth && !selectedTooth) {
-      toast.error("Selecciona una pieza dental para esta prestacion.");
+      toast.error("Selecciona una pieza dental para esta prestación.");
       return;
     }
     if (item.procedure.requiresSurface && !selectedSurface) {
-      toast.error("Selecciona una superficie para esta prestacion.");
+      toast.error("Selecciona una superficie para esta prestación.");
       return;
     }
 
@@ -420,13 +420,13 @@ export function PatientTreatmentsPage() {
       }
     });
     setBudgetDrawerAddedItems((count) => count + 1);
-    toast.success("Prestacion agregada al plan.");
+    toast.success("Prestación agregada al plan.");
   };
 
   const createBudgetFromDrawer = async () => {
     if (!plan) return;
     if (!plan.items.length && !budgetDrawerAddedItems) {
-      toast.error("Agrega al menos una prestacion antes de crear el presupuesto.");
+      toast.error("Agrega al menos una prestación antes de crear el presupuesto.");
       return;
     }
     await treatmentMutations.createBudget.mutateAsync({ treatmentPlanId: plan.id });
@@ -447,7 +447,7 @@ export function PatientTreatmentsPage() {
     });
     selectTooth(toothNumber);
     setPieceAssignmentItem(null);
-    toast.success("Pieza asignada a la prestacion.");
+    toast.success("Pieza asignada a la prestación.");
   };
 
   const markItemForFuture = async (item: TreatmentPlanItem) => {
@@ -458,19 +458,19 @@ export function PatientTreatmentsPage() {
       itemId: item.id,
       payload: { plannedAt: marked ? null : new Date().toISOString() }
     });
-    toast.success(marked ? "Prestacion desmarcada para futura realizacion." : "Prestacion marcada para futura realizacion.");
+    toast.success(marked ? "Prestación desmarcada para futura realizacion." : "Prestación marcada para futura realizacion.");
   };
 
   const unrealizeItem = async (item: TreatmentPlanItem) => {
     if (!plan) return;
     await treatmentMutations.updateItemStatus.mutateAsync({ treatmentPlanId: plan.id, itemId: item.id, status: "PLANNED" });
-    toast.success("Prestacion marcada como no realizada.");
+    toast.success("Prestación marcada como no realizada.");
   };
 
   const unlinkItemPayment = async (item: TreatmentPlanItem) => {
     const allocation = item.paymentAllocations?.[0];
     if (!allocation) {
-      toast.error("Esta prestacion no tiene pagos asociados.");
+      toast.error("Esta prestación no tiene pagos asociados.");
       return;
     }
     await paymentMutations.removeAllocation.mutateAsync(allocation.id);
@@ -479,7 +479,7 @@ export function PatientTreatmentsPage() {
   const payItem = (item: TreatmentPlanItem) => {
     const pending = Math.max(numberValue(item.total) - itemPaidAmount(item), 0);
     if (pending <= 0) {
-      toast.error("Esta prestacion no tiene saldo pendiente.");
+      toast.error("Esta prestación no tiene saldo pendiente.");
       return;
     }
     navigate(`/patients/${id}/payments?treatmentPlanId=${encodeURIComponent(item.treatmentPlanId)}&itemId=${encodeURIComponent(item.id)}&amount=${pending}`);
@@ -605,7 +605,7 @@ export function PatientTreatmentsPage() {
                   <div className="flex flex-wrap gap-2">
                     <Button variant="secondary" onClick={() => setSectionModalOpen(true)}>
                       <Plus className="mr-1 h-4 w-4" />
-                      Seccion
+                      Sección
                     </Button>
                     <Button onClick={openProcedureModal}>
                       <Stethoscope className="mr-1 h-4 w-4" />
@@ -1108,12 +1108,12 @@ function AgreementAssignmentModal({
         <div className="rounded-lg bg-sky-50 p-5 text-center text-sm text-sky-900">
           {!plan?.items.length ? (
             <>
-              <p className="font-semibold">Plan de tratamiento sin prestaciones</p>
-              <p className="mt-2">Agrega prestaciones al plan de tratamiento para ver los valores con el convenio seleccionado.</p>
+              <p className="font-semibold">Plan de tratamiento sin prestaciónes</p>
+              <p className="mt-2">Agrega prestaciónes al plan de tratamiento para ver los valores con el convenio seleccionado.</p>
             </>
           ) : (
             <>
-              <p className="font-semibold">{plan.items.length} prestaciones en este plan</p>
+              <p className="font-semibold">{plan.items.length} prestaciónes en este plan</p>
               <p className="mt-2">El convenio se asignara al paciente. Los procedimientos existentes no se recalculan automaticamente.</p>
             </>
           )}
@@ -1159,7 +1159,7 @@ function AgreementDetailModal({ open, agreement, onClose }: { open: boolean; agr
         </div>
 
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          Este convenio no se modifica desde este plan porque ya existen prestaciones o presupuesto. Las prestaciones existentes conservan sus valores.
+          Este convenio no se modifica desde este plan porque ya existen prestaciónes o presupuesto. Las prestaciónes existentes conservan sus valores.
         </div>
 
         <div className="flex justify-end border-t border-slate-100 pt-4">
@@ -1324,7 +1324,7 @@ function RefundsModal({ open, patientId, plan, onClose }: { open: boolean; patie
         <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-center md:justify-between">
           <div className="relative md:w-[360px]">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por ID o prestacion" />
+            <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por ID o prestación" />
           </div>
           <Select value={status} onChange={(event) => setStatus(event.target.value as RefundStatus | "")} className="md:w-[220px]">
             <option value="">Todos los reembolsos</option>
@@ -1343,7 +1343,7 @@ function RefundsModal({ open, patientId, plan, onClose }: { open: boolean; patie
                 <thead>
                   <tr className="bg-slate-50 text-left text-xs uppercase text-slate-500">
                     <th className="px-4 py-3">Reembolso</th>
-                    <th className="px-4 py-3">Prestacion</th>
+                    <th className="px-4 py-3">Prestación</th>
                     <th className="px-4 py-3">Pago</th>
                     <th className="px-4 py-3">Monto</th>
                     <th className="px-4 py-3">Estado</th>
@@ -1437,7 +1437,7 @@ function refundProcedureSummary(refund: Refund, treatmentPlanId: string) {
     .filter((allocation) => allocation.treatmentPlanItem.treatmentPlanId === treatmentPlanId)
     .map((allocation) => {
       const item = allocation.treatmentPlanItem;
-      const procedure = item.procedure ? `${item.procedure.code} - ${item.procedure.name}` : "Prestacion";
+      const procedure = item.procedure ? `${item.procedure.code} - ${item.procedure.name}` : "Prestación";
       const tooth = item.toothNumber ? ` (${fdiLabel(item.toothNumber)}${item.surface ? `-${item.surface}` : ""})` : "";
       return `${procedure}${tooth}`;
     });
@@ -1478,16 +1478,16 @@ function PieceAssignmentModal({
     setSurfaces((current) => (current.includes(surface) ? current.filter((item) => item !== surface) : [...current, surface]));
   };
 
-  const procedureLabel = item?.procedure ? `[${item.procedure.code}] ${item.procedure.name}` : "Prestacion";
+  const procedureLabel = item?.procedure ? `[${item.procedure.code}] ${item.procedure.name}` : "Prestación";
 
   return (
-    <Modal open={Boolean(item)} title="Asignar piezas a prestacion" onClose={onClose} size="lg">
+    <Modal open={Boolean(item)} title="Asignar piezas a prestación" onClose={onClose} size="lg">
       {item ? (
         <div className="space-y-5">
           <div className="flex gap-4">
             <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-500 text-lg font-bold text-white">i</div>
             <div className="min-w-0 border-l-4 border-sky-400 pl-4">
-              <p className="text-sm font-semibold text-sky-700">Seleccione la pieza que quiere asignar a esta prestacion</p>
+              <p className="text-sm font-semibold text-sky-700">Seleccione la pieza que quiere asignar a esta prestación</p>
               <p className="mt-1 text-xs text-slate-500">
                 Para asignar mas de una cara, seleccione las opciones necesarias y presione Agregar piezas.
               </p>
@@ -1642,7 +1642,7 @@ function TreatmentItemsTable({
                       <button
                         type="button"
                         aria-label={markedForFuture ? "Desmarcar futura realizacion" : "Marcar futura realizacion"}
-                        title={markedForFuture ? "Prestacion marcada para futura realizacion" : "Prestacion desmarcada para futura realizacion"}
+                        title={markedForFuture ? "Prestación marcada para futura realizacion" : "Prestación desmarcada para futura realizacion"}
                         className={`grid h-8 w-8 place-items-center rounded-full transition hover:bg-green-50 ${markedForFuture ? "text-green-600" : "text-slate-300"}`}
                         onClick={(event) => {
                           event.stopPropagation();
@@ -1660,6 +1660,17 @@ function TreatmentItemsTable({
                   {expanded ? (
                     <div className="border-t border-sky-100 bg-sky-50 px-4 py-4">
                       <div className="flex flex-wrap items-center gap-5 text-xs">
+                        <button
+                          type="button"
+                          disabled={item.status === "COMPLETED"}
+                          className="inline-flex items-center gap-1 font-medium text-[#0b8bd8] hover:text-[#0b8bd8]/80 disabled:cursor-not-allowed disabled:text-slate-300"
+                          onClick={() => {
+                            window.location.href = `/patients/${window.location.pathname.split('/')[2]}/clinical/evolutions?treatmentPlanItemId=${item.id}`;
+                          }}
+                        >
+                          <Stethoscope className="h-4 w-4" />
+                          Evoluciónar / Realizar
+                        </button>
                         <button
                           type="button"
                           disabled={item.status === "PLANNED"}
@@ -1711,7 +1722,7 @@ function TreatmentItemsTable({
                         <div>
                           <p className="text-xs font-semibold uppercase text-slate-400">Realizado por</p>
                           <p className="italic text-slate-500">
-                            {item.status === "COMPLETED" ? "Prestacion marcada como realizada" : "Esta prestacion aun no ha sido realizada"}
+                            {item.status === "COMPLETED" ? "Prestación marcada como realizada" : "Esta prestación aun no ha sido realizada"}
                           </p>
                           {toothLabel ? <p className="mt-2 text-xs text-slate-600">Pieza {toothLabel}{surfaces ? ` · ${surfaces}` : ""}</p> : null}
                           {item.notes ? <p className="mt-2 text-xs text-slate-600">{item.notes}</p> : null}
@@ -1852,7 +1863,7 @@ function BudgetProcedureDrawer({
             className="h-14 rounded-none border-0 pl-12 text-sm shadow-none focus:border-transparent focus:ring-0"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={selectedCategory ? "Buscar prestaciones..." : "Buscar categorias, prestaciones, plantillas"}
+            placeholder={selectedCategory ? "Buscar prestaciónes..." : "Buscar categorias, prestaciónes, plantillas"}
           />
         </div>
 
@@ -1934,7 +1945,7 @@ function BudgetProcedureDrawer({
             <div className="min-w-0">
               <p className="text-xs text-slate-400">Piezas seleccionadas</p>
               <p className="truncate text-base font-medium text-slate-800">{selectedPieceLabel}</p>
-              <p className="mt-1 text-xs text-slate-500">Prestaciones en el plan: {planItemCount}</p>
+              <p className="mt-1 text-xs text-slate-500">Prestaciónes en el plan: {planItemCount}</p>
             </div>
             <Button disabled={!canCreateBudget || creatingBudget} onClick={() => void onCreateBudget()}>
               <Receipt className="mr-1 h-4 w-4" />
@@ -1971,7 +1982,7 @@ function PatientSignaturePanel({
         </div>
         <div className="space-y-4 py-4 text-sm">
           <div>
-            <p className="font-semibold text-slate-900">Evoluciones</p>
+            <p className="font-semibold text-slate-900">Evoluciónes</p>
             <p className="mt-1 text-slate-500">No hay documentos pendientes por firmar.</p>
           </div>
           <div className="border-t border-dashed border-slate-200 pt-4">
@@ -2062,7 +2073,7 @@ function PlanProcedureModal({
     <Modal open={open} title={`Agregar procedimiento - Pieza ${fdiLabel(toothNumber)}`} onClose={onClose} size="lg">
       <div className="grid gap-3 md:grid-cols-2">
         <Select value={sectionId} onChange={(event) => setSectionId(event.target.value)}>
-          <option value="">Sin seccion</option>
+          <option value="">Sin sección</option>
           {plan?.sections.map((section) => (
             <option key={section.id} value={section.id}>
               {section.name}
@@ -2093,7 +2104,7 @@ function PlanProcedureModal({
         </div>
       </div>
 
-      <Textarea className="mt-3" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Diagnostico o notas clinicas" />
+      <Textarea className="mt-3" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Diagnóstico o notas clinicas" />
 
       <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
         <p>
@@ -2141,14 +2152,14 @@ function SectionModal({ open, onClose, onSave }: { open: boolean; onClose: () =>
   }, [open]);
 
   return (
-    <Modal open={open} title="Agregar seccion" onClose={onClose}>
+    <Modal open={open} title="Agregar sección" onClose={onClose}>
       <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Fase diagnostica, Endodoncia, Protesis" />
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="secondary" onClick={onClose}>
           Cancelar
         </Button>
         <Button disabled={!name.trim()} onClick={() => void onSave(name.trim())}>
-          Guardar seccion
+          Guardar sección
         </Button>
       </div>
     </Modal>

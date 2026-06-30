@@ -28,6 +28,8 @@ import { PaymentsModule } from "./modules/payments/payments.module";
 import { SettingsModule } from "./modules/settings/settings.module";
 import { TreatmentPlansModule } from "./modules/treatment-plans/treatment-plans.module";
 import { UsersModule } from "./modules/users/users.module";
+import { OnlineSchedulingModule } from "./modules/online-scheduling/online-scheduling.module";
+import { PublicBookingModule } from "./modules/public-booking/public-booking.module";
 
 @Module({
   imports: [
@@ -61,7 +63,9 @@ import { UsersModule } from "./modules/users/users.module";
     ProceduresModule,
     PriceListsModule,
     TreatmentPlansModule,
-    HealthModule
+    HealthModule,
+    OnlineSchedulingModule,
+    PublicBookingModule
   ],
   providers: [AppLogger],
   exports: [AppLogger]

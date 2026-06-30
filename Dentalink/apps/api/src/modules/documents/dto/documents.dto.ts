@@ -252,3 +252,8 @@ export class SignConsentDto {
   @IsString()
   ipAddress?: string;
 }
+
+export class DeleteFileAttachmentDto {
+  @IsString()
+  reason!: string;
+}

@@ -15,6 +15,8 @@ export type FileAttachment = {
   category: string;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string | null;
+  deleteReason?: string | null;
 };
 
 export type RadiographyFinding = {
@@ -197,5 +199,10 @@ export async function getConsentPdf(consentId: string) {
     contentSnapshot: string;
     printableContent: string;
   }>(`/consents/${consentId}/pdf`);
+  return data;
+}
+
+export async function deletePatientFile(patientId: string, fileId: string, payload: { reason: string }) {
+  const { data } = await http.delete(`/patients/${patientId}/files/${fileId}`, { data: payload });
   return data;
 }

@@ -99,6 +99,7 @@ export class SpecialtiesService {
   }
 
   async listClinicalTemplates(actor: AuthUser, specialtyId: string, type?: "PRESCRIPTION" | "EVOLUTION", active?: string) {
+    // Forzando reinicio para que NestJS cargue el nuevo cliente Prisma con createdBy
     await this.findOne(actor, specialtyId);
 
     return (this.prisma as any).specialtyClinicalTemplate.findMany({
@@ -106,6 +107,9 @@ export class SpecialtiesService {
         specialtyId,
         ...(type ? { type } : {}),
         ...(active !== undefined ? { isActive: active === "true" } : {})
+      },
+      include: {
+        createdBy: { select: { id: true, firstName: true, lastName: true } }
       },
       orderBy: [{ type: "asc" }, { name: "asc" }]
     });
@@ -119,7 +123,8 @@ export class SpecialtiesService {
         specialtyId,
         type: dto.type,
         name: dto.name.trim(),
-        content: dto.content.trim()
+        content: dto.content.trim(),
+        createdById: actor.id
       }
     });
 
@@ -153,21 +158,40 @@ export class SpecialtiesService {
   async listAppointmentReasons(actor: AuthUser, specialtyId: string, active?: string) {
     await this.findOne(actor, specialtyId);
 
-    return (this.prisma as any).specialtyAppointmentReason.findMany({
+    // TEMPORARY: Delete reasons containing doctors
+    await (this.prisma as any).specialtyAppointmentReason.deleteMany({
+      where: {
+        name: { contains: " - " }
+      }
+    });
+
+    const reasons = await (this.prisma as any).specialtyAppointmentReason.findMany({
       where: {
         specialtyId,
         ...(active !== undefined ? { isActive: active === "true" } : {})
-      },
-      orderBy: { name: "asc" }
+      }
+    });
+    return reasons.sort((left: { legacyId: number | null; name: string }, right: { legacyId: number | null; name: string }) => {
+      const leftLegacyId = left.legacyId ?? Number.MAX_SAFE_INTEGER;
+      const rightLegacyId = right.legacyId ?? Number.MAX_SAFE_INTEGER;
+      if (leftLegacyId !== rightLegacyId) return leftLegacyId - rightLegacyId;
+      return left.name.localeCompare(right.name, "es");
     });
   }
 
   async createAppointmentReason(actor: AuthUser, specialtyId: string, dto: CreateSpecialtyAppointmentReasonDto) {
     await this.findOne(actor, specialtyId);
+    await this.assertAppointmentReasonNameAvailable(specialtyId, dto.name);
+
+    const lastReason = await (this.prisma as any).specialtyAppointmentReason.findFirst({
+      orderBy: { legacyId: 'desc' }
+    });
+    const nextLegacyId = (lastReason?.legacyId ?? 0) + 1;
 
     const reason = await (this.prisma as any).specialtyAppointmentReason.create({
       data: {
         specialtyId,
+        legacyId: nextLegacyId,
         name: dto.name.trim(),
         durationMinutes: dto.durationMinutes,
         color: dto.color
@@ -187,6 +211,7 @@ export class SpecialtiesService {
     await this.findOne(actor, specialtyId);
     const current = await (this.prisma as any).specialtyAppointmentReason.findFirst({ where: { id: reasonId, specialtyId } });
     if (!current) throw new NotFoundException("Specialty appointment reason not found");
+    if (dto.name) await this.assertAppointmentReasonNameAvailable(specialtyId, dto.name, reasonId);
 
     const reason = await (this.prisma as any).specialtyAppointmentReason.update({
       where: { id: reasonId },
@@ -227,5 +252,28 @@ export class SpecialtiesService {
     });
     const matches = specialties.filter((specialty) => resolveAllowedSpecialtyName(specialty.name) === allowedName);
     return matches.find((specialty) => specialty.name === allowedName) ?? matches[0] ?? null;
+  }
+
+  private async assertAppointmentReasonNameAvailable(specialtyId: string, name: string, currentReasonId?: string) {
+    const normalizedName = this.normalizeAppointmentReasonName(name);
+    const reasons = await (this.prisma as any).specialtyAppointmentReason.findMany({
+      where: { specialtyId },
+      select: { id: true, name: true }
+    });
+    const conflict = reasons.find(
+      (reason: { id: string; name: string }) =>
+        reason.id !== currentReasonId && this.normalizeAppointmentReasonName(reason.name) === normalizedName
+    );
+    if (conflict) throw new BadRequestException("Ya existe un motivo de atención con ese nombre en esta especialidad");
+  }
+
+  private normalizeAppointmentReasonName(value: string) {
+    return value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 }

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { PaymentStatus, Prisma, TreatmentPlanItemStatus } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
@@ -13,6 +13,72 @@ import {
   UpdateAgreementDto
 } from "./dto/admin-workflows.dto";
 import { UpdateGeneralSettingsDto } from "./dto/update-general-settings.dto";
+
+const PAYROLL_PAYMENT_STATUSES: PaymentStatus[] = [
+  PaymentStatus.RECEIVED,
+  PaymentStatus.PARTIALLY_ALLOCATED,
+  PaymentStatus.ALLOCATED
+];
+
+const payrollTreatmentItemInclude = Prisma.validator<Prisma.TreatmentPlanItemInclude>()({
+  procedure: { select: { id: true, code: true, name: true } },
+  treatmentPlan: {
+    select: {
+      id: true,
+      branchId: true,
+      patient: { select: { id: true, firstName: true, lastName: true } },
+      professional: { select: { id: true, firstName: true, lastName: true, commissionRate: true } }
+    }
+  },
+  paymentAllocations: {
+    where: { payment: { status: { in: PAYROLL_PAYMENT_STATUSES } } },
+    select: {
+      amount: true,
+      payment: {
+        select: {
+          id: true,
+          paidAt: true,
+          status: true,
+          paymentMethod: { select: { name: true } },
+          cashMovements: { select: { id: true } }
+        }
+      }
+    }
+  }
+});
+
+const payrollLiquidationItemInclude = Prisma.validator<Prisma.PayrollLiquidationItemInclude>()({
+  treatmentPlanItem: { include: payrollTreatmentItemInclude }
+});
+
+type PayrollTreatmentItemSource = Prisma.TreatmentPlanItemGetPayload<{ include: typeof payrollTreatmentItemInclude }>;
+type PayrollLiquidationItemSource = Prisma.PayrollLiquidationItemGetPayload<{
+  include: typeof payrollLiquidationItemInclude;
+}>;
+type PayrollItemView = {
+  treatmentPlanItemId: string;
+  treatmentNumber: string;
+  patientId: string;
+  patientName: string;
+  action: string;
+  procedureCode: string;
+  completedAt: Date | null;
+  firstPaymentAt: Date | null;
+  lastPaymentAt: Date | null;
+  toothNumber: string | null;
+  surface: string | null;
+  treatmentAmount: number;
+  collectedAmount: number;
+  rawCollectedAmount: number;
+  payableAmount: number;
+  commissionRate: number;
+  paymentMethods: string;
+  paymentIds: string[];
+  cashValidated: boolean;
+  isReady: boolean;
+  status: "VALID" | "PARTIAL_PAYMENT" | "FINALIZED";
+  calculationExplanation: string;
+};
 
 @Injectable()
 export class SettingsService {
@@ -438,24 +504,19 @@ export class SettingsService {
     });
   }
 
-  async listPayroll(actor: AuthUser, branchId?: string) {
+  async listPayroll(actor: AuthUser, branchId?: string, professionalId?: string) {
     const rows = await this.prisma.treatmentPlanItem.findMany({
       where: {
-        status: "COMPLETED",
-        treatmentPlan: { organizationId: actor.organizationId, branchId: branchScope(actor, branchId) },
-        paymentAllocations: { some: {} },
+        status: TreatmentPlanItemStatus.COMPLETED,
+        treatmentPlan: {
+          organizationId: actor.organizationId,
+          branchId: branchScope(actor, branchId),
+          ...(professionalId ? { professionalId } : {})
+        },
+        paymentAllocations: { some: { payment: { status: { in: PAYROLL_PAYMENT_STATUSES } } } },
         payrollLiquidationItem: { is: null }
       },
-      include: {
-        treatmentPlan: {
-          select: {
-            id: true,
-            professional: { select: { id: true, firstName: true, lastName: true, commissionRate: true } },
-            patient: { select: { id: true, firstName: true, lastName: true } }
-          }
-        },
-        paymentAllocations: { select: { amount: true } }
-      },
+      include: payrollTreatmentItemInclude,
       orderBy: { completedAt: "desc" }
     });
 
@@ -466,18 +527,17 @@ export class SettingsService {
         professionalName: string;
         commissionRate: number;
         completedItems: number;
+        pendingItems: number;
         collectedAmount: number;
         payableAmount: number;
         lastCompletedAt: Date | null;
+        items: PayrollItemView[];
       }
     >();
 
     for (const row of rows) {
       const professional = row.treatmentPlan.professional;
-      const collectedAmount = Math.min(
-        Number(row.total),
-        row.paymentAllocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0)
-      );
+      const item = this.buildPayrollItem(row, Number(professional.commissionRate));
       const current =
         summaries.get(professional.id) ??
         {
@@ -485,24 +545,33 @@ export class SettingsService {
           professionalName: `${professional.firstName} ${professional.lastName}`,
           commissionRate: Number(professional.commissionRate),
           completedItems: 0,
+          pendingItems: 0,
           collectedAmount: 0,
           payableAmount: 0,
-          lastCompletedAt: null
+          lastCompletedAt: null,
+          items: []
         };
-      current.completedItems += 1;
-      current.collectedAmount = this.roundMoney(current.collectedAmount + collectedAmount);
-      current.payableAmount = this.roundMoney(current.payableAmount + collectedAmount * (current.commissionRate / 100));
+      if (item.isReady) {
+        current.completedItems += 1;
+        current.collectedAmount = this.roundMoney(current.collectedAmount + item.collectedAmount);
+        current.payableAmount = this.roundMoney(current.payableAmount + item.payableAmount);
+        current.items.push(item);
+      } else {
+        current.pendingItems += 1;
+      }
       if (row.completedAt && (!current.lastCompletedAt || row.completedAt > current.lastCompletedAt)) {
         current.lastCompletedAt = row.completedAt;
       }
       summaries.set(professional.id, current);
     }
 
-    return [...summaries.values()].sort((left, right) => right.payableAmount - left.payableAmount);
+    return [...summaries.values()]
+      .filter((summary) => summary.completedItems > 0)
+      .sort((left, right) => right.payableAmount - left.payableAmount);
   }
 
   async listFinalizedPayroll(actor: AuthUser, branchId?: string) {
-    return this.prisma.payrollLiquidation.findMany({
+    const rows = await this.prisma.payrollLiquidation.findMany({
       where: {
         organizationId: actor.organizationId,
         branchId: branchScope(actor, branchId)
@@ -511,10 +580,39 @@ export class SettingsService {
         professional: { select: { id: true, firstName: true, lastName: true } },
         branch: { select: { id: true, name: true } },
         finalizedBy: { select: { id: true, firstName: true, lastName: true } },
+        items: { include: payrollLiquidationItemInclude, orderBy: { createdAt: "asc" } },
         _count: { select: { items: true } }
       },
       orderBy: { finalizedAt: "desc" }
     });
+
+    return rows.map((row) => ({
+      ...row,
+      commissionRate: Number(row.commissionRate),
+      collectedAmount: Number(row.collectedAmount),
+      payableAmount: Number(row.payableAmount),
+      items: row.items.map((item) => this.buildFinalizedPayrollItem(item, Number(row.commissionRate)))
+    }));
+  }
+
+  async recalculatePayroll(actor: AuthUser, branchId?: string, professionalId?: string) {
+    if (branchId) assertBranchAccess(actor, branchId);
+    if (professionalId) {
+      const professional = await this.prisma.professional.findFirst({
+        where: { id: professionalId, organizationId: actor.organizationId, isActive: true }
+      });
+      if (!professional) throw new NotFoundException("Professional not found");
+    }
+
+    const rows = await this.listPayroll(actor, branchId, professionalId);
+    await this.auditConfiguration(actor, "PayrollActive", professionalId ?? actor.organizationId, "recalculate", {
+      branchId: branchId ?? null,
+      professionalId: professionalId ?? null,
+      professionalCount: rows.length,
+      payableAmount: this.roundMoney(rows.reduce((sum, row) => sum + row.payableAmount, 0))
+    });
+
+    return rows;
   }
 
   async finalizePayroll(actor: AuthUser, dto: FinalizePayrollDto) {
@@ -530,34 +628,25 @@ export class SettingsService {
 
     const rows = await this.prisma.treatmentPlanItem.findMany({
       where: {
-        status: "COMPLETED",
+        status: TreatmentPlanItemStatus.COMPLETED,
         treatmentPlan: {
           organizationId: actor.organizationId,
           professionalId: professional.id,
           branchId: branchScope(actor, dto.branchId)
         },
-        paymentAllocations: { some: {} },
+        paymentAllocations: { some: { payment: { status: { in: PAYROLL_PAYMENT_STATUSES } } } },
         payrollLiquidationItem: { is: null }
       },
-      include: {
-        paymentAllocations: { select: { amount: true } }
-      },
+      include: payrollTreatmentItemInclude,
       orderBy: { completedAt: "desc" }
     });
 
     const payableRows = rows
       .map((row) => {
-        const collectedAmount = Math.min(
-          Number(row.total),
-          row.paymentAllocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0)
-        );
-        return {
-          row,
-          collectedAmount: this.roundMoney(collectedAmount),
-          payableAmount: this.roundMoney(collectedAmount * (Number(professional.commissionRate) / 100))
-        };
+        const item = this.buildPayrollItem(row, Number(professional.commissionRate));
+        return { row, item };
       })
-      .filter(({ row, collectedAmount }) => collectedAmount >= Number(row.total));
+      .filter(({ item }) => item.isReady);
 
     if (!payableRows.length) {
       throw new BadRequestException("No fully paid completed items are ready to finalize");
@@ -566,8 +655,8 @@ export class SettingsService {
     const summary = payableRows.reduce(
       (current, item) => ({
         completedItems: current.completedItems + 1,
-        collectedAmount: this.roundMoney(current.collectedAmount + item.collectedAmount),
-        payableAmount: this.roundMoney(current.payableAmount + item.payableAmount),
+        collectedAmount: this.roundMoney(current.collectedAmount + item.item.collectedAmount),
+        payableAmount: this.roundMoney(current.payableAmount + item.item.payableAmount),
         lastCompletedAt:
           item.row.completedAt && (!current.lastCompletedAt || item.row.completedAt > current.lastCompletedAt)
             ? item.row.completedAt
@@ -595,8 +684,8 @@ export class SettingsService {
         items: {
           create: payableRows.map((item) => ({
             treatmentPlanItemId: item.row.id,
-            collectedAmount: this.toDecimal(item.collectedAmount),
-            payableAmount: this.toDecimal(item.payableAmount)
+            collectedAmount: this.toDecimal(item.item.collectedAmount),
+            payableAmount: this.toDecimal(item.item.payableAmount)
           }))
         }
       },
@@ -644,5 +733,71 @@ export class SettingsService {
 
   private toDecimal(value: number) {
     return new Prisma.Decimal(this.roundMoney(value));
+  }
+
+  private buildPayrollItem(row: PayrollTreatmentItemSource, commissionRate: number): PayrollItemView {
+    const treatmentAmount = this.roundMoney(Number(row.total));
+    const rawCollectedAmount = row.paymentAllocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0);
+    const collectedAmount = this.roundMoney(Math.min(treatmentAmount, rawCollectedAmount));
+    const payableAmount = this.roundMoney(collectedAmount * (commissionRate / 100));
+    const patient = row.treatmentPlan.patient;
+    const paymentMethodNames = [
+      ...new Set(row.paymentAllocations.map((allocation) => allocation.payment.paymentMethod.name).filter(Boolean))
+    ];
+    const paymentIds = [...new Set(row.paymentAllocations.map((allocation) => allocation.payment.id))];
+    const paymentDates = row.paymentAllocations
+      .map((allocation) => allocation.payment.paidAt)
+      .filter((date): date is Date => Boolean(date))
+      .sort((left, right) => left.getTime() - right.getTime());
+    const firstPaymentAt = paymentDates[0] ?? null;
+    const lastPaymentAt = paymentDates[paymentDates.length - 1] ?? null;
+
+    return {
+      treatmentPlanItemId: row.id,
+      treatmentNumber: row.treatmentPlan.id.slice(-6).toUpperCase(),
+      patientId: patient.id,
+      patientName: `${patient.firstName} ${patient.lastName}`.trim(),
+      action: row.procedure.name,
+      procedureCode: row.procedure.code,
+      completedAt: row.completedAt,
+      firstPaymentAt,
+      lastPaymentAt,
+      toothNumber: row.toothNumber,
+      surface: row.surface,
+      treatmentAmount,
+      collectedAmount,
+      rawCollectedAmount: this.roundMoney(rawCollectedAmount),
+      payableAmount,
+      commissionRate,
+      paymentMethods: paymentMethodNames.length ? paymentMethodNames.join(", ") : "Sin metodo",
+      paymentIds,
+      cashValidated: row.paymentAllocations.some((allocation) => allocation.payment.cashMovements.length > 0),
+      isReady: collectedAmount >= treatmentAmount,
+      status: collectedAmount >= treatmentAmount ? "VALID" : "PARTIAL_PAYMENT",
+      calculationExplanation: `${this.formatMoney(collectedAmount)} x ${commissionRate}% = ${this.formatMoney(payableAmount)}`
+    };
+  }
+
+  private buildFinalizedPayrollItem(item: PayrollLiquidationItemSource, commissionRate: number) {
+    const row = this.buildPayrollItem(item.treatmentPlanItem, commissionRate);
+    const collectedAmount = this.roundMoney(Number(item.collectedAmount));
+    const payableAmount = this.roundMoney(Number(item.payableAmount));
+
+    return {
+      ...row,
+      collectedAmount,
+      payableAmount,
+      isReady: true,
+      status: "FINALIZED",
+      calculationExplanation: `${this.formatMoney(collectedAmount)} x ${commissionRate}% = ${this.formatMoney(payableAmount)}`
+    };
+  }
+
+  private formatMoney(value: number) {
+    return new Intl.NumberFormat("es-MX", {
+      style: "currency",
+      currency: "MXN",
+      maximumFractionDigits: 2
+    }).format(value);
   }
 }

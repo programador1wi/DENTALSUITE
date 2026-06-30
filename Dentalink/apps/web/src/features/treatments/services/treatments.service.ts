@@ -213,6 +213,21 @@ export async function rejectBudget(id: string) {
 }
 
 export async function printBudget(id: string) {
-  const { data } = await http.get(`/budgets/${id}/print`);
+  const { data } = await http.post(`/budgets/${id}/print`);
+  return data;
+}
+
+export async function reactivateTreatmentPlan(id: string, payload: { reason?: string }) {
+  const { data } = await http.post(`/treatment-plans/${id}/reactivate`, payload);
+  return data;
+}
+
+export async function duplicateTreatmentPlan(id: string, payload: { newBranchId?: string; newProfessionalId?: string; reason?: string }) {
+  const { data } = await http.post(`/treatment-plans/${id}/duplicate`, payload);
+  return data;
+}
+
+export async function referTreatmentPlan(id: string, payload: { toBranchId: string; toProfessionalId?: string; reason: string }) {
+  const { data } = await http.post(`/treatment-plans/${id}/refer`, payload);
   return data;
 }

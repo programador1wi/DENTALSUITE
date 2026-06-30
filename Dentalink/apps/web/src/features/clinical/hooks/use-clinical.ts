@@ -28,6 +28,10 @@ import {
   signEvolution,
   updateToothProcedureStatus,
   upsertMedicalHistory,
+  deleteClinicalDocument,
+  updateEvolution,
+  annulEvolution,
+  type ClinicalEvolution,
   type MedicalHistory,
   type PeriodontalMeasurement,
   type ToothProcedureStatus
@@ -95,7 +99,11 @@ export function usePeriodontalComparison(patientId: string, chartAId?: string, c
 
 export function useClinicalMutations(patientId: string) {
   const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["clinical", patientId] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "evolutions"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "summary"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "appointment-history"] });
+  };
   const options = { onSuccess: invalidate, onError: (error: Error) => toast.error(error.message) };
 
   return {
@@ -103,7 +111,20 @@ export function useClinicalMutations(patientId: string) {
     createAllergy: useMutation({ mutationFn: (payload: { name: string; reaction?: string; severity?: string; notes?: string }) => createAllergy(patientId, payload), ...options }),
     createMedication: useMutation({ mutationFn: (payload: { name: string; dosage?: string; frequency?: string; notes?: string }) => createMedication(patientId, payload), ...options }),
     createCondition: useMutation({ mutationFn: (payload: { name: string; notes?: string }) => createCondition(patientId, payload), ...options }),
-    createEvolution: useMutation({ mutationFn: (payload: Record<string, unknown>) => createEvolution(patientId, payload), ...options }),
+    createEvolution: useMutation({
+      mutationFn: (payload: Record<string, unknown>) => createEvolution(patientId, payload),
+      onSuccess: (created) => {
+        queryClient.setQueryData<ClinicalEvolution[]>(["clinical", patientId, "evolutions"], (current) => {
+          if (!current) return [created];
+          if (current.some((evolution) => evolution.id === created.id)) {
+            return current.map((evolution) => (evolution.id === created.id ? created : evolution));
+          }
+          return [created, ...current];
+        });
+        invalidate();
+      },
+      onError: options.onError
+    }),
     signEvolution: useMutation({ mutationFn: (evolutionId: string) => signEvolution(patientId, evolutionId), ...options }),
     createAddendum: useMutation({
       mutationFn: ({ evolutionId, professionalId, notes }: { evolutionId: string; professionalId: string; notes: string }) =>
@@ -127,6 +148,17 @@ export function useClinicalMutations(patientId: string) {
         createToothCondition(patientId, payload),
       ...options
     }),
+    deleteDocument: useMutation({ mutationFn: ({ documentId, reason }: { documentId: string, reason: string }) => deleteClinicalDocument(patientId, documentId, { reason }), ...options }),
+    
+    updateEvolution: useMutation({
+      mutationFn: ({ evolutionId, data }: { evolutionId: string, data: any }) => updateEvolution(patientId, evolutionId, data),
+      ...options
+    }),
+    annulEvolution: useMutation({
+      mutationFn: ({ evolutionId, reason }: { evolutionId: string, reason: string }) => annulEvolution(patientId, evolutionId, reason),
+      ...options
+    }),
+
     cancelOdontogramRecord: useMutation({ mutationFn: (odontogramRecordId: string) => cancelOdontogramRecord(patientId, odontogramRecordId), ...options }),
     createToothProcedure: useMutation({
       mutationFn: (payload: {

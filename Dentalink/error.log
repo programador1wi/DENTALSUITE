@@ -1,0 +1,15 @@
+PrismaClientKnownRequestError: 
+Invalid `this.prisma.specialtyAppointmentReason.findMany()` invocation in
+C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\specialties\specialties.service.js:139:74
+
+  136 async listAppointmentReasons(actor, specialtyId, active) {
+  137     try {
+  138         await this.findOne(actor, specialtyId);
+→ 139         const reasons = await this.prisma.specialtyAppointmentReason.findMany(
+The column `SpecialtyAppointmentReason.legacyId` does not exist in the current database.
+    at zr.handleRequestError (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\RequestHandler.ts:237:13)
+    at zr.handleAndLogRequestError (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\RequestHandler.ts:183:12)
+    at zr.request (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\RequestHandler.ts:152:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async a (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\getPrismaClient.ts:963:24)
+    at async SpecialtiesService.listAppointmentReasons (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\specialties\specialties.service.js:139:29)

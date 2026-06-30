@@ -6,6 +6,8 @@ import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import { CreateProfessionalScheduleDto } from "./dto/create-professional-schedule.dto";
 import { UpdateProfessionalScheduleDto } from "./dto/update-professional-schedule.dto";
+import { CreateProfessionalSpecialScheduleDto } from "./dto/create-professional-special-schedule.dto";
+import { UpdateProfessionalSpecialScheduleDto } from "./dto/update-professional-special-schedule.dto";
 
 const FIXED_END_TIMES_BY_DAY: Partial<Record<number, string>> = {
   1: "19:00",
@@ -335,14 +337,236 @@ export class ProfessionalSchedulesService {
       return candidateStart < rowEnd && candidateEnd > rowStart;
     });
 
+
     if (overlap) {
-      throw new BadRequestException("Overlapping schedule for selected chair");
+      throw new BadRequestException("Overlapping schedule for chair");
     }
   }
+
+
 
   private toMinutes(value: string) {
     const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
     if (!match) throw new BadRequestException(`Invalid time format: ${value}. Expected HH:mm`);
     return Number(match[1]) * 60 + Number(match[2]);
+  }
+
+  // --- SPECIAL SCHEDULES ---
+
+  async findAllSpecial(
+    actor: AuthUser,
+    professionalId?: string,
+    branchId?: string,
+    date?: string,
+    active?: string,
+    page?: number,
+    pageSize?: number
+  ) {
+    const { skip, take } = resolvePagination({ page, pageSize });
+    const where: Prisma.ProfessionalSpecialScheduleWhereInput = {
+      professional: { organizationId: actor.organizationId },
+      ...(professionalId ? { professionalId } : {}),
+      branchId: branchScope(actor, branchId),
+      ...(date ? { date } : {}),
+      ...(active !== undefined ? { isActive: active === "true" } : {})
+    };
+
+    return this.prisma.professionalSpecialSchedule.findMany({
+      where,
+      skip,
+      take,
+      include: {
+        professional: true,
+        branch: true,
+        chair: true
+      },
+      orderBy: [{ date: "asc" }, { startTime: "asc" }]
+    });
+  }
+
+  async findOneSpecial(actor: AuthUser, id: string) {
+    const schedule = await this.prisma.professionalSpecialSchedule.findFirst({
+      where: { id, branchId: branchScope(actor), professional: { organizationId: actor.organizationId } },
+      include: { professional: true, branch: true, chair: true }
+    });
+
+    if (!schedule) throw new NotFoundException("Special Schedule not found");
+    return schedule;
+  }
+
+  async createSpecial(actor: AuthUser, dto: CreateProfessionalSpecialScheduleDto) {
+    await this.validateReferences(actor, dto.professionalId, dto.branchId, dto.chairId);
+    this.validateTimeRange(dto.startTime, dto.endTime, dto.breakStartTime, dto.breakEndTime);
+    await this.validateInsideBranchHours(actor, dto.branchId, dto.startTime, dto.endTime);
+    await this.ensureNoSpecialOverlap(actor, {
+      professionalId: dto.professionalId,
+      branchId: dto.branchId,
+      date: dto.date,
+      startTime: dto.startTime,
+      endTime: dto.endTime
+    });
+    if (dto.chairId) {
+      await this.ensureNoChairSpecialOverlap(actor, {
+        chairId: dto.chairId,
+        date: dto.date,
+        startTime: dto.startTime,
+        endTime: dto.endTime
+      });
+    }
+
+    const schedule = await this.prisma.professionalSpecialSchedule.create({
+      data: {
+        professionalId: dto.professionalId,
+        branchId: dto.branchId,
+        chairId: dto.chairId,
+        date: dto.date,
+        startTime: dto.startTime,
+        endTime: dto.endTime,
+        breakStartTime: dto.breakStartTime,
+        breakEndTime: dto.breakEndTime
+      }
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        organizationId: actor.organizationId,
+        actorUserId: actor.id,
+        entity: "ProfessionalSpecialSchedule",
+        entityId: schedule.id,
+        action: "create",
+        after: {
+          professionalId: schedule.professionalId,
+          branchId: schedule.branchId,
+          chairId: schedule.chairId,
+          date: schedule.date,
+          startTime: schedule.startTime,
+          endTime: schedule.endTime
+        }
+      }
+    });
+
+    return this.findOneSpecial(actor, schedule.id);
+  }
+
+  async updateSpecial(actor: AuthUser, id: string, dto: UpdateProfessionalSpecialScheduleDto) {
+    const current = await this.findOneSpecial(actor, id);
+
+    const professionalId = dto.professionalId ?? current.professionalId;
+    const branchId = dto.branchId ?? current.branchId;
+    const chairId = "chairId" in dto ? dto.chairId ?? undefined : current.chairId ?? undefined;
+    const date = dto.date ?? current.date;
+    const startTime = dto.startTime ?? current.startTime;
+    const endTime = dto.endTime ?? current.endTime;
+    const breakStartTime = "breakStartTime" in dto ? dto.breakStartTime ?? undefined : current.breakStartTime ?? undefined;
+    const breakEndTime = "breakEndTime" in dto ? dto.breakEndTime ?? undefined : current.breakEndTime ?? undefined;
+    const isActive = dto.isActive ?? current.isActive;
+
+    await this.validateReferences(actor, professionalId, branchId, chairId);
+    this.validateTimeRange(startTime, endTime, breakStartTime, breakEndTime);
+    await this.validateInsideBranchHours(actor, branchId, startTime, endTime);
+    if (isActive) {
+      await this.ensureNoSpecialOverlap(actor, { professionalId, branchId, date, startTime, endTime }, id);
+      if (chairId) {
+        await this.ensureNoChairSpecialOverlap(actor, { chairId, date, startTime, endTime }, id);
+      }
+    }
+
+    await this.prisma.professionalSpecialSchedule.update({
+      where: { id },
+      data: {
+        professionalId,
+        branchId,
+        chairId: "chairId" in dto ? dto.chairId : undefined,
+        date,
+        startTime,
+        endTime,
+        breakStartTime: "breakStartTime" in dto ? dto.breakStartTime : breakStartTime,
+        breakEndTime: "breakEndTime" in dto ? dto.breakEndTime : breakEndTime,
+        isActive: dto.isActive
+      }
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        organizationId: actor.organizationId,
+        actorUserId: actor.id,
+        entity: "ProfessionalSpecialSchedule",
+        entityId: id,
+        action: "update",
+        after: {
+          professionalId,
+          branchId,
+          chairId,
+          date,
+          startTime,
+          endTime,
+          isActive: dto.isActive
+        }
+      }
+    });
+
+    return this.findOneSpecial(actor, id);
+  }
+
+  async deactivateSpecial(actor: AuthUser, id: string) {
+    return this.updateSpecial(actor, id, { isActive: false });
+  }
+
+  private async ensureNoSpecialOverlap(
+    actor: AuthUser,
+    candidate: { professionalId: string; branchId: string; date: string; startTime: string; endTime: string },
+    excludeId?: string
+  ) {
+    const existing = await this.prisma.professionalSpecialSchedule.findMany({
+      where: {
+        professionalId: candidate.professionalId,
+        branchId: candidate.branchId,
+        date: candidate.date,
+        isActive: true,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        professional: { organizationId: actor.organizationId }
+      }
+    });
+
+    const candidateStart = this.toMinutes(candidate.startTime);
+    const candidateEnd = this.toMinutes(candidate.endTime);
+
+    const overlap = existing.some((row) => {
+      const rowStart = this.toMinutes(row.startTime);
+      const rowEnd = this.toMinutes(row.endTime);
+      return candidateStart < rowEnd && candidateEnd > rowStart;
+    });
+
+    if (overlap) {
+      throw new BadRequestException("Overlapping special schedule for professional and branch");
+    }
+  }
+
+  private async ensureNoChairSpecialOverlap(
+    actor: AuthUser,
+    candidate: { chairId: string; date: string; startTime: string; endTime: string },
+    excludeId?: string
+  ) {
+    const existing = await this.prisma.professionalSpecialSchedule.findMany({
+      where: {
+        chairId: candidate.chairId,
+        date: candidate.date,
+        isActive: true,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        professional: { organizationId: actor.organizationId }
+      }
+    });
+
+    const candidateStart = this.toMinutes(candidate.startTime);
+    const candidateEnd = this.toMinutes(candidate.endTime);
+    const overlap = existing.some((row) => {
+      const rowStart = this.toMinutes(row.startTime);
+      const rowEnd = this.toMinutes(row.endTime);
+      return candidateStart < rowEnd && candidateEnd > rowStart;
+    });
+
+    if (overlap) {
+      throw new BadRequestException("Overlapping special schedule for selected chair");
+    }
   }
 }

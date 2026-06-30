@@ -6,7 +6,7 @@ export class CancelAppointmentDto {
 
   @IsOptional()
   @IsString()
-  cancelledBy?: "patient" | "clinic";
+  cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled";
 }
 
 export class RescheduleAppointmentDto {

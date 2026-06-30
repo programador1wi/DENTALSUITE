@@ -882,68 +882,65 @@ async function seedSpecialtyAppointmentReasons(specialtyIdsByName: Map<string, s
     const specialtyId = specialtyIdsByName.get(specialtyName);
     if (!specialtyId) continue;
 
+    const existingReasons = await (prisma as any).specialtyAppointmentReason.findMany({ where: { specialtyId } });
+    const byLegacyId = new Map<number, SeededAppointmentReasonRecord>();
+    const byNormalizedName = new Map<string, SeededAppointmentReasonRecord>();
+
+    for (const existingReason of existingReasons) {
+      if (typeof existingReason.legacyId === "number") byLegacyId.set(existingReason.legacyId, existingReason);
+      byNormalizedName.set(normalizeAppointmentReasonKey(existingReason.name), existingReason);
+    }
+
     for (const reason of reasons) {
-      for (const legacyName of reason.legacyNames ?? []) {
-        const existingReason = await (prisma as any).specialtyAppointmentReason.findUnique({
-          where: {
-            specialtyId_name: {
-              specialtyId,
-              name: legacyName
-            }
+      const candidateNames = [reason.name, ...(reason.legacyNames ?? [])];
+      const existingReason =
+        byLegacyId.get(reason.legacyId) ??
+        candidateNames.map((name) => byNormalizedName.get(normalizeAppointmentReasonKey(name))).find(Boolean);
+
+      if (existingReason) {
+        const updatedReason = await (prisma as any).specialtyAppointmentReason.update({
+          where: { id: existingReason.id },
+          data: {
+            legacyId: reason.legacyId,
+            name: reason.name,
+            durationMinutes: reason.durationMinutes,
+            color: reason.color
           }
         });
-
-        if (!existingReason) continue;
-
-        const targetReason = await (prisma as any).specialtyAppointmentReason.findUnique({
-          where: {
-            specialtyId_name: {
-              specialtyId,
-              name: reason.name
-            }
-          }
-        });
-
-        if (targetReason) {
-          await (prisma as any).specialtyAppointmentReason.update({
-            where: { id: existingReason.id },
-            data: { isActive: false }
-          });
-        } else {
-          await (prisma as any).specialtyAppointmentReason.update({
-            where: { id: existingReason.id },
-            data: {
-              name: reason.name,
-              durationMinutes: reason.durationMinutes,
-              color: reason.color,
-              isActive: true
-            }
-          });
-        }
-      }
-
-      await (prisma as any).specialtyAppointmentReason.upsert({
-        where: {
-          specialtyId_name: {
+        byLegacyId.set(reason.legacyId, updatedReason);
+        byNormalizedName.set(normalizeAppointmentReasonKey(reason.name), updatedReason);
+      } else {
+        const createdReason = await (prisma as any).specialtyAppointmentReason.create({
+          data: {
+            legacyId: reason.legacyId,
             specialtyId,
-            name: reason.name
+            name: reason.name,
+            durationMinutes: reason.durationMinutes,
+            color: reason.color,
+            isActive: true
           }
-        },
-        update: {
-          durationMinutes: reason.durationMinutes,
-          color: reason.color,
-          isActive: true
-        },
-        create: {
-          specialtyId,
-          name: reason.name,
-          durationMinutes: reason.durationMinutes,
-          color: reason.color,
-          isActive: true
-        }
-      });
+        });
+        byLegacyId.set(reason.legacyId, createdReason);
+        byNormalizedName.set(normalizeAppointmentReasonKey(reason.name), createdReason);
+      }
     }
   }
+}
+
+type SeededAppointmentReasonRecord = {
+  id: string;
+  legacyId: number | null;
+  name: string;
+};
+
+function normalizeAppointmentReasonKey(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 async function ensureSpecialties(organizationId: string): Promise<SpecialtyContext> {

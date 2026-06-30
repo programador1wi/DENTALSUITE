@@ -10,7 +10,7 @@ type AppointmentCardProps = {
   appointment: Appointment;
   compact?: boolean;
   onEdit: (appointment: Appointment) => void;
-  onCancel?: (appointment: Appointment, cancelledBy?: "patient" | "clinic") => void;
+  onCancel?: (appointment: Appointment, cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled") => void;
   onReschedule?: (appointment: Appointment) => void;
   onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
   onConfirm?: (id: string) => void;

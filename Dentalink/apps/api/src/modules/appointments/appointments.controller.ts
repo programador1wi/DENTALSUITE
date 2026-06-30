@@ -15,7 +15,7 @@ import {
 import { CreateAppointmentNoteDto } from "./dto/appointment-note.dto";
 import { CreateAppointmentReminderDto, UpdateAppointmentReminderDto } from "./dto/appointment-reminder.dto";
 import { AppointmentsService } from "./appointments.service";
-import { CreateAppointmentDto } from "./dto/create-appointment.dto";
+import { CreateAppointmentDto, CreateAppointmentsBatchDto } from "./dto/create-appointment.dto";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
 
 @ApiTags("Appointments")
@@ -47,6 +47,12 @@ export class AppointmentsController {
   @RequirePermissions("appointments.create")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateAppointmentDto) {
     return this.appointmentsService.create(user, dto);
+  }
+
+  @Post("batch")
+  @RequirePermissions("appointments.create")
+  createBatch(@CurrentUser() user: AuthUser, @Body() dto: CreateAppointmentsBatchDto) {
+    return this.appointmentsService.createBatch(user, dto);
   }
 
   @Get(":id/notes")

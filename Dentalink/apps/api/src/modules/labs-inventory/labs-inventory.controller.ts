@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   Patch,
   Post,
@@ -17,16 +18,21 @@ import { AuthUser } from "../../common/types/auth-user";
 import {
   CreateInventoryItemDto,
   CreateInventoryMovementDto,
+  CreateInventoryProductSaleDto,
+  CreateInventoryWarehouseDto,
   CreateLabOrderDto,
   CreateLabOrderFromTreatmentDto,
   CreateLabProviderDto,
   CreateSupplierDto,
   ListInventoryItemsQueryDto,
   ListInventoryMovementsQueryDto,
+  ListInventoryWarehousesQueryDto,
   ListLabOrdersQueryDto,
   ListLabProvidersQueryDto,
   ListSuppliersQueryDto,
   UpdateInventoryItemDto,
+  UpdateInventoryStockDto,
+  UpdateInventoryWarehouseDto,
   UpdateLabProcedureAssignmentsDto,
   UpdateLabOrderCostDto,
   UpdateLabOrderStatusDto,
@@ -176,6 +182,35 @@ export class LabsInventoryController {
     return this.service.deactivateInventoryItem(actor, id);
   }
 
+  @Get("inventory/warehouses")
+  @RequirePermissions("inventory.warehouses.read")
+  listInventoryWarehouses(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryWarehousesQueryDto) {
+    return this.service.listInventoryWarehouses(actor, query);
+  }
+
+  @Post("inventory/warehouses")
+  @RequirePermissions("inventory.warehouses.manage")
+  createInventoryWarehouse(@CurrentUser() actor: AuthUser, @Body() dto: CreateInventoryWarehouseDto) {
+    return this.service.createInventoryWarehouse(actor, dto);
+  }
+
+  @Patch("inventory/warehouses/:id")
+  @RequirePermissions("inventory.warehouses.manage")
+  updateInventoryWarehouse(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateInventoryWarehouseDto) {
+    return this.service.updateInventoryWarehouse(actor, id, dto);
+  }
+
+  @Patch("inventory/items/:id/stocks/:warehouseId")
+  @RequirePermissions("inventory.update")
+  updateInventoryStock(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Param("warehouseId") warehouseId: string,
+    @Body() dto: UpdateInventoryStockDto
+  ) {
+    return this.service.updateInventoryStock(actor, id, warehouseId, dto);
+  }
+
   @Get("inventory/movements")
   @RequirePermissions("inventory.movements.read")
   listInventoryMovements(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryMovementsQueryDto) {
@@ -188,9 +223,45 @@ export class LabsInventoryController {
     return this.service.createInventoryMovement(actor, dto);
   }
 
+  @Post("inventory/sales")
+  @RequirePermissions("inventory.sell")
+  createInventoryProductSale(@CurrentUser() actor: AuthUser, @Body() dto: CreateInventoryProductSaleDto) {
+    return this.service.createInventoryProductSale(actor, dto);
+  }
+
   @Get("inventory/alerts/min-stock")
   @RequirePermissions("inventory.alerts.read")
-  listMinStockAlerts(@CurrentUser() actor: AuthUser, @Query("branchId") branchId?: string) {
-    return this.service.listMinStockAlerts(actor, branchId);
+  listMinStockAlerts(
+    @CurrentUser() actor: AuthUser,
+    @Query("branchId") branchId?: string,
+    @Query("warehouseId") warehouseId?: string
+  ) {
+    return this.service.listMinStockAlerts(actor, branchId, warehouseId);
+  }
+
+  @Get("inventory/kardex/:inventoryItemId")
+  @RequirePermissions("inventory.movements.read")
+  getInventoryKardex(
+    @CurrentUser() actor: AuthUser,
+    @Param("inventoryItemId") inventoryItemId: string,
+    @Query("warehouseId") warehouseId?: string
+  ) {
+    return this.service.getInventoryKardex(actor, inventoryItemId, warehouseId);
+  }
+
+  @Get("inventory/reports/current.csv")
+  @RequirePermissions("inventory.reports.read")
+  @Header("Content-Type", "text/csv; charset=utf-8")
+  @Header("Content-Disposition", "attachment; filename=\"inventario.csv\"")
+  exportInventoryCsv(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryItemsQueryDto) {
+    return this.service.exportInventoryCsv(actor, query);
+  }
+
+  @Get("inventory/reports/movements.csv")
+  @RequirePermissions("inventory.reports.read")
+  @Header("Content-Type", "text/csv; charset=utf-8")
+  @Header("Content-Disposition", "attachment; filename=\"movimientos-inventario.csv\"")
+  exportInventoryMovementsCsv(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryMovementsQueryDto) {
+    return this.service.exportInventoryMovementsCsv(actor, query);
   }
 }

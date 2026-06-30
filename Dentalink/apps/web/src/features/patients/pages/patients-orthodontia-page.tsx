@@ -56,7 +56,7 @@ export function PatientsOrthodontiaPage() {
               <tbody>
                 {rows.map((patient, index) => (
                   <tr key={patient.id} className="border-b border-slate-200 text-slate-600">
-                    <td className="px-2 py-3 text-[#0784d8]">{1398 + index}...</td>
+                    <td className="px-2 py-3 text-[#0784d8]">{patient.id.replace(/\D/g, "").slice(-5) || String(6700 + index)}</td>
                     <td className="px-2 py-3 uppercase text-[#0784d8]">{patient.firstName}</td>
                     <td className="px-2 py-3 uppercase text-[#0784d8]">{patient.lastName}</td>
                     <td className="px-2 py-3">-</td>

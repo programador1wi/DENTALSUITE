@@ -4,10 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { RichTextEditor } from "./rich-text-editor";
-import { EvolutionTemplateModal } from "./evolution-template-modal";
+import { ClinicalTemplateModal } from "./clinical-template-modal";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { useTreatmentPlans } from "@/features/treatments/hooks/use-treatments";
 import { useClinicalMutations } from "../hooks/use-clinical";
+import { useInventoryItems } from "@/features/labs-inventory/hooks/use-labs-inventory";
+import { Trash2, Plus } from "lucide-react";
 
 interface ClinicalEvolutionModalProps {
   patientId: string;
@@ -29,6 +31,11 @@ export function ClinicalEvolutionModal({ patientId, branchId, open, onClose }: C
   });
 
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const inventory = useInventoryItems({ active: "true", branchId: branchId || undefined });
+  const [materials, setMaterials] = useState<{ inventoryItemId: string; quantity: number; name: string; unit: string }[]>([]);
+  const [selectedInventoryItemId, setSelectedInventoryItemId] = useState("");
+  const [selectedQuantity, setSelectedQuantity] = useState(1);
+
 
   // Default date (current date)
   const today = new Date();
@@ -42,9 +49,17 @@ export function ClinicalEvolutionModal({ patientId, branchId, open, onClose }: C
 
   const handleCreate = () => {
     if (!form.professionalId) return;
-    mutations.createEvolution.mutate(form, {
+    const payload: any = { ...form, materials: materials.map(m => ({ inventoryItemId: m.inventoryItemId, quantity: m.quantity })) };
+    
+    // Evitar enviar strings vacíos que puedan causar errores de validación o llaves foráneas
+    if (!payload.treatmentPlanId) {
+      delete payload.treatmentPlanId;
+    }
+
+    mutations.createEvolution.mutate(payload, {
       onSuccess: () => {
         setForm({ professionalId: "", treatmentPlanId: "", notes: "", isPrivate: false });
+        setMaterials([]);
         onClose();
       }
     });
@@ -128,6 +143,89 @@ export function ClinicalEvolutionModal({ patientId, branchId, open, onClose }: C
             onFeedback={() => console.log("Feedback")}
           />
 
+
+          <div className="border-t border-slate-100 pt-5">
+            <h3 className="mb-3 text-sm font-semibold text-slate-800">Materiales e Inventario (Opcional)</h3>
+            <div className="flex flex-wrap items-end gap-3 mb-3">
+              <div className="flex-1 min-w-[200px]">
+                <label className="mb-1.5 block text-xs font-medium text-slate-500">Producto / Material</label>
+                <Select 
+                  value={selectedInventoryItemId} 
+                  onChange={(e) => setSelectedInventoryItemId(e.target.value)}
+                  className="w-full text-sm"
+                >
+                  <option value="">Seleccionar material...</option>
+                  {inventory.data?.map(item => (
+                    <option key={item.id} value={item.id}>{item.name} ({item.unit}) - Stock: {item.stock}</option>
+                  ))}
+                </Select>
+              </div>
+              <div className="w-24">
+                <label className="mb-1.5 block text-xs font-medium text-slate-500">Cantidad</label>
+                <Input 
+                  type="number" 
+                  min="1"
+                  step="any"
+                  value={selectedQuantity}
+                  onChange={(e) => setSelectedQuantity(Number(e.target.value))}
+                  className="w-full text-sm"
+                />
+              </div>
+              <Button 
+                variant="secondary" 
+                type="button"
+                disabled={!selectedInventoryItemId || selectedQuantity <= 0}
+                onClick={() => {
+                  const item = inventory.data?.find(i => i.id === selectedInventoryItemId);
+                  if (item) {
+                    setMaterials(prev => {
+                      const existing = prev.find(m => m.inventoryItemId === item.id);
+                      if (existing) {
+                        return prev.map(m => m.inventoryItemId === item.id ? { ...m, quantity: m.quantity + selectedQuantity } : m);
+                      }
+                      return [...prev, { inventoryItemId: item.id, quantity: selectedQuantity, name: item.name, unit: item.unit }];
+                    });
+                    setSelectedInventoryItemId("");
+                    setSelectedQuantity(1);
+                  }
+                }}
+              >
+                <Plus className="mr-1 h-4 w-4" /> Agregar
+              </Button>
+            </div>
+            
+            {materials.length > 0 && (
+              <div className="rounded-md border border-slate-200 bg-slate-50 overflow-hidden">
+                <table className="w-full text-left text-sm text-slate-600">
+                  <thead className="bg-slate-100/50 text-xs uppercase text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">Material</th>
+                      <th className="px-3 py-2 font-medium">Cantidad</th>
+                      <th className="px-3 py-2 font-medium w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {materials.map(m => (
+                      <tr key={m.inventoryItemId}>
+                        <td className="px-3 py-2 font-medium text-slate-900">{m.name}</td>
+                        <td className="px-3 py-2">{m.quantity} {m.unit}</td>
+                        <td className="px-3 py-2 text-right">
+                          <button 
+                            type="button" 
+                            className="text-slate-400 hover:text-red-500"
+                            onClick={() => setMaterials(prev => prev.filter(x => x.inventoryItemId !== m.inventoryItemId))}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-between border-t border-slate-100 pt-4">
             <div className="flex items-center gap-2">
               <label className="relative inline-flex cursor-pointer items-center">
@@ -156,10 +254,13 @@ export function ClinicalEvolutionModal({ patientId, branchId, open, onClose }: C
         </div>
       </Modal>
 
-      <EvolutionTemplateModal 
+      <ClinicalTemplateModal 
         open={isTemplateModalOpen} 
         onClose={() => setIsTemplateModalOpen(false)} 
         onSelectTemplate={handleSelectTemplate} 
+        specialties={professionals.data?.find(p => p.id === form.professionalId)?.specialties || []}
+        professionalId={form.professionalId}
+        templateType="EVOLUTION"
       />
     </>
   );

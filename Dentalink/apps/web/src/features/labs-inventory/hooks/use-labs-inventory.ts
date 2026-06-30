@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import {
   createInventoryItem,
   createInventoryMovement,
+  createInventoryProductSale,
+  createInventoryWarehouse,
   createLabOrder,
   createLabProvider,
   createSupplier,
@@ -10,13 +12,17 @@ import {
   deactivateLabProvider,
   deactivateSupplier,
   listInventoryItems,
+  listInventoryKardex,
   listInventoryMovements,
+  listInventoryWarehouses,
   listLabProcedureAssignments,
   listLabOrders,
   listLabProviders,
   listMinStockAlerts,
   listSuppliers,
   updateInventoryItem,
+  updateInventoryStock,
+  updateInventoryWarehouse,
   updateLabProcedureAssignments,
   updateLabOrderCost,
   updateLabOrderStatus,
@@ -25,6 +31,8 @@ import {
   type CreateLabOrderPayload,
   type InventoryItemPayload,
   type InventoryMovementPayload,
+  type InventoryProductSalePayload,
+  type InventoryWarehousePayload,
   type LabProcedureAssignmentPayload,
   type LabOrderStatus,
   type LabProviderPayload,
@@ -59,24 +67,47 @@ export function useSuppliers(search?: string, active?: string) {
   });
 }
 
-export function useInventoryItems(params?: { search?: string; branchId?: string; category?: string; active?: string }) {
+export function useInventoryItems(params?: { search?: string; branchId?: string; warehouseId?: string; category?: string; active?: string; stock?: string }) {
   return useQuery({
     queryKey: ["inventory", "items", params],
     queryFn: () => listInventoryItems(params)
   });
 }
 
-export function useInventoryMovements(params?: { inventoryItemId?: string; branchId?: string; type?: InventoryMovementPayload["type"] }) {
+export function useInventoryWarehouses(params?: { branchId?: string; active?: string }) {
+  return useQuery({
+    queryKey: ["inventory", "warehouses", params],
+    queryFn: () => listInventoryWarehouses(params)
+  });
+}
+
+export function useInventoryMovements(params?: {
+  inventoryItemId?: string;
+  branchId?: string;
+  warehouseId?: string;
+  supplierId?: string;
+  type?: InventoryMovementPayload["type"];
+  dateFrom?: string;
+  dateTo?: string;
+}) {
   return useQuery({
     queryKey: ["inventory", "movements", params],
     queryFn: () => listInventoryMovements(params)
   });
 }
 
-export function useMinStockAlerts(branchId?: string) {
+export function useInventoryKardex(inventoryItemId?: string, warehouseId?: string) {
   return useQuery({
-    queryKey: ["inventory", "alerts", "min-stock", branchId],
-    queryFn: () => listMinStockAlerts({ branchId })
+    queryKey: ["inventory", "kardex", inventoryItemId, warehouseId],
+    queryFn: () => listInventoryKardex(inventoryItemId ?? "", warehouseId),
+    enabled: Boolean(inventoryItemId)
+  });
+}
+
+export function useMinStockAlerts(branchId?: string, warehouseId?: string) {
+  return useQuery({
+    queryKey: ["inventory", "alerts", "min-stock", branchId, warehouseId],
+    queryFn: () => listMinStockAlerts({ branchId, warehouseId })
   });
 }
 
@@ -147,8 +178,25 @@ export function useLabsInventoryMutations() {
       onSuccess: invalidate,
       onError
     }),
+    createInventoryWarehouse: useMutation({
+      mutationFn: (payload: InventoryWarehousePayload) => createInventoryWarehouse(payload),
+      onSuccess: invalidate,
+      onError
+    }),
+    updateInventoryWarehouse: useMutation({
+      mutationFn: ({ id, payload }: { id: string; payload: Partial<InventoryWarehousePayload> & { isActive?: boolean } }) =>
+        updateInventoryWarehouse(id, payload),
+      onSuccess: invalidate,
+      onError
+    }),
     updateInventoryItem: useMutation({
       mutationFn: ({ id, payload }: { id: string; payload: Record<string, unknown> }) => updateInventoryItem(id, payload as never),
+      onSuccess: invalidate,
+      onError
+    }),
+    updateInventoryStock: useMutation({
+      mutationFn: ({ inventoryItemId, warehouseId, payload }: { inventoryItemId: string; warehouseId: string; payload: { minStock: number; averageCost?: number } }) =>
+        updateInventoryStock(inventoryItemId, warehouseId, payload),
       onSuccess: invalidate,
       onError
     }),
@@ -159,6 +207,11 @@ export function useLabsInventoryMutations() {
     }),
     createInventoryMovement: useMutation({
       mutationFn: (payload: InventoryMovementPayload) => createInventoryMovement(payload),
+      onSuccess: invalidate,
+      onError
+    }),
+    createInventoryProductSale: useMutation({
+      mutationFn: (payload: InventoryProductSalePayload) => createInventoryProductSale(payload),
       onSuccess: invalidate,
       onError
     })

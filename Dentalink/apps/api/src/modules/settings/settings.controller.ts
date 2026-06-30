@@ -10,6 +10,7 @@ import {
   CreateAgreementDto,
   CreateExpenseDto,
   FinalizePayrollDto,
+  RecalculatePayrollDto,
   UpdateAgreementDto
 } from "./dto/admin-workflows.dto";
 import { CreateFinancialInstitutionDto, UpdateFinancialInstitutionDto } from "./dto/financial-institution.dto";
@@ -169,5 +170,11 @@ export class SettingsController {
   @RequirePermissions("settings.update")
   finalizePayroll(@CurrentUser() user: AuthUser, @Body() dto: FinalizePayrollDto) {
     return this.settingsService.finalizePayroll(user, dto);
+  }
+
+  @Post("payroll/recalculate")
+  @RequirePermissions("settings.update")
+  recalculatePayroll(@CurrentUser() user: AuthUser, @Body() dto: RecalculatePayrollDto) {
+    return this.settingsService.recalculatePayroll(user, dto.branchId, dto.professionalId);
   }
 }

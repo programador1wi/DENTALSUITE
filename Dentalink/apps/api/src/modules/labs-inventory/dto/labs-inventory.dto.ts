@@ -290,11 +290,66 @@ export class ListInventoryItemsQueryDto extends PaginationQueryDto {
 
   @IsOptional()
   @IsString()
+  warehouseId?: string;
+
+  @IsOptional()
+  @IsString()
   category?: string;
 
   @IsOptional()
   @IsString()
   active?: string;
+
+  @IsOptional()
+  @IsString()
+  stock?: "low" | "zero";
+}
+
+export class ListInventoryWarehousesQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsOptional()
+  @IsString()
+  active?: string;
+}
+
+export class CreateInventoryWarehouseDto {
+  @IsString()
+  @IsNotEmpty()
+  branchId!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+}
+
+export class UpdateInventoryWarehouseDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }
 
 export class CreateInventoryItemDto {
@@ -324,8 +379,28 @@ export class CreateInventoryItemDto {
   @Min(0)
   minStock!: number;
 
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  averageCost?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  salePrice?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isSellable?: boolean;
+
   @IsString()
   branchId!: string;
+
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
 
   @IsOptional()
   @IsString()
@@ -358,6 +433,16 @@ export class UpdateInventoryItemDto {
   minStock?: number;
 
   @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  salePrice?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isSellable?: boolean;
+
+  @IsOptional()
   @IsString()
   supplierId?: string | null;
 
@@ -376,6 +461,22 @@ export class ListInventoryMovementsQueryDto extends PaginationQueryDto {
   branchId?: string;
 
   @IsOptional()
+  @IsString()
+  warehouseId?: string;
+
+  @IsOptional()
+  @IsString()
+  supplierId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
+
+  @IsOptional()
   @IsEnum(InventoryMovementType)
   type?: InventoryMovementType;
 }
@@ -387,6 +488,10 @@ export class CreateInventoryMovementDto {
   @IsString()
   branchId!: string;
 
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
+
   @IsEnum(InventoryMovementType)
   type!: InventoryMovementType;
 
@@ -394,6 +499,59 @@ export class CreateInventoryMovementDto {
   @IsNumber()
   @IsPositive()
   quantity!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitCost?: number;
+
+  @IsOptional()
+  @IsDateString()
+  occurredAt?: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
+export class UpdateInventoryStockDto {
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minStock!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  averageCost?: number;
+}
+
+export class CreateInventoryProductSaleDto {
+  @IsString()
+  inventoryItemId!: string;
+
+  @IsString()
+  branchId!: string;
+
+  @IsOptional()
+  @IsString()
+  warehouseId?: string;
+
+  @IsOptional()
+  @IsString()
+  patientId?: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive()
+  quantity!: number;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitPrice!: number;
 
   @IsOptional()
   @IsString()

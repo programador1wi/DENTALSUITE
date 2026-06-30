@@ -805,8 +805,34 @@ export class DocumentsService {
         entityId: payload.entityId,
         action: payload.action,
         before: payload.before,
-        after: payload.after
       }
     });
+  }
+
+  async deletePatientFile(actor: AuthUser, patientId: string, fileId: string, reason: string) {
+    const file = await this.prisma.fileAttachment.findFirst({
+      where: { id: fileId, patientId, organizationId: actor.organizationId, deletedAt: null }
+    });
+
+    if (!file) throw new NotFoundException("File not found or already deleted");
+
+    const updated = await this.prisma.fileAttachment.update({
+      where: { id: fileId },
+      data: {
+        deletedAt: new Date(),
+        deletedById: actor.id,
+        deleteReason: reason
+      }
+    });
+
+    await this.audit(actor, {
+      entity: "FileAttachment",
+      entityId: fileId,
+      action: "DELETE",
+      before: file,
+      after: updated
+    });
+
+    return updated;
   }
 }

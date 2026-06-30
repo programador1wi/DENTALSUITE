@@ -78,7 +78,7 @@ import { PaymentLinksPage } from "@/features/payments/pages/payment-links-page";
 import { CancelledPendingPaymentsPage } from "@/features/payments/pages/cancelled-pending-payments-page";
 import { BudgetsPage } from "@/features/treatments/pages/budgets-page";
 import { TreatmentPlansPage } from "@/features/treatments/pages/treatment-plans-page";
-import { PayrollPage } from "@/features/administration/pages/payroll-page";
+import { PublicBookingPage } from "@/features/public-booking/pages/public-booking-page";
 
 function PublicShell() {
   return (
@@ -122,6 +122,12 @@ export const router = createBrowserRouter([
           { path: "/register-organization", element: <RegisterOrganizationPage /> }
         ]
       }
+    ]
+  },
+  {
+    element: <PublicShell />,
+    children: [
+      { path: "/book/:slug", element: <PublicBookingPage /> }
     ]
   },
   {
@@ -298,7 +304,7 @@ export const router = createBrowserRouter([
               { path: "/cash-register/search", element: <CashRegisterPage /> }
             ]
           },
-          { path: "/payroll", element: <PayrollPage /> },
+          { path: "/payroll", element: <RedirectWithSearch to="/settings/payroll" /> },
           {
             element: <RequirePermissions required={["accounts_receivable.read"]} />,
             children: [{ path: "/accounts-receivable", element: <AccountsReceivablePage /> }]

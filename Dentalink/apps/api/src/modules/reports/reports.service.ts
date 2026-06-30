@@ -699,11 +699,11 @@ export class ReportsService {
           ...(filters.branchId ? { treatmentPlan: { branchId: filters.branchId } } : {})
         }
       }),
-      this.prisma.inventoryItem.findMany({
+      this.prisma.inventoryStock.findMany({
         where: {
           organizationId: actor.organizationId,
-          isActive: true,
-          ...(filters.branchId ? { branchId: filters.branchId } : {})
+          inventoryItem: { isActive: true },
+          ...(filters.branchId ? { warehouse: { branchId: filters.branchId } } : {})
         },
         select: { stock: true, minStock: true }
       }),

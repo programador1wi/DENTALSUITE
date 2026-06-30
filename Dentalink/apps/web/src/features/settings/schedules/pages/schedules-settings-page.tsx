@@ -29,6 +29,7 @@ import {
   useUpdateProfessionalAgendaConfig
 } from "../hooks/use-schedules";
 import { AgendaIntervalModals } from "../components/agenda-interval-modals";
+import { SpecialSchedulesSection } from "../components/special-schedules-section";
 import type { Schedule, ScheduleBlockAppointment, SchedulePayload } from "../services/schedules.service";
 
 type DayForm = {
@@ -228,7 +229,7 @@ export function SchedulesSettingsPage() {
       const next = new URLSearchParams(current);
       next.set("branchId", activeBranchId);
       return next;
-    });
+    }, { replace: true });
   }, [activeBranchId, selectedBranchId, selectedProfessionalId, setParams]);
 
   useEffect(() => {
@@ -239,7 +240,7 @@ export function SchedulesSettingsPage() {
       const next = new URLSearchParams(current);
       next.delete("professionalId");
       return next;
-    });
+    }, { replace: true });
   }, [professionalBranchFilterId, professionals.data, selectedProfessionalId, setParams]);
 
   const blockRange = blockDateRange(blockForm);
@@ -274,7 +275,7 @@ export function SchedulesSettingsPage() {
         const next = new URLSearchParams(current);
         next.set("branchId", nextBranchId);
         return next;
-      });
+      }, { replace: true });
       return;
     }
 
@@ -283,7 +284,7 @@ export function SchedulesSettingsPage() {
         const next = new URLSearchParams(current);
         next.delete("branchId");
         return next;
-      });
+      }, { replace: true });
     }
   }, [professionalBranches, selectedBranchId, selectedProfessional, selectedProfessionalId, setParams]);
 
@@ -515,13 +516,13 @@ export function SchedulesSettingsPage() {
               <Badge value={actionPending ? "GUARDANDO" : "ACTIVO"} tone={actionPending ? "warning" : "success"} />
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] lg:min-w-[980px] border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]"> // ← RESPONSIVE
+            <div className="hidden lg:block overflow-x-auto w-full max-w-full">
+              <table className="w-full min-w-[720px] lg:min-w-[840px] border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]">
                 <thead className="bg-[var(--bg-subtle)] text-left text-[var(--text-xs)] font-semibold uppercase text-[var(--text-secondary)]">
                   <tr>
-                    <th className="w-[120px] sm:w-[150px] md:w-[180px] px-[var(--space-2)] sm:px-[var(--space-3)] py-[var(--space-3)]">Configuracion</th> // ← RESPONSIVE
+                    <th className="w-[100px] sm:w-[120px] md:w-[130px] px-1 py-[var(--space-2)]">Configuracion</th>
                     {days.map((day) => (
-                      <th key={day.value} className="px-1.5 py-[var(--space-3)] text-center sm:px-[var(--space-3)]"> // ← RESPONSIVE
+                      <th key={day.value} className="px-1.5 py-[var(--space-3)] text-center sm:px-[var(--space-3)]">
                         {day.label}
                       </th>
                     ))}
@@ -595,7 +596,7 @@ export function SchedulesSettingsPage() {
                     {days.map((day) => (
                       <ScheduleCell key={day.value}>
                         <Select
-                          className="w-full min-w-[95px] sm:min-w-[120px] md:min-w-[128px]" // ← RESPONSIVE
+                          className="w-full min-w-[80px] sm:min-w-[95px] md:min-w-[104px]"
                           value={weeklyForm[day.value].chairId}
                           disabled={weeklyForm[day.value].noAttend || !branchChairs.length}
                           onChange={(event) => updateDay(day.value, { chairId: event.target.value })}
@@ -631,6 +632,122 @@ export function SchedulesSettingsPage() {
               </table>
             </div>
 
+            {/* Mobile/Tablet Card-based View */}
+            <div className="block lg:hidden divide-y divide-[var(--border-default)]">
+              {days.map((day) => {
+                const form = weeklyForm[day.value];
+                return (
+                  <div key={day.value} className="p-[var(--space-3)] space-y-[var(--space-2)] bg-[var(--bg-surface)]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[var(--text-sm)] font-bold text-[var(--text-brand-strong)] uppercase tracking-wider">
+                        {day.label}
+                      </span>
+                      <label className="inline-flex items-center gap-[var(--space-2)] text-[var(--text-xs)] font-medium text-[var(--text-primary)] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-[var(--border-strong)] accent-[var(--action-brand)] cursor-pointer"
+                          checked={form.noAttend}
+                          onChange={(event) =>
+                            updateDay(day.value, {
+                              noAttend: event.target.checked,
+                              hasBreak: event.target.checked ? false : form.hasBreak
+                            })
+                          }
+                        />
+                        No atiende
+                      </label>
+                    </div>
+
+                    {!form.noAttend ? (
+                      <div className="grid grid-cols-2 gap-[var(--space-2)]">
+                        <label className="grid gap-1 text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">
+                          Hora inicio
+                          <TimeSelect
+                            value={form.startTime}
+                            disabled={form.noAttend}
+                            onChange={(value) => updateDay(day.value, { startTime: value })}
+                          />
+                        </label>
+
+                        <label className="grid gap-1 text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">
+                          Hora termino
+                          <TimeSelect
+                            value={form.endTime}
+                            disabled={form.noAttend}
+                            options={endTimeOptionsForDay(day.value)}
+                            onChange={(value) => updateDay(day.value, { endTime: value })}
+                          />
+                        </label>
+
+                        {day.value !== 6 && day.value !== 0 && (
+                          <div className="col-span-2 space-y-1.5 border-t border-[var(--border-default)] pt-[var(--space-2)]">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">¿Dar descanso?</span>
+                              <label className="inline-flex items-center gap-[var(--space-2)] text-[var(--text-xs)] font-medium text-[var(--text-primary)] cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-[var(--border-strong)] accent-[var(--action-brand)] cursor-pointer"
+                                  checked={form.hasBreak}
+                                  disabled={form.noAttend}
+                                  onChange={(event) => updateDay(day.value, { hasBreak: event.target.checked })}
+                                />
+                                Si
+                              </label>
+                            </div>
+
+                            {form.hasBreak && (
+                              <div className="grid grid-cols-2 gap-[var(--space-2)] pt-1">
+                                <label className="grid gap-1 text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">
+                                  Inicio descanso
+                                  <TimeSelect
+                                    value={form.breakStartTime}
+                                    disabled={form.noAttend || !form.hasBreak}
+                                    placeholder="-"
+                                    onChange={(value) => updateDay(day.value, { breakStartTime: value })}
+                                  />
+                                </label>
+
+                                <label className="grid gap-1 text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">
+                                  Termino descanso
+                                  <TimeSelect
+                                    value={form.breakEndTime}
+                                    disabled={form.noAttend || !form.hasBreak}
+                                    placeholder="-"
+                                    onChange={(value) => updateDay(day.value, { breakEndTime: value })}
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <label className="col-span-2 grid gap-1 text-[var(--text-xs)] font-semibold text-[var(--text-secondary)] border-t border-[var(--border-default)] pt-[var(--space-2)]">
+                          Box atencion
+                          <Select
+                            className="w-full"
+                            value={form.chairId}
+                            disabled={form.noAttend || !branchChairs.length}
+                            onChange={(event) => updateDay(day.value, { chairId: event.target.value })}
+                          >
+                            <option value="">{branchChairs.length ? "Sin box" : "Sin boxes"}</option>
+                            {branchChairs.map((chair) => (
+                              <option key={chair.id} value={chair.id}>
+                                {chair.name}
+                              </option>
+                            ))}
+                          </Select>
+                        </label>
+                      </div>
+                    ) : (
+                      <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border-default)] bg-[var(--bg-subtle)] py-[var(--space-3)] text-center text-[var(--text-xs)] text-[var(--text-secondary)] font-medium italic">
+                        No atiende este día
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
             <div className="flex flex-col gap-[var(--space-3)] border-t border-[var(--border-default)] px-[var(--space-4)] py-[var(--space-4)] md:flex-row md:items-center md:justify-between">
               <p className="text-[var(--text-sm)] text-[var(--text-secondary)]">
                 El descanso bloquea agenda como comida. Si marcas no atiende, ese dia queda cerrado.
@@ -649,6 +766,14 @@ export function SchedulesSettingsPage() {
           ) : null}
           </form>
         </div>
+      )}
+
+      {isReadyForEditor && (
+        <SpecialSchedulesSection
+          professionalId={selectedProfessionalId!}
+          branchId={selectedBranchId!}
+          chairs={chairs.data ?? []}
+        />
       )}
 
       {isReadyForEditor ? (
@@ -672,15 +797,15 @@ export function SchedulesSettingsPage() {
           {!futureBlocks.isLoading && futureBlocks.data ? (
             futureBlocks.data.length ? (
               <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border-default)]">
-                <table className="w-full min-w-[480px] md:min-w-full border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]"> // ← RESPONSIVE
+                <table className="w-full min-w-[480px] md:min-w-full border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]">
                   <thead className="bg-[var(--bg-subtle)] text-left text-[var(--text-xs)] font-semibold uppercase text-[var(--text-secondary)]">
                     <tr>
                       <th className="px-[var(--space-3)] py-[var(--space-3)]">Sucursal</th>
                       <th className="px-[var(--space-3)] py-[var(--space-3)]">Fecha</th>
                       <th className="px-[var(--space-3)] py-[var(--space-3)]">Hora inicio</th>
                       <th className="px-[var(--space-3)] py-[var(--space-3)]">Hora termino</th>
-                      <th className="hidden md:table-cell px-[var(--space-3)] py-[var(--space-3)]">Creado por</th> // ← RESPONSIVE
-                      <th className="hidden sm:table-cell px-[var(--space-3)] py-[var(--space-3)]">Recurso</th> // ← RESPONSIVE
+                      <th className="hidden md:table-cell px-[var(--space-3)] py-[var(--space-3)]">Creado por</th>
+                      <th className="hidden sm:table-cell px-[var(--space-3)] py-[var(--space-3)]">Recurso</th>
                       <th className="px-[var(--space-3)] py-[var(--space-3)] text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -691,8 +816,8 @@ export function SchedulesSettingsPage() {
                         <td className="px-[var(--space-3)] py-[var(--space-3)]">{formatDate(block.startAt)}</td>
                         <td className="px-[var(--space-3)] py-[var(--space-3)]">{formatTime(block.startAt)}</td>
                         <td className="px-[var(--space-3)] py-[var(--space-3)]">{formatTime(block.endAt)}</td>
-                        <td className="hidden md:table-cell px-[var(--space-3)] py-[var(--space-3)]">{formatCreatedBy(block)}</td> // ← RESPONSIVE
-                        <td className="hidden sm:table-cell px-[var(--space-3)] py-[var(--space-3)]">{block.chair?.name ?? "Profesional"}</td> // ← RESPONSIVE
+                        <td className="hidden md:table-cell px-[var(--space-3)] py-[var(--space-3)]">{formatCreatedBy(block)}</td>
+                        <td className="hidden sm:table-cell px-[var(--space-3)] py-[var(--space-3)]">{block.chair?.name ?? "Profesional"}</td>
                         <td className="px-[var(--space-3)] py-[var(--space-3)] text-right">
                           <HelpTooltip content="Eliminar bloqueo" position="left">
                             <button
@@ -837,7 +962,7 @@ export function SchedulesSettingsPage() {
 function ScheduleRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <tr className="border-t border-[var(--border-default)] align-middle">
-      <th className="px-[var(--space-2)] sm:px-[var(--space-3)] py-[var(--space-3)] text-left text-xs sm:text-[var(--text-sm)] font-medium text-[var(--text-primary)]"> // ← RESPONSIVE
+      <th className="px-1.5 sm:px-[var(--space-2)] py-[var(--space-2)] text-left text-xs sm:text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
         {label}
       </th>
       {children}
@@ -846,7 +971,7 @@ function ScheduleRow({ label, children }: { label: string; children: React.React
 }
 
 function ScheduleCell({ children }: { children: React.ReactNode }) {
-  return <td className="px-1 sm:px-[var(--space-2)] py-[var(--space-3)] text-center">{children}</td>; // ← RESPONSIVE
+  return <td className="px-0.5 sm:px-1 py-[var(--space-2)] text-center">{children}</td>;
 }
 
 function TimeSelect({
@@ -863,7 +988,7 @@ function TimeSelect({
   value: string;
 }) {
   return (
-    <Select className="w-full min-w-[76px] sm:min-w-[96px] md:min-w-[104px]" disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)}> // ← RESPONSIVE
+    <Select className="w-full min-w-[68px] sm:min-w-[76px] md:min-w-[88px]" disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)}>
       <option value="">{placeholder}</option>
       {options.map((time) => (
         <option key={time} value={time}>

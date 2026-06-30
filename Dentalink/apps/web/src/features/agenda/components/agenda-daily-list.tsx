@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { MessageSquare } from "lucide-react";
+import { CheckCircle2, DollarSign, MessageSquare } from "lucide-react";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import { appointmentColorPalette } from "./appointment-status";
@@ -13,7 +13,12 @@ const PAGE_SIZE = 10;
 const ALL_STATUSES: { status: AppointmentStatus; label: string }[] = [
   { status: "SCHEDULED",            label: "Agendada" },
   { status: "CONFIRMED",            label: "Confirmada" },
+  { status: "CONFIRMED_BY_WHATSAPP",label: "Confirmada por WhatsApp" },
+  { status: "CONFIRMED_BY_PHONE",   label: "Confirmada por teléfono" },
+  { status: "CONFIRMED_BY_EMAIL",   label: "Confirmada por email" },
   { status: "PENDING_CONFIRMATION", label: "Por confirmar" },
+  { status: "NOTIFIED_BY_WHATSAPP", label: "Notificada por WhatsApp" },
+  { status: "NOTIFIED_BY_EMAIL",    label: "Notificada por email" },
   { status: "ARRIVED",              label: "Llegó a clínica" },
   { status: "WAITING_ROOM",         label: "Sala de espera" },
   { status: "IN_PROGRESS",          label: "En atención" },
@@ -22,6 +27,8 @@ const ALL_STATUSES: { status: AppointmentStatus; label: string }[] = [
   { status: "NO_SHOW",              label: "No asistió" },
   { status: "CANCELLED_BY_PATIENT", label: "Cancelada (paciente)" },
   { status: "CANCELLED_BY_CLINIC",  label: "Cancelada (clínica)" },
+  { status: "CANCELLED_CONFLICT",   label: "Cancelada conflicto" },
+  { status: "CANCELLED_RESCHEDULED",label: "Anulada reprogramación" },
   { status: "BLOCKED",              label: "Bloqueada" },
 ];
 
@@ -46,7 +53,7 @@ function appointmentMatchesTerm(appointment: Appointment, term: string) {
 
 type ActionHandlers = {
   onEdit: (appointment: Appointment) => void;
-  onCancel: (appointment: Appointment, cancelledBy?: "patient" | "clinic") => void;
+  onCancel: (appointment: Appointment, cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled") => void;
   onReschedule: (appointment: Appointment) => void;
   onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
   onConfirm: (id: string) => void;
@@ -301,18 +308,7 @@ export function AgendaDailyList({
             />
           </div>
 
-          {onCreateClick && (
-            <button
-              type="button"
-              onClick={onCreateClick}
-              className="shrink-0 flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-blue-700 shadow-sm hover:shadow-md transition-all active:scale-95"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-              Nueva cita
-            </button>
-          )}
+
         </div>
 
         {/* Table */}
@@ -338,6 +334,7 @@ export function AgendaDailyList({
                   <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-40">Doctor</th>
                   <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-44">Tratamiento</th>
                   <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-36">Estado</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-28">Situación</th>
                   <th className="px-4 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-28">Acciones</th>
                 </tr>
               </thead>
@@ -572,6 +569,25 @@ function AgendaListRow({
           onCancel={onCancel}
           onHistory={onMenuAction ? (item) => onMenuAction(item, "viewHistory") : undefined}
         />
+      </td>
+
+      {/* Situación (Balance status) */}
+      <td className="px-4 py-2.5">
+        {appointment.patient ? (
+          appointment.patient.hasDebt ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[9.5px] font-black text-white shadow-sm whitespace-nowrap">
+              <DollarSign className="h-3 w-3 shrink-0 stroke-[3]" />
+              No hay saldo
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[9.5px] font-black text-white shadow-sm whitespace-nowrap">
+              <CheckCircle2 className="h-3 w-3 shrink-0 stroke-[3]" />
+              Hay saldo
+            </span>
+          )
+        ) : (
+          <span className="text-zinc-400 font-medium text-[10px]">-</span>
+        )}
       </td>
 
       {/* Actions */}

@@ -11,7 +11,7 @@ export function CancelAppointmentModal({
   onConfirm
 }: {
   appointment: Appointment | null;
-  cancelledBy?: "patient" | "clinic";
+  cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled";
   onClose: () => void;
   onConfirm: (id: string, reason: string) => Promise<void>;
 }) {
@@ -30,8 +30,17 @@ export function CancelAppointmentModal({
     }
   };
 
+  const getTitle = () => {
+    switch (cancelledBy) {
+      case "patient": return "Cancelar por paciente";
+      case "conflict": return "Cancelar por conflicto";
+      case "rescheduled": return "Anular por reprogramación";
+      default: return "Cancelar por clínica";
+    }
+  };
+
   return (
-    <Modal open={Boolean(appointment)} title={cancelledBy === "patient" ? "Cancelar por paciente" : "Cancelar por clínica"} onClose={onClose}>
+    <Modal open={Boolean(appointment)} title={getTitle()} onClose={onClose}>
       <div className="space-y-3">
         <Textarea rows={3} placeholder="Motivo de cancelación" value={reason} onChange={(event) => setReason(event.target.value)} />
         <div className="flex justify-end gap-2">

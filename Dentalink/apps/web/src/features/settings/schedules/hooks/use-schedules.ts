@@ -10,8 +10,13 @@ import {
   listSchedules,
   updateSchedule,
   updateProfessionalAgendaConfig,
+  listSpecialSchedules,
+  createSpecialSchedule,
+  updateSpecialSchedule,
+  deactivateSpecialSchedule,
   type ScheduleBlockPayload,
-  type SchedulePayload
+  type SchedulePayload,
+  type SpecialSchedulePayload
 } from "../services/schedules.service";
 
 
@@ -20,6 +25,7 @@ type ScheduleFilters = {
   branchId?: string;
   dayOfWeek?: string;
   active?: string;
+  pageSize?: number;
 };
 
 export function useSchedules(filters?: ScheduleFilters, enabled = true) {
@@ -124,5 +130,55 @@ export function useUpdateProfessionalAgendaConfig() {
       queryClient.invalidateQueries({ queryKey: ["settings", "professionals"] });
     },
     onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+type SpecialScheduleFilters = {
+  professionalId?: string;
+  branchId?: string;
+  date?: string;
+  active?: string;
+  pageSize?: number;
+};
+
+export function useSpecialSchedules(filters?: SpecialScheduleFilters, enabled = true) {
+  return useQuery({
+    queryKey: ["settings", "special-schedules", filters],
+    queryFn: () => listSpecialSchedules(filters),
+    enabled
+  });
+}
+
+export function useCreateSpecialSchedule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SpecialSchedulePayload) => createSpecialSchedule(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "special-schedules"] });
+      queryClient.invalidateQueries({ queryKey: ["settings", "schedules"] });
+    }
+  });
+}
+
+export function useUpdateSpecialSchedule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Partial<SpecialSchedulePayload> & { isActive?: boolean } }) =>
+      updateSpecialSchedule(id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "special-schedules"] });
+      queryClient.invalidateQueries({ queryKey: ["settings", "schedules"] });
+    }
+  });
+}
+
+export function useDeactivateSpecialSchedule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deactivateSpecialSchedule(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "special-schedules"] });
+      queryClient.invalidateQueries({ queryKey: ["settings", "schedules"] });
+    }
   });
 }

@@ -233,7 +233,12 @@ const PERMISSION_TEMPLATES = [
   ["inventory.deactivate", "Deactivate inventory items", "Deactivate inventory items", "inventory"],
   ["inventory.movements.read", "Read inventory movements", "View inventory movements", "inventory"],
   ["inventory.movements.create", "Create inventory movements", "Create inventory movements", "inventory"],
-  ["inventory.alerts.read", "Read inventory alerts", "View minimum stock alerts", "inventory"]
+  ["inventory.alerts.read", "Read inventory alerts", "View minimum stock alerts", "inventory"],
+  ["inventory.warehouses.read", "Read inventory warehouses", "View inventory warehouses", "inventory"],
+  ["inventory.warehouses.manage", "Manage inventory warehouses", "Create and update inventory warehouses", "inventory"],
+  ["inventory.reports.read", "Read inventory reports", "Export inventory reports", "inventory"],
+  ["inventory.adjustments.create", "Create inventory adjustments", "Create stock adjustments", "inventory"],
+  ["inventory.sell", "Sell inventory products", "Register product sales from inventory", "inventory"]
 ] as const;
 
 const ROLE_TEMPLATES = [
@@ -301,7 +306,8 @@ const ROLE_TEMPLATES = [
       "lab_orders.read",
       "lab_orders.create",
       "inventory.read",
-      "inventory.movements.read"
+      "inventory.movements.read",
+      "inventory.warehouses.read"
     ]
   },
   {
@@ -361,7 +367,8 @@ const ROLE_TEMPLATES = [
       "lab_profitability.read",
       "inventory.read",
       "inventory.movements.read",
-      "inventory.alerts.read"
+      "inventory.alerts.read",
+      "inventory.warehouses.read"
     ]
   },
   {
@@ -400,7 +407,9 @@ const ROLE_TEMPLATES = [
       "inventory.read",
       "inventory.movements.read",
       "inventory.movements.create",
-      "inventory.alerts.read"
+      "inventory.alerts.read",
+      "inventory.warehouses.read",
+      "inventory.sell"
     ]
   },
   {
@@ -423,6 +432,10 @@ const ROLE_TEMPLATES = [
       "inventory.movements.read",
       "inventory.movements.create",
       "inventory.alerts.read",
+      "inventory.warehouses.read",
+      "inventory.warehouses.manage",
+      "inventory.reports.read",
+      "inventory.adjustments.create",
       "reports.read"
     ]
   },
@@ -531,7 +544,12 @@ const ROLE_TEMPLATES = [
       "inventory.deactivate",
       "inventory.movements.read",
       "inventory.movements.create",
-      "inventory.alerts.read"
+      "inventory.alerts.read",
+      "inventory.warehouses.read",
+      "inventory.warehouses.manage",
+      "inventory.reports.read",
+      "inventory.adjustments.create",
+      "inventory.sell"
     ]
   }
 ] as const;

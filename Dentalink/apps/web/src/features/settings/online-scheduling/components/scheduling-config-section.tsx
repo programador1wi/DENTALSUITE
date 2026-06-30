@@ -130,29 +130,69 @@ function defaultSettings(mode: SchedulingMode): SchedulingSettings {
   };
 }
 
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { http } from "@/lib/api/http-client";
+
 function useStoredSettings(mode: SchedulingMode) {
-  const key = `dentalwarner-online-scheduling-${mode}`;
-  const [settings, setSettings] = useState<SchedulingSettings>(() => {
-    if (typeof window === "undefined") return defaultSettings(mode);
+  const queryClient = useQueryClient();
+  const queryKey = ["online-scheduling", mode];
 
-    const stored = window.localStorage.getItem(key);
-    if (!stored) return defaultSettings(mode);
-
-    try {
-      const parsed = JSON.parse(stored) as Partial<SchedulingSettings>;
-      return {
-        ...defaultSettings(mode),
-        ...parsed,
-        patientFields: { ...createFieldState(), ...parsed.patientFields }
-      };
-    } catch {
-      return defaultSettings(mode);
-    }
+  const { data: settings = defaultSettings(mode) } = useQuery({
+    queryKey,
+    queryFn: async () => {
+      try {
+        const { data } = await http.get<Partial<SchedulingSettings>>(`/online-scheduling/config?mode=${mode.toUpperCase()}`);
+        return {
+          ...defaultSettings(mode),
+          ...data,
+          patientFields: { ...createFieldState(), ...(data.patientFields || {}) }
+        };
+      } catch (error) {
+        return defaultSettings(mode);
+      }
+    },
   });
 
-  useEffect(() => {
-    window.localStorage.setItem(key, JSON.stringify(settings));
-  }, [key, settings]);
+  const mutation = useMutation({
+    mutationFn: async (newSettings: Partial<SchedulingSettings>) => {
+      // Map to backend schema DTO
+      const dto = {
+        isEnabled: newSettings.onlineEnabled,
+        mode: mode.toUpperCase(),
+        allowedBranches: Object.entries(newSettings.allowedBranches || {})
+          .filter(([_, allowed]) => allowed)
+          .map(([id]) => id),
+        securityMarginHours: parseInt(newSettings.safetyHours || "1", 10),
+        blocksPerAppointment: parseInt(newSettings.appointmentBlocks || "1", 10),
+        maxDaysInAdvance: parseInt(newSettings.maxAvailabilityDays || "30", 10),
+        maxUnvalidatedAppointmentsPerPatient: parseInt(newSettings.maxUnvalidatedAppointments || "1", 10),
+        brandColor: newSettings.brandColor,
+        logoUrl: newSettings.logoName,
+        footerText: `${newSettings.footerEmail || ""} ${newSettings.footerPhone || ""}`.trim(),
+        googleAnalyticsId: newSettings.analyticsCode,
+        redirectUrl: newSettings.redirectUrl,
+        identificationMethod: newSettings.identifyByCurp ? "DOCUMENT" : newSettings.identifyByEmail ? "EMAIL" : "PHONE",
+        requiredPatientFields: Object.entries(newSettings.patientFields || {})
+          .filter(([_, state]) => state.required)
+          .map(([id]) => id),
+      };
+      
+      const { data } = await http.patch(`/online-scheduling/config`, dto);
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey });
+    },
+  });
+
+  // Proxy the state to behave like useState, auto-saving changes
+  const setSettings = (updater: SchedulingSettings | ((curr: SchedulingSettings) => SchedulingSettings)) => {
+    const nextSettings = typeof updater === "function" ? updater(settings) : updater;
+    // We update the cache optimistically
+    queryClient.setQueryData(queryKey, nextSettings);
+    // Debounce or directly save
+    mutation.mutate(nextSettings);
+  };
 
   return [settings, setSettings] as const;
 }

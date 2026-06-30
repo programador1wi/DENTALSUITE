@@ -7,16 +7,21 @@ import { PrismaService } from "../../database/prisma.service";
 import {
   CreateInventoryItemDto,
   CreateInventoryMovementDto,
+  CreateInventoryProductSaleDto,
+  CreateInventoryWarehouseDto,
   CreateLabOrderDto,
   CreateLabOrderFromTreatmentDto,
   CreateLabProviderDto,
   CreateSupplierDto,
   ListInventoryItemsQueryDto,
   ListInventoryMovementsQueryDto,
+  ListInventoryWarehousesQueryDto,
   ListLabOrdersQueryDto,
   ListLabProvidersQueryDto,
   ListSuppliersQueryDto,
   UpdateInventoryItemDto,
+  UpdateInventoryStockDto,
+  UpdateInventoryWarehouseDto,
   UpdateLabProcedureAssignmentsDto,
   UpdateLabOrderCostDto,
   UpdateLabOrderStatusDto,
@@ -547,7 +552,7 @@ export class LabsInventoryService {
 
   async listInventoryItems(actor: AuthUser, query: ListInventoryItemsQueryDto) {
     const { skip, take } = resolvePagination(query);
-    return this.prisma.inventoryItem.findMany({
+    const rows = await this.prisma.inventoryItem.findMany({
       where: {
         organizationId: actor.organizationId,
         ...(query.search
@@ -555,28 +560,145 @@ export class LabsInventoryService {
               OR: [
                 { name: { contains: query.search, mode: "insensitive" } },
                 { sku: { contains: query.search, mode: "insensitive" } },
-                { category: { contains: query.search, mode: "insensitive" } }
+                { category: { contains: query.search, mode: "insensitive" } },
+                { supplier: { name: { contains: query.search, mode: "insensitive" } } }
               ]
             }
           : {}),
         branchId: branchScope(actor, query.branchId),
+        ...(query.warehouseId ? { stocks: { some: { warehouseId: query.warehouseId } } } : {}),
         ...(query.category ? { category: query.category } : {}),
         ...(query.active === "true" ? { isActive: true } : {}),
         ...(query.active === "false" ? { isActive: false } : {})
       },
       include: {
         branch: { select: { id: true, name: true } },
-        supplier: { select: { id: true, name: true } }
+        supplier: { select: { id: true, name: true } },
+        stocks: {
+          where: query.warehouseId ? { warehouseId: query.warehouseId } : undefined,
+          include: { warehouse: { select: { id: true, name: true, branchId: true, isDefault: true } } },
+          orderBy: [{ warehouse: { isDefault: "desc" } }, { warehouse: { name: "asc" } }]
+        }
       },
       skip,
       take,
       orderBy: [{ branch: { name: "asc" } }, { name: "asc" }]
     });
+
+    if (query.stock === "low") {
+      return rows.filter((row) => this.stockRows(row).some((stock) => Number(stock.stock) <= Number(stock.minStock)));
+    }
+    if (query.stock === "zero") {
+      return rows.filter((row) => this.stockRows(row).some((stock) => Number(stock.stock) === 0));
+    }
+    return rows;
+  }
+
+  async listInventoryWarehouses(actor: AuthUser, query: ListInventoryWarehousesQueryDto) {
+    const { skip, take } = resolvePagination(query);
+    return this.prisma.inventoryWarehouse.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        branchId: branchScope(actor, query.branchId),
+        ...(query.active === "true" ? { isActive: true } : {}),
+        ...(query.active === "false" ? { isActive: false } : {})
+      },
+      include: { branch: { select: { id: true, name: true } } },
+      skip,
+      take,
+      orderBy: [{ branch: { name: "asc" } }, { isDefault: "desc" }, { name: "asc" }]
+    });
+  }
+
+  async createInventoryWarehouse(actor: AuthUser, dto: CreateInventoryWarehouseDto) {
+    await this.ensureBranch(actor, dto.branchId);
+    const duplicate = await this.prisma.inventoryWarehouse.findFirst({
+      where: { organizationId: actor.organizationId, branchId: dto.branchId, name: dto.name.trim() }
+    });
+    if (duplicate) throw new ConflictException("Warehouse already exists in this branch");
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      if (dto.isDefault) {
+        await tx.inventoryWarehouse.updateMany({
+          where: { organizationId: actor.organizationId, branchId: dto.branchId, isDefault: true },
+          data: { isDefault: false }
+        });
+      }
+
+      const warehouse = await tx.inventoryWarehouse.create({
+        data: {
+          organizationId: actor.organizationId,
+          branchId: dto.branchId,
+          name: dto.name.trim(),
+          description: dto.description?.trim(),
+          isDefault: dto.isDefault ?? false
+        }
+      });
+
+      await this.auditTx(tx, actor, {
+        entity: "InventoryWarehouse",
+        entityId: warehouse.id,
+        action: "create",
+        after: { branchId: warehouse.branchId, name: warehouse.name, isDefault: warehouse.isDefault }
+      });
+
+      return warehouse.id;
+    });
+
+    return this.prisma.inventoryWarehouse.findUnique({
+      where: { id: created },
+      include: { branch: { select: { id: true, name: true } } }
+    });
+  }
+
+  async updateInventoryWarehouse(actor: AuthUser, id: string, dto: UpdateInventoryWarehouseDto) {
+    const current = await this.ensureWarehouse(actor, id);
+    if (dto.name && dto.name.trim() !== current.name) {
+      const duplicate = await this.prisma.inventoryWarehouse.findFirst({
+        where: { organizationId: actor.organizationId, branchId: current.branchId, name: dto.name.trim(), id: { not: id } }
+      });
+      if (duplicate) throw new ConflictException("Warehouse already exists in this branch");
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (dto.isDefault) {
+        await tx.inventoryWarehouse.updateMany({
+          where: { organizationId: actor.organizationId, branchId: current.branchId, isDefault: true, id: { not: id } },
+          data: { isDefault: false }
+        });
+      }
+
+      const warehouse = await tx.inventoryWarehouse.update({
+        where: { id },
+        data: {
+          name: dto.name?.trim(),
+          description: dto.description === null ? null : dto.description?.trim(),
+          ...(typeof dto.isDefault === "boolean" ? { isDefault: dto.isDefault } : {}),
+          ...(typeof dto.isActive === "boolean" ? { isActive: dto.isActive } : {})
+        },
+        include: { branch: { select: { id: true, name: true } } }
+      });
+
+      await this.auditTx(tx, actor, {
+        entity: "InventoryWarehouse",
+        entityId: id,
+        action: "update",
+        before: { name: current.name, isDefault: current.isDefault, isActive: current.isActive },
+        after: { name: warehouse.name, isDefault: warehouse.isDefault, isActive: warehouse.isActive }
+      });
+
+      return warehouse;
+    });
+
+    return updated;
   }
 
   async createInventoryItem(actor: AuthUser, dto: CreateInventoryItemDto) {
     await this.ensureBranch(actor, dto.branchId);
     if (dto.supplierId) await this.ensureSupplier(actor, dto.supplierId);
+    const warehouse = dto.warehouseId
+      ? await this.ensureWarehouse(actor, dto.warehouseId, dto.branchId)
+      : await this.ensureDefaultWarehouse(actor, dto.branchId);
 
     const duplicate = await this.prisma.inventoryItem.findFirst({
       where: {
@@ -597,18 +719,36 @@ export class LabsInventoryService {
           unit: dto.unit.trim(),
           stock: this.toDecimal(dto.stock),
           minStock: this.toDecimal(dto.minStock),
+          salePrice: dto.salePrice !== undefined ? this.toDecimal(dto.salePrice) : null,
+          isSellable: dto.isSellable ?? false,
           branchId: dto.branchId,
           supplierId: dto.supplierId ?? null
         }
       });
 
-      await tx.inventoryMovement.create({
+      await tx.inventoryStock.create({
+        data: {
+          organizationId: actor.organizationId,
+          inventoryItemId: item.id,
+          warehouseId: warehouse.id,
+          stock: this.toDecimal(dto.stock),
+          minStock: this.toDecimal(dto.minStock),
+          averageCost: this.toDecimal(dto.averageCost ?? 0)
+        }
+      });
+
+      const movement = await tx.inventoryMovement.create({
         data: {
           inventoryItemId: item.id,
           branchId: item.branchId,
+          warehouseId: warehouse.id,
           type: InventoryMovementType.IN,
           quantity: this.toDecimal(dto.stock),
+          unitCost: dto.averageCost !== undefined ? this.toDecimal(dto.averageCost) : null,
           reason: "Initial stock",
+          source: "INITIAL",
+          stockBefore: this.toDecimal(0),
+          stockAfter: this.toDecimal(dto.stock),
           createdById: actor.id
         }
       });
@@ -620,7 +760,9 @@ export class LabsInventoryService {
         after: {
           sku: item.sku,
           stock: dto.stock,
-          branchId: item.branchId
+          branchId: item.branchId,
+          warehouseId: warehouse.id,
+          movementId: movement.id
         }
       });
 
@@ -631,7 +773,8 @@ export class LabsInventoryService {
       where: { id: created },
       include: {
         branch: { select: { id: true, name: true } },
-        supplier: { select: { id: true, name: true } }
+        supplier: { select: { id: true, name: true } },
+        stocks: { include: { warehouse: { select: { id: true, name: true, branchId: true, isDefault: true } } } }
       }
     });
   }
@@ -660,12 +803,15 @@ export class LabsInventoryService {
         category: dto.category?.trim(),
         unit: dto.unit?.trim(),
         ...(dto.minStock !== undefined ? { minStock: this.toDecimal(dto.minStock) } : {}),
+        ...(dto.salePrice !== undefined ? { salePrice: dto.salePrice === null ? null : this.toDecimal(dto.salePrice) } : {}),
+        ...(typeof dto.isSellable === "boolean" ? { isSellable: dto.isSellable } : {}),
         ...(dto.supplierId !== undefined ? { supplierId: dto.supplierId || null } : {}),
         ...(typeof dto.isActive === "boolean" ? { isActive: dto.isActive } : {})
       },
       include: {
         branch: { select: { id: true, name: true } },
-        supplier: { select: { id: true, name: true } }
+        supplier: { select: { id: true, name: true } },
+        stocks: { include: { warehouse: { select: { id: true, name: true, branchId: true, isDefault: true } } } }
       }
     });
 
@@ -677,12 +823,16 @@ export class LabsInventoryService {
         name: current.name,
         sku: current.sku,
         minStock: Number(current.minStock),
+        salePrice: current.salePrice ? Number(current.salePrice) : null,
+        isSellable: current.isSellable,
         isActive: current.isActive
       },
       after: {
         name: updated.name,
         sku: updated.sku,
         minStock: Number(updated.minStock),
+        salePrice: updated.salePrice ? Number(updated.salePrice) : null,
+        isSellable: updated.isSellable,
         isActive: updated.isActive
       }
     });
@@ -707,16 +857,23 @@ export class LabsInventoryService {
 
   async listInventoryMovements(actor: AuthUser, query: ListInventoryMovementsQueryDto) {
     const { skip, take } = resolvePagination(query);
+    const createdAt = this.dateRange(query.dateFrom, query.dateTo);
     return this.prisma.inventoryMovement.findMany({
       where: {
-        inventoryItem: { organizationId: actor.organizationId },
+        inventoryItem: {
+          organizationId: actor.organizationId,
+          ...(query.supplierId ? { supplierId: query.supplierId } : {})
+        },
         ...(query.inventoryItemId ? { inventoryItemId: query.inventoryItemId } : {}),
         branchId: branchScope(actor, query.branchId),
+        ...(query.warehouseId ? { warehouseId: query.warehouseId } : {}),
+        ...(createdAt ? { createdAt } : {}),
         ...(query.type ? { type: query.type } : {})
       },
       include: {
-        inventoryItem: { select: { id: true, name: true, sku: true } },
+        inventoryItem: { select: { id: true, name: true, sku: true, supplier: { select: { id: true, name: true } } } },
         branch: { select: { id: true, name: true } },
+        warehouse: { select: { id: true, name: true } },
         createdBy: { select: { id: true, firstName: true, lastName: true } }
       },
       skip,
@@ -730,12 +887,19 @@ export class LabsInventoryService {
     if (item.branchId !== dto.branchId) {
       throw new BadRequestException("Inventory movement branch must match inventory item branch");
     }
+    const warehouse = dto.warehouseId
+      ? await this.ensureWarehouse(actor, dto.warehouseId, dto.branchId)
+      : await this.ensureDefaultWarehouse(actor, dto.branchId);
 
     const quantity = this.roundMoney(dto.quantity);
     if (quantity <= 0) throw new BadRequestException("Quantity must be greater than zero");
+    if (dto.type === InventoryMovementType.ADJUSTMENT && !dto.reason?.trim()) {
+      throw new BadRequestException("Adjustment reason is required");
+    }
 
     const created = await this.prisma.$transaction(async (tx) => {
-      const currentStock = Number(item.stock);
+      const stockRow = await this.ensureStockTx(tx, actor, item, warehouse.id);
+      const currentStock = Number(stockRow.stock);
       const nextStock =
         dto.type === InventoryMovementType.OUT ? this.roundMoney(currentStock - quantity) : this.roundMoney(currentStock + quantity);
 
@@ -743,18 +907,20 @@ export class LabsInventoryService {
         throw new BadRequestException("Insufficient stock for OUT movement");
       }
 
-      await tx.inventoryItem.update({
-        where: { id: item.id },
-        data: { stock: this.toDecimal(nextStock) }
-      });
+      await this.updateStockTx(tx, item.id, stockRow.id, nextStock, dto.type === InventoryMovementType.IN ? dto.unitCost : undefined, quantity);
 
       const movement = await tx.inventoryMovement.create({
         data: {
           inventoryItemId: item.id,
           branchId: dto.branchId,
+          warehouseId: warehouse.id,
           type: dto.type,
           quantity: this.toDecimal(quantity),
+          unitCost: dto.unitCost !== undefined ? this.toDecimal(dto.unitCost) : null,
           reason: dto.reason?.trim(),
+          source: "MANUAL",
+          stockBefore: this.toDecimal(currentStock),
+          stockAfter: this.toDecimal(nextStock),
           createdById: actor.id
         }
       });
@@ -764,7 +930,7 @@ export class LabsInventoryService {
         entityId: movement.id,
         action: "create",
         before: { stock: currentStock },
-        after: { stock: nextStock, type: dto.type, quantity }
+        after: { stock: nextStock, type: dto.type, quantity, warehouseId: warehouse.id }
       });
 
       return movement.id;
@@ -775,25 +941,306 @@ export class LabsInventoryService {
       include: {
         inventoryItem: { select: { id: true, name: true, sku: true, stock: true, minStock: true } },
         branch: { select: { id: true, name: true } },
+        warehouse: { select: { id: true, name: true } },
         createdBy: { select: { id: true, firstName: true, lastName: true } }
       }
     });
   }
 
-  async listMinStockAlerts(actor: AuthUser, branchId?: string) {
-    const rows = await this.prisma.inventoryItem.findMany({
+  async updateInventoryStock(actor: AuthUser, inventoryItemId: string, warehouseId: string, dto: UpdateInventoryStockDto) {
+    const item = await this.ensureInventoryItem(actor, inventoryItemId);
+    const warehouse = await this.ensureWarehouse(actor, warehouseId, item.branchId);
+    const stock = await this.prisma.inventoryStock.upsert({
+      where: { inventoryItemId_warehouseId: { inventoryItemId: item.id, warehouseId: warehouse.id } },
+      create: {
+        organizationId: actor.organizationId,
+        inventoryItemId: item.id,
+        warehouseId: warehouse.id,
+        stock: this.toDecimal(0),
+        minStock: this.toDecimal(dto.minStock),
+        averageCost: this.toDecimal(dto.averageCost ?? 0)
+      },
+      update: {
+        minStock: this.toDecimal(dto.minStock),
+        ...(dto.averageCost !== undefined ? { averageCost: this.toDecimal(dto.averageCost) } : {})
+      },
+      include: { warehouse: { select: { id: true, name: true, branchId: true, isDefault: true } } }
+    });
+    await this.syncLegacyItemStock(item.id);
+    await this.audit(actor, {
+      entity: "InventoryStock",
+      entityId: stock.id,
+      action: "update_threshold",
+      after: { inventoryItemId, warehouseId, minStock: dto.minStock, averageCost: dto.averageCost }
+    });
+    return stock;
+  }
+
+  async createInventoryProductSale(actor: AuthUser, dto: CreateInventoryProductSaleDto) {
+    const item = await this.ensureInventoryItem(actor, dto.inventoryItemId);
+    if (!item.isSellable) throw new BadRequestException("Inventory item is not sellable");
+    if (item.branchId !== dto.branchId) throw new BadRequestException("Sale branch must match inventory item branch");
+    const warehouse = dto.warehouseId
+      ? await this.ensureWarehouse(actor, dto.warehouseId, dto.branchId)
+      : await this.ensureDefaultWarehouse(actor, dto.branchId);
+    const quantity = this.roundMoney(dto.quantity);
+    const unitPrice = this.roundMoney(dto.unitPrice);
+    const total = this.roundMoney(quantity * unitPrice);
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const stockRow = await this.ensureStockTx(tx, actor, item, warehouse.id);
+      const currentStock = Number(stockRow.stock);
+      const nextStock = this.roundMoney(currentStock - quantity);
+      if (nextStock < 0) throw new BadRequestException("Insufficient stock for product sale");
+      await this.updateStockTx(tx, item.id, stockRow.id, nextStock);
+
+      const movement = await tx.inventoryMovement.create({
+        data: {
+          inventoryItemId: item.id,
+          branchId: item.branchId,
+          warehouseId: warehouse.id,
+          type: InventoryMovementType.OUT,
+          quantity: this.toDecimal(quantity),
+          unitCost: item.salePrice ?? this.toDecimal(unitPrice),
+          reason: dto.reason?.trim() || "Venta de producto",
+          source: "SALE",
+          stockBefore: this.toDecimal(currentStock),
+          stockAfter: this.toDecimal(nextStock),
+          patientId: dto.patientId ?? null,
+          createdById: actor.id
+        }
+      });
+
+      const sale = await tx.inventoryProductSale.create({
+        data: {
+          organizationId: actor.organizationId,
+          inventoryItemId: item.id,
+          branchId: item.branchId,
+          warehouseId: warehouse.id,
+          patientId: dto.patientId ?? null,
+          quantity: this.toDecimal(quantity),
+          unitPrice: this.toDecimal(unitPrice),
+          total: this.toDecimal(total),
+          reason: dto.reason?.trim(),
+          inventoryMovementId: movement.id,
+          createdById: actor.id
+        }
+      });
+
+      await this.auditTx(tx, actor, {
+        entity: "InventoryProductSale",
+        entityId: sale.id,
+        action: "create",
+        before: { stock: currentStock },
+        after: { stock: nextStock, total, movementId: movement.id }
+      });
+      return sale.id;
+    });
+
+    return this.prisma.inventoryProductSale.findUnique({
+      where: { id: created },
+      include: {
+        inventoryItem: { select: { id: true, name: true, sku: true } },
+        warehouse: { select: { id: true, name: true } },
+        patient: { select: { id: true, firstName: true, lastName: true } },
+        inventoryMovement: true
+      }
+    });
+  }
+
+  async listMinStockAlerts(actor: AuthUser, branchId?: string, warehouseId?: string) {
+    const rows = await this.prisma.inventoryStock.findMany({
       where: {
         organizationId: actor.organizationId,
-        isActive: true,
-        branchId: branchScope(actor, branchId)
+        warehouse: {
+          branchId: branchScope(actor, branchId),
+          ...(warehouseId ? { id: warehouseId } : {}),
+          isActive: true
+        },
+        inventoryItem: { isActive: true }
       },
       include: {
-        branch: { select: { id: true, name: true } },
-        supplier: { select: { id: true, name: true } }
+        warehouse: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
+        inventoryItem: { include: { supplier: { select: { id: true, name: true } } } }
       },
-      orderBy: [{ branch: { name: "asc" } }, { stock: "asc" }]
+      orderBy: [{ warehouse: { branch: { name: "asc" } } }, { stock: "asc" }]
     });
     return rows.filter((row) => Number(row.stock) <= Number(row.minStock));
+  }
+
+  async getInventoryKardex(actor: AuthUser, inventoryItemId: string, warehouseId?: string) {
+    await this.ensureInventoryItem(actor, inventoryItemId);
+    return this.prisma.inventoryMovement.findMany({
+      where: {
+        inventoryItemId,
+        inventoryItem: { organizationId: actor.organizationId },
+        ...(warehouseId ? { warehouseId } : {})
+      },
+      include: {
+        inventoryItem: { select: { id: true, name: true, sku: true } },
+        branch: { select: { id: true, name: true } },
+        warehouse: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, firstName: true, lastName: true } }
+      },
+      orderBy: { createdAt: "asc" }
+    });
+  }
+
+  async exportInventoryCsv(actor: AuthUser, query: ListInventoryItemsQueryDto) {
+    const rows = await this.listInventoryItems(actor, query);
+    const header = ["Producto", "SKU", "Categoria", "Sucursal", "Bodega", "Stock", "Minimo", "Costo promedio", "Precio venta", "Proveedor"];
+    const body = rows.flatMap((row: any) =>
+      this.stockRows(row).map((stock) => [
+        row.name,
+        row.sku,
+        row.category,
+        row.branch?.name ?? "",
+        stock.warehouse?.name ?? "",
+        Number(stock.stock),
+        Number(stock.minStock),
+        Number(stock.averageCost),
+        row.salePrice ? Number(row.salePrice) : "",
+        row.supplier?.name ?? ""
+      ])
+    );
+    return this.toCsv([header, ...body]);
+  }
+
+  async exportInventoryMovementsCsv(actor: AuthUser, query: ListInventoryMovementsQueryDto) {
+    const rows = await this.listInventoryMovements(actor, query);
+    const header = ["Fecha", "Operacion", "Producto", "SKU", "Sucursal", "Bodega", "Cantidad", "Costo", "Stock antes", "Stock despues", "Detalle", "Responsable"];
+    const body = rows.map((row: any) => [
+      row.createdAt.toISOString(),
+      row.type,
+      row.inventoryItem?.name ?? "",
+      row.inventoryItem?.sku ?? "",
+      row.branch?.name ?? "",
+      row.warehouse?.name ?? "",
+      Number(row.quantity),
+      row.unitCost ? Number(row.unitCost) : "",
+      row.stockBefore ? Number(row.stockBefore) : "",
+      row.stockAfter ? Number(row.stockAfter) : "",
+      row.reason ?? "",
+      row.createdBy ? `${row.createdBy.firstName} ${row.createdBy.lastName}` : ""
+    ]);
+    return this.toCsv([header, ...body]);
+  }
+
+  private stockRows(row: { stocks?: Array<any> }) {
+    return row.stocks?.length ? row.stocks : [{ stock: new Prisma.Decimal(0), minStock: new Prisma.Decimal(0), averageCost: new Prisma.Decimal(0) }];
+  }
+
+  private async ensureDefaultWarehouse(actor: AuthUser, branchId: string, tx?: Prisma.TransactionClient) {
+    const client = tx ?? this.prisma;
+    await this.ensureBranch(actor, branchId);
+    const existing = await client.inventoryWarehouse.findFirst({
+      where: { organizationId: actor.organizationId, branchId, isDefault: true }
+    });
+    if (existing) return existing;
+
+    const fallback = await client.inventoryWarehouse.findFirst({
+      where: { organizationId: actor.organizationId, branchId },
+      orderBy: [{ isActive: "desc" }, { createdAt: "asc" }]
+    });
+    if (fallback) return fallback;
+
+    return client.inventoryWarehouse.create({
+      data: {
+        organizationId: actor.organizationId,
+        branchId,
+        name: "Bodega central",
+        description: "Bodega creada automaticamente para migrar inventario existente.",
+        isDefault: true
+      }
+    });
+  }
+
+  private async ensureWarehouse(actor: AuthUser, warehouseId: string, branchId?: string) {
+    const warehouse = await this.prisma.inventoryWarehouse.findFirst({
+      where: {
+        id: warehouseId,
+        organizationId: actor.organizationId,
+        branchId: branchId ? branchScope(actor, branchId) : branchScope(actor)
+      }
+    });
+    if (!warehouse) throw new NotFoundException("Inventory warehouse not found");
+    return warehouse;
+  }
+
+  private async ensureStockTx(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    item: { id: string; stock: Prisma.Decimal; minStock: Prisma.Decimal },
+    warehouseId: string
+  ) {
+    const current = await tx.inventoryStock.findUnique({
+      where: { inventoryItemId_warehouseId: { inventoryItemId: item.id, warehouseId } }
+    });
+    if (current) return current;
+    return tx.inventoryStock.create({
+      data: {
+        organizationId: actor.organizationId,
+        inventoryItemId: item.id,
+        warehouseId,
+        stock: item.stock,
+        minStock: item.minStock,
+        averageCost: this.toDecimal(0)
+      }
+    });
+  }
+
+  private async updateStockTx(
+    tx: Prisma.TransactionClient,
+    inventoryItemId: string,
+    stockId: string,
+    nextStock: number,
+    incomingUnitCost?: number,
+    incomingQuantity?: number
+  ) {
+    const current = await tx.inventoryStock.findUnique({ where: { id: stockId } });
+    if (!current) throw new NotFoundException("Inventory stock not found");
+    const data: Prisma.InventoryStockUpdateInput = { stock: this.toDecimal(nextStock) };
+    if (incomingUnitCost !== undefined && incomingQuantity !== undefined) {
+      const currentStock = Number(current.stock);
+      const currentCost = Number(current.averageCost);
+      const totalQuantity = currentStock + incomingQuantity;
+      const nextAverageCost = totalQuantity > 0 ? ((currentStock * currentCost) + (incomingQuantity * incomingUnitCost)) / totalQuantity : incomingUnitCost;
+      data.averageCost = this.toDecimal(nextAverageCost);
+    }
+    await tx.inventoryStock.update({ where: { id: stockId }, data });
+    await this.syncLegacyItemStock(inventoryItemId, tx);
+  }
+
+  private async syncLegacyItemStock(inventoryItemId: string, tx?: Prisma.TransactionClient) {
+    const client = tx ?? this.prisma;
+    const rows = await client.inventoryStock.findMany({ where: { inventoryItemId } });
+    const totalStock = rows.reduce((sum, row) => sum + Number(row.stock), 0);
+    const minStock = rows.reduce((sum, row) => sum + Number(row.minStock), 0);
+    await client.inventoryItem.update({
+      where: { id: inventoryItemId },
+      data: { stock: this.toDecimal(totalStock), minStock: this.toDecimal(minStock) }
+    });
+  }
+
+  private dateRange(dateFrom?: string, dateTo?: string) {
+    if (!dateFrom && !dateTo) return undefined;
+    return {
+      ...(dateFrom ? { gte: new Date(dateFrom) } : {}),
+      ...(dateTo ? { lte: new Date(dateTo) } : {})
+    };
+  }
+
+  private toCsv(rows: Array<Array<string | number>>) {
+    return rows
+      .map((row) =>
+        row
+          .map((value) => {
+            const text = String(value ?? "");
+            return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+          })
+          .join(",")
+      )
+      .join("\r\n");
   }
 
   private async ensurePatient(actor: AuthUser, patientId: string) {

@@ -3,13 +3,20 @@ import { http } from "@/lib/api/http-client";
 export type AppointmentStatus =
   | "SCHEDULED"
   | "CONFIRMED"
+  | "CONFIRMED_BY_WHATSAPP"
+  | "CONFIRMED_BY_PHONE"
+  | "CONFIRMED_BY_EMAIL"
   | "PENDING_CONFIRMATION"
+  | "NOTIFIED_BY_WHATSAPP"
+  | "NOTIFIED_BY_EMAIL"
   | "ARRIVED"
   | "WAITING_ROOM"
   | "IN_PROGRESS"
   | "COMPLETED"
   | "CANCELLED_BY_PATIENT"
   | "CANCELLED_BY_CLINIC"
+  | "CANCELLED_CONFLICT"
+  | "CANCELLED_RESCHEDULED"
   | "NO_SHOW"
   | "RESCHEDULED"
   | "BLOCKED";
@@ -34,7 +41,15 @@ export type Appointment = {
   createdAt?: string;
   updatedAt?: string;
   branch: { id: string; name: string };
-  patient?: { id: string; firstName: string; lastName: string; phone?: string | null; email?: string | null } | null;
+  patient?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    phone?: string | null;
+    email?: string | null;
+    hasDebt?: boolean;
+    outstandingBalance?: number;
+  } | null;
   professional: { id: string; firstName: string; lastName: string; color?: string | null };
   chair?: { id: string; name: string } | null;
   specialty?: { id: string; name: string } | null;
@@ -132,6 +147,11 @@ export type AppointmentPayload = {
   notes?: string;
 };
 
+export type CreateAppointmentsBatchPayload = {
+  appointments: AppointmentPayload[];
+  autoCreateInitialTreatmentPlan?: boolean;
+};
+
 export type AppointmentQuery = {
   date?: string;
   view?: "day" | "week" | "month";
@@ -196,6 +216,11 @@ export async function createAppointment(payload: AppointmentPayload) {
   return data;
 }
 
+export async function createAppointmentsBatch(payload: CreateAppointmentsBatchPayload) {
+  const { data } = await http.post<Appointment[]>("/appointments/batch", payload);
+  return data;
+}
+
 export async function updateAppointment(id: string, payload: Partial<AppointmentPayload>) {
   const { data } = await http.patch<Appointment>(`/appointments/${id}`, payload);
   return data;
@@ -211,7 +236,7 @@ export async function confirmAppointment(id: string) {
   return data;
 }
 
-export async function cancelAppointment(id: string, payload: { reason: string; cancelledBy?: "patient" | "clinic" }) {
+export async function cancelAppointment(id: string, payload: { reason: string; cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled" }) {
   const { data } = await http.post<Appointment>(`/appointments/${id}/cancel`, payload);
   return data;
 }

@@ -54,14 +54,26 @@ export type ClinicalEvolution = {
   patientId: string;
   appointmentId?: string | null;
   professionalId: string;
+  treatmentPlanId?: string | null;
+  treatmentPlanItemId?: string | null;
   subjective?: string | null;
   objective?: string | null;
   assessment?: string | null;
   plan?: string | null;
   notes?: string | null;
+  isPrivate: boolean;
   signedAt?: string | null;
+  annulledAt?: string | null;
+  annulReason?: string | null;
+  actionNameSnapshot?: string | null;
   professional: { firstName: string; lastName: string };
+  signedBy?: { firstName: string; lastName: string } | null;
+  annulledBy?: { firstName: string; lastName: string } | null;
+  createdBy?: { firstName: string; lastName: string } | null;
   addenda?: ClinicalEvolution[];
+  fields?: Array<{ label: string; value: string; group?: string | null; sortOrder: number }>;
+  materials?: Array<{ id: string; inventoryItemId: string; quantity: string | number; unitSnapshot?: string | null; nameSnapshot?: string | null; inventoryItem?: { name: string; unit: string } }>;
+  treatmentPlanItem?: { procedure?: { name: string; code: string }; treatmentPlan?: { name: string; displayId: string } };
 };
 
 export type Prescription = {
@@ -84,6 +96,8 @@ export type ClinicalDocument = {
   status: string;
   createdAt: string;
   template?: { id: string; name: string } | null;
+  deletedAt?: string | null;
+  deleteReason?: string | null;
 };
 
 export type ClinicalDocumentTemplate = {
@@ -351,5 +365,22 @@ export async function comparePeriodontalCharts(patientId: string, chartAId: stri
   const { data } = await http.get<PeriodontalComparison>(`/patients/${patientId}/clinical/periodontogram/compare`, {
     params: { chartAId, chartBId }
   });
+  return data;
+}
+
+export async function deleteClinicalDocument(patientId: string, documentId: string, payload: { reason: string }) {
+  const { data } = await http.delete(`/patients/${patientId}/clinical/documents/${documentId}`, { data: payload });
+  return data;
+}
+
+
+export async function annulEvolution(patientId: string, evolutionId: string, reason: string) {
+  const { data } = await http.post<ClinicalEvolution>(`/patients/${patientId}/clinical/evolutions/${evolutionId}/annul`, { reason });
+  return data;
+}
+
+
+export async function updateEvolution(patientId: string, evolutionId: string, payload: Record<string, unknown>) {
+  const { data } = await http.patch<ClinicalEvolution>(`/patients/${patientId}/clinical/evolutions/${evolutionId}`, payload);
   return data;
 }

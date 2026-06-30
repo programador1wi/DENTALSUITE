@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { AppointmentStatus, Prisma, ProfessionalBranchStatus } from "@prisma/client";
+import { AppointmentStatus, Prisma, ProfessionalBranchStatus, TreatmentPlanStatus } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
@@ -14,12 +14,18 @@ import {
 } from "./dto/appointment-actions.dto";
 import { CreateAppointmentNoteDto } from "./dto/appointment-note.dto";
 import { CreateAppointmentReminderDto, UpdateAppointmentReminderDto } from "./dto/appointment-reminder.dto";
-import { CreateAppointmentDto } from "./dto/create-appointment.dto";
+import { CreateAppointmentDto, CreateAppointmentsBatchDto } from "./dto/create-appointment.dto";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
+
+const INITIAL_TREATMENT_PLAN_NAME = "Plan de Tratamiento Inicial";
+const PATIENT_DAILY_LIMIT_MESSAGE =
+  'Sólo puede agendar una cita por día para el mismo paciente. Si desea darle mas duración, hágalo desde el menu "Duración" al lado izquierdo de esta agenda.';
 
 const FREE_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.CANCELLED_BY_PATIENT,
   AppointmentStatus.CANCELLED_BY_CLINIC,
+  AppointmentStatus.CANCELLED_CONFLICT,
+  AppointmentStatus.CANCELLED_RESCHEDULED,
   AppointmentStatus.NO_SHOW,
   AppointmentStatus.RESCHEDULED
 ];
@@ -27,21 +33,67 @@ const FREE_STATUSES: AppointmentStatus[] = [
 const APPOINTMENT_STATUS_TRANSITIONS: Partial<Record<AppointmentStatus, AppointmentStatus[]>> = {
   [AppointmentStatus.SCHEDULED]: [
     AppointmentStatus.PENDING_CONFIRMATION,
+    AppointmentStatus.NOTIFIED_BY_WHATSAPP,
+    AppointmentStatus.NOTIFIED_BY_EMAIL,
     AppointmentStatus.CONFIRMED,
+    AppointmentStatus.CONFIRMED_BY_WHATSAPP,
+    AppointmentStatus.CONFIRMED_BY_PHONE,
+    AppointmentStatus.CONFIRMED_BY_EMAIL,
     AppointmentStatus.ARRIVED,
     AppointmentStatus.NO_SHOW,
     AppointmentStatus.RESCHEDULED,
     AppointmentStatus.CANCELLED_BY_PATIENT,
-    AppointmentStatus.CANCELLED_BY_CLINIC
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
   ],
   [AppointmentStatus.PENDING_CONFIRMATION]: [
     AppointmentStatus.SCHEDULED,
+    AppointmentStatus.NOTIFIED_BY_WHATSAPP,
+    AppointmentStatus.NOTIFIED_BY_EMAIL,
     AppointmentStatus.CONFIRMED,
+    AppointmentStatus.CONFIRMED_BY_WHATSAPP,
+    AppointmentStatus.CONFIRMED_BY_PHONE,
+    AppointmentStatus.CONFIRMED_BY_EMAIL,
     AppointmentStatus.ARRIVED,
     AppointmentStatus.NO_SHOW,
     AppointmentStatus.RESCHEDULED,
     AppointmentStatus.CANCELLED_BY_PATIENT,
-    AppointmentStatus.CANCELLED_BY_CLINIC
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
+  ],
+  [AppointmentStatus.NOTIFIED_BY_WHATSAPP]: [
+    AppointmentStatus.SCHEDULED,
+    AppointmentStatus.PENDING_CONFIRMATION,
+    AppointmentStatus.NOTIFIED_BY_EMAIL,
+    AppointmentStatus.CONFIRMED,
+    AppointmentStatus.CONFIRMED_BY_WHATSAPP,
+    AppointmentStatus.CONFIRMED_BY_PHONE,
+    AppointmentStatus.CONFIRMED_BY_EMAIL,
+    AppointmentStatus.ARRIVED,
+    AppointmentStatus.NO_SHOW,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
+  ],
+  [AppointmentStatus.NOTIFIED_BY_EMAIL]: [
+    AppointmentStatus.SCHEDULED,
+    AppointmentStatus.PENDING_CONFIRMATION,
+    AppointmentStatus.NOTIFIED_BY_WHATSAPP,
+    AppointmentStatus.CONFIRMED,
+    AppointmentStatus.CONFIRMED_BY_WHATSAPP,
+    AppointmentStatus.CONFIRMED_BY_PHONE,
+    AppointmentStatus.CONFIRMED_BY_EMAIL,
+    AppointmentStatus.ARRIVED,
+    AppointmentStatus.NO_SHOW,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
   ],
   [AppointmentStatus.CONFIRMED]: [
     AppointmentStatus.ARRIVED,
@@ -49,7 +101,39 @@ const APPOINTMENT_STATUS_TRANSITIONS: Partial<Record<AppointmentStatus, Appointm
     AppointmentStatus.NO_SHOW,
     AppointmentStatus.RESCHEDULED,
     AppointmentStatus.CANCELLED_BY_PATIENT,
-    AppointmentStatus.CANCELLED_BY_CLINIC
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
+  ],
+  [AppointmentStatus.CONFIRMED_BY_WHATSAPP]: [
+    AppointmentStatus.ARRIVED,
+    AppointmentStatus.WAITING_ROOM,
+    AppointmentStatus.NO_SHOW,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
+  ],
+  [AppointmentStatus.CONFIRMED_BY_PHONE]: [
+    AppointmentStatus.ARRIVED,
+    AppointmentStatus.WAITING_ROOM,
+    AppointmentStatus.NO_SHOW,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
+  ],
+  [AppointmentStatus.CONFIRMED_BY_EMAIL]: [
+    AppointmentStatus.ARRIVED,
+    AppointmentStatus.WAITING_ROOM,
+    AppointmentStatus.NO_SHOW,
+    AppointmentStatus.RESCHEDULED,
+    AppointmentStatus.CANCELLED_BY_PATIENT,
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
   ],
   [AppointmentStatus.ARRIVED]: [
     AppointmentStatus.WAITING_ROOM,
@@ -57,41 +141,68 @@ const APPOINTMENT_STATUS_TRANSITIONS: Partial<Record<AppointmentStatus, Appointm
     AppointmentStatus.NO_SHOW,
     AppointmentStatus.RESCHEDULED,
     AppointmentStatus.CANCELLED_BY_PATIENT,
-    AppointmentStatus.CANCELLED_BY_CLINIC
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
   ],
   [AppointmentStatus.WAITING_ROOM]: [
     AppointmentStatus.IN_PROGRESS,
     AppointmentStatus.COMPLETED,
     AppointmentStatus.RESCHEDULED,
     AppointmentStatus.CANCELLED_BY_PATIENT,
-    AppointmentStatus.CANCELLED_BY_CLINIC
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
   ],
   [AppointmentStatus.IN_PROGRESS]: [AppointmentStatus.WAITING_ROOM, AppointmentStatus.COMPLETED],
   [AppointmentStatus.RESCHEDULED]: [
     AppointmentStatus.SCHEDULED,
     AppointmentStatus.PENDING_CONFIRMATION,
+    AppointmentStatus.NOTIFIED_BY_WHATSAPP,
+    AppointmentStatus.NOTIFIED_BY_EMAIL,
     AppointmentStatus.CONFIRMED,
+    AppointmentStatus.CONFIRMED_BY_WHATSAPP,
+    AppointmentStatus.CONFIRMED_BY_PHONE,
+    AppointmentStatus.CONFIRMED_BY_EMAIL,
     AppointmentStatus.ARRIVED,
     AppointmentStatus.NO_SHOW,
     AppointmentStatus.RESCHEDULED,
     AppointmentStatus.CANCELLED_BY_PATIENT,
-    AppointmentStatus.CANCELLED_BY_CLINIC
+    AppointmentStatus.CANCELLED_BY_CLINIC,
+    AppointmentStatus.CANCELLED_CONFLICT,
+    AppointmentStatus.CANCELLED_RESCHEDULED
   ]
 };
 
 const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
   [AppointmentStatus.SCHEDULED]: "Agendada",
   [AppointmentStatus.CONFIRMED]: "Confirmada",
+  [AppointmentStatus.CONFIRMED_BY_WHATSAPP]: "Confirmada por WhatsApp",
+  [AppointmentStatus.CONFIRMED_BY_PHONE]: "Confirmada por teléfono",
+  [AppointmentStatus.CONFIRMED_BY_EMAIL]: "Confirmada por email",
   [AppointmentStatus.PENDING_CONFIRMATION]: "Por confirmar",
+  [AppointmentStatus.NOTIFIED_BY_WHATSAPP]: "Notificada por WhatsApp",
+  [AppointmentStatus.NOTIFIED_BY_EMAIL]: "Notificada por email",
   [AppointmentStatus.ARRIVED]: "Llegó a clínica",
   [AppointmentStatus.WAITING_ROOM]: "Sala de espera",
   [AppointmentStatus.IN_PROGRESS]: "En atención",
   [AppointmentStatus.COMPLETED]: "Atendida",
   [AppointmentStatus.CANCELLED_BY_PATIENT]: "Cancelada por paciente",
   [AppointmentStatus.CANCELLED_BY_CLINIC]: "Cancelada por clínica",
+  [AppointmentStatus.CANCELLED_CONFLICT]: "Cancelada conflicto",
+  [AppointmentStatus.CANCELLED_RESCHEDULED]: "Anulada reprogramación",
   [AppointmentStatus.NO_SHOW]: "No asistió",
   [AppointmentStatus.RESCHEDULED]: "Reagendada",
   [AppointmentStatus.BLOCKED]: "Bloqueada"
+};
+
+type PreparedAppointmentCreate = {
+  dto: CreateAppointmentDto;
+  status: AppointmentStatus;
+  startAt: Date;
+  endAt: Date;
+  durationMinutes: number;
+  chairId?: string;
 };
 
 @Injectable()
@@ -108,7 +219,16 @@ export class AppointmentsService {
       ...(query.patientId ? { patientId: query.patientId } : {}),
       ...(query.professionalId ? { professionalId: query.professionalId } : {}),
       ...(query.chairId ? { chairId: query.chairId } : {}),
-      ...(query.status ? { status: query.status as AppointmentStatus } : {}),
+      ...(query.status
+        ? { status: query.status as AppointmentStatus }
+        : query.patientId
+          ? {}
+          : { status: { notIn: [
+              AppointmentStatus.CANCELLED_BY_PATIENT,
+              AppointmentStatus.CANCELLED_BY_CLINIC,
+              AppointmentStatus.CANCELLED_CONFLICT,
+              AppointmentStatus.CANCELLED_RESCHEDULED
+            ] } }),
       ...(query.search
         ? {
             OR: [
@@ -129,7 +249,8 @@ export class AppointmentsService {
       orderBy: [{ startAt: "asc" }, { professionalId: "asc" }]
     });
 
-    return appointments.map((appointment) => this.withCanonicalSpecialty(appointment));
+    const mapped = appointments.map((appointment) => this.withCanonicalSpecialty(appointment));
+    return this.attachPatientBalances(actor, mapped);
   }
 
   async findOne(actor: AuthUser, id: string) {
@@ -150,7 +271,9 @@ export class AppointmentsService {
     });
 
     if (!appointment) throw new NotFoundException("Appointment not found");
-    return appointment;
+    const mapped = this.withCanonicalSpecialty(appointment);
+    const [result] = await this.attachPatientBalances(actor, [mapped]);
+    return result;
   }
 
   async listReasonSuggestions(actor: AuthUser, specialtyId?: string) {
@@ -194,61 +317,59 @@ export class AppointmentsService {
   }
 
   async create(actor: AuthUser, dto: CreateAppointmentDto) {
-    assertBranchAccess(actor, dto.branchId);
-    const status = (dto.status ?? "SCHEDULED") as AppointmentStatus;
-    const startAt = new Date(dto.startAt);
-    const endAt = new Date(dto.endAt);
-    const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
-    const chairId = dto.chairId ?? (await this.defaultChairForSchedule(actor, dto.branchId, dto.professionalId, startAt));
-
-    this.validateDates(startAt, endAt, durationMinutes);
-    await this.validateDurationSlotEnforcement(actor, dto.branchId, dto.professionalId, durationMinutes, startAt);
-    await this.validateReferences(actor, {
-      branchId: dto.branchId,
-      patientId: dto.patientId,
-      professionalId: dto.professionalId,
-      chairId,
-      specialtyId: dto.specialtyId,
-      status,
-      startAt
-    });
-    await this.enforceSchedulingRules(actor, {
-      branchId: dto.branchId,
-      professionalId: dto.professionalId,
-      chairId,
-      startAt,
-      endAt,
-      status
-    });
+    const prepared = await this.prepareAppointmentForCreate(actor, dto);
+    await this.enforcePatientDailyLimit(actor, this.toPatientDailyLimitInput(prepared));
 
     const created = await this.prisma.$transaction(async (tx) => {
-      const appointment = await tx.appointment.create({
-        data: {
-          organizationId: actor.organizationId,
-          branchId: dto.branchId,
-          patientId: dto.patientId,
-          professionalId: dto.professionalId,
-          chairId,
-          specialtyId: dto.specialtyId,
-          treatmentPlanId: dto.treatmentPlanId,
-          title: dto.title.trim(),
-          reason: dto.reason?.trim(),
-          status,
-          startAt,
-          endAt,
-          durationMinutes,
-          notes: dto.notes?.trim(),
-          createdById: actor.id,
-          updatedById: actor.id
-        }
-      });
-
-      await this.createStatusHistory(tx, appointment.id, null, status, actor.id, "create");
-      await this.audit(tx, actor, appointment.id, "create", { status, startAt, endAt });
-      return appointment;
+      return this.createAppointmentInTransaction(tx, actor, prepared, dto.treatmentPlanId);
     });
 
     return this.findOne(actor, created.id);
+  }
+
+  async createBatch(actor: AuthUser, dto: CreateAppointmentsBatchDto) {
+    const preparedAppointments: PreparedAppointmentCreate[] = [];
+
+    for (const appointmentDto of dto.appointments) {
+      preparedAppointments.push(await this.prepareAppointmentForCreate(actor, appointmentDto));
+    }
+
+    this.enforceBatchSchedulingRules(actor, preparedAppointments);
+    this.enforceBatchPatientDailyLimit(preparedAppointments);
+
+    for (const prepared of preparedAppointments) {
+      await this.enforcePatientDailyLimit(actor, this.toPatientDailyLimitInput(prepared));
+    }
+
+    const createdIds = await this.prisma.$transaction(async (tx) => {
+      const treatmentPlanId = dto.autoCreateInitialTreatmentPlan
+        ? await this.createInitialTreatmentPlanForBatch(tx, actor, preparedAppointments)
+        : undefined;
+      const ids: string[] = [];
+
+      for (const prepared of preparedAppointments) {
+        const appointment = await this.createAppointmentInTransaction(
+          tx,
+          actor,
+          prepared,
+          prepared.dto.treatmentPlanId ?? treatmentPlanId
+        );
+        ids.push(appointment.id);
+      }
+
+      return ids;
+    });
+
+    const appointments = await this.prisma.appointment.findMany({
+      where: { id: { in: createdIds }, organizationId: actor.organizationId, branchId: { in: actor.branchIds } },
+      include: this.include()
+    });
+    const byId = new Map(appointments.map((appointment) => [appointment.id, this.withCanonicalSpecialty(appointment)]));
+    const orderedAppointments = createdIds.flatMap((id) => {
+      const appointment = byId.get(id);
+      return appointment ? [appointment] : [];
+    });
+    return this.attachPatientBalances(actor, orderedAppointments);
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateAppointmentDto) {
@@ -295,6 +416,15 @@ export class AppointmentsService {
       },
       id
     );
+    await this.enforcePatientDailyLimit(
+      actor,
+      {
+        patientId: dto.patientId ?? current.patientId ?? undefined,
+        status,
+        startAt
+      },
+      id
+    );
 
     await this.prisma.$transaction(async (tx) => {
       await tx.appointment.update({
@@ -318,7 +448,7 @@ export class AppointmentsService {
       });
 
       if (status !== current.status) {
-        await this.createStatusHistory(tx, id, current.status, status, actor.id, "manual update");
+        await this.createStatusHistory(tx, id, current.status, status, actor.id, "Actualización manual");
       }
 
       await this.audit(tx, actor, id, "update", { status, startAt, endAt });
@@ -328,18 +458,29 @@ export class AppointmentsService {
   }
 
   async remove(actor: AuthUser, id: string) {
-    return this.changeStatus(actor, id, AppointmentStatus.CANCELLED_BY_CLINIC, "deleted via API", {
-      cancellationReason: "Cancelled by clinic"
+    return this.changeStatus(actor, id, AppointmentStatus.CANCELLED_BY_CLINIC, "Eliminado vía API", {
+      cancellationReason: "Cancelada por la clínica"
     });
   }
 
   async confirm(actor: AuthUser, id: string) {
-    return this.changeStatus(actor, id, AppointmentStatus.CONFIRMED, "confirmed");
+    return this.changeStatus(actor, id, AppointmentStatus.CONFIRMED, "Confirmado");
   }
 
   async cancel(actor: AuthUser, id: string, dto: CancelAppointmentDto) {
-    const status = dto.cancelledBy === "patient" ? AppointmentStatus.CANCELLED_BY_PATIENT : AppointmentStatus.CANCELLED_BY_CLINIC;
-    return this.changeStatus(actor, id, status, dto.reason, { cancellationReason: dto.reason });
+    const reason = dto.reason?.trim();
+    if (!reason) {
+      throw new BadRequestException("El motivo de la cancelación es obligatorio");
+    }
+    let status: AppointmentStatus = AppointmentStatus.CANCELLED_BY_CLINIC;
+    if (dto.cancelledBy === "patient") {
+      status = AppointmentStatus.CANCELLED_BY_PATIENT;
+    } else if (dto.cancelledBy === "conflict") {
+      status = AppointmentStatus.CANCELLED_CONFLICT;
+    } else if (dto.cancelledBy === "rescheduled") {
+      status = AppointmentStatus.CANCELLED_RESCHEDULED;
+    }
+    return this.changeStatus(actor, id, status, reason, { cancellationReason: reason });
   }
 
   async reschedule(actor: AuthUser, id: string, dto: RescheduleAppointmentDto) {
@@ -380,6 +521,15 @@ export class AppointmentsService {
       },
       id
     );
+    await this.enforcePatientDailyLimit(
+      actor,
+      {
+        patientId: current.patientId ?? undefined,
+        status: AppointmentStatus.SCHEDULED,
+        startAt
+      },
+      id
+    );
 
     await this.prisma.$transaction(async (tx) => {
       await tx.appointment.update({
@@ -396,7 +546,7 @@ export class AppointmentsService {
           updatedById: actor.id
         }
       });
-      await this.createStatusHistory(tx, id, current.status, AppointmentStatus.RESCHEDULED, actor.id, dto.reason ?? "rescheduled");
+      await this.createStatusHistory(tx, id, current.status, AppointmentStatus.RESCHEDULED, actor.id, dto.reason ?? "Reagendado");
       await this.audit(tx, actor, id, "reschedule", { startAt, endAt });
     });
 
@@ -404,23 +554,23 @@ export class AppointmentsService {
   }
 
   async arrive(actor: AuthUser, id: string, dto: AppointmentStatusReasonDto) {
-    return this.changeStatus(actor, id, AppointmentStatus.ARRIVED, dto.reason ?? "arrived");
+    return this.changeStatus(actor, id, AppointmentStatus.ARRIVED, dto.reason ?? "Llegó");
   }
 
   async start(actor: AuthUser, id: string, dto: AppointmentStatusReasonDto) {
-    return this.changeStatus(actor, id, AppointmentStatus.IN_PROGRESS, dto.reason ?? "started");
+    return this.changeStatus(actor, id, AppointmentStatus.IN_PROGRESS, dto.reason ?? "En atención");
   }
 
   async complete(actor: AuthUser, id: string, dto: AppointmentStatusReasonDto) {
-    return this.changeStatus(actor, id, AppointmentStatus.COMPLETED, dto.reason ?? "completed");
+    return this.changeStatus(actor, id, AppointmentStatus.COMPLETED, dto.reason ?? "Atendido");
   }
 
   async noShow(actor: AuthUser, id: string, dto: AppointmentStatusReasonDto) {
-    return this.changeStatus(actor, id, AppointmentStatus.NO_SHOW, dto.reason ?? "no show");
+    return this.changeStatus(actor, id, AppointmentStatus.NO_SHOW, dto.reason ?? "No asistió");
   }
 
   async waitingRoom(actor: AuthUser, id: string, dto: AppointmentStatusReasonDto) {
-    return this.changeStatus(actor, id, AppointmentStatus.WAITING_ROOM, dto.reason ?? "waiting room");
+    return this.changeStatus(actor, id, AppointmentStatus.WAITING_ROOM, dto.reason ?? "Sala de espera");
   }
 
   async availability(actor: AuthUser, query: AvailabilityQueryDto) {
@@ -635,6 +785,191 @@ export class AppointmentsService {
 
     if (!appointment) throw new NotFoundException("Appointment not found");
     return appointment;
+  }
+
+  private async prepareAppointmentForCreate(actor: AuthUser, dto: CreateAppointmentDto): Promise<PreparedAppointmentCreate> {
+    assertBranchAccess(actor, dto.branchId);
+    const status = (dto.status ?? "SCHEDULED") as AppointmentStatus;
+    const startAt = new Date(dto.startAt);
+    const endAt = new Date(dto.endAt);
+    const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
+    const chairId = dto.chairId ?? (await this.defaultChairForSchedule(actor, dto.branchId, dto.professionalId, startAt));
+
+    this.validateDates(startAt, endAt, durationMinutes);
+    await this.validateDurationSlotEnforcement(actor, dto.branchId, dto.professionalId, durationMinutes, startAt);
+    await this.validateReferences(actor, {
+      branchId: dto.branchId,
+      patientId: dto.patientId,
+      professionalId: dto.professionalId,
+      chairId,
+      specialtyId: dto.specialtyId,
+      status,
+      startAt
+    });
+    await this.enforceSchedulingRules(actor, {
+      branchId: dto.branchId,
+      professionalId: dto.professionalId,
+      chairId,
+      startAt,
+      endAt,
+      status
+    });
+
+    return { dto, status, startAt, endAt, durationMinutes, chairId };
+  }
+
+  private async createAppointmentInTransaction(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    prepared: PreparedAppointmentCreate,
+    treatmentPlanId?: string
+  ) {
+    const { dto, status, startAt, endAt, durationMinutes, chairId } = prepared;
+    const appointment = await tx.appointment.create({
+      data: {
+        organizationId: actor.organizationId,
+        branchId: dto.branchId,
+        patientId: dto.patientId,
+        professionalId: dto.professionalId,
+        chairId,
+        specialtyId: dto.specialtyId,
+        treatmentPlanId,
+        title: dto.title.trim(),
+        reason: dto.reason?.trim(),
+        status,
+        startAt,
+        endAt,
+        durationMinutes,
+        notes: dto.notes?.trim(),
+        createdById: actor.id,
+        updatedById: actor.id
+      }
+    });
+
+    await this.createStatusHistory(tx, appointment.id, null, status, actor.id, "create");
+    await this.audit(tx, actor, appointment.id, "create", { status, startAt, endAt });
+    return appointment;
+  }
+
+  private enforceBatchSchedulingRules(actor: AuthUser, appointments: PreparedAppointmentCreate[]) {
+    const canOverbook = actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
+
+    for (let i = 0; i < appointments.length; i++) {
+      const current = appointments[i];
+      if (!current || FREE_STATUSES.includes(current.status)) continue;
+
+      for (let j = i + 1; j < appointments.length; j++) {
+        const next = appointments[j];
+        if (!next || FREE_STATUSES.includes(next.status)) continue;
+        const overlaps = this.overlaps(current.startAt, current.endAt, next.startAt, next.endAt);
+        if (!overlaps) continue;
+
+        if (!canOverbook && current.dto.professionalId === next.dto.professionalId) {
+          throw new BadRequestException("Overlapping appointment for professional");
+        }
+
+        if (current.chairId && current.chairId === next.chairId) {
+          throw new BadRequestException("Overlapping appointment for chair");
+        }
+      }
+    }
+  }
+
+  private enforceBatchPatientDailyLimit(appointments: PreparedAppointmentCreate[]) {
+    const seen = new Set<string>();
+
+    for (const appointment of appointments) {
+      const patientId = appointment.dto.patientId;
+      if (!this.countsAgainstPatientDailyLimit(patientId, appointment.status)) continue;
+
+      const key = `${patientId}:${this.clinicDayKey(appointment.startAt)}`;
+      if (seen.has(key)) throw new BadRequestException(PATIENT_DAILY_LIMIT_MESSAGE);
+      seen.add(key);
+    }
+  }
+
+  private async enforcePatientDailyLimit(
+    actor: AuthUser,
+    input: { patientId?: string | null; status: AppointmentStatus; startAt: Date },
+    excludeId?: string
+  ) {
+    if (!this.countsAgainstPatientDailyLimit(input.patientId, input.status)) return;
+
+    const range = this.clinicDayRange(input.startAt);
+    const existing = await this.prisma.appointment.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        patientId: input.patientId,
+        status: { notIn: FREE_STATUSES },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        startAt: { gte: range.start, lt: range.end }
+      },
+      select: { id: true }
+    });
+
+    if (existing) throw new BadRequestException(PATIENT_DAILY_LIMIT_MESSAGE);
+  }
+
+  private toPatientDailyLimitInput(appointment: PreparedAppointmentCreate) {
+    return {
+      patientId: appointment.dto.patientId,
+      status: appointment.status,
+      startAt: appointment.startAt
+    };
+  }
+
+  private countsAgainstPatientDailyLimit(patientId: string | null | undefined, status: AppointmentStatus) {
+    return Boolean(patientId) && status !== AppointmentStatus.BLOCKED && !FREE_STATUSES.includes(status);
+  }
+
+  private clinicDayRange(date: Date) {
+    const start = new Date(date);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 1);
+    return { start, end };
+  }
+
+  private clinicDayKey(date: Date) {
+    const { start } = this.clinicDayRange(date);
+    return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
+  }
+
+  private async createInitialTreatmentPlanForBatch(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    appointments: PreparedAppointmentCreate[]
+  ) {
+    if (appointments.some((appointment) => appointment.dto.treatmentPlanId)) return undefined;
+
+    const clinicalAppointments = appointments.filter((appointment) =>
+      this.countsAgainstPatientDailyLimit(appointment.dto.patientId, appointment.status)
+    );
+    const first = clinicalAppointments[0];
+    if (!first) return undefined;
+
+    const hasMixedContext = clinicalAppointments.some(
+      (appointment) =>
+        appointment.dto.branchId !== first.dto.branchId ||
+        appointment.dto.patientId !== first.dto.patientId ||
+        appointment.dto.professionalId !== first.dto.professionalId
+    );
+    if (hasMixedContext) {
+      throw new BadRequestException("Initial treatment plan can only be created for one patient, branch and professional");
+    }
+
+    const plan = await tx.treatmentPlan.create({
+      data: {
+        organizationId: actor.organizationId,
+        branchId: first.dto.branchId,
+        patientId: first.dto.patientId!,
+        professionalId: first.dto.professionalId,
+        name: INITIAL_TREATMENT_PLAN_NAME,
+        status: TreatmentPlanStatus.DRAFT
+      }
+    });
+
+    return plan.id;
   }
 
   private async validateReferences(
@@ -989,5 +1324,53 @@ export class AppointmentsService {
       agendaStartHour: assignment.branch.agendaStartHour,
       agendaEndHour: assignment.branch.agendaEndHour
     };
+  }
+
+  private async attachPatientBalances(actor: AuthUser, appointments: any[]) {
+    const patientIds = appointments
+      .map((a) => a.patientId)
+      .filter(Boolean) as string[];
+
+    if (patientIds.length === 0) return appointments;
+
+    const patientsWithDebt = await this.prisma.patient.findMany({
+      where: {
+        id: { in: patientIds },
+        organizationId: actor.organizationId
+      },
+      include: {
+        treatmentPlans: {
+          where: { isAlternative: false },
+          include: {
+            items: {
+              where: { status: { not: "CANCELLED" } }
+            }
+          }
+        },
+        payments: {
+          where: { status: { notIn: ["REFUNDED", "VOIDED"] } }
+        }
+      }
+    });
+
+    const balances = patientsWithDebt.reduce((acc: Record<string, number>, p: any) => {
+      const planned = p.treatmentPlans.reduce(
+        (sum: number, tp: any) => sum + tp.items.reduce((s: number, item: any) => s + Number(item.total), 0),
+        0
+      );
+      const paid = p.payments.reduce((sum: number, pay: any) => sum + Number(pay.amount), 0);
+      acc[p.id] = planned - paid;
+      return acc;
+    }, {});
+
+    for (const app of appointments) {
+      if (app.patient) {
+        const debt = balances[app.patient.id] ?? 0;
+        app.patient.hasDebt = debt > 0;
+        app.patient.outstandingBalance = debt;
+      }
+    }
+
+    return appointments;
   }
 }

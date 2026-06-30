@@ -31,3 +31,8 @@ export class CreateClinicalDocumentFromTemplateDto {
   @IsString()
   title!: string;
 }
+
+export class DeleteClinicalDocumentDto {
+  @IsString()
+  reason!: string;
+}

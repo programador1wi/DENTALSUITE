@@ -101,3 +101,13 @@ export class FinalizePayrollDto {
   @IsString()
   branchId?: string;
 }
+
+export class RecalculatePayrollDto {
+  @IsOptional()
+  @IsString()
+  professionalId?: string;
+
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+}

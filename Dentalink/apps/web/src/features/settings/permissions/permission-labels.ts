@@ -144,7 +144,12 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "inventory.deactivate": "Desactivar articulos de inventario",
   "inventory.movements.read": "Ver movimientos de inventario",
   "inventory.movements.create": "Crear movimientos de inventario",
-  "inventory.alerts.read": "Ver alertas de inventario"
+  "inventory.alerts.read": "Ver alertas de inventario",
+  "inventory.warehouses.read": "Ver bodegas de inventario",
+  "inventory.warehouses.manage": "Administrar bodegas de inventario",
+  "inventory.reports.read": "Exportar reportes de inventario",
+  "inventory.adjustments.create": "Crear ajustes de inventario",
+  "inventory.sell": "Vender productos de inventario"
 };
 
 export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
@@ -291,7 +296,12 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "inventory.deactivate": "Permite desactivar articulos de inventario.",
   "inventory.movements.read": "Permite consultar movimientos de inventario.",
   "inventory.movements.create": "Permite crear movimientos de inventario.",
-  "inventory.alerts.read": "Permite consultar alertas de stock minimo."
+  "inventory.alerts.read": "Permite consultar alertas de stock minimo.",
+  "inventory.warehouses.read": "Permite consultar bodegas de inventario.",
+  "inventory.warehouses.manage": "Permite crear y editar bodegas de inventario.",
+  "inventory.reports.read": "Permite exportar reportes operativos de inventario.",
+  "inventory.adjustments.create": "Permite crear ajustes de stock con trazabilidad.",
+  "inventory.sell": "Permite registrar ventas de productos de inventario."
 };
 
 export function getPermissionLabel(permission: PermissionListItem) {

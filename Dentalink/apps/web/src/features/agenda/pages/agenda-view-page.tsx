@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,7 +15,7 @@ import { useSchedules } from "@/features/settings/schedules/hooks/use-schedules"
 import { useBranchStore } from "@/stores/branch.store";
 import { useAuthStore } from "@/stores/auth.store";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, ChevronDown, Plus, Layers } from "lucide-react";
 import { AppointmentModal } from "../components/appointment-modal";
 import {
   AppointmentCommentModal,
@@ -37,6 +37,7 @@ import {
   useAppointmentActions,
   useAppointments,
   useAddAppointmentNote,
+  useCreateAppointmentsBatch,
   useCreateAppointmentReminder,
   useUpdateAppointmentReminder,
   useCreateAppointment,
@@ -61,9 +62,25 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const [editing, setEditing] = useState<Appointment | null>(null);
   const [initialAppointmentValues, setInitialAppointmentValues] = useState<Partial<AppointmentPayload> | null>(null);
   const [openedPrefillPatientId, setOpenedPrefillPatientId] = useState("");
-  const [canceling, setCanceling] = useState<{ appointment: Appointment; cancelledBy?: "patient" | "clinic" } | null>(null);
+  const [canceling, setCanceling] = useState<{ appointment: Appointment; cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled" } | null>(null);
   const [rescheduling, setRescheduling] = useState<Appointment | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [isMultipleBooking, setIsMultipleBooking] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    if (dropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dropdownOpen]);
+
   const [durationEditing, setDurationEditing] = useState<Appointment | null>(null);
   const [commenting, setCommenting] = useState<{ appointment: Appointment; anchorRect: CommentPopoverAnchor | null } | null>(null);
   const [statusChanging, setStatusChanging] = useState<Appointment | null>(null);
@@ -133,6 +150,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     active: "true"
   });
   const createAppointment = useCreateAppointment();
+  const createAppointmentsBatch = useCreateAppointmentsBatch();
   const updateAppointment = useUpdateAppointment();
   const createPatient = useCreatePatient();
   const addAppointmentNote = useAddAppointmentNote();
@@ -203,13 +221,14 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     setOpenedPrefillPatientId(prefillPatientId);
   }, [openedPrefillPatientId, prefillPatient.data, prefillPatientId, setActiveBranchId]);
 
-  const openCreate = (defaults?: Partial<AppointmentPayload>) => {
+  const openCreate = (defaults?: Partial<AppointmentPayload>, forceMultiple = false) => {
     setEditing(null);
     setInitialAppointmentValues({
       ...defaults,
       branchId: defaults?.branchId ?? (activeBranchId || assignedBranches[0]?.id || ""),
       status: defaults?.status ?? "SCHEDULED"
     });
+    setIsMultipleBooking(forceMultiple);
     setModalOpen(true);
   };
 
@@ -224,25 +243,58 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     setInitialAppointmentValues(null);
   };
 
-  const submitAppointment = async (payload: AppointmentPayload) => {
-    let finalPayload = { ...payload };
+  const submitAppointment = async (payloads: AppointmentPayload[]) => {
+    if (payloads.length === 0) return;
 
-    if (!editing && payload.patientId && !payload.treatmentPlanId) {
+    if (editing) {
+      const payload = payloads[0];
+      if (!payload) return;
+      const saved = await updateAppointment.mutateAsync({ id: editing.id, payload });
+      focusSavedAppointment(saved);
+      return;
+    }
+
+    if (payloads.length > 1) {
+      const savedAppointments = await createAppointmentsBatch.mutateAsync({
+        appointments: payloads,
+        autoCreateInitialTreatmentPlan: true
+      });
+      if (savedAppointments[0]) {
+        focusSavedAppointment(savedAppointments[0]);
+      }
+      return;
+    }
+
+    let treatmentPlanId = payloads[0]?.treatmentPlanId || undefined;
+    const firstPayload = payloads[0];
+
+    if (firstPayload && firstPayload.patientId && !treatmentPlanId) {
       const treatmentPlan = await treatmentMutations.createTreatmentPlan.mutateAsync({
-        branchId: payload.branchId,
-        patientId: payload.patientId,
-        professionalId: payload.professionalId,
+        branchId: firstPayload.branchId,
+        patientId: firstPayload.patientId,
+        professionalId: firstPayload.professionalId,
         name: "Plan de Tratamiento Inicial",
         status: "DRAFT"
       });
-      finalPayload.treatmentPlanId = treatmentPlan.id;
+      treatmentPlanId = treatmentPlan.id;
     }
 
-    const saved = editing
-      ? await updateAppointment.mutateAsync({ id: editing.id, payload: finalPayload })
-      : await createAppointment.mutateAsync(finalPayload);
+    let firstSaved: Appointment | null = null;
 
-    focusSavedAppointment(saved);
+    for (let i = 0; i < payloads.length; i++) {
+      const payload = { ...payloads[i] };
+      if (treatmentPlanId) {
+        payload.treatmentPlanId = treatmentPlanId;
+      }
+      const saved = await createAppointment.mutateAsync(payload);
+      if (i === 0) {
+        firstSaved = saved;
+      }
+    }
+
+    if (firstSaved) {
+      focusSavedAppointment(firstSaved);
+    }
   };
 
   const focusSavedAppointment = (appointment: Appointment) => {
@@ -288,7 +340,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     }
   };
 
-  const openCancelAppointment = (appointment: Appointment, cancelledBy: "patient" | "clinic" = "clinic") => {
+  const openCancelAppointment = (appointment: Appointment, cancelledBy: "patient" | "clinic" | "conflict" | "rescheduled" = "clinic") => {
     setCanceling({ appointment, cancelledBy });
   };
 
@@ -378,7 +430,43 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
             <RotateCcw className="h-4 w-4" />
             Limpiar filtros
           </Button>
-          <Button onClick={() => openCreate()}>Nueva cita</Button>
+          <div ref={dropdownRef} className="relative w-full">
+            <button
+              type="button"
+              onClick={() => setDropdownOpen((prev) => !prev)}
+              className="flex h-[38px] w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--action-primary)] bg-[var(--action-primary)] px-[var(--space-4)] text-[var(--text-base)] text-[var(--text-inverse)] font-medium transition-[background-color,border-color,color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] active:scale-[0.98] hover:border-[var(--action-primary-hover)] hover:bg-[var(--action-primary-hover)] shadow-sm"
+            >
+              <span className="truncate">Nueva cita</span>
+              <ChevronDown className={`h-4 w-4 transition-transform duration-150 ${dropdownOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {dropdownOpen && (
+              <div className="absolute right-0 left-0 lg:left-auto lg:w-56 z-50 mt-1.5 rounded-[var(--radius-lg)] border border-[var(--border-default)]/90 bg-white p-1 shadow-[0_12px_30px_rgba(4,44,83,0.12)] animate-in fade-in-50 slide-in-from-top-1 duration-[var(--duration-fast)]">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[var(--text-sm)] text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-all duration-150"
+                  onClick={() => {
+                    openCreate();
+                    setDropdownOpen(false);
+                  }}
+                >
+                  <Plus className="h-4 w-4 text-[var(--text-secondary)]" />
+                  <span>Cita individual</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[var(--text-sm)] text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-all duration-150"
+                  onClick={() => {
+                    openCreate(undefined, true);
+                    setDropdownOpen(false);
+                  }}
+                >
+                  <Layers className="h-4 w-4 text-[var(--text-secondary)]" />
+                  <span>Agendamiento múltiple</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Color status legend */}
@@ -492,6 +580,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         onClose={closeAppointmentModal}
         onSubmit={submitAppointment}
         onCreatePatient={async (payload) => (await createPatient.mutateAsync(payload)).patient}
+        multipleMode={isMultipleBooking}
       />
       <CancelAppointmentModal
         appointment={canceling?.appointment ?? null}

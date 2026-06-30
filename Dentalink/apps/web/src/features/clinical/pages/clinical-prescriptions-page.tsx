@@ -1,13 +1,13 @@
 import { useEffect, useState, useMemo } from "react";
 import { useParams } from "react-router-dom";
-import { Printer, Trash2, Plus, Info, ChevronDown } from "lucide-react";
+import { Info, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { EmptyState } from "@/components/feedback/empty-state";
 import { usePatient } from "@/features/patients/hooks/use-patients";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
+import { useSpecialtyClinicalTemplatesForSpecialties } from "@/features/settings/specialties/hooks/use-specialties";
 import { useBranchStore } from "@/stores/branch.store";
 import { ClinicalShell } from "../components/clinical-shell";
 import { useClinicalMutations, useClinicalPrescriptions } from "../hooks/use-clinical";
@@ -16,20 +16,8 @@ import { RichTextEditor } from "../components/rich-text-editor";
 import { VademecumModal } from "../components/vademecum-modal";
 import { toast } from "sonner";
 
-const PRESCRIPTION_TEMPLATES = [
-  {
-    name: "Esquema Antibiótico Básico",
-    content: `<div><strong>Amoxicilina 500 mg</strong></div><div>Posología: 1 Cápsula cada 8 Horas durante 7 Días. Vía: Oral.</div><div>Indicaciones: <em>Tomar después de las comidas. Completar los 7 días completos de tratamiento.</em></div>`
-  },
-  {
-    name: "Esquema Analgésico / Antiinflamatorio",
-    content: `<div><strong>Ibuprofeno 600 mg</strong></div><div>Posología: 1 Comprimido cada 8 Horas durante 5 Días. Vía: Oral.</div><div>Indicaciones: <em>Tomar acompañado de alimentos para proteger el estómago. Suspender en caso de no haber dolor.</em></div>`
-  },
-  {
-    name: "Esquema Dolor Severo (Ketorolaco)",
-    content: `<div><strong>Ketorolaco 10 mg</strong></div><div>Posología: 1 Tableta sublingual cada 8 Horas durante 3 Días. Vía: Sublingual.</div><div>Indicaciones: <em>Disolver debajo de la lengua en caso de dolor agudo.</em></div>`
-  }
-];
+
+const EMPTY_SPECIALTIES: { id: string; name: string }[] = [];
 
 export function ClinicalPrescriptionsPage() {
   const { id = "" } = useParams();
@@ -58,6 +46,27 @@ export function ClinicalPrescriptionsPage() {
 
   const [printText, setPrintText] = useState("");
   const [isVademecumOpen, setIsVademecumOpen] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState("");
+
+  const selectedProfessional = useMemo(
+    () => professionals.data?.find((professional) => professional.id === professionalId) ?? null,
+    [professionals.data, professionalId]
+  );
+  const professionalSpecialties = selectedProfessional?.specialties ?? EMPTY_SPECIALTIES;
+  const prescriptionTemplates = useSpecialtyClinicalTemplatesForSpecialties(professionalSpecialties, "PRESCRIPTION");
+  const groupedPrescriptionTemplates = useMemo(() => {
+    const groups = new Map<string, { specialtyName: string; templates: typeof prescriptionTemplates.data }>();
+    for (const template of prescriptionTemplates.data) {
+      const group = groups.get(template.specialtyId);
+      if (group) {
+        group.templates.push(template);
+      } else {
+        groups.set(template.specialtyId, { specialtyName: template.specialtyName, templates: [template] });
+      }
+    }
+    return [...groups.values()];
+  }, [prescriptionTemplates.data]);
+  const selectedTemplate = prescriptionTemplates.data.find((template) => template.id === selectedTemplateId);
 
   useEffect(() => {
     if (!professionalId && professionals.data?.length) {
@@ -71,6 +80,16 @@ export function ClinicalPrescriptionsPage() {
     const isVisible = professionals.data.some((professional) => professional.id === professionalId);
     if (!isVisible) setProfessionalId("");
   }, [professionalId, professionals.data]);
+
+  useEffect(() => {
+    setSelectedTemplateId("");
+  }, [professionalId]);
+
+  useEffect(() => {
+    if (selectedTemplateId && !prescriptionTemplates.data.some((template) => template.id === selectedTemplateId)) {
+      setSelectedTemplateId("");
+    }
+  }, [prescriptionTemplates.data, selectedTemplateId]);
 
   const handleCreate = async () => {
     if (!professionalId) {
@@ -100,6 +119,7 @@ export function ClinicalPrescriptionsPage() {
     setBodyContent("");
     setMedicationItems([]);
     setAssociatedPlanId("");
+    setSelectedTemplateId("");
     toast.success("Receta creada exitosamente");
   };
 
@@ -118,6 +138,18 @@ export function ClinicalPrescriptionsPage() {
         instructions: "Indicaciones añadidas en receta"
       }
     ]);
+  };
+
+  const handleTemplateChange = (templateId: string) => {
+    setSelectedTemplateId(templateId);
+    const template = prescriptionTemplates.data.find((item) => item.id === templateId);
+    if (template) setBodyContent(template.content);
+  };
+
+  const handleClearPrescriptionBody = () => {
+    setSelectedTemplateId("");
+    setBodyContent("");
+    setMedicationItems([]);
   };
 
   // Filtered list
@@ -251,21 +283,51 @@ export function ClinicalPrescriptionsPage() {
               />
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 pt-1">
+            <div className="grid gap-3 rounded-md border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
               <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Usar plantilla de receta</label>
-                <Select value="" onChange={(e) => {
-                  const selected = PRESCRIPTION_TEMPLATES.find(t => t.name === e.target.value);
-                  if (selected) {
-                    setBodyContent((prev) => prev + selected.content);
-                  }
-                }}>
-                  <option value="">Cargar plantilla...</option>
-                  {PRESCRIPTION_TEMPLATES.map(t => (
-                    <option key={t.name} value={t.name}>{t.name}</option>
+                <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Plantilla de prescripcion</label>
+                <Select
+                  aria-label="Cargar plantilla de receta"
+                  value={selectedTemplateId}
+                  onChange={(event) => handleTemplateChange(event.target.value)}
+                  disabled={!professionalId || prescriptionTemplates.isLoading || prescriptionTemplates.data.length === 0}
+                >
+                  <option value="">
+                    {prescriptionTemplates.isLoading ? "Cargando plantillas..." : "Cargar plantilla..."}
+                  </option>
+                  {groupedPrescriptionTemplates.map((group) => (
+                    <optgroup key={group.specialtyName} label={group.specialtyName}>
+                      {group.templates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                        </option>
+                      ))}
+                    </optgroup>
                   ))}
                 </Select>
+                {!professionalId ? (
+                  <p className="text-xs text-slate-500">Selecciona un profesional para cargar sus plantillas.</p>
+                ) : prescriptionTemplates.isError ? (
+                  <p className="text-xs text-red-600">{prescriptionTemplates.error?.message ?? "No se pudieron cargar las plantillas."}</p>
+                ) : !prescriptionTemplates.isLoading && prescriptionTemplates.data.length === 0 ? (
+                  <p className="text-xs text-slate-500">No hay plantillas activas de prescripcion para las especialidades del profesional.</p>
+                ) : selectedTemplate ? (
+                  <p className="text-xs text-slate-500">Plantilla: {selectedTemplate.name} / {selectedTemplate.specialtyName}</p>
+                ) : null}
               </div>
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10 px-4"
+                onClick={handleClearPrescriptionBody}
+                disabled={!bodyContent.trim() && !selectedTemplateId}
+              >
+                Borrar
+              </Button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 pt-1">
+
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Asociar a Plan de Tratamiento</label>

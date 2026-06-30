@@ -17,7 +17,7 @@ type AppointmentStatusMenuProps = {
   onComplete?: (id: string) => void;
   onNoShow?: (id: string) => void;
   onReschedule?: (appointment: Appointment) => void;
-  onCancel?: (appointment: Appointment, cancelledBy?: "patient" | "clinic") => void;
+  onCancel?: (appointment: Appointment, cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled") => void;
   onHistory?: (appointment: Appointment) => void;
 };
 
@@ -111,6 +111,11 @@ export function AppointmentStatusMenu({
     switch (item.action) {
       case "markPendingConfirmation":
       case "markScheduled":
+      case "confirmWhatsApp":
+      case "confirmPhone":
+      case "confirmEmail":
+      case "notifyWhatsApp":
+      case "notifyEmail":
         if (item.nextStatus) onChangeStatus?.(appointment, item.nextStatus);
         break;
       case "confirm":
@@ -139,6 +144,12 @@ export function AppointmentStatusMenu({
         break;
       case "cancelClinic":
         onCancel?.(appointment, "clinic");
+        break;
+      case "cancelConflict":
+        onCancel?.(appointment, "conflict");
+        break;
+      case "cancelRescheduled":
+        onCancel?.(appointment, "rescheduled");
         break;
       case "history":
         onHistory?.(appointment);
@@ -219,6 +230,11 @@ function canRunStatusAction(
   switch (item.action) {
     case "markPendingConfirmation":
     case "markScheduled":
+    case "confirmWhatsApp":
+    case "confirmPhone":
+    case "confirmEmail":
+    case "notifyWhatsApp":
+    case "notifyEmail":
       return Boolean(handlers.onChangeStatus);
     case "confirm":
       return Boolean(handlers.onConfirm);
@@ -236,6 +252,8 @@ function canRunStatusAction(
       return Boolean(handlers.onReschedule);
     case "cancelPatient":
     case "cancelClinic":
+    case "cancelConflict":
+    case "cancelRescheduled":
       return Boolean(handlers.onCancel);
     case "history":
       return Boolean(handlers.onHistory);

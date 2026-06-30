@@ -13,13 +13,20 @@ import { PatientSectionPage } from "../components/patient-section-page";
 const statusLabels: Record<AppointmentStatus, string> = {
   SCHEDULED: "Agendada",
   CONFIRMED: "Confirmada",
+  CONFIRMED_BY_WHATSAPP: "Confirmada por WhatsApp",
+  CONFIRMED_BY_PHONE: "Confirmada por teléfono",
+  CONFIRMED_BY_EMAIL: "Confirmada por email",
   PENDING_CONFIRMATION: "Por confirmar",
+  NOTIFIED_BY_WHATSAPP: "Notificada por WhatsApp",
+  NOTIFIED_BY_EMAIL: "Notificada por email",
   ARRIVED: "Llego",
   WAITING_ROOM: "Sala de espera",
   IN_PROGRESS: "En atencion",
   COMPLETED: "Atendida",
   CANCELLED_BY_PATIENT: "Cancelada por paciente",
   CANCELLED_BY_CLINIC: "Cancelada por clinica",
+  CANCELLED_CONFLICT: "Cancelada conflicto",
+  CANCELLED_RESCHEDULED: "Anulada reprogramación",
   NO_SHOW: "No asistio",
   RESCHEDULED: "Reagendada",
   BLOCKED: "Bloqueada"
@@ -28,6 +35,8 @@ const statusLabels: Record<AppointmentStatus, string> = {
 const inactiveStatuses = new Set<AppointmentStatus>([
   "CANCELLED_BY_PATIENT",
   "CANCELLED_BY_CLINIC",
+  "CANCELLED_CONFLICT",
+  "CANCELLED_RESCHEDULED",
   "NO_SHOW",
   "RESCHEDULED"
 ]);

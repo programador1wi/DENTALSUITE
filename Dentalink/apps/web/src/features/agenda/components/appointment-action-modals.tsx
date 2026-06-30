@@ -12,7 +12,7 @@ import type { Appointment, AppointmentNote, AppointmentPayload, AppointmentRemin
 import { getAppointment } from "../services/appointments.service";
 import { useAppointmentNotes } from "../hooks/use-appointments";
 import { getDirectAppointmentStatusOptions } from "../utils/appointment-status-flow";
-import { appointmentStatusLabel } from "./appointment-status";
+import { appointmentStatusLabel, translateReason } from "./appointment-status";
 
 export type AppointmentEmailMode = "dataRequest" | "notification";
 
@@ -469,7 +469,7 @@ export function AppointmentHistoryModal({
                     </div>
                     <p className="mt-1 text-[var(--text-xs)] text-[var(--text-secondary)]">
                       {formatUser(item.changedBy)}
-                      {item.reason ? ` - ${item.reason}` : ""}
+                      {item.reason ? ` - ${translateReason(item.reason)}` : ""}
                     </p>
                   </div>
                 ))

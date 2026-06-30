@@ -31,7 +31,7 @@ import { PatientSubnav } from "../components/patient-subnav";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { RichTextEditor } from "@/features/clinical/components/rich-text-editor";
-import { patientFormSchema, type PatientFormValues } from "@/lib/validations/patient";
+import { patientFormSchema, type PatientFormValues, GENDERS, MEXICO_STATES } from "@/lib/validations/patient";
 import { useAppointments } from "@/features/agenda/hooks/use-appointments";
 import { useDocumentsMutations } from "@/features/documents/hooks/use-documents";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
@@ -135,7 +135,7 @@ export function PatientProfilePage() {
       firstName: patientQuery.data.firstName,
       lastName: patientQuery.data.lastName,
       birthDate: patientQuery.data.birthDate?.slice(0, 10) ?? "",
-      gender: patientQuery.data.gender ?? "",
+      gender: (patientQuery.data.gender as any) ?? "",
       documentType: patientQuery.data.documentType ?? "",
       documentNumber: patientQuery.data.documentNumber ?? "",
       email: patientQuery.data.email ?? "",
@@ -147,7 +147,7 @@ export function PatientProfilePage() {
       status: patientQuery.data.status,
       addressStreet: patientQuery.data.address?.street ?? "",
       addressCity: patientQuery.data.address?.city ?? "",
-      addressState: patientQuery.data.address?.state ?? "",
+      addressState: (patientQuery.data.address?.state as any) ?? "",
       addressCountry: patientQuery.data.address?.country ?? "",
       addressZipCode: patientQuery.data.address?.zipCode ?? "",
       emergencyName: emergency?.name ?? "",
@@ -334,7 +334,7 @@ function PatientDataTab({
           <h3 className="mb-3 text-base font-semibold text-slate-900">Datos del paciente</h3>
           <form className="space-y-3" onSubmit={onSubmit}>
             <div className="grid gap-3 md:grid-cols-3">
-              <Field label="Sucursal">
+              <Field label="Sucursal" error={form.formState.errors.branchId?.message}>
                 <Select {...form.register("branchId")}>
                   <option value="">Selecciona</option>
                   {branchOptions.map((branch) => (
@@ -344,14 +344,21 @@ function PatientDataTab({
                   ))}
                 </Select>
               </Field>
-              <Field label="Nombre"><Input {...form.register("firstName")} /></Field>
-              <Field label="Apellidos"><Input {...form.register("lastName")} /></Field>
+              <Field label="Nombre" error={form.formState.errors.firstName?.message}><Input {...form.register("firstName")} /></Field>
+              <Field label="Apellidos" error={form.formState.errors.lastName?.message}><Input {...form.register("lastName")} /></Field>
             </div>
             <div className="grid gap-3 md:grid-cols-4">
-              <Field label="Nacimiento"><Input type="date" {...form.register("birthDate")} /></Field>
-              <Field label="Genero"><Input {...form.register("gender")} /></Field>
-              <Field label="Documento"><Input {...form.register("documentNumber")} /></Field>
-              <Field label="Estado">
+              <Field label="Nacimiento" error={form.formState.errors.birthDate?.message}><Input type="date" {...form.register("birthDate")} /></Field>
+              <Field label="Genero" error={form.formState.errors.gender?.message}>
+                <Select {...form.register("gender")}>
+                  <option value="">Selecciona</option>
+                  {GENDERS.map((g) => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Documento" error={form.formState.errors.documentNumber?.message}><Input {...form.register("documentNumber")} /></Field>
+              <Field label="Estado" error={form.formState.errors.status?.message}>
                 <Select {...form.register("status")}>
                   {statuses.map((status) => (
                     <option key={status} value={status}>
@@ -362,19 +369,26 @@ function PatientDataTab({
               </Field>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
-              <Field label="Telefono"><Input {...form.register("phone")} /></Field>
-              <Field label="Telefono alterno"><Input {...form.register("alternatePhone")} /></Field>
-              <Field label="Email"><Input {...form.register("email")} /></Field>
+              <Field label="Telefono" error={form.formState.errors.phone?.message}><Input type="tel" onInput={(e) => e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+]/g, '')} {...form.register("phone")} /></Field>
+              <Field label="Telefono alterno" error={form.formState.errors.alternatePhone?.message}><Input type="tel" onInput={(e) => e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+]/g, '')} {...form.register("alternatePhone")} /></Field>
+              <Field label="Email" error={form.formState.errors.email?.message}><Input type="email" {...form.register("email")} /></Field>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
-              <Field label="Calle"><Input {...form.register("addressStreet")} /></Field>
-              <Field label="Ciudad"><Input {...form.register("addressCity")} /></Field>
-              <Field label="Estado"><Input {...form.register("addressState")} /></Field>
+              <Field label="Calle" error={form.formState.errors.addressStreet?.message}><Input {...form.register("addressStreet")} /></Field>
+              <Field label="Ciudad" error={form.formState.errors.addressCity?.message}><Input {...form.register("addressCity")} /></Field>
+              <Field label="Estado" error={form.formState.errors.addressState?.message}>
+                <Select {...form.register("addressState")}>
+                  <option value="">Selecciona</option>
+                  {MEXICO_STATES.map((state) => (
+                    <option key={state} value={state}>{state}</option>
+                  ))}
+                </Select>
+              </Field>
             </div>
             <div className="grid gap-3 md:grid-cols-3">
-              <Field label="Contacto emergencia"><Input {...form.register("emergencyName")} /></Field>
-              <Field label="Relacion"><Input {...form.register("emergencyRelationship")} /></Field>
-              <Field label="Telefono emergencia"><Input {...form.register("emergencyPhone")} /></Field>
+              <Field label="Contacto emergencia" error={form.formState.errors.emergencyName?.message}><Input {...form.register("emergencyName")} /></Field>
+              <Field label="Relacion" error={form.formState.errors.emergencyRelationship?.message}><Input {...form.register("emergencyRelationship")} /></Field>
+              <Field label="Telefono emergencia" error={form.formState.errors.emergencyPhone?.message}><Input type="tel" onInput={(e) => e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+]/g, '')} {...form.register("emergencyPhone")} /></Field>
             </div>
             <div className="flex justify-end">
               <Button type="submit" disabled={updating}>
@@ -995,15 +1009,18 @@ function shortId(id: string) {
 
 function Field({
   label,
+  error,
   children
 }: {
   label: string;
+  error?: string;
   children: ReactNode;
 }) {
   return (
-    <label className="space-y-1 text-sm text-slate-700">
+    <label className="space-y-1 text-sm text-slate-700 flex flex-col">
       <span>{label}</span>
       {children}
+      {error ? <span className="text-xs text-red-500">{error}</span> : null}
     </label>
   );
 }

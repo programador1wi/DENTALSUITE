@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, ProcedureType } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
@@ -321,7 +321,8 @@ export class PriceListsService {
       actor,
       name,
       dto.description,
-      dto.sortOrder
+      dto.sortOrder,
+      dto.type
     );
     const row = await this.prisma.priceListCategory.create({
       data: {
@@ -349,18 +350,20 @@ export class PriceListsService {
     dto: UpdatePriceListCategoryDto
   ) {
     await this.ensurePriceList(actor, priceListId);
-    await this.findCategory(actor, priceListId, categoryId);
+    const currentCategory = await this.findCategory(actor, priceListId, categoryId);
 
     let procedureCategoryId: string | undefined;
     let name: string | undefined;
-    if (dto.name !== undefined) {
-      name = this.normalizeName(dto.name);
-      await this.ensureUniquePriceListCategory(priceListId, name, categoryId);
+    if (dto.name !== undefined || dto.type !== undefined) {
+      name = dto.name !== undefined ? this.normalizeName(dto.name) : undefined;
+      const targetName = name ?? currentCategory.name;
+      if (name !== undefined) await this.ensureUniquePriceListCategory(priceListId, name, categoryId);
       const procedureCategory = await this.resolveProcedureCategory(
         actor,
-        name,
-        dto.description,
-        dto.sortOrder
+        targetName,
+        dto.description ?? currentCategory.description ?? undefined,
+        dto.sortOrder ?? currentCategory.sortOrder,
+        dto.type
       );
       procedureCategoryId = procedureCategory.id;
     }
@@ -540,7 +543,8 @@ export class PriceListsService {
     actor: AuthUser,
     name: string,
     description?: string,
-    sortOrder?: number
+    sortOrder?: number,
+    type?: ProcedureType
   ) {
     const existing = await this.prisma.procedureCategory.findFirst({
       where: {
@@ -549,14 +553,23 @@ export class PriceListsService {
       }
     });
 
-    if (existing) return existing;
+    if (existing) {
+      if (type !== undefined && existing.type !== type) {
+        return this.prisma.procedureCategory.update({
+          where: { id: existing.id },
+          data: { type }
+        });
+      }
+      return existing;
+    }
 
     return this.prisma.procedureCategory.create({
       data: {
         organizationId: actor.organizationId,
         name,
         description: description?.trim(),
-        sortOrder: sortOrder ?? 0
+        sortOrder: sortOrder ?? 0,
+        type
       }
     });
   }

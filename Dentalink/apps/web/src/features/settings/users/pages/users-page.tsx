@@ -9,6 +9,7 @@ import {
   UserRoundX
 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
+import { cn } from "@/lib/utils/cn";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -40,6 +41,7 @@ import {
 } from "@/features/settings/schedules/services/schedules.service";
 import { useAuthStore } from "@/stores/auth.store";
 import { useBranchStore } from "@/stores/branch.store";
+import { usePermissions } from "@/hooks/use-permissions";
 import { UsersModuleNav } from "../components/users-module-nav";
 import { useCreateUser, useDeactivateUser, useUpdateUser, useUsersQuery } from "../hooks/use-users";
 import type { UserListItem } from "../services/users.service";
@@ -130,6 +132,13 @@ const userKindOptions: { value: UserKind; label: string; rolePattern: RegExp }[]
   { value: "ADMIN", label: "Administracion", rolePattern: /admin|administrador|system/i }
 ];
 
+const statusLabels: Record<string, string> = {
+  ACTIVE: "Habilitado",
+  INACTIVE: "Deshabilitado",
+  LOCKED: "Bloqueado",
+  PENDING: "Pendiente"
+};
+
 function userDisplayName(user: UserListItem) {
   return `${user.firstName} ${user.lastName}`.trim();
 }
@@ -177,6 +186,7 @@ function numberOrUndefined(value: string) {
 export function UsersPage() {
   const actorId = useAuthStore((state) => state.user?.id);
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const { can } = usePermissions();
   const [search, setSearch] = useState("");
   const [searchParams, setSearchParams] = useSearchParams();
   const [editing, setEditing] = useState<UserListItem | null>(null);
@@ -202,6 +212,12 @@ export function UsersPage() {
   const createProfessional = useCreateProfessional();
   const updateProfessional = useUpdateProfessional();
   const updateAgendaConfig = useUpdateProfessionalAgendaConfig();
+  const canManageAll = can("system.manage_all");
+  const canCreateUser = canManageAll || can("users.create");
+  const canUpdateUser = canManageAll || can("users.update");
+  const canDeactivateUser = canManageAll || can("users.deactivate");
+  const canCreateProfessional = canManageAll || can("professionals.create");
+  const canUpdateProfessional = canManageAll || can("professionals.update");
 
   const userMutationPending =
     createUser.isPending ||
@@ -465,6 +481,8 @@ export function UsersPage() {
     });
   };
 
+  const canToggleUserStatus = (user: UserListItem) => (user.status === "ACTIVE" ? canDeactivateUser : canUpdateUser);
+
   const openContract = (user: UserListItem) => {
     if (!user.professional) return;
 
@@ -486,46 +504,48 @@ export function UsersPage() {
 
   return (
     <div className="space-y-4">
-      <UsersModuleNav
-        actions={
-          <Button onClick={openCreate}>
-            <UserRoundPlus className="mr-1.5 h-4 w-4" />
-            Nuevo colaborador
-          </Button>
-        }
-      >
+      <UsersModuleNav>
         <div className="space-y-4">
           <PageHeader title="Personal y usuarios" description="Alta, acceso, rol y expediente operativo del colaborador." />
 
-          <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-[minmax(240px,1fr)_260px]">
-            <EntitySearchBox
-              placeholder="Buscar por nombre o correo"
-              value={search}
-              onValueChange={setSearch}
-              items={search.trim() ? users.data ?? [] : []}
-              onSelect={(user) => {
-                setSearch(userDisplayName(user));
-                openEdit(user);
-              }}
-              getItemKey={(user) => user.id}
-              emptyMessage="Sin usuarios encontrados"
-              renderItem={(user) => (
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{userDisplayName(user)}</p>
-                  <p className="mt-0.5 truncate text-xs text-slate-500">{user.email}</p>
-                </div>
-              )}
-            />
-            <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
-              Filtrar usuarios
-              <Select value={status} onChange={(event) => changeStatus(event.target.value)}>
-                <option value="">Todos los estados</option>
-                <option value="ACTIVE">Habilitados</option>
-                <option value="INACTIVE">Deshabilitados</option>
-                <option value="LOCKED">Bloqueados</option>
-                <option value="PENDING">Pendientes</option>
-              </Select>
-            </label>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center justify-between pb-2">
+            <div className="flex flex-1 flex-col gap-3 sm:flex-row sm:items-center max-w-3xl">
+              <div className="w-full sm:max-w-md">
+                <EntitySearchBox
+                  placeholder="Buscar por nombre o correo"
+                  value={search}
+                  onValueChange={setSearch}
+                  items={search.trim() ? users.data ?? [] : []}
+                  onSelect={(user) => {
+                    setSearch(userDisplayName(user));
+                    openEdit(user);
+                  }}
+                  getItemKey={(user) => user.id}
+                  emptyMessage="Sin usuarios encontrados"
+                  renderItem={(user) => (
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-slate-900">{userDisplayName(user)}</p>
+                      <p className="mt-0.5 truncate text-xs text-slate-500">{user.email}</p>
+                    </div>
+                  )}
+                />
+              </div>
+              <div className="w-full sm:w-[200px]">
+                <Select value={status} onChange={(event) => changeStatus(event.target.value)} className="w-full">
+                  <option value="">Todos los estados</option>
+                  <option value="ACTIVE">Habilitados</option>
+                  <option value="INACTIVE">Deshabilitados</option>
+                  <option value="LOCKED">Bloqueados</option>
+                  <option value="PENDING">Pendientes</option>
+                </Select>
+              </div>
+            </div>
+            {canCreateUser ? (
+              <Button onClick={openCreate} className="w-full sm:w-auto shrink-0">
+                <UserRoundPlus className="mr-1.5 h-4 w-4" />
+                Nuevo colaborador
+              </Button>
+            ) : null}
           </div>
 
           {users.isLoading ? <LoadingState message="Cargando usuarios..." /> : null}
@@ -589,7 +609,7 @@ export function UsersPage() {
                   headerClassName: "w-[96px]",
                   render: (row) => (
                     <Badge
-                      value={row.status}
+                      value={statusLabels[row.status] ?? row.status}
                       tone={
                         row.status === "ACTIVE"
                           ? "success"
@@ -606,45 +626,53 @@ export function UsersPage() {
                   headerClassName: "w-[184px] text-right",
                   cellClassName: "w-[184px]",
                   render: (row) => (
-                    <div className="flex min-w-[140px] flex-nowrap justify-end gap-1">
+                    <div className="flex min-w-[140px] flex-nowrap justify-end gap-1.5">
                       {row.professional?.isActive ? (
                         <>
-                          <ActionLink
-                            title="Editar horarios"
-                            to={`/settings/online-scheduling/schedules?professionalId=${row.professional.id}${row.branches.length === 1 ? `&branchId=${row.branches[0].id}` : ""}`}
-                          >
-                            <CalendarClock className="h-5 w-5" />
-                          </ActionLink>
-                          <ActionButton title="Editar contrato" onClick={() => openContract(row)}>
-                            <FilePenLine className="h-5 w-5" />
-                          </ActionButton>
+                          {canUpdateProfessional ? (
+                            <>
+                              <ActionLink
+                                title="Editar horarios"
+                                to={`/settings/online-scheduling/schedules?professionalId=${row.professional.id}${row.branches.length === 1 ? `&branchId=${row.branches[0].id}` : ""}`}
+                              >
+                                <CalendarClock className="h-4 w-4" />
+                              </ActionLink>
+                              <ActionButton title="Editar contrato" onClick={() => openContract(row)}>
+                                <FilePenLine className="h-4 w-4" />
+                              </ActionButton>
+                            </>
+                          ) : null}
                         </>
                       ) : null}
 
-                      {!row.professional && row.status === "ACTIVE" ? (
+                      {!row.professional && row.status === "ACTIVE" && canCreateProfessional ? (
                         <ActionLink
                           title="Crear perfil profesional"
                           to={`/settings/professionals?userId=${row.id}&branchIds=${row.branches.map((branch) => branch.id).join(",")}`}
                         >
-                          <Stethoscope className="h-5 w-5" />
+                          <Stethoscope className="h-4 w-4" />
                         </ActionLink>
                       ) : null}
 
-                      <ActionButton title="Editar colaborador" onClick={() => openEdit(row)}>
-                        <UserPen className="h-5 w-5" />
-                      </ActionButton>
+                      {canUpdateUser ? (
+                        <ActionButton title="Editar colaborador" onClick={() => openEdit(row)}>
+                          <UserPen className="h-4 w-4" />
+                        </ActionButton>
+                      ) : null}
 
-                      <ActionButton
-                        title={row.status === "ACTIVE" ? "Deshabilitar usuario" : "Habilitar usuario"}
-                        disabled={userMutationPending || row.id === actorId}
-                        onClick={() => void setUserEnabled(row)}
-                      >
-                        {row.status === "ACTIVE" ? (
-                          <UserRoundX className="h-5 w-5" />
-                        ) : (
-                          <UserRoundCheck className="h-5 w-5" />
-                        )}
-                      </ActionButton>
+                      {canToggleUserStatus(row) ? (
+                        <ActionButton
+                          title={row.status === "ACTIVE" ? "Deshabilitar usuario" : "Habilitar usuario"}
+                          disabled={userMutationPending || row.id === actorId}
+                          onClick={() => void setUserEnabled(row)}
+                        >
+                          {row.status === "ACTIVE" ? (
+                            <UserRoundX className="h-4 w-4" />
+                          ) : (
+                            <UserRoundCheck className="h-4 w-4" />
+                          )}
+                        </ActionButton>
+                      ) : null}
                     </div>
                   )
                 }
@@ -1096,7 +1124,7 @@ function ActionButton({
         aria-label={title}
         disabled={disabled}
         onClick={onClick}
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-[#0679c8] disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors duration-[var(--duration-fast)] hover:bg-[var(--bg-brand-light)] hover:text-[var(--text-brand)] disabled:cursor-not-allowed disabled:opacity-40"
       >
         {children}
       </button>
@@ -1110,7 +1138,7 @@ function ActionLink({ children, title, to }: { children: ReactNode; title: strin
       <Link
         aria-label={title}
         to={to}
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-600 transition hover:bg-sky-50 hover:text-[#0679c8]"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors duration-[var(--duration-fast)] hover:bg-[var(--bg-brand-light)] hover:text-[var(--text-brand)]"
       >
         {children}
       </Link>
@@ -1134,19 +1162,19 @@ function BranchSummary({ branches }: { branches: UserListItem["branches"] }) {
       {visible.map((branch) => (
         <span
           key={branch.id}
-          className={
+          className={cn(
+            "max-w-[150px] truncate rounded-[var(--radius-sm)] px-2 py-0.5 text-xs font-medium transition-all duration-[var(--duration-fast)]",
             branch.isPrimary
-              ? "max-w-[180px] truncate rounded bg-sky-50 px-2 py-1 text-xs font-medium text-[#0679c8]"
-              : "max-w-[150px] truncate rounded bg-slate-100 px-2 py-1 text-xs text-slate-600"
-          }
+              ? "bg-[var(--bg-brand-light)] text-[var(--text-brand-strong)]"
+              : "bg-[var(--bg-subtle)] text-[var(--text-secondary)]"
+          )}
         >
           {branch.name}
         </span>
       ))}
       {remaining > 0 ? (
-        <span className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-500">+{remaining}</span>
+        <span className="rounded-[var(--radius-sm)] bg-[var(--bg-subtle)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">+{remaining}</span>
       ) : null}
     </div>
   );
 }
-

@@ -114,6 +114,11 @@ function PayrollItemsTable({ items }: { items: PayrollItem[] }) {
                 {item.procedureCode}
                 {item.toothNumber ? ` - Pieza ${item.toothNumber}` : ""}
               </span>
+              <span className="block text-[var(--text-xs)] text-[var(--text-secondary)]">
+                {item.priceSource === "PRICE_LIST" ? "Arancel" : item.priceSource === "UNPRICED" ? "Sin precio" : "Manual"}
+                {item.priceSnapshotName ? ` - ${item.priceSnapshotName}` : ""}
+                {item.priceSnapshotCategory ? ` - ${item.priceSnapshotCategory}` : ""}
+              </span>
             </TableCell>
             <TableCell>{formatDate(item.completedAt)}</TableCell>
             <TableCell>{money(item.collectedAmount)}</TableCell>

@@ -34,7 +34,8 @@ vi.mock("sonner", () => ({
 vi.mock("react-router-dom", () => ({
   Link: ({ children, to }: { children: ReactNode; to: string }) => <a href={to}>{children}</a>,
   useNavigate: () => mockState.navigate,
-  useParams: () => ({ id: "patient-1" })
+  useParams: () => ({ id: "patient-1" }),
+  useSearchParams: () => [new URLSearchParams("planId=plan-1"), vi.fn()]
 }));
 
 vi.mock("../components/patient-section-page", () => ({
@@ -212,12 +213,10 @@ describe("PatientTreatmentsPage budget agreement flow", () => {
       treatmentPlanId: "plan-1",
       payload: expect.objectContaining({
         procedureId: "procedure-1",
-        quantity: 1,
-        unitPrice: 399,
-        discount: 0
+        quantity: 1
       })
     });
-    expect(mockState.toastSuccess).toHaveBeenCalledWith("Prestacion agregada al plan.");
+    expect(mockState.toastSuccess).toHaveBeenCalledWith("Prestación agregada al plan.");
   });
 
   it("assigns a tooth and multiple surfaces from the procedure row", async () => {
@@ -243,7 +242,7 @@ describe("PatientTreatmentsPage budget agreement flow", () => {
         syncOdontogram: true
       }
     });
-    expect(mockState.toastSuccess).toHaveBeenCalledWith("Pieza asignada a la prestacion.");
+    expect(mockState.toastSuccess).toHaveBeenCalledWith("Pieza asignada a la prestación.");
   });
 
   it("navigates to patient payments with the selected item when paying a procedure", () => {
@@ -373,6 +372,7 @@ function priceListFixture(): PriceList {
               displayId: 1,
               code: "45E1",
               name: "Limpieza dental",
+              type: "CLINICAL",
               defaultDuration: 30,
               requiresTooth: false,
               requiresSurface: false,

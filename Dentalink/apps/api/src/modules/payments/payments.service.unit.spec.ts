@@ -170,4 +170,43 @@ describe("PaymentsService refund listing", () => {
       "No open cash register found for this user and branch"
     );
   });
+
+  it("rejects allocations that exceed the treatment plan item balance", async () => {
+    const tx = {
+      payment: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "payment-1",
+          organizationId: "org-1",
+          patientId: "patient-1",
+          amount: 200,
+          allocations: []
+        })
+      },
+      treatmentPlanItem: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "item-1",
+            total: 100,
+            status: "ACCEPTED",
+            treatmentPlan: { isAlternative: false }
+          }
+        ])
+      },
+      paymentAllocation: {
+        groupBy: jest.fn().mockResolvedValue([{ treatmentPlanItemId: "item-1", _sum: { amount: 80 } }]),
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn()
+      }
+    };
+    const service = new PaymentsService({} as never);
+
+    await expect(
+      (service as any).applyAllocations(tx, actor, "payment-1", [
+        { treatmentPlanItemId: "item-1", amount: 30 }
+      ])
+    ).rejects.toThrow("Allocations exceed treatment plan item balance");
+    expect(tx.paymentAllocation.create).not.toHaveBeenCalled();
+    expect(tx.paymentAllocation.update).not.toHaveBeenCalled();
+  });
 });

@@ -1433,6 +1433,29 @@ export class PaymentsService {
       }
     }
 
+    const requestedByItem = allocations.reduce<Record<string, number>>((totals, allocation) => {
+      totals[allocation.treatmentPlanItemId] = this.roundMoney(
+        (totals[allocation.treatmentPlanItemId] ?? 0) + allocation.amount
+      );
+      return totals;
+    }, {});
+    const existingByItem = await tx.paymentAllocation.groupBy({
+      by: ["treatmentPlanItemId"],
+      _sum: { amount: true },
+      where: { treatmentPlanItemId: { in: itemIds } }
+    });
+    const existingByItemId = new Map(
+      existingByItem.map((row) => [row.treatmentPlanItemId, Number(row._sum.amount ?? 0)])
+    );
+
+    for (const item of items) {
+      const allocated = existingByItemId.get(item.id) ?? 0;
+      const requestedForItem = requestedByItem[item.id] ?? 0;
+      if (this.roundMoney(allocated + requestedForItem) > Number(item.total)) {
+        throw new BadRequestException("Allocations exceed treatment plan item balance");
+      }
+    }
+
     for (const allocation of allocations) {
       if (allocation.amount <= 0) throw new BadRequestException("Allocation amount must be greater than zero");
       const current = await tx.paymentAllocation.findFirst({
@@ -1809,4 +1832,3 @@ export class PaymentsService {
     });
   }
 }
-

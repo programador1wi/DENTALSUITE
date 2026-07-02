@@ -39,7 +39,7 @@ describe("SettingsService payroll", () => {
       createdAt: new Date("2026-06-01T12:00:00.000Z"),
       updatedAt: new Date("2026-06-01T12:00:00.000Z"),
       completedByEvolutionId: "evolution-1",
-      procedure: { id: "procedure-1", code: "LIMP", name: "Limpieza" },
+      procedure: { id: "procedure-1", categoryId: "category-1", code: "LIMP", name: "Limpieza" },
       treatmentPlan: {
         id: "plan-abcdef",
         branchId: "branch-1",
@@ -87,6 +87,9 @@ describe("SettingsService payroll", () => {
     const prisma = {
       treatmentPlanItem: {
         findMany: jest.fn().mockResolvedValue([treatmentItem(), partialItem])
+      },
+      professionalContract: {
+        findFirst: jest.fn().mockResolvedValue(null)
       }
     };
     const service = new SettingsService(prisma as never);
@@ -133,6 +136,100 @@ describe("SettingsService payroll", () => {
     expect(result[0].items[0].calculationExplanation).toContain("40%");
   });
 
+  it("uses fixed contract amounts before percentage calculations", async () => {
+    const prisma = {
+      treatmentPlanItem: {
+        findMany: jest.fn().mockResolvedValue([treatmentItem()])
+      },
+      professionalContract: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "contract-1",
+          contractType: "PERFORMED_AND_PAID",
+          commissionBase: "CLINICAL",
+          paymentDiscount: "NONE",
+          paymentCondition: "ANY_DUE_DATE",
+          commissionRate: new Prisma.Decimal(30),
+          priceListId: "price-list-1",
+          priceListName: "Arancel base",
+          branches: [{ branchId: "branch-1" }],
+          categoryRates: [],
+          fixedAmounts: [
+            {
+              procedureId: "procedure-1",
+              amount: new Prisma.Decimal(55),
+              priceListId: "price-list-1",
+              currency: "MXN"
+            }
+          ]
+        })
+      }
+    };
+    const service = new SettingsService(prisma as never);
+
+    const result = await service.listPayroll(actor, "branch-1");
+
+    expect(result[0]).toEqual(
+      expect.objectContaining({
+        payableAmount: 55
+      })
+    );
+    expect(result[0].items[0]).toEqual(
+      expect.objectContaining({
+        commissionRate: 30,
+        payableAmount: 55,
+        contractRule: expect.objectContaining({
+          source: "FIXED_AMOUNT",
+          contractId: "contract-1",
+          fixedAmount: 55
+        })
+      })
+    );
+    expect(result[0].items[0].calculationExplanation).toContain("Monto fijo");
+  });
+
+  it("uses category contract rates when no fixed amount matches", async () => {
+    const prisma = {
+      treatmentPlanItem: {
+        findMany: jest.fn().mockResolvedValue([treatmentItem()])
+      },
+      professionalContract: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "contract-2",
+          contractType: "PERFORMED_AND_PAID",
+          commissionBase: "CLINICAL",
+          paymentDiscount: "NONE",
+          paymentCondition: "ANY_DUE_DATE",
+          commissionRate: new Prisma.Decimal(30),
+          priceListId: null,
+          priceListName: null,
+          branches: [{ branchId: "branch-1" }],
+          categoryRates: [{ procedureCategoryId: "category-1", rate: new Prisma.Decimal(60) }],
+          fixedAmounts: []
+        })
+      }
+    };
+    const service = new SettingsService(prisma as never);
+
+    const result = await service.listPayroll(actor, "branch-1");
+
+    expect(result[0]).toEqual(
+      expect.objectContaining({
+        payableAmount: 60
+      })
+    );
+    expect(result[0].items[0]).toEqual(
+      expect.objectContaining({
+        commissionRate: 60,
+        contractRule: expect.objectContaining({
+          source: "CATEGORY_RATE",
+          contractId: "contract-2",
+          procedureCategoryId: "category-1"
+        })
+      })
+    );
+    expect(result[0].items[0].calculationExplanation).toContain("porcentaje avanzado");
+  });
+
   it("finalizes payroll with the current commission after recalculation", async () => {
     const professional = {
       id: "professional-1",
@@ -175,6 +272,9 @@ describe("SettingsService payroll", () => {
           })
         ])
       },
+      professionalContract: {
+        findFirst: jest.fn().mockResolvedValue(null)
+      },
       payrollLiquidation: {
         create: jest.fn().mockResolvedValue(txResult)
       },
@@ -189,14 +289,16 @@ describe("SettingsService payroll", () => {
     expect(prisma.payrollLiquidation.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          commissionRate: professional.commissionRate,
+          commissionRate: 45,
           completedItems: 1,
           items: {
             create: [
               expect.objectContaining({
                 treatmentPlanItemId: "item-1",
                 collectedAmount: expect.any(Prisma.Decimal),
-                payableAmount: expect.any(Prisma.Decimal)
+                payableAmount: expect.any(Prisma.Decimal),
+                commissionRate: expect.any(Prisma.Decimal),
+                contractRule: expect.objectContaining({ source: "PROFESSIONAL_FALLBACK" })
               })
             ]
           }

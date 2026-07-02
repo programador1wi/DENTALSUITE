@@ -22,6 +22,7 @@ export type PublicCreateAppointmentDto = {
   motive?: string;
   startAt: string;
   patient: PublicPatient;
+  campaignCode?: string;
 };
 
 export type AvailabilitySlot = {
@@ -30,8 +31,28 @@ export type AvailabilitySlot = {
   available: boolean;
 };
 
+export type PublicConfig = {
+  id: string;
+  isEnabled: boolean;
+  slug: string;
+  brandColor?: string;
+  logoUrl?: string;
+  footerText?: string;
+  confirmationMessage?: string;
+  requiredPatientFields: string[];
+  identificationMethod: string;
+  branches: Array<{ id: string; name: string }>;
+  professionals: Array<{ id: string; firstName: string; lastName: string }>;
+  specialties: Array<{ id: string; name: string }>;
+  mode: string;
+  menuByProfessional: boolean;
+  menuBySpecialty: boolean;
+  menuByBranch: boolean;
+  redirectUrl?: string;
+};
+
 export async function getPublicConfig(slug: string) {
-  const { data } = await http.get(`/online-scheduling/preview/${slug}`);
+  const { data } = await http.get<PublicConfig>(`/public/booking/${slug}/config`);
   return data;
 }
 
@@ -43,5 +64,10 @@ export async function getPublicAvailability(slug: string, query: PublicAvailabil
 
 export async function createPublicAppointment(slug: string, dto: PublicCreateAppointmentDto) {
   const { data } = await http.post(`/public/booking/${slug}/appointments`, dto);
+  return data;
+}
+
+export async function trackPublicEvent(slug: string, eventType: 'VISIT' | 'CONVERSION', campaignCode?: string) {
+  const { data } = await http.post(`/public/booking/${slug}/track`, { eventType, campaignCode });
   return data;
 }

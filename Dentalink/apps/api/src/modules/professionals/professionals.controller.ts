@@ -9,6 +9,7 @@ import { CreateProfessionalDto } from "./dto/create-professional.dto";
 import { UpdateProfessionalDto } from "./dto/update-professional.dto";
 import { ConfigProfessionalDto } from "./dto/config-professional.dto";
 import { TransferProfessionalBranchDto } from "./dto/transfer-professional-branch.dto";
+import { BulkProfessionalContractDto } from "./dto/bulk-professional-contract.dto";
 import { ProfessionalsService } from "./professionals.service";
 
 @ApiTags("Professionals")
@@ -64,6 +65,12 @@ export class ProfessionalsController {
   @RequirePermissions("professionals.update")
   transferBranch(@CurrentUser() user: AuthUser, @Body() dto: TransferProfessionalBranchDto) {
     return this.professionalsService.transferBranch(user, dto);
+  }
+
+  @Post("contracts/bulk")
+  @RequirePermissions("professionals.update")
+  bulkContracts(@CurrentUser() user: AuthUser, @Body() dto: BulkProfessionalContractDto) {
+    return this.professionalsService.bulkUpdateContracts(user, dto);
   }
 
   @Patch(":id/deactivate")

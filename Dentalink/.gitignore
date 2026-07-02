@@ -16,6 +16,7 @@ storage/
 backups/
 *.dump
 *.sql
+!packages/database/prisma/migrations/20260701000000_professional_contracts/migration.sql
 *.sqlite
 *.sqlite3
 *.db

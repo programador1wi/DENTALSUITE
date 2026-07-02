@@ -7,11 +7,13 @@ import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils/cn";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
+import { useSpecialties } from "@/features/settings/specialties/hooks/use-specialties";
 import type { Branch } from "@/features/settings/branches/services/branches.service";
 import { OnlineSchedulingDrawer } from "./online-scheduling-drawer";
 
 type SchedulingMode = "online" | "express";
-type ConfigTab = "appointments" | "administrative" | "professionals";
+type ConfigTab = "appointments" | "administrative" | "professionals" | "services";
 type DrawerName = "special" | "branches" | "patient-fields" | "analytics" | "redirect" | "branding" | null;
 type FieldState = { present: boolean; required: boolean };
 type PatientFieldDefinition = {
@@ -24,6 +26,8 @@ type PatientFieldDefinition = {
 
 type SchedulingSettings = {
   allowedBranches: Record<string, boolean>;
+  allowedProfessionals?: string[];
+  allowedSpecialties?: string[];
   analyticsCode: string;
   appointmentBlocks: string;
   askSpecialtyReason: boolean;
@@ -133,7 +137,7 @@ function defaultSettings(mode: SchedulingMode): SchedulingSettings {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/lib/api/http-client";
 
-function useStoredSettings(mode: SchedulingMode) {
+export function useStoredSettings(mode: SchedulingMode) {
   const queryClient = useQueryClient();
   const queryKey = ["online-scheduling", mode];
 
@@ -249,7 +253,8 @@ export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
   const tabs = [
     { id: "appointments" as const, label: "Configuracion de Citas" },
     { id: "administrative" as const, label: "Configuraciones Administrativas" },
-    { id: "professionals" as const, label: "Configuracion de Profesionales" }
+    { id: "professionals" as const, label: "Configuracion de Profesionales" },
+    { id: "services" as const, label: "Configuracion de Servicios" }
   ];
 
   return (
@@ -307,27 +312,11 @@ export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
       ) : null}
 
       {activeTab === "professionals" ? (
-        <div className="p-6 space-y-6 bg-white border border-slate-200 rounded-lg mt-6">
-          <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4">Configuración de Profesionales</h2>
-          <p className="text-xs text-slate-500 mb-6">
-            Selecciona qué profesionales estarán disponibles para que los pacientes puedan agendar horas directamente con ellos en la plataforma online.
-          </p>
-          <div className="grid gap-3 max-w-3xl">
-            {[
-              { id: "1", name: "Dr. Juan Pérez", spec: "Odontología General", checked: true },
-              { id: "2", name: "Dra. María González", spec: "Ortodoncia", checked: true },
-              { id: "3", name: "Dr. Carlos Ruiz", spec: "Implantología", checked: false },
-            ].map((p) => (
-              <label key={p.id} className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
-                <div>
-                  <div className="font-medium text-slate-800">{p.name}</div>
-                  <div className="text-xs text-slate-500">{p.spec}</div>
-                </div>
-                <input type="checkbox" defaultChecked={p.checked} className="w-5 h-5 accent-sky-600 rounded cursor-pointer" />
-              </label>
-            ))}
-          </div>
-        </div>
+        <ProfessionalListSettings settings={settings} update={update} />
+      ) : null}
+
+      {activeTab === "services" ? (
+        <ServiceListSettings settings={settings} update={update} />
       ) : null}
 
       <OnlineSchedulingDrawer
@@ -990,4 +979,78 @@ function DrawerBlock({ children, title }: { children: React.ReactNode; title: st
 
 function InfoBox({ children }: { children: React.ReactNode }) {
   return <div className="mb-2 rounded bg-sky-100/80 p-3 text-sm leading-5 text-sky-950">{children}</div>;
+}
+
+function ProfessionalListSettings({ settings, update }: { settings: SchedulingSettings; update: (k: keyof SchedulingSettings, v: any) => void }) {
+  const { data: professionals = [] } = useProfessionals();
+
+  const toggle = (id: string) => {
+    const current = settings.allowedProfessionals || [];
+    const updated = current.includes(id) ? current.filter(x => x !== id) : [...current, id];
+    update("allowedProfessionals", updated);
+  };
+
+  return (
+    <div className="p-6 space-y-6 bg-white border border-slate-200 rounded-lg mt-6">
+      <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4">Configuración de Profesionales</h2>
+      <p className="text-xs text-slate-500 mb-6">
+        Selecciona qué profesionales estarán disponibles para que los pacientes puedan agendar horas directamente con ellos en la plataforma online.
+      </p>
+      <div className="grid gap-3 max-w-3xl">
+        {professionals.filter(p => p.isActive).map((p) => (
+          <label key={p.id} className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
+            <div>
+              <div className="font-medium text-slate-800">{p.firstName} {p.lastName}</div>
+            </div>
+            <input 
+              type="checkbox" 
+              checked={settings.allowedProfessionals?.includes(p.id) ?? false} 
+              onChange={() => toggle(p.id)}
+              className="w-5 h-5 accent-sky-600 rounded cursor-pointer" 
+            />
+          </label>
+        ))}
+        {professionals.length === 0 && (
+          <div className="text-sm text-slate-500 p-4 border border-slate-200 border-dashed rounded text-center">No hay profesionales registrados.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ServiceListSettings({ settings, update }: { settings: SchedulingSettings; update: (k: keyof SchedulingSettings, v: any) => void }) {
+  const { data: specialties = [] } = useSpecialties();
+
+  const toggle = (id: string) => {
+    const current = settings.allowedSpecialties || [];
+    const updated = current.includes(id) ? current.filter(x => x !== id) : [...current, id];
+    update("allowedSpecialties", updated);
+  };
+
+  return (
+    <div className="p-6 space-y-6 bg-white border border-slate-200 rounded-lg mt-6">
+      <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4">Configuración de Especialidades y Servicios</h2>
+      <p className="text-xs text-slate-500 mb-6">
+        Selecciona qué especialidades se mostrarán a los pacientes en el flujo de agendamiento cuando eligen "Por Especialidad".
+      </p>
+      <div className="grid gap-3 max-w-3xl">
+        {specialties.map((s) => (
+          <label key={s.id} className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
+            <div>
+              <div className="font-medium text-slate-800">{s.name}</div>
+            </div>
+            <input 
+              type="checkbox" 
+              checked={settings.allowedSpecialties?.includes(s.id) ?? false} 
+              onChange={() => toggle(s.id)}
+              className="w-5 h-5 accent-sky-600 rounded cursor-pointer" 
+            />
+          </label>
+        ))}
+        {specialties.length === 0 && (
+          <div className="text-sm text-slate-500 p-4 border border-slate-200 border-dashed rounded text-center">No hay especialidades registradas.</div>
+        )}
+      </div>
+    </div>
+  );
 }

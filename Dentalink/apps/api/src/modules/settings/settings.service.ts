@@ -21,7 +21,7 @@ const PAYROLL_PAYMENT_STATUSES: PaymentStatus[] = [
 ];
 
 const payrollTreatmentItemInclude = Prisma.validator<Prisma.TreatmentPlanItemInclude>()({
-  procedure: { select: { id: true, code: true, name: true } },
+  procedure: { select: { id: true, categoryId: true, code: true, name: true } },
   treatmentPlan: {
     select: {
       id: true,
@@ -51,10 +51,32 @@ const payrollLiquidationItemInclude = Prisma.validator<Prisma.PayrollLiquidation
   treatmentPlanItem: { include: payrollTreatmentItemInclude }
 });
 
+const payrollContractInclude = Prisma.validator<Prisma.ProfessionalContractInclude>()({
+  branches: { select: { branchId: true } },
+  categoryRates: { select: { procedureCategoryId: true, rate: true } },
+  fixedAmounts: { select: { procedureId: true, amount: true, priceListId: true, currency: true } }
+});
+
 type PayrollTreatmentItemSource = Prisma.TreatmentPlanItemGetPayload<{ include: typeof payrollTreatmentItemInclude }>;
 type PayrollLiquidationItemSource = Prisma.PayrollLiquidationItemGetPayload<{
   include: typeof payrollLiquidationItemInclude;
 }>;
+type PayrollContractSource = Prisma.ProfessionalContractGetPayload<{ include: typeof payrollContractInclude }>;
+type PayrollRuleSource = "FIXED_AMOUNT" | "CATEGORY_RATE" | "CONTRACT_RATE" | "PROFESSIONAL_FALLBACK";
+
+type PayrollRuleSnapshot = {
+  source: PayrollRuleSource;
+  commissionRate: number;
+  contractId?: string | null;
+  contractType?: string | null;
+  commissionBase?: string | null;
+  paymentDiscount?: string | null;
+  paymentCondition?: string | null;
+  priceListId?: string | null;
+  priceListName?: string | null;
+  procedureCategoryId?: string | null;
+  fixedAmount?: number | null;
+};
 type PayrollItemView = {
   treatmentPlanItemId: string;
   treatmentNumber: string;
@@ -62,6 +84,10 @@ type PayrollItemView = {
   patientName: string;
   action: string;
   procedureCode: string;
+  priceSource: string;
+  priceSnapshotName: string | null;
+  priceSnapshotCode: string | null;
+  priceSnapshotCategory: string | null;
   completedAt: Date | null;
   firstPaymentAt: Date | null;
   lastPaymentAt: Date | null;
@@ -77,6 +103,7 @@ type PayrollItemView = {
   cashValidated: boolean;
   isReady: boolean;
   status: "VALID" | "PARTIAL_PAYMENT" | "FINALIZED";
+  contractRule: PayrollRuleSnapshot;
   calculationExplanation: string;
 };
 
@@ -537,13 +564,14 @@ export class SettingsService {
 
     for (const row of rows) {
       const professional = row.treatmentPlan.professional;
-      const item = this.buildPayrollItem(row, Number(professional.commissionRate));
+      const rule = await this.resolvePayrollRule(actor, row, Number(professional.commissionRate));
+      const item = this.buildPayrollItem(row, rule);
       const current =
         summaries.get(professional.id) ??
         {
           professionalId: professional.id,
           professionalName: `${professional.firstName} ${professional.lastName}`,
-          commissionRate: Number(professional.commissionRate),
+          commissionRate: rule.commissionRate,
           completedItems: 0,
           pendingItems: 0,
           collectedAmount: 0,
@@ -591,7 +619,7 @@ export class SettingsService {
       commissionRate: Number(row.commissionRate),
       collectedAmount: Number(row.collectedAmount),
       payableAmount: Number(row.payableAmount),
-      items: row.items.map((item) => this.buildFinalizedPayrollItem(item, Number(row.commissionRate)))
+      items: row.items.map((item) => this.buildFinalizedPayrollItem(item, Number(item.commissionRate ?? row.commissionRate)))
     }));
   }
 
@@ -641,12 +669,14 @@ export class SettingsService {
       orderBy: { completedAt: "desc" }
     });
 
-    const payableRows = rows
-      .map((row) => {
-        const item = this.buildPayrollItem(row, Number(professional.commissionRate));
-        return { row, item };
+    const payrollRows = await Promise.all(
+      rows.map(async (row) => {
+        const rule = await this.resolvePayrollRule(actor, row, Number(professional.commissionRate));
+        const item = this.buildPayrollItem(row, rule);
+        return { row, item, rule };
       })
-      .filter(({ item }) => item.isReady);
+    );
+    const payableRows = payrollRows.filter(({ item }) => item.isReady);
 
     if (!payableRows.length) {
       throw new BadRequestException("No fully paid completed items are ready to finalize");
@@ -670,12 +700,15 @@ export class SettingsService {
       }
     );
 
+    const primaryRule = payableRows[0]?.rule ?? this.fallbackPayrollRule(Number(professional.commissionRate));
     const created = await this.prisma.payrollLiquidation.create({
       data: {
         organizationId: actor.organizationId,
         professionalId: professional.id,
         branchId: dto.branchId,
-        commissionRate: professional.commissionRate,
+        professionalContractId: primaryRule.contractId ?? undefined,
+        contractSnapshot: primaryRule.contractId ? (primaryRule as Prisma.InputJsonValue) : undefined,
+        commissionRate: primaryRule.commissionRate,
         completedItems: summary.completedItems,
         collectedAmount: this.toDecimal(summary.collectedAmount),
         payableAmount: this.toDecimal(summary.payableAmount),
@@ -685,7 +718,9 @@ export class SettingsService {
           create: payableRows.map((item) => ({
             treatmentPlanItemId: item.row.id,
             collectedAmount: this.toDecimal(item.item.collectedAmount),
-            payableAmount: this.toDecimal(item.item.payableAmount)
+            payableAmount: this.toDecimal(item.item.payableAmount),
+            commissionRate: this.toDecimal(item.rule.commissionRate),
+            contractRule: item.rule as Prisma.InputJsonValue
           }))
         }
       },
@@ -735,11 +770,113 @@ export class SettingsService {
     return new Prisma.Decimal(this.roundMoney(value));
   }
 
-  private buildPayrollItem(row: PayrollTreatmentItemSource, commissionRate: number): PayrollItemView {
+  private async resolvePayrollRule(
+    actor: AuthUser,
+    row: PayrollTreatmentItemSource,
+    fallbackCommissionRate: number
+  ): Promise<PayrollRuleSnapshot> {
+    const completedAt = row.completedAt ?? new Date();
+    const contract = await this.prisma.professionalContract.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        professionalId: row.treatmentPlan.professional.id,
+        isActive: true,
+        startsAt: { lte: completedAt },
+        OR: [{ endsAt: null }, { endsAt: { gte: completedAt } }],
+        branches: { some: { branchId: row.treatmentPlan.branchId } }
+      },
+      include: payrollContractInclude,
+      orderBy: [{ startsAt: "desc" }, { createdAt: "desc" }]
+    });
+
+    if (!contract) return this.fallbackPayrollRule(fallbackCommissionRate);
+    return this.contractRuleForItem(contract, row);
+  }
+
+  private fallbackPayrollRule(commissionRate: number): PayrollRuleSnapshot {
+    return {
+      source: "PROFESSIONAL_FALLBACK",
+      commissionRate: this.roundMoney(commissionRate)
+    };
+  }
+
+  private contractRuleForItem(contract: PayrollContractSource, row: PayrollTreatmentItemSource): PayrollRuleSnapshot {
+    const fixedAmount = contract.fixedAmounts.find((amount) => amount.procedureId === row.procedure.id);
+    if (fixedAmount) {
+      return {
+        ...this.baseContractRule(contract),
+        source: "FIXED_AMOUNT",
+        fixedAmount: this.roundMoney(Number(fixedAmount.amount)),
+        priceListId: fixedAmount.priceListId ?? contract.priceListId
+      };
+    }
+
+    const categoryRate = contract.categoryRates.find((rate) => rate.procedureCategoryId === row.procedure.categoryId);
+    if (categoryRate) {
+      return {
+        ...this.baseContractRule(contract),
+        source: "CATEGORY_RATE",
+        commissionRate: this.roundMoney(Number(categoryRate.rate)),
+        procedureCategoryId: categoryRate.procedureCategoryId
+      };
+    }
+
+    return {
+      ...this.baseContractRule(contract),
+      source: "CONTRACT_RATE"
+    };
+  }
+
+  private baseContractRule(contract: PayrollContractSource): PayrollRuleSnapshot {
+    return {
+      source: "CONTRACT_RATE",
+      contractId: contract.id,
+      contractType: contract.contractType,
+      commissionBase: contract.commissionBase,
+      paymentDiscount: contract.paymentDiscount,
+      paymentCondition: contract.paymentCondition,
+      commissionRate: this.roundMoney(Number(contract.commissionRate)),
+      priceListId: contract.priceListId,
+      priceListName: contract.priceListName
+    };
+  }
+
+  private parseStoredPayrollRule(value: Prisma.JsonValue | null, fallbackCommissionRate: number): PayrollRuleSnapshot {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return this.fallbackPayrollRule(fallbackCommissionRate);
+    const record = value as Record<string, unknown>;
+    const source = record.source;
+    const commissionRate = Number(record.commissionRate);
+    return {
+      source:
+        source === "FIXED_AMOUNT" || source === "CATEGORY_RATE" || source === "CONTRACT_RATE"
+          ? source
+          : "PROFESSIONAL_FALLBACK",
+      commissionRate: Number.isFinite(commissionRate) ? this.roundMoney(commissionRate) : this.roundMoney(fallbackCommissionRate),
+      contractId: this.textOrNull(record.contractId),
+      contractType: this.textOrNull(record.contractType),
+      commissionBase: this.textOrNull(record.commissionBase),
+      paymentDiscount: this.textOrNull(record.paymentDiscount),
+      paymentCondition: this.textOrNull(record.paymentCondition),
+      priceListId: this.textOrNull(record.priceListId),
+      priceListName: this.textOrNull(record.priceListName),
+      procedureCategoryId: this.textOrNull(record.procedureCategoryId),
+      fixedAmount: Number.isFinite(Number(record.fixedAmount)) ? this.roundMoney(Number(record.fixedAmount)) : null
+    };
+  }
+
+  private textOrNull(value: unknown) {
+    return typeof value === "string" ? value : null;
+  }
+
+  private buildPayrollItem(row: PayrollTreatmentItemSource, rule: PayrollRuleSnapshot): PayrollItemView {
     const treatmentAmount = this.roundMoney(Number(row.total));
     const rawCollectedAmount = row.paymentAllocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0);
     const collectedAmount = this.roundMoney(Math.min(treatmentAmount, rawCollectedAmount));
-    const payableAmount = this.roundMoney(collectedAmount * (commissionRate / 100));
+    const isReady = collectedAmount >= treatmentAmount;
+    const payableAmount =
+      rule.source === "FIXED_AMOUNT" && rule.fixedAmount !== undefined && rule.fixedAmount !== null
+        ? this.roundMoney(rule.fixedAmount)
+        : this.roundMoney(collectedAmount * (rule.commissionRate / 100));
     const patient = row.treatmentPlan.patient;
     const paymentMethodNames = [
       ...new Set(row.paymentAllocations.map((allocation) => allocation.payment.paymentMethod.name).filter(Boolean))
@@ -759,6 +896,10 @@ export class SettingsService {
       patientName: `${patient.firstName} ${patient.lastName}`.trim(),
       action: row.procedure.name,
       procedureCode: row.procedure.code,
+      priceSource: row.priceSource,
+      priceSnapshotName: row.priceSnapshotName,
+      priceSnapshotCode: row.priceSnapshotCode,
+      priceSnapshotCategory: row.priceSnapshotCategory,
       completedAt: row.completedAt,
       firstPaymentAt,
       lastPaymentAt,
@@ -768,18 +909,20 @@ export class SettingsService {
       collectedAmount,
       rawCollectedAmount: this.roundMoney(rawCollectedAmount),
       payableAmount,
-      commissionRate,
+      commissionRate: rule.commissionRate,
       paymentMethods: paymentMethodNames.length ? paymentMethodNames.join(", ") : "Sin metodo",
       paymentIds,
       cashValidated: row.paymentAllocations.some((allocation) => allocation.payment.cashMovements.length > 0),
-      isReady: collectedAmount >= treatmentAmount,
-      status: collectedAmount >= treatmentAmount ? "VALID" : "PARTIAL_PAYMENT",
-      calculationExplanation: `${this.formatMoney(collectedAmount)} x ${commissionRate}% = ${this.formatMoney(payableAmount)}`
+      isReady,
+      status: isReady ? "VALID" : "PARTIAL_PAYMENT",
+      contractRule: rule,
+      calculationExplanation: this.describePayrollRule(collectedAmount, payableAmount, rule)
     };
   }
 
   private buildFinalizedPayrollItem(item: PayrollLiquidationItemSource, commissionRate: number) {
-    const row = this.buildPayrollItem(item.treatmentPlanItem, commissionRate);
+    const rule = this.parseStoredPayrollRule(item.contractRule, commissionRate);
+    const row = this.buildPayrollItem(item.treatmentPlanItem, rule);
     const collectedAmount = this.roundMoney(Number(item.collectedAmount));
     const payableAmount = this.roundMoney(Number(item.payableAmount));
 
@@ -789,8 +932,23 @@ export class SettingsService {
       payableAmount,
       isReady: true,
       status: "FINALIZED",
-      calculationExplanation: `${this.formatMoney(collectedAmount)} x ${commissionRate}% = ${this.formatMoney(payableAmount)}`
+      calculationExplanation: this.describePayrollRule(collectedAmount, payableAmount, rule)
     };
+  }
+
+  private describePayrollRule(collectedAmount: number, payableAmount: number, rule: PayrollRuleSnapshot) {
+    if (rule.source === "FIXED_AMOUNT" && rule.fixedAmount !== undefined && rule.fixedAmount !== null) {
+      const source = rule.priceListName ? ` desde arancel ${rule.priceListName}` : "";
+      return `Monto fijo ${this.formatMoney(rule.fixedAmount)}${source} = ${this.formatMoney(payableAmount)}`;
+    }
+
+    const label =
+      rule.source === "CATEGORY_RATE"
+        ? "porcentaje avanzado por categoria"
+        : rule.source === "CONTRACT_RATE"
+          ? "porcentaje de contrato"
+          : "comision global legacy";
+    return `${this.formatMoney(collectedAmount)} x ${rule.commissionRate}% (${label}) = ${this.formatMoney(payableAmount)}`;
   }
 
   private formatMoney(value: number) {

@@ -31,8 +31,8 @@ import { AgendaDailyList } from "../components/agenda-daily-list";
 import { CancelAppointmentModal } from "../components/cancel-appointment-modal";
 import { ChairFilter, BranchFilter, ProfessionalFilter } from "../components/filters";
 import { RescheduleModal } from "../components/reschedule-modal";
-import { StatusLegend } from "../components/status-legend";
 import { AgendaToolbar } from "../components/agenda-toolbar";
+import { SidebarStatusFilters } from "../components/sidebar-status-filters";
 import {
   useAppointmentActions,
   useAppointments,
@@ -50,6 +50,7 @@ import { resolveAgendaViewConfig } from "../utils/agenda-grid-config";
 
 type CommentPopoverAnchor = Pick<DOMRect, "top" | "right" | "bottom" | "left" | "width" | "height">;
 
+// Forzar refresco HMR de Vite
 export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "list" }) {
   const [searchParams] = useSearchParams();
   const prefillPatientId = searchParams.get("patientId") ?? "";
@@ -58,7 +59,31 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const user = useAuthStore((state) => state.user);
   const [professionalId, setProfessionalId] = useState("");
   const [chairId, setChairId] = useState("");
-  const [status, setStatus] = useState("");
+  const [selectedStatuses, setSelectedStatuses] = useState<AppointmentStatus[]>(() => {
+    try {
+      const stored = localStorage.getItem("dentalink_agenda_status_filters");
+      return stored ? JSON.parse(stored) : [
+        "SCHEDULED", "CONFIRMED", "CONFIRMED_BY_WHATSAPP", "CONFIRMED_BY_PHONE",
+        "CONFIRMED_BY_EMAIL", "PENDING_CONFIRMATION", "NOTIFIED_BY_WHATSAPP",
+        "NOTIFIED_BY_EMAIL", "ARRIVED", "WAITING_ROOM", "IN_PROGRESS", "COMPLETED",
+        "NO_SHOW", "BLOCKED", "CANCELLED_BY_PATIENT", "CANCELLED_BY_CLINIC",
+        "CANCELLED_CONFLICT", "CANCELLED_RESCHEDULED", "RESCHEDULED"
+      ];
+    } catch {
+      return [
+        "SCHEDULED", "CONFIRMED", "CONFIRMED_BY_WHATSAPP", "CONFIRMED_BY_PHONE",
+        "CONFIRMED_BY_EMAIL", "PENDING_CONFIRMATION", "NOTIFIED_BY_WHATSAPP",
+        "NOTIFIED_BY_EMAIL", "ARRIVED", "WAITING_ROOM", "IN_PROGRESS", "COMPLETED",
+        "NO_SHOW", "BLOCKED", "CANCELLED_BY_PATIENT", "CANCELLED_BY_CLINIC",
+        "CANCELLED_CONFLICT", "CANCELLED_RESCHEDULED", "RESCHEDULED"
+      ];
+    }
+  });
+
+  useEffect(() => {
+    localStorage.setItem("dentalink_agenda_status_filters", JSON.stringify(selectedStatuses));
+  }, [selectedStatuses]);
+
   const [editing, setEditing] = useState<Appointment | null>(null);
   const [initialAppointmentValues, setInitialAppointmentValues] = useState<Partial<AppointmentPayload> | null>(null);
   const [openedPrefillPatientId, setOpenedPrefillPatientId] = useState("");
@@ -142,13 +167,19 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   );
   const appointmentsView = view === "list" ? "day" : view;
   const appointmentsDate = view === "week" ? getWeekStartDateInput(date) : date;
-  const appointments = useAppointments({ date: appointmentsDate, view: appointmentsView, branchId: activeBranchId || undefined, professionalId: professionalId || undefined, chairId: chairId || undefined, status: status || undefined });
+  const appointments = useAppointments({ date: appointmentsDate, view: appointmentsView, branchId: activeBranchId || undefined, professionalId: professionalId || undefined, chairId: chairId || undefined, status: undefined });
   const schedules = useSchedules({
     branchId: activeBranchId || undefined,
     professionalId: professionalId || undefined,
     dayOfWeek: view === "day" ? String(getDayOfWeek(date)) : undefined,
     active: "true"
   });
+
+  const filteredAppointments = useMemo(() => {
+    const list = appointments.data ?? [];
+    return list.filter((appt) => selectedStatuses.includes(appt.status));
+  }, [appointments.data, selectedStatuses]);
+
   const createAppointment = useCreateAppointment();
   const createAppointmentsBatch = useCreateAppointmentsBatch();
   const updateAppointment = useUpdateAppointment();
@@ -158,7 +189,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const updateAppointmentReminder = useUpdateAppointmentReminder();
   const treatmentMutations = useTreatmentMutations();
   const actions = useAppointmentActions();
-  const hasActiveFilters = Boolean(professionalId || chairId || status);
+  const hasActiveFilters = Boolean(professionalId || chairId || selectedStatuses.length !== 19);
   const patientsForModal = useMemo<PatientListItem[]>(() => {
     const rows = patients.data ?? [];
     const patient = prefillPatient.data;
@@ -302,13 +333,21 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     setDate(toDateInputValue(new Date(appointment.startAt)));
     if (professionalId && professionalId !== appointment.professionalId) setProfessionalId("");
     if (chairId && chairId !== (appointment.chairId ?? "")) setChairId("");
-    if (status && status !== appointment.status) setStatus("");
+    if (!selectedStatuses.includes(appointment.status)) {
+      setSelectedStatuses((prev) => [...prev, appointment.status]);
+    }
   };
 
   const clearFilters = () => {
     setProfessionalId("");
     setChairId("");
-    setStatus("");
+    setSelectedStatuses([
+      "SCHEDULED", "CONFIRMED", "CONFIRMED_BY_WHATSAPP", "CONFIRMED_BY_PHONE",
+      "CONFIRMED_BY_EMAIL", "PENDING_CONFIRMATION", "NOTIFIED_BY_WHATSAPP",
+      "NOTIFIED_BY_EMAIL", "ARRIVED", "WAITING_ROOM", "IN_PROGRESS", "COMPLETED",
+      "NO_SHOW", "BLOCKED", "CANCELLED_BY_PATIENT", "CANCELLED_BY_CLINIC",
+      "CANCELLED_CONFLICT", "CANCELLED_RESCHEDULED", "RESCHEDULED"
+    ]);
   };
 
   const handleAppointmentMenuAction = (appointment: Appointment, action: AppointmentMenuAction) => {
@@ -394,8 +433,8 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         }}
       />
 
-      <Card>
-        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <Card className="relative z-20">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <div className="flex items-center gap-1.5 w-full">
             <BranchFilter value={activeBranchId} branches={assignedBranches} onChange={setActiveBranchId} />
             <HelpTooltip content="Filtra la agenda para mostrar las citas y sillones exclusivos de esta sucursal. Los clínicos solo pueden alternar entre sus sucursales asignadas." />
@@ -407,24 +446,6 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
           <div className="flex items-center gap-1.5 w-full">
             <ChairFilter value={chairId} chairs={visibleChairs} onChange={setChairId} />
             <HelpTooltip content="Permite filtrar las citas por el sillón de atención asignado (ej. Sillón General o Quirófano) para organizar el espacio físico." />
-          </div>
-          <div className="flex items-center gap-1.5 w-full">
-            <Select value={status} onChange={(event) => setStatus(event.target.value)}>
-              <option value="">Todos los estados</option>
-              <option value="SCHEDULED">Agendada</option>
-              <option value="CONFIRMED">Confirmada</option>
-              <option value="PENDING_CONFIRMATION">Por confirmar</option>
-              <option value="ARRIVED">Llegó a clínica</option>
-              <option value="WAITING_ROOM">Sala de espera</option>
-              <option value="IN_PROGRESS">En atención</option>
-              <option value="COMPLETED">Atendida</option>
-              <option value="RESCHEDULED">Reagendada</option>
-              <option value="NO_SHOW">No asistió</option>
-              <option value="CANCELLED_BY_PATIENT">Cancelada por paciente</option>
-              <option value="CANCELLED_BY_CLINIC">Cancelada por clínica</option>
-              <option value="BLOCKED">Bloqueada</option>
-            </Select>
-            <HelpTooltip content="Filtra las citas según su estado actual en el flujo clínico: desde Agendada hasta Atendida, pasando por todos los estados intermedios." />
           </div>
           <Button variant="ghost" onClick={clearFilters} disabled={!hasActiveFilters} className="w-full">
             <RotateCcw className="h-4 w-4" />
@@ -468,105 +489,110 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
             )}
           </div>
         </div>
-
-        {/* Color status legend */}
-        <div className="border-t border-[var(--border-default)] mt-1 -mx-1">
-          <StatusLegend />
-        </div>
       </Card>
 
-      {/* Lista diaria */}
-      {view === "list" ? (
-        <AgendaDailyList
+      <div className="grid gap-4 xl:grid-cols-[240px_1fr]">
+        <SidebarStatusFilters
           appointments={appointments.data ?? []}
-          date={date}
-          onDateChange={setDate}
-          onCreateClick={() => openCreate()}
-          onEdit={openEdit}
-          onCancel={openCancelAppointment}
-          onReschedule={setRescheduling}
-          onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
-          onConfirm={(id) => void actions.confirm.mutate(id)}
-          onArrive={(id) => void actions.arrive.mutate(id)}
-          onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
-          onStart={(id) => void actions.start.mutate(id)}
-          onComplete={(id) => void actions.complete.mutate(id)}
-          onNoShow={(id) => void actions.noShow.mutate(id)}
-          onMenuAction={handleAppointmentMenuAction}
+          selectedStatuses={selectedStatuses}
+          onChange={setSelectedStatuses}
         />
-      ) : view === "day" ? (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <CalendarView
-            appointments={appointments.data ?? []}
-            date={date}
-            view={view}
-            professionals={visibleProfessionals}
-            selectedProfessionalId={professionalId}
-            selectedBranchId={activeBranchId}
-            daySlotMinutes={agendaSlotMinutes}
-            dayStartHour={agendaStartHour}
-            dayEndHour={agendaEndHour}
-            schedules={schedules.data ?? []}
-            onSelectProfessional={setProfessionalId}
-            onCreateClick={() => openCreate()}
-            onCreateSlotClick={(slot) => openCreate(slot)}
-            onEdit={openEdit}
-            onCancel={openCancelAppointment}
-            onReschedule={setRescheduling}
-            onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
-            onConfirm={(id) => void actions.confirm.mutate(id)}
-            onArrive={(id) => void actions.arrive.mutate(id)}
-            onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
-            onStart={(id) => void actions.start.mutate(id)}
-            onComplete={(id) => void actions.complete.mutate(id)}
-            onNoShow={(id) => void actions.noShow.mutate(id)}
-            onMenuAction={handleAppointmentMenuAction}
-          />
-          <AvailabilityPicker
-            branchId={activeBranchId}
-            professionalId={professionalId}
-            chairId={chairId || undefined}
-            date={date}
-            durationMinutes={String(defaultAppointmentDurationMinutes)}
-            onSelectSlot={(slot) =>
-              openCreate({
-                branchId: activeBranchId,
-                professionalId,
-                chairId: chairId || undefined,
-                startAt: slot.startAt,
-                endAt: slot.endAt
-              })
-            }
-          />
+
+        <div className="min-w-0">
+          {/* Lista diaria */}
+          {view === "list" ? (
+            <AgendaDailyList
+              appointments={filteredAppointments}
+              date={date}
+              onDateChange={setDate}
+              onCreateClick={() => openCreate()}
+              onEdit={openEdit}
+              onCancel={openCancelAppointment}
+              onReschedule={setRescheduling}
+              onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
+              onConfirm={(id) => void actions.confirm.mutate(id)}
+              onArrive={(id) => void actions.arrive.mutate(id)}
+              onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
+              onStart={(id) => void actions.start.mutate(id)}
+              onComplete={(id) => void actions.complete.mutate(id)}
+              onNoShow={(id) => void actions.noShow.mutate(id)}
+              onMenuAction={handleAppointmentMenuAction}
+            />
+          ) : view === "day" ? (
+            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <CalendarView
+                appointments={filteredAppointments}
+                date={date}
+                view={view}
+                professionals={visibleProfessionals}
+                selectedProfessionalId={professionalId}
+                selectedBranchId={activeBranchId}
+                daySlotMinutes={agendaSlotMinutes}
+                dayStartHour={agendaStartHour}
+                dayEndHour={agendaEndHour}
+                schedules={schedules.data ?? []}
+                onSelectProfessional={setProfessionalId}
+                onCreateClick={() => openCreate()}
+                onCreateSlotClick={(slot) => openCreate(slot)}
+                onEdit={openEdit}
+                onCancel={openCancelAppointment}
+                onReschedule={setRescheduling}
+                onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
+                onConfirm={(id) => void actions.confirm.mutate(id)}
+                onArrive={(id) => void actions.arrive.mutate(id)}
+                onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
+                onStart={(id) => void actions.start.mutate(id)}
+                onComplete={(id) => void actions.complete.mutate(id)}
+                onNoShow={(id) => void actions.noShow.mutate(id)}
+                onMenuAction={handleAppointmentMenuAction}
+              />
+              <AvailabilityPicker
+                branchId={activeBranchId}
+                professionalId={professionalId}
+                chairId={chairId || undefined}
+                date={date}
+                durationMinutes={String(defaultAppointmentDurationMinutes)}
+                onSelectSlot={(slot) =>
+                  openCreate({
+                    branchId: activeBranchId,
+                    professionalId,
+                    chairId: chairId || undefined,
+                    startAt: slot.startAt,
+                    endAt: slot.endAt
+                  })
+                }
+              />
+            </div>
+          ) : (
+            <CalendarView
+              appointments={filteredAppointments}
+              date={date}
+              view={view}
+              professionals={visibleProfessionals}
+              selectedProfessionalId={professionalId}
+              selectedBranchId={activeBranchId}
+              daySlotMinutes={agendaSlotMinutes}
+              dayStartHour={agendaStartHour}
+              dayEndHour={agendaEndHour}
+              schedules={schedules.data ?? []}
+              onSelectProfessional={setProfessionalId}
+              onCreateClick={() => openCreate()}
+              onCreateSlotClick={(slot) => openCreate(slot)}
+              onEdit={openEdit}
+              onCancel={openCancelAppointment}
+              onReschedule={setRescheduling}
+              onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
+              onConfirm={(id) => void actions.confirm.mutate(id)}
+              onArrive={(id) => void actions.arrive.mutate(id)}
+              onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
+              onStart={(id) => void actions.start.mutate(id)}
+              onComplete={(id) => void actions.complete.mutate(id)}
+              onNoShow={(id) => void actions.noShow.mutate(id)}
+              onMenuAction={handleAppointmentMenuAction}
+            />
+          )}
         </div>
-      ) : (
-        <CalendarView
-          appointments={appointments.data ?? []}
-          date={date}
-          view={view}
-          professionals={visibleProfessionals}
-          selectedProfessionalId={professionalId}
-          selectedBranchId={activeBranchId}
-          daySlotMinutes={agendaSlotMinutes}
-          dayStartHour={agendaStartHour}
-          dayEndHour={agendaEndHour}
-          schedules={schedules.data ?? []}
-          onSelectProfessional={setProfessionalId}
-          onCreateClick={() => openCreate()}
-          onCreateSlotClick={(slot) => openCreate(slot)}
-          onEdit={openEdit}
-          onCancel={openCancelAppointment}
-          onReschedule={setRescheduling}
-          onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
-          onConfirm={(id) => void actions.confirm.mutate(id)}
-          onArrive={(id) => void actions.arrive.mutate(id)}
-          onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
-          onStart={(id) => void actions.start.mutate(id)}
-          onComplete={(id) => void actions.complete.mutate(id)}
-          onNoShow={(id) => void actions.noShow.mutate(id)}
-          onMenuAction={handleAppointmentMenuAction}
-        />
-      )}
+      </div>
 
       <AppointmentModal
         open={modalOpen}

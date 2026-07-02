@@ -60,13 +60,21 @@ private async getSystemActor(organizationId: string): Promise<AuthUser> {
     const professionals = await this.prisma.professional.findMany({
       where: {
         organizationId: config.organizationId,
-        status: 'ACTIVE',
+        isActive: true,
         id: config.allowedProfessionals.length > 0 ? { in: config.allowedProfessionals } : undefined
       },
       select: { id: true, firstName: true, lastName: true }
     });
 
-    return { ...config, branches, professionals };
+    const specialties = await this.prisma.specialty.findMany({
+      where: {
+        organizationId: config.organizationId,
+        id: config.allowedSpecialties.length > 0 ? { in: config.allowedSpecialties } : undefined
+      },
+      select: { id: true, name: true }
+    });
+
+    return { ...config, branches, professionals, specialties };
   }
 
   async getAvailability(slug: string, query: PublicAvailabilityQueryDto) {
@@ -82,7 +90,25 @@ private async getSystemActor(organizationId: string): Promise<AuthUser> {
     }
 
     const actor = await this.getSystemActor(config.organizationId);
-    return this.appointmentsService.availability(actor, query);
+    const durationMinutes = (config.blocksPerAppointment || 1) * 15;
+    return this.appointmentsService.availability(actor, {
+      ...query,
+      durationMinutes: durationMinutes.toString()
+    });
+  }
+
+  async trackEvent(slug: string, eventType: string, campaignCode?: string) {
+    const config = await this.prisma.onlineSchedulingConfig.findUnique({ where: { slug } });
+    if (!config || !config.isEnabled) throw new NotFoundException('Booking page not found or disabled');
+
+    return this.prisma.onlineSchedulingEvent.create({
+      data: {
+        organizationId: config.organizationId,
+        slug,
+        eventType,
+        campaignCode: campaignCode || null,
+      }
+    });
   }
 
   async createAppointment(slug: string, dto: PublicCreateAppointmentDto) {
@@ -118,11 +144,26 @@ private async getSystemActor(organizationId: string): Promise<AuthUser> {
     }
 
     const startAtDate = new Date(dto.startAt);
-    // Asumimos bloques de 15 min. Esto puede perfeccionarse después.
     const durationMinutes = (config.blocksPerAppointment || 1) * 15;
     const endAtDate = new Date(startAtDate.getTime() + durationMinutes * 60000);
 
-    return this.appointmentsService.create(actor, {
+    if (config.mode === 'ONLINE' && patient) {
+      const pendingCount = await this.prisma.appointment.count({
+        where: {
+          patientId: patient.id,
+          organizationId: config.organizationId,
+          status: AppointmentStatus.PENDING_CONFIRMATION,
+        },
+      });
+
+      if (pendingCount >= (config.maxUnvalidatedAppointmentsPerPatient || 2)) {
+        throw new BadRequestException(
+          `Has alcanzado el límite máximo de ${config.maxUnvalidatedAppointmentsPerPatient || 2} citas pendientes de confirmación.`
+        );
+      }
+    }
+
+    const appointment = await this.appointmentsService.create(actor, {
       branchId: dto.branchId,
       professionalId: dto.professionalId,
       patientId: patient.id,
@@ -134,5 +175,17 @@ private async getSystemActor(organizationId: string): Promise<AuthUser> {
       title: 'Reserva Online',
       reason: dto.motive,
     });
+
+    await this.prisma.onlineSchedulingEvent.create({
+      data: {
+        organizationId: config.organizationId,
+        slug,
+        eventType: 'CONVERSION',
+        campaignCode: dto.campaignCode || null,
+        appointmentId: appointment.id,
+      }
+    }).catch(err => console.error('Error tracking conversion:', err));
+
+    return appointment;
   }
 }

@@ -46,15 +46,17 @@ export class TreatmentPlanItemInputDto {
   @IsPositive()
   quantity!: number;
 
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  unitPrice!: number;
+  unitPrice?: number;
 
+  @IsOptional()
   @Type(() => Number)
   @IsNumber()
   @Min(0)
-  discount!: number;
+  discount?: number;
 
   @IsOptional()
   @IsString()

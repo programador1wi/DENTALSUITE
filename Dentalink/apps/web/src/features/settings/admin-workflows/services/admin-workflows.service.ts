@@ -72,6 +72,20 @@ export type PayrollSummary = {
   items: PayrollItem[];
 };
 
+export type PayrollContractRule = {
+  source: "FIXED_AMOUNT" | "CATEGORY_RATE" | "CONTRACT_RATE" | "PROFESSIONAL_FALLBACK";
+  commissionRate: number;
+  contractId?: string | null;
+  contractType?: string | null;
+  commissionBase?: string | null;
+  paymentDiscount?: string | null;
+  paymentCondition?: string | null;
+  priceListId?: string | null;
+  priceListName?: string | null;
+  procedureCategoryId?: string | null;
+  fixedAmount?: number | null;
+};
+
 export type FinalizedPayroll = {
   id: string;
   professionalId: string;
@@ -95,6 +109,10 @@ export type PayrollItem = {
   patientName: string;
   action: string;
   procedureCode: string;
+  priceSource: string;
+  priceSnapshotName?: string | null;
+  priceSnapshotCode?: string | null;
+  priceSnapshotCategory?: string | null;
   completedAt?: string | null;
   firstPaymentAt?: string | null;
   lastPaymentAt?: string | null;
@@ -110,6 +128,7 @@ export type PayrollItem = {
   cashValidated: boolean;
   isReady: boolean;
   status: "VALID" | "PARTIAL_PAYMENT" | "FINALIZED";
+  contractRule: PayrollContractRule;
   calculationExplanation: string;
 };
 

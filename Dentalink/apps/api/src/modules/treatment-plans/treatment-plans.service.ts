@@ -4,6 +4,7 @@ import {
   BudgetStatus,
   Prisma,
   ProfessionalBranchStatus,
+  TreatmentPriceSource,
   ToothProcedureStatus,
   TreatmentPlanItemStatus,
   TreatmentPlanStatus
@@ -27,6 +28,38 @@ import {
   DuplicateTreatmentPlanDto,
   ReferTreatmentPlanDto
 } from "./dto/treatment-plan.dto";
+
+type TreatmentAgreementSnapshot = {
+  id?: string | null;
+  isActive?: boolean;
+  discountPercent?: Prisma.Decimal | number | string | null;
+} | null;
+
+type TreatmentPatientForPricing = {
+  agreement?: {
+    id?: string | null;
+    isActive?: boolean;
+    priceListId?: string | null;
+    discountPercent?: Prisma.Decimal | number | string | null;
+  } | null;
+};
+
+type ProcedurePriceSnapshot = {
+  unitPrice: number;
+  priceListId: string | null;
+  priceListItemId: string | null;
+  priceSource: TreatmentPriceSource;
+  priceSnapshotName: string | null;
+  priceSnapshotCode: string | null;
+  priceSnapshotCategory: string | null;
+  priceResolvedAt: Date | null;
+};
+
+type TreatmentPlanItemBuildInput = Required<
+  Pick<UpdateTreatmentPlanItemDto, "procedureId" | "quantity" | "unitPrice" | "discount">
+> &
+  UpdateTreatmentPlanItemDto &
+  ProcedurePriceSnapshot;
 
 @Injectable()
 export class TreatmentPlansService {
@@ -98,10 +131,11 @@ export class TreatmentPlansService {
         for (const item of dto.items) {
           await this.validateProcedureInTransaction(tx, actor, item.procedureId);
           if (item.sectionId) await this.validateSectionInTransaction(tx, plan.id, item.sectionId);
-          
+
           const agreement = patient.agreement;
+          const itemPayload = await this.resolveItemPayload(actor, dto.branchId, patient, item);
           await tx.treatmentPlanItem.create({
-            data: this.buildItemData(plan.id, item, agreement)
+            data: this.buildItemData(plan.id, itemPayload, agreement)
           });
         }
       }
@@ -359,16 +393,10 @@ export class TreatmentPlansService {
     if (dto.sectionId) await this.validateSection(treatmentPlanId, dto.sectionId);
 
     const agreement = plan.patient.agreement;
-    const quantity = dto.quantity ?? 1;
-    const unitPrice = dto.unitPrice ?? (await this.resolveProcedurePrice(actor, plan.branchId, plan.patient, dto.procedureId));
-    const discount = dto.discount ?? 0;
-    const itemPayload = {
+    const itemPayload = await this.resolveItemPayload(actor, plan.branchId, plan.patient, {
       ...dto,
-      procedureId: dto.procedureId,
-      quantity,
-      unitPrice,
-      discount
-    };
+      procedureId: dto.procedureId
+    });
 
     const created = await this.prisma.$transaction(async (tx) => {
       const item = await tx.treatmentPlanItem.create({
@@ -410,7 +438,22 @@ export class TreatmentPlansService {
     if (dto.sectionId) await this.validateSection(treatmentPlanId, dto.sectionId);
 
     const quantity = dto.quantity ?? Number(current.quantity);
-    const unitPrice = dto.unitPrice ?? Number(current.unitPrice);
+    let unitPrice = dto.unitPrice ?? Number(current.unitPrice);
+    let priceSnapshot = this.snapshotFromCurrentItem(current);
+    if (
+      dto.procedureId !== undefined ||
+      (dto.unitPrice !== undefined && !this.sameMoney(dto.unitPrice, Number(current.unitPrice)))
+    ) {
+      const resolvedPayload = await this.resolveItemPayload(actor, plan.branchId, plan.patient, {
+        ...dto,
+        procedureId: dto.procedureId ?? current.procedureId,
+        quantity,
+        unitPrice: dto.unitPrice,
+        discount: dto.discount ?? Number(current.discount)
+      });
+      unitPrice = resolvedPayload.unitPrice;
+      priceSnapshot = this.snapshotFromResolvedPayload(resolvedPayload);
+    }
     
     let discount = dto.discount ?? Number(current.discount);
     let agreementCoverage = Number(current.agreementCoverage || 0);
@@ -437,6 +480,13 @@ export class TreatmentPlansService {
           unitPrice: this.decimal(unitPrice),
           discount: this.decimal(discount),
           total: this.decimal(total),
+          priceListId: priceSnapshot.priceListId,
+          priceListItemId: priceSnapshot.priceListItemId,
+          priceSource: priceSnapshot.priceSource,
+          priceSnapshotName: priceSnapshot.priceSnapshotName,
+          priceSnapshotCode: priceSnapshot.priceSnapshotCode,
+          priceSnapshotCategory: priceSnapshot.priceSnapshotCategory,
+          priceResolvedAt: priceSnapshot.priceResolvedAt,
           notes: dto.notes ?? current.notes,
           plannedAt: dto.plannedAt === undefined ? current.plannedAt : dto.plannedAt ? new Date(dto.plannedAt) : null,
           agreementId: agreement?.id || null,
@@ -731,7 +781,11 @@ export class TreatmentPlansService {
     };
   }
 
-  private buildItemData(treatmentPlanId: string, dto: Required<Pick<UpdateTreatmentPlanItemDto, "procedureId" | "quantity" | "unitPrice" | "discount">> & UpdateTreatmentPlanItemDto, agreement: any = null): Prisma.TreatmentPlanItemUncheckedCreateInput {
+  private buildItemData(
+    treatmentPlanId: string,
+    dto: TreatmentPlanItemBuildInput,
+    agreement: TreatmentAgreementSnapshot = null
+  ): Prisma.TreatmentPlanItemUncheckedCreateInput {
     let finalDiscount = dto.discount;
     let agreementCoverage = 0;
     if (agreement && agreement.isActive && Number(agreement.discountPercent) > 0) {
@@ -750,6 +804,13 @@ export class TreatmentPlansService {
       discount: this.decimal(finalDiscount),
       total: this.decimal(total),
       status: TreatmentPlanItemStatus.PLANNED,
+      priceListId: dto.priceListId,
+      priceListItemId: dto.priceListItemId,
+      priceSource: dto.priceSource,
+      priceSnapshotName: dto.priceSnapshotName,
+      priceSnapshotCode: dto.priceSnapshotCode,
+      priceSnapshotCategory: dto.priceSnapshotCategory,
+      priceResolvedAt: dto.priceResolvedAt,
       notes: dto.notes?.trim(),
       plannedAt: dto.plannedAt ? new Date(dto.plannedAt) : null,
       agreementId: agreement?.id || null,
@@ -770,12 +831,52 @@ export class TreatmentPlansService {
     return new Prisma.Decimal(value);
   }
 
-  private async resolveProcedurePrice(
+  private async resolveItemPayload(
     actor: AuthUser,
     branchId: string,
-    patient: { agreement?: { priceListId?: string | null } | null },
+    patient: TreatmentPatientForPricing,
+    dto: UpdateTreatmentPlanItemDto & { procedureId: string }
+  ): Promise<TreatmentPlanItemBuildInput> {
+    const quantity = dto.quantity ?? 1;
+    const discount = dto.discount ?? 0;
+    const resolved = await this.resolveProcedurePriceSnapshot(actor, branchId, patient, dto.procedureId);
+    let unitPrice = resolved.unitPrice;
+    let priceSource = resolved.priceSource;
+
+    if (dto.unitPrice !== undefined) {
+      if (this.sameMoney(dto.unitPrice, resolved.unitPrice)) {
+        unitPrice = dto.unitPrice;
+      } else {
+        if (!this.canOverrideManualPrices(actor)) {
+          throw new BadRequestException("Manual price overrides require price_lists.override_manual permission");
+        }
+        unitPrice = dto.unitPrice;
+        priceSource = TreatmentPriceSource.MANUAL;
+      }
+    }
+
+    return {
+      ...dto,
+      procedureId: dto.procedureId,
+      quantity,
+      unitPrice,
+      discount,
+      priceListId: resolved.priceListId,
+      priceListItemId: resolved.priceListItemId,
+      priceSource,
+      priceSnapshotName: resolved.priceSnapshotName,
+      priceSnapshotCode: resolved.priceSnapshotCode,
+      priceSnapshotCategory: resolved.priceSnapshotCategory,
+      priceResolvedAt: resolved.priceResolvedAt
+    };
+  }
+
+  private async resolveProcedurePriceSnapshot(
+    actor: AuthUser,
+    branchId: string,
+    patient: TreatmentPatientForPricing,
     procedureId: string
-  ) {
+  ): Promise<ProcedurePriceSnapshot> {
     const preferredPriceListId = patient.agreement?.priceListId;
     const hasBranchScopedLists = await this.prisma.branchPriceList.count({
       where: {
@@ -787,68 +888,145 @@ export class TreatmentPlansService {
     });
 
     if (preferredPriceListId) {
-      const agreementPrice = await this.prisma.priceListItem.findFirst({
-        where: {
-          procedureId,
-          priceListId: preferredPriceListId,
-          priceList: {
-            organizationId: actor.organizationId,
-            isActive: true,
-            ...(hasBranchScopedLists
-              ? {
-                  branchAssignments: {
-                    some: { branchId, isActive: true }
-                  }
+      const agreementPrice = await this.findPriceListItemSnapshot({
+        procedureId,
+        priceListId: preferredPriceListId,
+        priceList: {
+          organizationId: actor.organizationId,
+          isActive: true,
+          ...(hasBranchScopedLists
+            ? {
+                branchAssignments: {
+                  some: { branchId, isActive: true }
                 }
-              : {})
-          }
+              }
+            : {})
         }
       });
-      if (agreementPrice) return Number(agreementPrice.price);
+      if (agreementPrice) return agreementPrice;
     }
 
     if (hasBranchScopedLists) {
-      const branchDefaultPrice = await this.prisma.priceListItem.findFirst({
-        where: {
-          procedureId,
-          priceList: {
-            organizationId: actor.organizationId,
-            isActive: true,
-            branchAssignments: {
-              some: { branchId, isActive: true, isDefault: true }
-            }
-          }
-        }
-      });
-      if (branchDefaultPrice) return Number(branchDefaultPrice.price);
-
-      const branchPrice = await this.prisma.priceListItem.findFirst({
-        where: {
-          procedureId,
-          priceList: {
-            organizationId: actor.organizationId,
-            isActive: true,
-            branchAssignments: {
-              some: { branchId, isActive: true }
-            }
-          }
-        }
-      });
-      if (branchPrice) return Number(branchPrice.price);
-    }
-
-    const defaultPrice = await this.prisma.priceListItem.findFirst({
-      where: {
+      const branchDefaultPrice = await this.findPriceListItemSnapshot({
         procedureId,
         priceList: {
           organizationId: actor.organizationId,
           isActive: true,
-          isDefault: true
+          branchAssignments: {
+            some: { branchId, isActive: true, isDefault: true }
+          }
         }
+      });
+      if (branchDefaultPrice) return branchDefaultPrice;
+
+      const branchPrice = await this.findPriceListItemSnapshot({
+        procedureId,
+        priceList: {
+          organizationId: actor.organizationId,
+          isActive: true,
+          branchAssignments: {
+            some: { branchId, isActive: true }
+          }
+        }
+      });
+      if (branchPrice) return branchPrice;
+    }
+
+    const defaultPrice = await this.findPriceListItemSnapshot({
+      procedureId,
+      priceList: {
+        organizationId: actor.organizationId,
+        isActive: true,
+        isDefault: true
       }
     });
+    if (defaultPrice) return defaultPrice;
 
-    return Number(defaultPrice?.price ?? 0);
+    const procedure = await this.prisma.procedure.findFirst({
+      where: { id: procedureId, organizationId: actor.organizationId, isActive: true },
+      include: { category: true }
+    });
+    if (!procedure) throw new BadRequestException("Invalid procedureId");
+
+    return {
+      unitPrice: 0,
+      priceListId: null,
+      priceListItemId: null,
+      priceSource: TreatmentPriceSource.UNPRICED,
+      priceSnapshotName: null,
+      priceSnapshotCode: procedure.code,
+      priceSnapshotCategory: procedure.category?.name ?? null,
+      priceResolvedAt: new Date()
+    };
+  }
+
+  private async findPriceListItemSnapshot(where: Prisma.PriceListItemWhereInput) {
+    const row = await this.prisma.priceListItem.findFirst({
+      where,
+      include: {
+        priceList: { select: { id: true, name: true } },
+        priceListCategory: { select: { name: true } },
+        procedure: { select: { code: true, name: true, category: { select: { name: true } } } }
+      }
+    });
+    if (!row) return null;
+
+    return {
+      unitPrice: Number(row.price),
+      priceListId: row.priceListId,
+      priceListItemId: row.id,
+      priceSource: TreatmentPriceSource.PRICE_LIST,
+      priceSnapshotName: row.priceList.name,
+      priceSnapshotCode: row.procedure.code,
+      priceSnapshotCategory: row.priceListCategory?.name ?? row.procedure.category.name,
+      priceResolvedAt: new Date()
+    };
+  }
+
+  private snapshotFromCurrentItem(item: {
+    priceListId?: string | null;
+    priceListItemId?: string | null;
+    priceSource?: TreatmentPriceSource | null;
+    priceSnapshotName?: string | null;
+    priceSnapshotCode?: string | null;
+    priceSnapshotCategory?: string | null;
+    priceResolvedAt?: Date | null;
+  }): ProcedurePriceSnapshot {
+    return {
+      unitPrice: 0,
+      priceListId: item.priceListId ?? null,
+      priceListItemId: item.priceListItemId ?? null,
+      priceSource: item.priceSource ?? TreatmentPriceSource.MANUAL,
+      priceSnapshotName: item.priceSnapshotName ?? null,
+      priceSnapshotCode: item.priceSnapshotCode ?? null,
+      priceSnapshotCategory: item.priceSnapshotCategory ?? null,
+      priceResolvedAt: item.priceResolvedAt ?? null
+    };
+  }
+
+  private snapshotFromResolvedPayload(payload: ProcedurePriceSnapshot): ProcedurePriceSnapshot {
+    return {
+      unitPrice: payload.unitPrice,
+      priceListId: payload.priceListId,
+      priceListItemId: payload.priceListItemId,
+      priceSource: payload.priceSource,
+      priceSnapshotName: payload.priceSnapshotName,
+      priceSnapshotCode: payload.priceSnapshotCode,
+      priceSnapshotCategory: payload.priceSnapshotCategory,
+      priceResolvedAt: payload.priceResolvedAt
+    };
+  }
+
+  private canOverrideManualPrices(actor: AuthUser) {
+    return actor.permissions.includes("system.manage_all") || actor.permissions.includes("price_lists.override_manual");
+  }
+
+  private sameMoney(left: number, right: number) {
+    return this.roundMoney(left) === this.roundMoney(right);
+  }
+
+  private roundMoney(value: number) {
+    return Math.round((value + Number.EPSILON) * 100) / 100;
   }
 
   private normalizeToothNumber(value: string) {

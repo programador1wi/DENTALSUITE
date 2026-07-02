@@ -96,6 +96,7 @@ const PERMISSION_TEMPLATES = [
   ["price_lists.read", "Read price lists", "View price lists", "price_lists"],
   ["price_lists.create", "Create price lists", "Create price lists", "price_lists"],
   ["price_lists.update", "Update price lists", "Update price lists", "price_lists"],
+  ["price_lists.override_manual", "Override price list prices", "Allow manual treatment price overrides", "price_lists"],
   ["price_lists.deactivate", "Deactivate price lists", "Deactivate price lists", "price_lists"],
   ["patients.read", "Read patients", "View patients", "patients"],
   ["patients.create", "Create patients", "Create patients", "patients"],

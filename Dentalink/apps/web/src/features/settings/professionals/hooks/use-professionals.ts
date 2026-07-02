@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  bulkUpdateProfessionalContracts,
   createProfessional,
   deactivateProfessional,
   listProfessionals,
   transferProfessionalBranch,
   updateProfessional,
+  type BulkProfessionalContractPayload,
   type ProfessionalBranchTransferPayload,
   type ProfessionalPayload
 } from "../services/professionals.service";
@@ -55,6 +57,17 @@ export function useTransferProfessionalBranch() {
       queryClient.invalidateQueries({ queryKey: ["settings", "professionals"] });
       queryClient.invalidateQueries({ queryKey: ["settings", "schedules"] });
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
+    }
+  });
+}
+
+export function useBulkUpdateProfessionalContracts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: BulkProfessionalContractPayload) => bulkUpdateProfessionalContracts(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "professionals"] });
+      queryClient.invalidateQueries({ queryKey: ["settings", "payroll"] });
     }
   });
 }

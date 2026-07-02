@@ -1,7 +1,15 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { AppointmentStatus, Prisma, ProfessionalBranchStatus } from "@prisma/client";
+import {
+  AppointmentStatus,
+  Prisma,
+  ProfessionalBranchStatus,
+  ProfessionalContractCommissionBase,
+  ProfessionalContractPaymentCondition,
+  ProfessionalContractPaymentDiscount,
+  ProfessionalContractType
+} from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
-import { branchScope } from "../../common/utils/branch-scope.util";
+import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
@@ -15,6 +23,7 @@ import { CreateProfessionalDto } from "./dto/create-professional.dto";
 import { UpdateProfessionalDto } from "./dto/update-professional.dto";
 import { ConfigProfessionalDto } from "./dto/config-professional.dto";
 import { TransferProfessionalBranchDto } from "./dto/transfer-professional-branch.dto";
+import { BulkProfessionalContractDto } from "./dto/bulk-professional-contract.dto";
 
 const CLOSED_TRANSFER_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.CANCELLED_BY_PATIENT,
@@ -602,6 +611,235 @@ export class ProfessionalsService {
     };
   }
 
+  async bulkUpdateContracts(actor: AuthUser, dto: BulkProfessionalContractDto) {
+    const targets = this.normalizeContractTargets(dto.targets);
+    if (!targets.length) throw new BadRequestException("At least one professional and branch is required");
+
+    const professionalIds = [...new Set(targets.map((target) => target.professionalId))];
+    const branchIds = [...new Set(targets.flatMap((target) => target.branchIds))];
+    branchIds.forEach((branchId) => assertBranchAccess(actor, branchId));
+
+    const [branchCount, professionals, priceList] = await Promise.all([
+      this.prisma.branch.count({
+        where: {
+          id: { in: branchIds },
+          organizationId: actor.organizationId,
+          status: "ACTIVE",
+          deletedAt: null
+        }
+      }),
+      this.prisma.professional.findMany({
+        where: {
+          id: { in: professionalIds },
+          organizationId: actor.organizationId,
+          isActive: true
+        },
+        include: {
+          branches: {
+            where: { status: ProfessionalBranchStatus.ACTIVE },
+            select: { branchId: true }
+          }
+        }
+      }),
+      dto.priceListId
+        ? this.prisma.priceList.findFirst({
+            where: {
+              id: dto.priceListId,
+              organizationId: actor.organizationId,
+              isActive: true
+            },
+            include: {
+              items: {
+                select: {
+                  procedureId: true,
+                  price: true,
+                  currency: true
+                }
+              }
+            }
+          })
+        : Promise.resolve(null)
+    ]);
+
+    if (branchCount !== branchIds.length) throw new BadRequestException("One or more branches are invalid");
+    if (professionals.length !== professionalIds.length) throw new BadRequestException("One or more professionals are invalid");
+    if (dto.priceListId && !priceList) throw new BadRequestException("Invalid priceListId");
+
+    const professionalsById = new Map(professionals.map((professional) => [professional.id, professional]));
+    for (const target of targets) {
+      const professional = professionalsById.get(target.professionalId);
+      const assignedBranchIds = new Set(professional?.branches.map((branch) => branch.branchId) ?? []);
+      const invalidBranch = target.branchIds.find((branchId) => !assignedBranchIds.has(branchId));
+      if (invalidBranch) {
+        throw new BadRequestException("Professional is not assigned to one or more selected branches");
+      }
+    }
+
+    const categoryRates = this.normalizeContractCategoryRates(dto.categoryRates ?? []);
+    if (categoryRates.length) {
+      const categoryCount = await this.prisma.procedureCategory.count({
+        where: {
+          id: { in: categoryRates.map((rate) => rate.procedureCategoryId) },
+          organizationId: actor.organizationId,
+          isActive: true
+        }
+      });
+      if (categoryCount !== categoryRates.length) {
+        throw new BadRequestException("One or more procedure categories are invalid");
+      }
+    }
+
+    const now = new Date();
+    const contractType = this.toContractType(dto.contractType);
+    const commissionBase = this.toCommissionBase(dto.commissionBase);
+    const paymentDiscount = this.toPaymentDiscount(dto.paymentDiscount);
+    const paymentCondition = this.toPaymentCondition(dto.paymentCondition);
+    const fixedAmounts =
+      priceList?.items.map((item) => ({
+        procedureId: item.procedureId,
+        priceListId: priceList.id,
+        amount: item.price,
+        currency: item.currency
+      })) ?? [];
+
+    const createdContracts = await this.prisma.$transaction(async (tx) => {
+      const created: Prisma.ProfessionalContractGetPayload<{
+        include: { branches: true; categoryRates: true; fixedAmounts: true };
+      }>[] = [];
+
+      for (const target of targets) {
+        if (!dto.keepPrevious) {
+          await tx.professionalContract.updateMany({
+            where: {
+              organizationId: actor.organizationId,
+              professionalId: target.professionalId,
+              isActive: true,
+              branches: { some: { branchId: { in: target.branchIds } } }
+            },
+            data: { isActive: false, endsAt: now }
+          });
+        }
+
+        if (dto.removeOtherBranches) {
+          await tx.professionalContract.updateMany({
+            where: {
+              organizationId: actor.organizationId,
+              professionalId: target.professionalId,
+              isActive: true,
+              branches: { some: { branchId: { notIn: target.branchIds } } }
+            },
+            data: { isActive: false, endsAt: now }
+          });
+        }
+
+        const previousContract = dto.keepPrevious
+          ? await tx.professionalContract.findFirst({
+              where: {
+                organizationId: actor.organizationId,
+                professionalId: target.professionalId,
+                isActive: true,
+                branches: { some: { branchId: { in: target.branchIds } } }
+              },
+              include: {
+                categoryRates: true,
+                fixedAmounts: true
+              },
+              orderBy: [{ startsAt: "desc" }, { createdAt: "desc" }]
+            })
+          : null;
+        const contractCategoryRates = dto.keepPrevious
+          ? this.mergeContractCategoryRates(previousContract?.categoryRates, categoryRates)
+          : categoryRates;
+        const contractFixedAmounts = dto.keepPrevious
+          ? this.mergeContractFixedAmounts(previousContract?.fixedAmounts, fixedAmounts)
+          : fixedAmounts;
+
+        await tx.professional.update({
+          where: { id: target.professionalId },
+          data: { commissionRate: dto.commissionRate }
+        });
+
+        const contract = await tx.professionalContract.create({
+          data: {
+            organizationId: actor.organizationId,
+            professionalId: target.professionalId,
+            contractType,
+            commissionBase,
+            paymentDiscount,
+            paymentCondition,
+            commissionRate: dto.commissionRate,
+            priceListId: priceList?.id,
+            priceListName: priceList?.name,
+            startsAt: now,
+            createdById: actor.id,
+            branches: {
+              create: target.branchIds.map((branchId) => ({ branchId }))
+            },
+            categoryRates: {
+              create: contractCategoryRates.map((rate) => ({
+                procedureCategoryId: rate.procedureCategoryId,
+                rate: rate.rate
+              }))
+            },
+            fixedAmounts: {
+              create: contractFixedAmounts
+            }
+          },
+          include: {
+            branches: true,
+            categoryRates: true,
+            fixedAmounts: true
+          }
+        });
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: actor.organizationId,
+            actorUserId: actor.id,
+            entity: "ProfessionalContract",
+            entityId: contract.id,
+            action: "bulk_create",
+            after: {
+              professionalId: target.professionalId,
+              branchIds: target.branchIds,
+              commissionRate: dto.commissionRate,
+              contractType,
+              commissionBase,
+              paymentDiscount,
+              paymentCondition,
+              priceListId: priceList?.id ?? null,
+              categoryRates: contractCategoryRates.length,
+              fixedAmounts: contractFixedAmounts.length,
+              keepPrevious: dto.keepPrevious ?? false,
+              removeOtherBranches: dto.removeOtherBranches ?? false
+            } as Prisma.InputJsonValue
+          }
+        });
+
+        created.push(contract);
+      }
+
+      return created;
+    });
+
+    return {
+      updatedProfessionals: createdContracts.length,
+      updatedScopes: targets.reduce((sum, target) => sum + target.branchIds.length, 0),
+      fixedAmounts: createdContracts.reduce((sum, contract) => sum + contract.fixedAmounts.length, 0),
+      categoryRates: createdContracts.reduce((sum, contract) => sum + contract.categoryRates.length, 0),
+      contracts: createdContracts.map((contract) => ({
+        id: contract.id,
+        professionalId: contract.professionalId,
+        branchIds: contract.branches.map((branch) => branch.branchId),
+        commissionRate: Number(contract.commissionRate),
+        priceListId: contract.priceListId,
+        priceListName: contract.priceListName,
+        categoryRates: contract.categoryRates.length,
+        fixedAmounts: contract.fixedAmounts.length
+      }))
+    };
+  }
+
   private transferableStatuses(moveFutureAppointments: boolean, moveFutureBlocks: boolean) {
     const statuses: AppointmentStatus[] = [];
     if (moveFutureAppointments) {
@@ -616,6 +854,103 @@ export class ProfessionalsService {
     }
     if (moveFutureBlocks) statuses.push(AppointmentStatus.BLOCKED);
     return statuses;
+  }
+
+  private normalizeContractTargets(targets: BulkProfessionalContractDto["targets"]) {
+    const byProfessional = new Map<string, Set<string>>();
+    for (const target of targets ?? []) {
+      const professionalId = target.professionalId?.trim();
+      if (!professionalId) continue;
+      const branchIds = (target.branchIds ?? []).map((branchId) => branchId.trim()).filter(Boolean);
+      if (!branchIds.length) continue;
+      const current = byProfessional.get(professionalId) ?? new Set<string>();
+      branchIds.forEach((branchId) => current.add(branchId));
+      byProfessional.set(professionalId, current);
+    }
+
+    return [...byProfessional.entries()].map(([professionalId, branchIds]) => ({
+      professionalId,
+      branchIds: [...branchIds]
+    }));
+  }
+
+  private normalizeContractCategoryRates(rates: NonNullable<BulkProfessionalContractDto["categoryRates"]>) {
+    const byCategory = new Map<string, number>();
+    for (const rate of rates) {
+      const procedureCategoryId = rate.procedureCategoryId?.trim();
+      if (!procedureCategoryId || !Number.isFinite(rate.rate) || rate.rate <= 0) continue;
+      byCategory.set(procedureCategoryId, rate.rate);
+    }
+    return [...byCategory.entries()].map(([procedureCategoryId, rate]) => ({ procedureCategoryId, rate }));
+  }
+
+  private mergeContractCategoryRates(
+    previous:
+      | {
+          procedureCategoryId: string;
+          rate: Prisma.Decimal;
+        }[]
+      | undefined,
+    next: { procedureCategoryId: string; rate: number }[]
+  ) {
+    const byCategory = new Map<string, { procedureCategoryId: string; rate: number | Prisma.Decimal }>();
+    previous?.forEach((rate) => {
+      byCategory.set(rate.procedureCategoryId, {
+        procedureCategoryId: rate.procedureCategoryId,
+        rate: rate.rate
+      });
+    });
+    next.forEach((rate) => byCategory.set(rate.procedureCategoryId, rate));
+    return [...byCategory.values()];
+  }
+
+  private mergeContractFixedAmounts(
+    previous:
+      | {
+          procedureId: string;
+          priceListId: string | null;
+          amount: Prisma.Decimal;
+          currency: string;
+        }[]
+      | undefined,
+    next: { procedureId: string; priceListId: string; amount: Prisma.Decimal; currency: string }[]
+  ) {
+    const byProcedure = new Map<
+      string,
+      { procedureId: string; priceListId: string | null; amount: Prisma.Decimal; currency: string }
+    >();
+    previous?.forEach((amount) => {
+      byProcedure.set(amount.procedureId, {
+        procedureId: amount.procedureId,
+        priceListId: amount.priceListId,
+        amount: amount.amount,
+        currency: amount.currency
+      });
+    });
+    next.forEach((amount) => byProcedure.set(amount.procedureId, amount));
+    return [...byProcedure.values()];
+  }
+
+  private toContractType(value: BulkProfessionalContractDto["contractType"]) {
+    return value === "performed" ? ProfessionalContractType.PERFORMED : ProfessionalContractType.PERFORMED_AND_PAID;
+  }
+
+  private toCommissionBase(value: BulkProfessionalContractDto["commissionBase"]) {
+    if (value === "lab") return ProfessionalContractCommissionBase.LAB;
+    if (value === "all") return ProfessionalContractCommissionBase.ALL;
+    return ProfessionalContractCommissionBase.CLINICAL;
+  }
+
+  private toPaymentDiscount(value: BulkProfessionalContractDto["paymentDiscount"]) {
+    if (value === "yes") return ProfessionalContractPaymentDiscount.PAYMENT_METHOD;
+    if (value === "fixed") return ProfessionalContractPaymentDiscount.FIXED_AMOUNT;
+    return ProfessionalContractPaymentDiscount.NONE;
+  }
+
+  private toPaymentCondition(value: BulkProfessionalContractDto["paymentCondition"]) {
+    if (value === "on_due") return ProfessionalContractPaymentCondition.ON_DUE;
+    if (value === "thirty_days") return ProfessionalContractPaymentCondition.THIRTY_DAYS;
+    return ProfessionalContractPaymentCondition.ANY_DUE_DATE;
   }
 
   private async validateForeignKeys(actor: AuthUser, userId?: string, specialtyIds?: string[], branchIds?: string[]) {

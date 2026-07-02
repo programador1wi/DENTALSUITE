@@ -37,8 +37,8 @@ export function UsersModuleNav({ actions, children, className }: UsersModuleNavP
 
   return (
     <WarnerSuitePanel className={cn("overflow-visible", className)}>
-      <nav className="relative z-20 flex min-h-[48px] flex-wrap items-stretch justify-between border-b border-slate-300 bg-gradient-to-b from-white to-slate-50">
-        <div className="flex flex-wrap items-stretch">
+      <nav className="relative z-20 flex min-h-[48px] flex-wrap items-stretch justify-between border-b border-[var(--border-default)] bg-white px-2">
+        <div className="flex flex-wrap items-center gap-1">
           <NavLink
             to="/settings/users"
             active={location.pathname === "/settings/users" && !status}
@@ -73,7 +73,7 @@ export function UsersModuleNav({ actions, children, className }: UsersModuleNavP
               return (
                 <MenuLink key={option.to} to={option.to}>
                   <Icon className="h-4 w-4 shrink-0 text-slate-400" />
-                  <span>{option.label}</span>
+                  <span className="truncate">{option.label}</span>
                 </MenuLink>
               );
             })}
@@ -88,7 +88,7 @@ export function UsersModuleNav({ actions, children, className }: UsersModuleNavP
           </NavLink>
         </div>
 
-        {actions ? <div className="flex items-center gap-2 px-3 py-2">{actions}</div> : null}
+        {actions ? <div className="flex items-center gap-2 px-3 py-1.5">{actions}</div> : null}
       </nav>
       <div className="p-4 sm:p-5">{children}</div>
     </WarnerSuitePanel>
@@ -105,11 +105,11 @@ function NavLink({
     <Link
       to={to}
       className={cn(
-        "flex min-h-[48px] items-center gap-1.5 border-r border-slate-200 px-4 text-sm text-slate-500 hover:text-[#0784d8]",
-        active && "bg-white text-[#333] shadow-[inset_0_-4px_0_#0695cf]"
+        "flex min-h-[48px] items-center gap-1.5 px-3.5 text-sm font-medium text-slate-500 transition-colors duration-[var(--duration-fast)] hover:text-[var(--text-brand)]",
+        active && "text-[var(--text-brand-strong)] font-semibold shadow-[inset_0_-3px_0_0_var(--text-brand)]"
       )}
     >
-      <span className="text-slate-500">{icon}</span>
+      <span className={cn("transition-colors", active ? "text-[var(--text-brand)]" : "text-slate-400")}>{icon}</span>
       <span>{children}</span>
     </Link>
   );
@@ -122,18 +122,18 @@ function NavMenu({
   label
 }: React.PropsWithChildren<{ active: boolean; icon: React.ReactNode; label: string }>) {
   return (
-    <details className="group relative border-r border-slate-200">
+    <details className="group relative">
       <summary
         className={cn(
-          "flex min-h-[48px] cursor-pointer list-none items-center gap-1.5 px-4 text-sm text-slate-500 hover:text-[#0784d8] [&::-webkit-details-marker]:hidden",
-          active && "bg-white text-[#333] shadow-[inset_0_-4px_0_#0695cf]"
+          "flex min-h-[48px] cursor-pointer list-none items-center gap-1.5 px-3.5 text-sm font-medium text-slate-500 transition-colors duration-[var(--duration-fast)] hover:text-[var(--text-brand)] [&::-webkit-details-marker]:hidden",
+          active && "text-[var(--text-brand-strong)] font-semibold shadow-[inset_0_-3px_0_0_var(--text-brand)]"
         )}
       >
-        <span className="text-slate-500">{icon}</span>
+        <span className={cn("transition-colors", active ? "text-[var(--text-brand)]" : "text-slate-400")}>{icon}</span>
         <span>{label}</span>
-        <ChevronDown className="h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+        <ChevronDown className="h-3.5 w-3.5 text-slate-400 transition-transform duration-200 group-open:rotate-180" />
       </summary>
-      <div className="absolute left-0 top-full z-30 min-w-[250px] rounded-b-md border border-slate-200 bg-white p-1.5 shadow-lg">
+      <div className="absolute left-0 top-[calc(100%+4px)] z-30 min-w-[220px] rounded-lg border border-[var(--border-default)] bg-white p-1.5 shadow-[0_4px_20px_rgba(4,44,83,0.08)] animate-in fade-in slide-in-from-top-2 duration-150">
         {children}
       </div>
     </details>
@@ -144,7 +144,7 @@ function MenuLink({ children, to }: React.PropsWithChildren<{ to: string }>) {
   return (
     <Link
       to={to}
-      className="flex w-full items-center gap-2 rounded px-2.5 py-2 text-left text-sm text-slate-600 hover:bg-sky-50 hover:text-[#0679c8]"
+      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm text-slate-600 transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--text-brand)]"
     >
       {children}
     </Link>

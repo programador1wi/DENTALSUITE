@@ -11,9 +11,13 @@ import { Select } from "@/components/ui/select";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { usePriceLists } from "@/features/settings/price-lists/hooks/use-price-lists";
 import { useProcedureCategories } from "@/features/settings/procedures/hooks/use-procedures";
-import { useProfessionals, useUpdateProfessional } from "@/features/settings/professionals/hooks/use-professionals";
+import { useBulkUpdateProfessionalContracts, useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { useBranchStore } from "@/stores/branch.store";
-import type { Professional } from "@/features/settings/professionals/services/professionals.service";
+import type {
+  BulkProfessionalContractPayload,
+  BulkProfessionalContractResult,
+  Professional
+} from "@/features/settings/professionals/services/professionals.service";
 import { UsersModuleNav } from "../components/users-module-nav";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -23,10 +27,10 @@ type SelectionMap = Record<string, string[]>;
 type BulkContractForm = {
   // Paso 2 — Configurar contrato
   commissionRate: string;
-  commissionBase: string;
-  paymentDiscount: string;
-  paymentCondition: string;
-  contractType: string;
+  commissionBase: BulkProfessionalContractPayload["commissionBase"];
+  paymentDiscount: BulkProfessionalContractPayload["paymentDiscount"];
+  paymentCondition: BulkProfessionalContractPayload["paymentCondition"];
+  contractType: BulkProfessionalContractPayload["contractType"];
   // Paso 3 — Montos fijos
   priceListId: string;
   // Paso 4 — Porcentajes avanzados
@@ -196,13 +200,13 @@ export function UsersBulkContractsPage() {
   const [keepPrevious, setKeepPrevious] = useState(true);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState("");
-  const [updatedCount, setUpdatedCount] = useState<number | null>(null);
+  const [lastResult, setLastResult] = useState<BulkProfessionalContractResult | null>(null);
 
   const branches = useBranches(undefined, "ACTIVE");
   const professionals = useProfessionals(search || undefined, "true", { branchId: activeBranchId || undefined, pageSize: 100 });
   const priceLists = usePriceLists(undefined, "true", activeBranchId || undefined);
   const categories = useProcedureCategories(undefined, "true");
-  const updateProfessional = useUpdateProfessional();
+  const bulkContracts = useBulkUpdateProfessionalContracts();
 
   const rows = professionals.data ?? [];
   const visibleBranches = useMemo(
@@ -295,17 +299,26 @@ export function UsersBulkContractsPage() {
     if (!rateValid || !selectedProfessionals.length) return;
     setApplying(true);
     setApplyError("");
-    setUpdatedCount(null);
+    setLastResult(null);
     try {
-      await Promise.all(
-        selectedProfessionals.map((p) =>
-          updateProfessional.mutateAsync({
-            id: p.id,
-            payload: { commissionRate: normalizedRate },
-          })
-        )
-      );
-      setUpdatedCount(selectedProfessionals.length);
+      const result = await bulkContracts.mutateAsync({
+        targets: selectedTargets.map(({ professional, branchId }) => ({
+          professionalId: professional.id,
+          branchIds: [branchId],
+        })),
+        commissionRate: normalizedRate,
+        commissionBase: form.commissionBase,
+        paymentDiscount: form.paymentDiscount,
+        paymentCondition: form.paymentCondition,
+        contractType: form.contractType,
+        priceListId: form.priceListId || undefined,
+        categoryRates: Object.entries(form.categoryRates)
+          .map(([procedureCategoryId, value]) => ({ procedureCategoryId, rate: Number(value) }))
+          .filter((rate) => Number.isFinite(rate.rate) && rate.rate > 0),
+        removeOtherBranches,
+        keepPrevious,
+      });
+      setLastResult(result);
     } catch (err) {
       setApplyError(
         err instanceof Error ? err.message : "No se pudieron actualizar los contratos."
@@ -508,7 +521,9 @@ export function UsersBulkContractsPage() {
                     Descto. medio de pago
                     <Select
                       value={form.paymentDiscount}
-                      onChange={(e) => setField("paymentDiscount", e.target.value)}
+                      onChange={(e) =>
+                        setField("paymentDiscount", e.target.value as BulkContractForm["paymentDiscount"])
+                      }
                     >
                       <option value="no">No</option>
                       <option value="yes">Sí</option>
@@ -521,7 +536,9 @@ export function UsersBulkContractsPage() {
                     Porcentaje sobre
                     <Select
                       value={form.commissionBase}
-                      onChange={(e) => setField("commissionBase", e.target.value)}
+                      onChange={(e) =>
+                        setField("commissionBase", e.target.value as BulkContractForm["commissionBase"])
+                      }
                     >
                       <option value="clinical">Acciones clínicas</option>
                       <option value="lab">Laboratorio</option>
@@ -534,7 +551,9 @@ export function UsersBulkContractsPage() {
                     Condiciones de pago
                     <Select
                       value={form.paymentCondition}
-                      onChange={(e) => setField("paymentCondition", e.target.value)}
+                      onChange={(e) =>
+                        setField("paymentCondition", e.target.value as BulkContractForm["paymentCondition"])
+                      }
                     >
                       <option value="no_due_date">
                         Se le pagarán al Dr. sin importar la fecha de vencimiento
@@ -549,7 +568,7 @@ export function UsersBulkContractsPage() {
                     Tipo de contrato
                     <Select
                       value={form.contractType}
-                      onChange={(e) => setField("contractType", e.target.value)}
+                      onChange={(e) => setField("contractType", e.target.value as BulkContractForm["contractType"])}
                     >
                       <option value="performed_and_paid">
                         Por prestación realizada y pagada
@@ -874,13 +893,17 @@ export function UsersBulkContractsPage() {
 
                 {/* Feedback de guardado */}
                 {applyError ? <ErrorState message={applyError} /> : null}
-                {updatedCount !== null ? (
+                {lastResult ? (
                   <Card className="border-emerald-200 bg-emerald-50/60 text-sm text-emerald-800">
                     <div className="flex items-center gap-2">
                       <Check className="h-4 w-4 text-emerald-600" />
                       Se actualizaron correctamente{" "}
-                      <span className="font-bold">{updatedCount}</span> contratos profesionales.
+                      <span className="font-bold">{lastResult.updatedProfessionals}</span> contratos profesionales.
                     </div>
+                    <p className="mt-2 text-xs text-emerald-700">
+                      {lastResult.updatedScopes} sucursales, {lastResult.fixedAmounts} montos fijos y{" "}
+                      {lastResult.categoryRates} porcentajes avanzados asociados.
+                    </p>
                   </Card>
                 ) : null}
 

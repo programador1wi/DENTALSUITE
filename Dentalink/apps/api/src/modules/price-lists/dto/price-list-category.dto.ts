@@ -1,4 +1,5 @@
-import { IsBoolean, IsInt, IsOptional, IsString } from "class-validator";
+import { ProcedureType } from "@prisma/client";
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString } from "class-validator";
 
 export class CreatePriceListCategoryDto {
   @IsString()
@@ -7,6 +8,10 @@ export class CreatePriceListCategoryDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsEnum(ProcedureType)
+  type?: ProcedureType;
 
   @IsOptional()
   @IsInt()
@@ -21,6 +26,10 @@ export class UpdatePriceListCategoryDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsEnum(ProcedureType)
+  type?: ProcedureType;
 
   @IsOptional()
   @IsInt()

@@ -1,10 +1,12 @@
 import { Calendar, Download, ListTodo, Target, Users } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils/cn";
 import { OnlineSchedulingNav } from "../components/online-scheduling-nav";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { getDashboardStats } from "../services/online-scheduling.service";
 
 const periods = [
   { id: "7", label: "7 dias" },
@@ -31,6 +33,15 @@ export function DashboardTab() {
   const [period, setPeriod] = useState("30");
   const [grain, setGrain] = useState("day");
 
+  const { data, isLoading } = useQuery({
+    queryKey: ['online-scheduling-dashboard', period, grain],
+    queryFn: () => getDashboardStats(period, grain)
+  });
+
+  const summary = data?.summary || { visits: 0, appointments: 0, conversionRate: 0 };
+  const byDay = data?.byDay || [];
+  const byCampaign = data?.byCampaign || [];
+
   return (
     <OnlineSchedulingNav>
       <div className="space-y-4 bg-slate-50 px-5 py-5">
@@ -44,8 +55,33 @@ export function DashboardTab() {
         </div>
 
         {activeTab === "campaigns" ? (
-          <Card className="flex min-h-72 items-center justify-center text-sm text-slate-400">
-            Selecciona una campana para analizar visitas y conversion.
+          <Card className="flex flex-col min-h-72 items-center justify-center p-6 text-sm text-slate-800">
+            {isLoading ? (
+              <p>Cargando campañas...</p>
+            ) : byCampaign.length === 0 ? (
+              <p className="text-slate-400">No hay datos de campañas para el periodo seleccionado.</p>
+            ) : (
+              <table className="w-full text-left mt-4 border border-slate-200">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-2 border-b">Campaña</th>
+                    <th className="px-4 py-2 border-b text-right">Visitas</th>
+                    <th className="px-4 py-2 border-b text-right">Citas</th>
+                    <th className="px-4 py-2 border-b text-right">Conversión</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {byCampaign.map((c: any) => (
+                    <tr key={c.campaignCode} className="border-b">
+                      <td className="px-4 py-2">{c.campaignName} ({c.campaignCode})</td>
+                      <td className="px-4 py-2 text-right">{c.visits}</td>
+                      <td className="px-4 py-2 text-right">{c.appointments}</td>
+                      <td className="px-4 py-2 text-right">{c.conversionRate.toFixed(1)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </Card>
         ) : (
           <>
@@ -76,9 +112,9 @@ export function DashboardTab() {
             </div>
 
             <div className="grid gap-3 md:grid-cols-3">
-              <Metric icon={<Users className="h-7 w-7" />} label="Visitas unicas totales" />
-              <Metric icon={<Calendar className="h-7 w-7" />} label="Citas agendadas" />
-              <Metric icon={<Target className="h-7 w-7" />} label="Conversion" />
+              <Metric icon={<Users className="h-7 w-7 text-sky-500" />} label="Visitas unicas totales" value={summary.visits} />
+              <Metric icon={<Calendar className="h-7 w-7 text-sky-500" />} label="Citas agendadas" value={summary.appointments} />
+              <Metric icon={<Target className="h-7 w-7 text-sky-500" />} label="Conversion" value={`${summary.conversionRate.toFixed(1)}%`} />
             </div>
 
             <Card className="rounded-lg p-5">
@@ -107,15 +143,7 @@ export function DashboardTab() {
               <div className="relative flex h-64 min-w-0 flex-col justify-center">
                 <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <LineChart
-                    data={[
-                      { date: "Abr 23", visitas: 400, citas: 240 },
-                      { date: "Abr 24", visitas: 300, citas: 139 },
-                      { date: "Abr 25", visitas: 200, citas: 980 },
-                      { date: "Abr 26", visitas: 278, citas: 390 },
-                      { date: "Abr 27", visitas: 189, citas: 480 },
-                      { date: "Abr 28", visitas: 239, citas: 380 },
-                      { date: "Abr 29", visitas: 349, citas: 430 },
-                    ]}
+                    data={byDay}
                     margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
@@ -142,18 +170,33 @@ export function DashboardTab() {
                   <div className="px-3 py-3">Citas agendadas / Visitas</div>
                 </div>
                 <div>
-                  <div className="grid grid-cols-10 border-b border-slate-200">
-                    {days.map((day) => (
-                      <div key={day} className="border-r border-slate-100 px-2 py-3 text-center text-xs text-slate-300 last:border-r-0">
-                        {day}
+                  <div className="grid border-b border-slate-200" style={{ gridTemplateColumns: `repeat(${byDay.length || 1}, minmax(0, 1fr))` }}>
+                    {byDay.map((d: any) => (
+                      <div key={d.date} className="border-r border-slate-100 px-2 py-3 text-center text-xs text-slate-400 last:border-r-0">
+                        {d.date}
                       </div>
                     ))}
                   </div>
-                  <div className="flex min-h-32 items-center justify-center bg-slate-50 text-center text-slate-300">
-                    <div>
-                      <ListTodo className="mx-auto mb-2 h-8 w-8" />
-                      <p className="font-semibold">No hay datos para mostrar</p>
-                    </div>
+                  <div className="grid border-b border-slate-200" style={{ gridTemplateColumns: `repeat(${byDay.length || 1}, minmax(0, 1fr))` }}>
+                    {byDay.map((d: any) => (
+                      <div key={`v-${d.date}`} className="border-r border-slate-100 px-2 py-3 text-center text-xs text-slate-800 last:border-r-0">
+                        {d.visitas}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid border-b border-slate-200" style={{ gridTemplateColumns: `repeat(${byDay.length || 1}, minmax(0, 1fr))` }}>
+                    {byDay.map((d: any) => (
+                      <div key={`c-${d.date}`} className="border-r border-slate-100 px-2 py-3 text-center text-xs text-slate-800 last:border-r-0">
+                        {d.citas}
+                      </div>
+                    ))}
+                  </div>
+                  <div className="grid border-b border-slate-200" style={{ gridTemplateColumns: `repeat(${byDay.length || 1}, minmax(0, 1fr))` }}>
+                    {byDay.map((d: any) => (
+                      <div key={`r-${d.date}`} className="border-r border-slate-100 px-2 py-3 text-center text-xs text-slate-800 last:border-r-0">
+                        {d.visitas > 0 ? ((d.citas / d.visitas) * 100).toFixed(1) + '%' : '0%'}
+                      </div>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -177,13 +220,13 @@ function DashboardSubtab({ active, label, onClick }: { active: boolean; label: s
   );
 }
 
-function Metric({ icon, label }: { icon: React.ReactNode; label: string }) {
+function Metric({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
   return (
     <Card className="flex min-h-28 items-center gap-4 rounded-lg p-6">
       <span className="flex h-16 w-16 items-center justify-center rounded-full bg-slate-100 text-slate-300">{icon}</span>
       <span>
-        <span className="block text-sm font-medium text-slate-300">{label}</span>
-        <span className="block text-xl font-semibold text-slate-300">-</span>
+        <span className="block text-sm font-medium text-slate-500">{label}</span>
+        <span className="block text-2xl font-semibold text-slate-800">{value}</span>
       </span>
     </Card>
   );

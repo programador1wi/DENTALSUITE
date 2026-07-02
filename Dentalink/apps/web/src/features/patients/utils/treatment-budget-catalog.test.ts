@@ -121,6 +121,7 @@ function itemFixture({
       displayId: 1,
       code,
       name,
+      type: "CLINICAL",
       defaultDuration: 30,
       requiresTooth,
       requiresSurface,

@@ -1,6 +1,6 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
-import { Check, MapPin, Pencil, Save, Settings, Tags, Trash2, X } from "lucide-react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Copy, Download, MapPin, Pencil, Save, Settings, Tags, Trash2, Upload, X } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -35,10 +35,11 @@ import type {
   PriceListCategory,
   PriceListItem,
   PriceListPayload,
-  PriceListScopeType
+  PriceListScopeType,
+  ProcedureType
 } from "../services/price-lists.service";
 
-type PriceSection = "clinical" | "availability";
+type PriceSection = "all" | "clinical" | "lab" | "availability";
 type Currency = "MXN" | "USD" | "EUR";
 
 type ListForm = {
@@ -55,6 +56,7 @@ type PriceProcedure = Pick<
   | "code"
   | "name"
   | "description"
+  | "type"
   | "defaultDuration"
   | "requiresTooth"
   | "requiresSurface"
@@ -65,12 +67,14 @@ type PriceProcedure = Pick<
 type CategoryForm = {
   name: string;
   description: string;
+  type: ProcedureType;
   sortOrder: string;
 };
 
 type ProductRowForm = {
   code: string;
   name: string;
+  type: ProcedureType;
   allowsDiscount: boolean;
   price: string;
   labCost: string;
@@ -85,6 +89,7 @@ const emptyListForm: ListForm = {
 const emptyProductRowForm: ProductRowForm = {
   code: "",
   name: "",
+  type: "CLINICAL",
   allowsDiscount: false,
   price: "",
   labCost: "0"
@@ -93,7 +98,14 @@ const emptyProductRowForm: ProductRowForm = {
 const emptyCategoryForm: CategoryForm = {
   name: "",
   description: "",
+  type: "CLINICAL",
   sortOrder: "0"
+};
+
+const PROCEDURE_TYPE_LABELS: Record<ProcedureType, string> = {
+  CLINICAL: "Accion clinica",
+  LAB: "Laboratorio",
+  MIXED: "Clinica + laboratorio"
 };
 
 function normalizeItems(items: PriceListItem[]) {
@@ -150,6 +162,25 @@ function proceduresForPriceCategory(category: PriceListCategory) {
   return [...byId.values()];
 }
 
+function procedureType(procedure: Pick<PriceProcedure, "type" | "requiresLab">): ProcedureType {
+  return procedure.type ?? (procedure.requiresLab ? "MIXED" : "CLINICAL");
+}
+
+function categoryType(category: PriceListCategory): ProcedureType {
+  if (category.procedureCategory?.type) return category.procedureCategory.type;
+  const procedures = proceduresForPriceCategory(category);
+  if (procedures.some((procedure) => procedureType(procedure) === "LAB")) return "LAB";
+  if (procedures.some((procedure) => procedureType(procedure) === "MIXED")) return "MIXED";
+  return "CLINICAL";
+}
+
+function matchesPriceSection(category: PriceListCategory, section: PriceSection) {
+  if (section === "all" || section === "availability") return true;
+  const type = categoryType(category);
+  if (section === "clinical") return type === "CLINICAL" || type === "MIXED";
+  return type === "LAB" || type === "MIXED";
+}
+
 function categoryMatchesSearch(category: PriceListCategory, search: string) {
   const normalizedSearch = search.trim().toLowerCase();
   const procedures = proceduresForPriceCategory(category);
@@ -172,11 +203,59 @@ function decimalInput(value: string, fallback = "0") {
   return amount.toFixed(2);
 }
 
+function csvCell(value: string | number | boolean | null | undefined) {
+  const raw = String(value ?? "");
+  return `"${raw.replace(/"/g, '""')}"`;
+}
+
+function parseCsvLine(line: string) {
+  const cells: string[] = [];
+  let current = "";
+  let quoted = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === '"' && line[index + 1] === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+    if (char === '"') {
+      quoted = !quoted;
+      continue;
+    }
+    if (char === "," && !quoted) {
+      cells.push(current);
+      current = "";
+      continue;
+    }
+    current += char;
+  }
+
+  cells.push(current);
+  return cells;
+}
+
+function parsePriceListCsv(text: string) {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim());
+  const [, ...rows] = lines;
+  return rows.map((line) => {
+    const [procedureId, , , , , price, labCost, allowsDiscount, currency] = parseCsvLine(line);
+    return {
+      procedureId,
+      price,
+      labCost,
+      allowsDiscount: allowsDiscount.toLowerCase() === "true" || allowsDiscount.toLowerCase() === "si",
+      currency: (currency || "MXN") as Currency
+    };
+  }).filter((row) => row.procedureId);
+}
+
 export function PriceListsSettingsPage() {
   const [params, setParams] = useSearchParams();
-  const navigate = useNavigate();
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const [search, setSearch] = useState("");
-  const [section, setSection] = useState<PriceSection>("clinical");
+  const [section, setSection] = useState<PriceSection>("all");
   const [selectedListId, setSelectedListId] = useState("");
   const [listForm, setListForm] = useState<ListForm>(emptyListForm);
   const [listModalMode, setListModalMode] = useState<"create" | "edit" | null>(null);
@@ -220,9 +299,16 @@ export function PriceListsSettingsPage() {
   const normalizedSearch = search.trim().toLowerCase();
   const sectionProcedures = selectedCategory
     ? proceduresForPriceCategory(selectedCategory)
+        .filter((procedure) => {
+          if (section === "clinical") return procedureType(procedure) === "CLINICAL" || procedureType(procedure) === "MIXED";
+          if (section === "lab") return procedureType(procedure) === "LAB" || procedureType(procedure) === "MIXED";
+          return true;
+        })
         .filter((procedure) => procedureMatchesSearch(procedure, normalizedSearch))
     : [];
-  const filteredCategories = (selectedList?.categories ?? []).filter((category) => categoryMatchesSearch(category, search));
+  const filteredCategories = (selectedList?.categories ?? [])
+    .filter((category) => matchesPriceSection(category, section))
+    .filter((category) => categoryMatchesSearch(category, search));
   const priceSearchSuggestions = useMemo(
     () =>
       (selectedList?.categories ?? []).flatMap((category) => [
@@ -287,7 +373,10 @@ export function PriceListsSettingsPage() {
   const openCreateCategory = () => {
     if (!selectedList) return;
     setEditingCategory(null);
-    setCategoryForm(emptyCategoryForm);
+    setCategoryForm({
+      ...emptyCategoryForm,
+      type: section === "lab" ? "LAB" : "CLINICAL"
+    });
     setCategoryModalMode("create");
   };
 
@@ -296,6 +385,7 @@ export function PriceListsSettingsPage() {
     setCategoryForm({
       name: category.name,
       description: category.description ?? "",
+      type: categoryType(category),
       sortOrder: String(category.sortOrder)
     });
     setCategoryModalMode("edit");
@@ -337,7 +427,10 @@ export function PriceListsSettingsPage() {
 
   const openAddProduct = () => {
     setEditingProcedureId(null);
-    setProductForm(emptyProductRowForm);
+    setProductForm({
+      ...emptyProductRowForm,
+      type: section === "lab" ? "LAB" : selectedCategory ? categoryType(selectedCategory) : "CLINICAL"
+    });
     setAddingProduct(true);
   };
 
@@ -348,6 +441,7 @@ export function PriceListsSettingsPage() {
     setProductForm({
       code: procedure.code,
       name: procedure.name,
+      type: procedureType(procedure),
       allowsDiscount: item?.allowsDiscount ?? false,
       price: item?.price ?? "0",
       labCost: item?.labCost ?? "0"
@@ -362,10 +456,11 @@ export function PriceListsSettingsPage() {
       categoryId: selectedCategory.procedureCategoryId,
       code: productForm.code.trim(),
       name: productForm.name.trim(),
+      type: productForm.type,
       defaultDuration: 30,
       requiresTooth: false,
       requiresSurface: false,
-      requiresLab: Number(productForm.labCost) > 0
+      requiresLab: productForm.type !== "CLINICAL" || Number(productForm.labCost) > 0
     };
 
     const procedure = editingProcedureId
@@ -398,6 +493,94 @@ export function PriceListsSettingsPage() {
     await updateBranchAssignments.mutateAsync({ id: selectedList.id, assignments });
   };
 
+  const duplicateSelectedList = async () => {
+    if (!selectedList) return;
+
+    const created = await createList.mutateAsync({
+      name: `${selectedList.name} copia`,
+      description: selectedList.description ?? undefined,
+      isDefault: false,
+      items: []
+    });
+
+    const categoryIdMap = new Map<string, string>();
+    for (const category of selectedList.categories) {
+      const cloned = await categoryMutations.createCategory.mutateAsync({
+        priceListId: created.id,
+        payload: {
+          name: category.name,
+          description: category.description ?? undefined,
+          type: categoryType(category),
+          sortOrder: category.sortOrder
+        }
+      });
+      categoryIdMap.set(category.id, cloned.id);
+    }
+
+    await updateList.mutateAsync({
+      id: created.id,
+      payload: {
+        items: normalizeItems(selectedList.items).map((item) => ({
+          ...item,
+          priceListCategoryId: item.priceListCategoryId
+            ? categoryIdMap.get(item.priceListCategoryId)
+            : undefined
+        }))
+      }
+    });
+    setSelectedListId(created.id);
+  };
+
+  const exportSelectedListCsv = () => {
+    if (!selectedList) return;
+    const rows = [
+      ["procedureId", "category", "code", "name", "type", "price", "labCost", "allowsDiscount", "currency"]
+        .map(csvCell)
+        .join(","),
+      ...selectedList.items.map((item) =>
+        [
+          item.procedureId,
+          item.priceListCategory?.name ?? item.procedure.categoryId,
+          item.procedure.code,
+          item.procedure.name,
+          procedureType(item.procedure),
+          item.price,
+          item.labCost,
+          item.allowsDiscount,
+          item.currency
+        ]
+          .map(csvCell)
+          .join(",")
+      )
+    ];
+    const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${selectedList.name.replace(/\s+/g, "_").toLowerCase()}_precios.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importSelectedListCsv = async (file: File) => {
+    if (!selectedList) return;
+    const importedRows = parsePriceListCsv(await file.text());
+    if (!importedRows.length) return;
+    const currentByProcedureId = new Map(normalizeItems(selectedList.items).map((item) => [item.procedureId, item]));
+    importedRows.forEach((row) => {
+      const current = currentByProcedureId.get(row.procedureId);
+      currentByProcedureId.set(row.procedureId, {
+        procedureId: row.procedureId,
+        priceListCategoryId: current?.priceListCategoryId,
+        price: decimalInput(row.price),
+        labCost: decimalInput(row.labCost),
+        allowsDiscount: row.allowsDiscount,
+        currency: row.currency
+      });
+    });
+    await persistItems([...currentByProcedureId.values()]);
+  };
+
   const submitCategory = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedList || !categoryForm.name.trim()) return;
@@ -405,6 +588,7 @@ export function PriceListsSettingsPage() {
     const payload = {
       name: categoryForm.name.trim(),
       description: categoryForm.description.trim() || undefined,
+      type: categoryForm.type,
       sortOrder: asSortOrder(categoryForm.sortOrder)
     };
 
@@ -441,24 +625,50 @@ export function PriceListsSettingsPage() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between px-5 pt-4">
           <Tabs
             active={section}
-            onChange={(next) => {
-              if (next === "lab") {
-                navigate("/labs");
-                return;
-              }
-              setSection(next as PriceSection);
-            }}
+            onChange={(next) => setSection(next as PriceSection)}
             items={[
+              { key: "all", label: "Listado de precios" },
               { key: "clinical", label: "Acciones clinicas" },
               { key: "lab", label: "Laboratorio" },
               { key: "availability", label: "Sucursales" }
             ]}
           />
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={duplicateSelectedList}
+              disabled={!selectedList || createList.isPending || updateList.isPending || categoryMutations.createCategory.isPending}
+            >
+              <Copy className="mr-1 h-4 w-4" />
+              Plantillas
+            </Button>
+            <Button variant="secondary" onClick={exportSelectedListCsv} disabled={!selectedList}>
+              <Download className="mr-1 h-4 w-4" />
+              Exportar CSV
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={() => importInputRef.current?.click()}
+              disabled={!selectedList || updateList.isPending}
+            >
+              <Upload className="mr-1 h-4 w-4" />
+              Importar CSV
+            </Button>
             <Button onClick={openCreateList}>Nuevo listado</Button>
             <Link to="/settings/procedures">
               <Button variant="secondary">Catalogo</Button>
             </Link>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) void importSelectedListCsv(file);
+                event.target.value = "";
+              }}
+            />
           </div>
         </div>
 
@@ -659,6 +869,21 @@ export function PriceListsSettingsPage() {
                 setCategoryForm((current) => ({ ...current, description: event.target.value }))
               }
             />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Tipo
+            <Select
+              value={categoryForm.type}
+              onChange={(event) =>
+                setCategoryForm((current) => ({ ...current, type: event.target.value as ProcedureType }))
+              }
+            >
+              {Object.entries(PROCEDURE_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
           </label>
           <label className="block text-sm font-medium text-slate-700">
             Orden
@@ -1055,6 +1280,7 @@ function CategoryList({
             <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-5 py-3">Categoria</th>
+                <th className="px-5 py-3">Tipo</th>
                 <th className="px-5 py-3">Prestaciones</th>
                 <th className="px-5 py-3 text-right">Acciones</th>
               </tr>
@@ -1075,6 +1301,9 @@ function CategoryList({
                       {category.description ? (
                         <p className="mt-1 text-xs text-slate-500">{category.description}</p>
                       ) : null}
+                    </td>
+                    <td className="px-5 py-4">
+                      <Badge value={PROCEDURE_TYPE_LABELS[categoryType(category)]} tone="default" />
                     </td>
                     <td className="px-5 py-4">{visibleProcedures.length || "-"}</td>
                     <td className="px-5 py-4">
@@ -1150,7 +1379,7 @@ function CategoryDetail({
           <h2 className="text-lg font-semibold text-slate-900">
             {list?.name ?? "Listado"} / {category.name}
           </h2>
-          <p className="text-sm text-slate-500">Acciones clinicas</p>
+          <p className="text-sm text-slate-500">{PROCEDURE_TYPE_LABELS[categoryType(category)]}</p>
         </div>
         <Button onClick={onAddProduct} disabled={!category.procedureCategoryId || editing}>
           Agregar producto
@@ -1176,6 +1405,7 @@ function CategoryDetail({
                 <th className="w-[120px] px-4 py-3">ID</th>
                 <th className="w-[120px] px-4 py-3">Codigo</th>
                 <th className="min-w-[260px] px-4 py-3">Nombre</th>
+                <th className="w-[170px] px-4 py-3">Tipo</th>
                 <th className="w-[150px] px-4 py-3">Permite descuento</th>
                 <th className="w-[150px] px-4 py-3">Precio final</th>
                 <th className="w-[160px] px-4 py-3">Costo Laboratorio</th>
@@ -1204,6 +1434,7 @@ function CategoryDetail({
                     <td className="px-4 py-3 font-mono text-xs text-slate-500">{procedure.displayId}</td>
                     <td className="px-4 py-3 font-medium text-slate-700">{procedure.code}</td>
                     <td className="px-4 py-3 font-semibold text-slate-900">{procedure.name}</td>
+                    <td className="px-4 py-3">{PROCEDURE_TYPE_LABELS[procedureType(procedure)]}</td>
                     <td className="px-4 py-3">{price?.allowsDiscount ? "Si" : "No"}</td>
                     <td className="px-4 py-3 font-semibold text-slate-900">
                       {money(price?.price, price?.currency)}
@@ -1298,6 +1529,19 @@ function ProductEditRow({
           onChange={(event) => onChange({ ...form, name: event.target.value })}
           className="h-8"
         />
+      </td>
+      <td className="px-4 py-3">
+        <Select
+          value={form.type}
+          onChange={(event) => onChange({ ...form, type: event.target.value as ProcedureType })}
+          className="h-8"
+        >
+          {Object.entries(PROCEDURE_TYPE_LABELS).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
       </td>
       <td className="px-4 py-3">
         <input

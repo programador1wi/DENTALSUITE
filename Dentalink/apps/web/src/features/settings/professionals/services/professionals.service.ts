@@ -63,6 +63,36 @@ export type ProfessionalBranchTransferResult = {
   schedulesCopied: number;
 };
 
+export type BulkProfessionalContractPayload = {
+  targets: { professionalId: string; branchIds: string[] }[];
+  commissionRate: number;
+  commissionBase: "clinical" | "lab" | "all";
+  paymentDiscount: "no" | "yes" | "fixed";
+  paymentCondition: "no_due_date" | "on_due" | "thirty_days";
+  contractType: "performed_and_paid" | "performed";
+  priceListId?: string;
+  categoryRates?: { procedureCategoryId: string; rate: number }[];
+  removeOtherBranches?: boolean;
+  keepPrevious?: boolean;
+};
+
+export type BulkProfessionalContractResult = {
+  updatedProfessionals: number;
+  updatedScopes: number;
+  fixedAmounts: number;
+  categoryRates: number;
+  contracts: {
+    id: string;
+    professionalId: string;
+    branchIds: string[];
+    commissionRate: number;
+    priceListId?: string | null;
+    priceListName?: string | null;
+    categoryRates: number;
+    fixedAmounts: number;
+  }[];
+};
+
 export async function listProfessionals(params?: {
   search?: string;
   active?: string;
@@ -91,5 +121,10 @@ export async function deactivateProfessional(id: string) {
 
 export async function transferProfessionalBranch(payload: ProfessionalBranchTransferPayload) {
   const { data } = await http.post<ProfessionalBranchTransferResult>("/professionals/branch-transfer", payload);
+  return data;
+}
+
+export async function bulkUpdateProfessionalContracts(payload: BulkProfessionalContractPayload) {
+  const { data } = await http.post<BulkProfessionalContractResult>("/professionals/contracts/bulk", payload);
   return data;
 }

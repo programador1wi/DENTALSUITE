@@ -107,6 +107,12 @@ const REFUND_STATUS_LABELS: Record<RefundStatus, string> = {
   REJECTED: "Rechazado"
 };
 
+const PRICE_SOURCE_LABELS = {
+  PRICE_LIST: "Arancel",
+  MANUAL: "Manual",
+  UNPRICED: "Sin precio"
+} as const;
+
 const FDI_PERMANENT_TEETH = [
   "18",
   "17",
@@ -414,8 +420,6 @@ export function PatientTreatmentsPage() {
         toothNumber: item.procedure.requiresTooth ? selectedTooth : undefined,
         surface: item.procedure.requiresSurface ? selectedSurface : undefined,
         quantity: 1,
-        unitPrice: numberValue(item.price),
-        discount: 0,
         syncOdontogram: Boolean(item.procedure.requiresTooth && selectedTooth)
       }
     });
@@ -1616,6 +1620,10 @@ function TreatmentItemsTable({
                     <span className="min-w-0">
                       <span className="line-clamp-2 text-xs font-semibold uppercase leading-snug text-slate-900">{procedureLabel}</span>
                       {item.section?.name ? <span className="mt-1 block text-[11px] text-slate-500">{item.section.name}</span> : null}
+                      <span className="mt-1 block truncate text-[11px] text-slate-500">
+                        {PRICE_SOURCE_LABELS[item.priceSource ?? "MANUAL"]}
+                        {item.priceSnapshotName ? ` - ${item.priceSnapshotName}` : ""}
+                      </span>
                     </span>
 
                     <span className="flex justify-center">
@@ -1725,6 +1733,11 @@ function TreatmentItemsTable({
                             {item.status === "COMPLETED" ? "Prestación marcada como realizada" : "Esta prestación aun no ha sido realizada"}
                           </p>
                           {toothLabel ? <p className="mt-2 text-xs text-slate-600">Pieza {toothLabel}{surfaces ? ` · ${surfaces}` : ""}</p> : null}
+                          <p className="mt-2 text-xs text-slate-600">
+                            Origen precio: {PRICE_SOURCE_LABELS[item.priceSource ?? "MANUAL"]}
+                            {item.priceSnapshotName ? ` - ${item.priceSnapshotName}` : ""}
+                            {item.priceSnapshotCategory ? ` - ${item.priceSnapshotCategory}` : ""}
+                          </p>
                           {item.notes ? <p className="mt-2 text-xs text-slate-600">{item.notes}</p> : null}
                         </div>
                       </div>
@@ -2039,7 +2052,6 @@ function PlanProcedureModal({
     toothNumber?: string;
     surface?: string;
     quantity: number;
-    unitPrice: number;
     discount: number;
     notes?: string;
   }) => Promise<void>;
@@ -2067,6 +2079,7 @@ function PlanProcedureModal({
   }, [priceList, procedureId]);
 
   const selectedProcedure = procedures.find((procedure) => procedure.id === procedureId);
+  const selectedPriceItem = priceList?.items.find((item) => item.procedureId === procedureId) ?? null;
   const total = Math.max(numberValue(quantity) * numberValue(unitPrice) - numberValue(discount), 0);
 
   return (
@@ -2096,7 +2109,7 @@ function PlanProcedureModal({
       </div>
 
       <div className="mt-3 grid gap-3 md:grid-cols-3">
-        <Input value={unitPrice} type="number" min={0} step={0.01} onChange={(event) => setUnitPrice(event.target.value)} placeholder="Precio" />
+        <Input value={unitPrice} type="number" min={0} step={0.01} readOnly placeholder="Precio" />
         <Input value={discount} type="number" min={0} step={0.01} onChange={(event) => setDiscount(event.target.value)} placeholder="Descuento" />
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
           <p className="text-xs text-slate-500">Total</p>
@@ -2109,6 +2122,9 @@ function PlanProcedureModal({
       <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
         <p>
           Arancel: <span className="font-semibold text-slate-900">{priceList?.name ?? "Sin lista activa"}</span>
+        </p>
+        <p>
+          Origen precio: <span className="font-semibold text-slate-900">{selectedPriceItem ? "Listado vigente" : "Sin precio configurado"}</span>
         </p>
         <p>
           Procedimiento: <span className="font-semibold text-slate-900">{selectedProcedure ? `${selectedProcedure.code} - ${selectedProcedure.name}` : "No seleccionado"}</span>
@@ -2131,7 +2147,6 @@ function PlanProcedureModal({
               toothNumber,
               surface: surface || undefined,
               quantity: numberValue(quantity) || 1,
-              unitPrice: numberValue(unitPrice),
               discount: numberValue(discount),
               notes: notes || undefined
             })

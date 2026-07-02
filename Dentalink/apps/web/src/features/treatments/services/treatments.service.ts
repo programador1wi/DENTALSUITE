@@ -3,6 +3,7 @@ import { http } from "@/lib/api/http-client";
 export type TreatmentPlanStatus = "DRAFT" | "PRESENTED" | "ACCEPTED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED" | "REJECTED";
 export type TreatmentPlanItemStatus = "PLANNED" | "ACCEPTED" | "PAID" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
 export type BudgetStatus = "DRAFT" | "SENT" | "ACCEPTED" | "REJECTED" | "EXPIRED" | "CANCELLED";
+export type TreatmentPriceSource = "PRICE_LIST" | "MANUAL" | "UNPRICED";
 
 export type TreatmentPlan = {
   id: string;
@@ -40,6 +41,13 @@ export type TreatmentPlanItem = {
   discount: string;
   total: string;
   status: TreatmentPlanItemStatus;
+  priceListId?: string | null;
+  priceListItemId?: string | null;
+  priceSource?: TreatmentPriceSource;
+  priceSnapshotName?: string | null;
+  priceSnapshotCode?: string | null;
+  priceSnapshotCategory?: string | null;
+  priceResolvedAt?: string | null;
   plannedAt?: string | null;
   completedAt?: string | null;
   notes?: string | null;
@@ -96,8 +104,8 @@ export type CreateTreatmentPlanPayload = {
     toothNumber?: string;
     surface?: string;
     quantity: number;
-    unitPrice: number;
-    discount: number;
+    unitPrice?: number;
+    discount?: number;
     notes?: string;
   }>;
 };

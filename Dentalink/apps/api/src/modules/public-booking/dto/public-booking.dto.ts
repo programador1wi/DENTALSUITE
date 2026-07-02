@@ -64,4 +64,8 @@ export class PublicCreateAppointmentDto {
   @IsNotEmpty()
   @IsObject()
   patient!: PublicPatientDto;
+
+  @IsOptional()
+  @IsString()
+  campaignCode?: string;
 }

@@ -29,6 +29,18 @@ enum BranchPriceListType {
   ADICIONAL
 }
 
+enum ProcedureType {
+  CLINICAL
+  LAB
+  MIXED
+}
+
+enum TreatmentPriceSource {
+  PRICE_LIST
+  MANUAL
+  UNPRICED
+}
+
 enum PaymentMethodType {
   CASH
   CARD
@@ -229,6 +241,29 @@ enum ProfessionalBranchStatus {
   ENDED
 }
 
+enum ProfessionalContractType {
+  PERFORMED_AND_PAID
+  PERFORMED
+}
+
+enum ProfessionalContractCommissionBase {
+  CLINICAL
+  LAB
+  ALL
+}
+
+enum ProfessionalContractPaymentDiscount {
+  NONE
+  PAYMENT_METHOD
+  FIXED_AMOUNT
+}
+
+enum ProfessionalContractPaymentCondition {
+  ANY_DUE_DATE
+  ON_DUE
+  THIRTY_DAYS
+}
+
 model Organization {
   id                          String                       @id @default(cuid())
   name                        String
@@ -245,6 +280,7 @@ model Organization {
   users                       User[]
   roles                       Role[]
   professionals               Professional[]
+  professionalContracts       ProfessionalContract[]
   professionalBranchTransfers ProfessionalBranchTransfer[]
   patients                    Patient[]
   appointments                Appointment[]
@@ -289,6 +325,8 @@ model Organization {
   deletedAt                   DateTime?
 
   onlineSchedulingConfigs          OnlineSchedulingConfig[]
+  onlineSchedulingCampaigns        OnlineSchedulingCampaign[]
+  onlineSchedulingEvents           OnlineSchedulingEvent[]
   treatmentPlanReferrals           TreatmentPlanReferral[]
   payrollDiscounts                 PayrollDiscount[]
   procedureEvolutionFieldTemplates ProcedureEvolutionFieldTemplate[]
@@ -324,6 +362,7 @@ model Branch {
   status                       BranchStatus                  @default(ACTIVE)
   users                        UserBranch[]
   professionalBranches         ProfessionalBranch[]
+  professionalContractBranches ProfessionalContractBranch[]
   professionalBranchTransfers  ProfessionalBranchTransfer[]
   professionalSchedules        ProfessionalSchedule[]
   professionalSpecialSchedules ProfessionalSpecialSchedule[]
@@ -577,14 +616,83 @@ model Professional {
   periodontalCharts       PeriodontalChart[]
   labOrders               LabOrder[]
   payrollLiquidations     PayrollLiquidation[]
+  contracts               ProfessionalContract[]
   commissionRate          Decimal                       @default(0) @db.Decimal(5, 2)
   createdAt               DateTime                      @default(now())
   updatedAt               DateTime                      @updatedAt
 
   treatmentPlanReferrals TreatmentPlanReferral[]
+  onlineSchedulingCampaigns OnlineSchedulingCampaign[]
 
   @@unique([organizationId, email])
   @@index([organizationId, isActive])
+}
+
+model ProfessionalContract {
+  id                  String                               @id @default(cuid())
+  organizationId      String
+  organization        Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  professionalId      String
+  professional        Professional                         @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  contractType        ProfessionalContractType             @default(PERFORMED_AND_PAID)
+  commissionBase      ProfessionalContractCommissionBase   @default(CLINICAL)
+  paymentDiscount     ProfessionalContractPaymentDiscount  @default(NONE)
+  paymentCondition    ProfessionalContractPaymentCondition @default(ANY_DUE_DATE)
+  commissionRate      Decimal                              @default(0) @db.Decimal(5, 2)
+  priceListId         String?
+  priceListName       String?
+  isActive            Boolean                              @default(true)
+  startsAt            DateTime                             @default(now())
+  endsAt              DateTime?
+  createdById         String?
+  branches            ProfessionalContractBranch[]
+  categoryRates       ProfessionalContractCategoryRate[]
+  fixedAmounts        ProfessionalContractFixedAmount[]
+  payrollLiquidations PayrollLiquidation[]
+  createdAt           DateTime                             @default(now())
+  updatedAt           DateTime                             @updatedAt
+
+  @@index([organizationId, isActive])
+  @@index([professionalId, isActive, startsAt])
+}
+
+model ProfessionalContractBranch {
+  contractId String
+  branchId   String
+  contract   ProfessionalContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  branch     Branch               @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdAt  DateTime             @default(now())
+
+  @@id([contractId, branchId])
+  @@index([branchId])
+}
+
+model ProfessionalContractCategoryRate {
+  id                  String               @id @default(cuid())
+  contractId          String
+  contract            ProfessionalContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  procedureCategoryId String
+  procedureCategory   ProcedureCategory    @relation(fields: [procedureCategoryId], references: [id], onDelete: Restrict)
+  rate                Decimal              @db.Decimal(5, 2)
+  createdAt           DateTime             @default(now())
+
+  @@unique([contractId, procedureCategoryId])
+  @@index([procedureCategoryId])
+}
+
+model ProfessionalContractFixedAmount {
+  id          String               @id @default(cuid())
+  contractId  String
+  contract    ProfessionalContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  procedureId String
+  procedure   Procedure            @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  priceListId String?
+  amount      Decimal              @db.Decimal(10, 2)
+  currency    String               @default("MXN")
+  createdAt   DateTime             @default(now())
+
+  @@unique([contractId, procedureId])
+  @@index([procedureId])
 }
 
 model PayrollLiquidation {
@@ -595,6 +703,9 @@ model PayrollLiquidation {
   professional    Professional             @relation(fields: [professionalId], references: [id], onDelete: Restrict)
   branchId        String?
   branch          Branch?                  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  professionalContractId String?
+  professionalContract   ProfessionalContract? @relation(fields: [professionalContractId], references: [id], onDelete: SetNull)
+  contractSnapshot Json?
   commissionRate  Decimal                  @db.Decimal(5, 2)
   completedItems  Int
   collectedAmount Decimal                  @db.Decimal(10, 2)
@@ -610,6 +721,7 @@ model PayrollLiquidation {
   @@index([organizationId, finalizedAt])
   @@index([professionalId, finalizedAt])
   @@index([branchId, finalizedAt])
+  @@index([professionalContractId])
 }
 
 model PayrollLiquidationItem {
@@ -620,6 +732,8 @@ model PayrollLiquidationItem {
   treatmentPlanItem   TreatmentPlanItem  @relation(fields: [treatmentPlanItemId], references: [id], onDelete: Restrict)
   collectedAmount     Decimal            @db.Decimal(10, 2)
   payableAmount       Decimal            @db.Decimal(10, 2)
+  commissionRate      Decimal?           @db.Decimal(5, 2)
+  contractRule         Json?
   createdAt           DateTime           @default(now())
 
   @@index([liquidationId])
@@ -843,9 +957,11 @@ model ProcedureCategory {
   organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name                String
   description         String?
+  type                ProcedureType        @default(CLINICAL)
   sortOrder           Int                 @default(0)
   procedures          Procedure[]
   priceListCategories PriceListCategory[]
+  professionalContractCategoryRates ProfessionalContractCategoryRate[]
   isActive            Boolean             @default(true)
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
@@ -864,6 +980,7 @@ model Procedure {
   code               String
   name               String
   description        String?
+  type               ProcedureType                     @default(CLINICAL)
   defaultDuration    Int                               @default(30)
   requiresTooth      Boolean                           @default(false)
   requiresSurface    Boolean                           @default(false)
@@ -871,6 +988,7 @@ model Procedure {
   isActive           Boolean                           @default(true)
   labAssignments     LabProcedureAssignment[]
   priceListItems     PriceListItem[]
+  professionalContractFixedAmounts ProfessionalContractFixedAmount[]
   odontogramRecords  OdontogramRecord[]
   toothProcedures    ToothProcedure[]
   treatmentPlanItems TreatmentPlanItem[]
@@ -898,6 +1016,7 @@ model PriceList {
   items             PriceListItem[]
   branchAssignments BranchPriceList[]
   agreements        Agreement[]
+  treatmentPlanItems TreatmentPlanItem[]
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
@@ -1023,6 +1142,7 @@ model PriceListItem {
   labCost             Decimal            @default(0) @db.Decimal(10, 2)
   allowsDiscount      Boolean            @default(false)
   currency            CurrencyCode       @default(MXN)
+  treatmentPlanItems  TreatmentPlanItem[]
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
@@ -1602,6 +1722,15 @@ model TreatmentPlanItem {
   discount               Decimal                 @default(0) @db.Decimal(10, 2)
   total                  Decimal                 @db.Decimal(10, 2)
   status                 TreatmentPlanItemStatus @default(PLANNED)
+  priceListId            String?
+  priceList              PriceList?              @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  priceListItemId        String?
+  priceListItem          PriceListItem?          @relation(fields: [priceListItemId], references: [id], onDelete: SetNull)
+  priceSource            TreatmentPriceSource    @default(MANUAL)
+  priceSnapshotName      String?
+  priceSnapshotCode      String?
+  priceSnapshotCategory  String?
+  priceResolvedAt        DateTime?
   notes                  String?
   plannedAt              DateTime?
   completedAt            DateTime?
@@ -1624,6 +1753,8 @@ model TreatmentPlanItem {
   @@index([treatmentPlanId, status])
   @@index([sectionId])
   @@index([procedureId])
+  @@index([priceListId])
+  @@index([priceListItemId])
   @@index([toothNumber, surface])
 }
 
@@ -2370,6 +2501,35 @@ model OnlineSchedulingConfig {
 
   @@unique([organizationId, mode])
   @@index([slug, isEnabled])
+}
+
+model OnlineSchedulingCampaign {
+  id             String        @id @default(cuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  code           String
+  professionalId String?
+  professional   Professional? @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@unique([organizationId, code])
+  @@index([organizationId])
+}
+
+model OnlineSchedulingEvent {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  slug           String
+  eventType      String       // 'VISIT', 'CONVERSION'
+  campaignCode   String?
+  appointmentId  String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, eventType, createdAt])
+  @@index([campaignCode])
 }
 
 model TreatmentPlanReferral {

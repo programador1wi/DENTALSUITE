@@ -43,6 +43,7 @@ export class ProcedureCategoriesService {
         organizationId: actor.organizationId,
         name: dto.name.trim(),
         description: dto.description?.trim(),
+        type: dto.type,
         sortOrder: dto.sortOrder ?? 0
       }
     });
@@ -58,6 +59,7 @@ export class ProcedureCategoriesService {
       data: {
         name: dto.name?.trim(),
         description: dto.description?.trim(),
+        type: dto.type,
         sortOrder: dto.sortOrder,
         isActive: dto.isActive
       }

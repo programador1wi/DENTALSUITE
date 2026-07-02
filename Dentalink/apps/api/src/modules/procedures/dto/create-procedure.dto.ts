@@ -1,4 +1,5 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { ProcedureType } from "@prisma/client";
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 
 export class CreateProcedureDto {
   @IsString()
@@ -13,6 +14,10 @@ export class CreateProcedureDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsEnum(ProcedureType)
+  type?: ProcedureType;
 
   @IsInt()
   @Min(5)

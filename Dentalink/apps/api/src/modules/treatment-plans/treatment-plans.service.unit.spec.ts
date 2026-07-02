@@ -1,5 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import { AppointmentStatus, ProfessionalBranchStatus, TreatmentPlanItemStatus } from "@prisma/client";
+import { AppointmentStatus, ProfessionalBranchStatus, TreatmentPlanItemStatus, TreatmentPriceSource } from "@prisma/client";
 import type { AuthUser } from "../../common/types/auth-user";
 import { TreatmentPlansService } from "./treatment-plans.service";
 
@@ -421,5 +421,116 @@ describe("TreatmentPlansService professional branch validation", () => {
     const updateData = tx.treatmentPlanItem.update.mock.calls[0][0].data;
     expect(updateData.plannedAt).toBeNull();
     expect(updateData).not.toHaveProperty("status");
+  });
+
+  it("stores price list traceability when adding a treatment item from the resolved agreement list", async () => {
+    const plan = {
+      id: "plan-1",
+      organizationId: "org-1",
+      patientId: "patient-1",
+      branchId: "branch-1",
+      professionalId: "professional-1",
+      patient: {
+        id: "patient-1",
+        agreement: { id: "agreement-1", isActive: true, priceListId: "price-list-1", discountPercent: 0 }
+      }
+    };
+    const detailPlan = {
+      ...plan,
+      patient: { id: "patient-1", firstName: "Ana", lastName: "Lopez" },
+      professional: { id: "professional-1", firstName: "Andrea", lastName: "Silva" },
+      branch: { id: "branch-1", name: "Sucursal 1" },
+      sections: [],
+      items: [],
+      budgets: [],
+      alternativePlans: [],
+      alternativesAsParent: []
+    };
+    const tx = {
+      treatmentPlanItem: {
+        create: jest.fn().mockResolvedValue({ id: "item-1", procedureId: "procedure-1" })
+      }
+    };
+    const prisma = {
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValueOnce(plan).mockResolvedValueOnce(detailPlan)
+      },
+      procedure: {
+        findFirst: jest.fn().mockResolvedValue({ id: "procedure-1" })
+      },
+      branchPriceList: {
+        count: jest.fn().mockResolvedValue(0)
+      },
+      priceListItem: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "price-item-1",
+          priceListId: "price-list-1",
+          price: 250,
+          priceList: { id: "price-list-1", name: "POLIZA 2026" },
+          priceListCategory: { name: "Endodoncia" },
+          procedure: { code: "ENDO-1", name: "Endodoncia", category: { name: "Endodoncia" } }
+        })
+      },
+      auditLog: {
+        create: jest.fn()
+      },
+      $transaction: jest.fn((callback) => callback(tx))
+    };
+    const service = new TreatmentPlansService(prisma as never);
+
+    await service.addItem(actor, "plan-1", { procedureId: "procedure-1", quantity: 2 } as never);
+
+    const createdData = tx.treatmentPlanItem.create.mock.calls[0][0].data;
+    expect(Number(createdData.unitPrice)).toBe(250);
+    expect(Number(createdData.total)).toBe(500);
+    expect(createdData.priceListId).toBe("price-list-1");
+    expect(createdData.priceListItemId).toBe("price-item-1");
+    expect(createdData.priceSource).toBe(TreatmentPriceSource.PRICE_LIST);
+    expect(createdData.priceSnapshotName).toBe("POLIZA 2026");
+    expect(createdData.priceSnapshotCode).toBe("ENDO-1");
+    expect(createdData.priceSnapshotCategory).toBe("Endodoncia");
+    expect(createdData.priceResolvedAt).toBeInstanceOf(Date);
+  });
+
+  it("rejects manual price overrides without the explicit price list permission", async () => {
+    const plan = {
+      id: "plan-1",
+      organizationId: "org-1",
+      patientId: "patient-1",
+      branchId: "branch-1",
+      professionalId: "professional-1",
+      patient: {
+        id: "patient-1",
+        agreement: { id: "agreement-1", isActive: true, priceListId: "price-list-1", discountPercent: 0 }
+      }
+    };
+    const prisma = {
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValue(plan)
+      },
+      procedure: {
+        findFirst: jest.fn().mockResolvedValue({ id: "procedure-1" })
+      },
+      branchPriceList: {
+        count: jest.fn().mockResolvedValue(0)
+      },
+      priceListItem: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "price-item-1",
+          priceListId: "price-list-1",
+          price: 250,
+          priceList: { id: "price-list-1", name: "POLIZA 2026" },
+          priceListCategory: { name: "Endodoncia" },
+          procedure: { code: "ENDO-1", name: "Endodoncia", category: { name: "Endodoncia" } }
+        })
+      },
+      $transaction: jest.fn()
+    };
+    const service = new TreatmentPlansService(prisma as never);
+
+    await expect(
+      service.addItem(actor, "plan-1", { procedureId: "procedure-1", quantity: 1, unitPrice: 999 } as never)
+    ).rejects.toThrow("Manual price overrides require price_lists.override_manual permission");
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

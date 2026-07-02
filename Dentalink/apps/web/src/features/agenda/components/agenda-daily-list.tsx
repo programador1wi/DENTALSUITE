@@ -80,7 +80,6 @@ export function AgendaDailyList({
   onCreateClick?: () => void;
 } & ActionHandlers) {
   const [search, setSearch]               = useState("");
-  const [activeStatuses, setActiveStatuses] = useState<Set<AppointmentStatus>>(new Set());
   const [page, setPage]                   = useState(1);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
 
@@ -99,32 +98,18 @@ export function AgendaDailyList({
   const monthYear = dateObj.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
   const isToday   = date === toDateInputValue(new Date());
 
-  // ── Status filter toggle ──
-  const toggleStatus = (status: AppointmentStatus) => {
-    setActiveStatuses(prev => {
-      const next = new Set(prev);
-      if (next.has(status)) {
-        next.delete(status);
-      } else {
-        next.add(status);
-      }
-      return next;
-    });
-    setPage(1);
-  };
+
 
   // ── Filter + search + sort ──
   const filtered = useMemo(() => {
     let list = [...appointments].sort(
       (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
     );
-    if (activeStatuses.size > 0)
-      list = list.filter(a => activeStatuses.has(a.status));
     if (search.trim()) {
       list = list.filter(a => appointmentMatchesTerm(a, search));
     }
     return list;
-  }, [appointments, activeStatuses, search]);
+  }, [appointments, search]);
 
   const appointmentSuggestions = useMemo(() => {
     const q = search.trim();
@@ -142,7 +127,6 @@ export function AgendaDailyList({
     const index = Math.max(0, narrowed.findIndex((item) => item.id === appointment.id));
 
     setSearch(label);
-    setActiveStatuses(new Set());
     setSelectedAppointmentId(appointment.id);
     setPage(Math.floor(index / PAGE_SIZE) + 1);
   };
@@ -165,62 +149,6 @@ export function AgendaDailyList({
 
   return (
     <div className="flex rounded-xl border border-zinc-200/70 bg-white shadow-sm overflow-hidden" style={{ minHeight: "640px" }}>
-
-      {/* ── Left sidebar: status filters ── */}
-      <aside className="w-52 shrink-0 border-r border-zinc-100 bg-zinc-50/60 flex flex-col">
-        <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-400">Estados</p>
-          {activeStatuses.size > 0 && (
-            <span className="inline-flex items-center rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-bold text-blue-600">
-              {activeStatuses.size}
-            </span>
-          )}
-        </div>
-
-        <nav className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
-          {ALL_STATUSES.map(({ status, label }) => {
-            const pal    = appointmentColorPalette[status];
-            const active = activeStatuses.has(status);
-            const count  = appointments.filter(a => a.status === status).length;
-            return (
-              <button
-                key={status}
-                type="button"
-                onClick={() => toggleStatus(status)}
-                className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-left transition-all duration-150 ${
-                  active
-                    ? "bg-white shadow-sm border border-zinc-200/80"
-                    : "hover:bg-white/80 hover:shadow-sm"
-                }`}
-              >
-                {/* Color dot */}
-                <span className={`h-2.5 w-2.5 rounded-sm shrink-0 ${active ? pal.dotClass : "bg-zinc-300"}`} />
-                <span className={`flex-1 text-[11px] truncate ${active ? "font-semibold text-zinc-800" : "font-medium text-zinc-500"}`}>
-                  {label}
-                </span>
-                {count > 0 && (
-                  <span className="text-[9px] font-semibold text-zinc-400">{count}</span>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-
-        {activeStatuses.size > 0 && (
-          <div className="px-3 py-2.5 border-t border-zinc-100">
-            <button
-              type="button"
-              onClick={() => { setActiveStatuses(new Set()); setPage(1); }}
-              className="w-full flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-[11px] font-semibold text-zinc-500 hover:text-red-500 hover:bg-red-50 transition-all border border-transparent hover:border-red-100"
-            >
-              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-              Limpiar filtros
-            </button>
-          </div>
-        )}
-      </aside>
 
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col min-w-0">
@@ -322,7 +250,7 @@ export function AgendaDailyList({
               </div>
               <p className="text-sm font-semibold text-zinc-600">Sin citas para este día</p>
               <p className="text-xs text-zinc-400 mt-1">
-                {activeStatuses.size > 0 || search ? "Ajusta los filtros o la búsqueda" : "Agrega una nueva cita para comenzar"}
+                {search ? "Ajusta la búsqueda o los filtros de estados a la izquierda" : "Agrega una nueva cita para comenzar"}
               </p>
             </div>
           ) : (

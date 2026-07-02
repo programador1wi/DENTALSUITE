@@ -20,4 +20,12 @@ export class PublicBookingController {
   async createAppointment(@Param('slug') slug: string, @Body() dto: PublicCreateAppointmentDto) {
     return this.publicBookingService.createAppointment(slug, dto);
   }
+
+  @Post(':slug/track')
+  async trackEvent(
+    @Param('slug') slug: string,
+    @Body() dto: { eventType: string; campaignCode?: string }
+  ) {
+    return this.publicBookingService.trackEvent(slug, dto.eventType, dto.campaignCode);
+  }
 }

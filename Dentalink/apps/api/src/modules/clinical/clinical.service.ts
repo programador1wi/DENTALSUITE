@@ -4,6 +4,7 @@ import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import { withAllowedSpecialtyName } from "../../common/utils/specialty-policy.util";
+import { coerceClinicalDocumentContent, normalizeClinicalDocumentContent } from "../../common/utils/clinical-document-content.util";
 import {
   CreateAllergyDto,
   CreateMedicalConditionDto,
@@ -550,14 +551,20 @@ export class ClinicalService {
 
   async listDocuments(actor: AuthUser, patientId: string) {
     await this.ensurePatient(actor, patientId);
-    return this.prisma.clinicalDocument.findMany({ where: { patientId }, include: { template: true }, orderBy: { createdAt: "desc" } });
+    const documents = await this.prisma.clinicalDocument.findMany({
+      where: { patientId, deletedAt: null },
+      include: { template: true },
+      orderBy: { createdAt: "desc" }
+    });
+    return documents.map((document) => this.serializeClinicalDocument(document));
   }
 
   async listTemplates(actor: AuthUser) {
-    return this.prisma.clinicalDocumentTemplate.findMany({
+    const templates = await this.prisma.clinicalDocumentTemplate.findMany({
       where: { organizationId: actor.organizationId, isActive: true },
       orderBy: { name: "asc" }
     });
+    return templates.map((template) => this.serializeClinicalDocumentTemplate(template));
   }
 
   async createTemplate(actor: AuthUser, dto: CreateClinicalDocumentTemplateDto) {
@@ -566,47 +573,55 @@ export class ClinicalService {
         organizationId: actor.organizationId,
         name: dto.name.trim(),
         description: dto.description?.trim(),
-        content: dto.content
+        content: normalizeClinicalDocumentContent(dto.content)
       }
     });
-    await this.audit(actor, null, "create_document_template", template);
-    return template;
+    await this.audit(actor, null, "create_document_template", { id: template.id, name: template.name });
+    return this.serializeClinicalDocumentTemplate(template);
   }
 
   async createDocument(actor: AuthUser, patientId: string, dto: CreateClinicalDocumentDto) {
     await this.ensurePatient(actor, patientId);
+    const templateId = dto.templateId?.trim() || undefined;
+    if (templateId) await this.ensureClinicalDocumentTemplate(actor, templateId);
+
     const document = await this.prisma.clinicalDocument.create({
       data: {
         patientId,
-        templateId: dto.templateId,
+        templateId,
         title: dto.title.trim(),
-        content: dto.content,
+        content: normalizeClinicalDocumentContent(dto.content),
         createdById: actor.id
-      }
+      },
+      include: { template: true }
     });
-    await this.audit(actor, patientId, "create_document", document);
-    return document;
+    await this.audit(actor, patientId, "create_document", { documentId: document.id, templateId });
+    return this.serializeClinicalDocument(document);
   }
 
   async createDocumentFromTemplate(actor: AuthUser, patientId: string, dto: CreateClinicalDocumentFromTemplateDto) {
     await this.ensurePatient(actor, patientId);
-    const template = await this.prisma.clinicalDocumentTemplate.findFirst({
-      where: { id: dto.templateId, organizationId: actor.organizationId, isActive: true }
+    const template = await this.ensureClinicalDocumentTemplate(actor, dto.templateId);
+    return this.createDocument(actor, patientId, {
+      templateId: template.id,
+      title: dto.title,
+      content: coerceClinicalDocumentContent(template.content)
     });
-    if (!template) throw new NotFoundException("Clinical document template not found");
-    return this.createDocument(actor, patientId, { templateId: template.id, title: dto.title, content: template.content });
   }
 
   async listOdontogram(actor: AuthUser, patientId: string, query: ListOdontogramQueryDto) {
     await this.ensurePatient(actor, patientId);
     const toothNumber = query.toothNumber ? this.normalizeToothNumber(query.toothNumber) : undefined;
+    const surface = query.surface ? this.normalizeSurface(query.surface) : undefined;
+    const odontogramWhere = {
+      patientId,
+      ...(toothNumber ? { toothNumber } : {}),
+      ...(surface ? { surface } : {})
+    };
 
     const [records, conditions, procedures] = await Promise.all([
       this.prisma.odontogramRecord.findMany({
-        where: {
-          patientId,
-          ...(toothNumber ? { toothNumber } : {})
-        },
+        where: odontogramWhere,
         include: {
           professional: { select: { id: true, firstName: true, lastName: true } },
           procedure: { select: { id: true, code: true, name: true } }
@@ -617,6 +632,7 @@ export class ClinicalService {
         where: {
           patientId,
           ...(toothNumber ? { toothNumber } : {}),
+          ...(surface ? { surface } : {}),
           OR: [
             { odontogramRecordId: null },
             { odontogramRecord: { is: { status: { not: ToothProcedureStatus.CANCELLED } } } }
@@ -625,7 +641,7 @@ export class ClinicalService {
         orderBy: { createdAt: "desc" }
       }),
       this.prisma.toothProcedure.findMany({
-        where: { patientId, ...(toothNumber ? { toothNumber } : {}) },
+        where: odontogramWhere,
         include: {
           professional: { select: { id: true, firstName: true, lastName: true } },
           procedure: { select: { id: true, code: true, name: true } }
@@ -636,21 +652,29 @@ export class ClinicalService {
 
     const latestByTooth = records.reduce<Record<string, (typeof records)[number]>>((accumulator, item) => {
       if (item.status === ToothProcedureStatus.CANCELLED) return accumulator;
+      if (!accumulator[item.toothNumber]) accumulator[item.toothNumber] = item;
+      return accumulator;
+    }, {});
+
+    const latestBySurface = records.reduce<Record<string, (typeof records)[number]>>((accumulator, item) => {
+      if (item.status === ToothProcedureStatus.CANCELLED) return accumulator;
       const key = `${item.toothNumber}:${item.surface ?? "-"}`;
       if (!accumulator[key]) accumulator[key] = item;
       return accumulator;
     }, {});
 
-    return { records, conditions, procedures, latestByTooth };
+    return { records, conditions, procedures, latestByTooth, latestBySurface };
   }
 
-  async getToothHistory(actor: AuthUser, patientId: string, toothNumberInput: string) {
+  async getToothHistory(actor: AuthUser, patientId: string, toothNumberInput: string, surfaceInput?: string) {
     await this.ensurePatient(actor, patientId);
     const toothNumber = this.normalizeToothNumber(toothNumberInput);
+    const surface = surfaceInput ? this.normalizeSurface(surfaceInput) : undefined;
+    const toothWhere = { patientId, toothNumber, ...(surface ? { surface } : {}) };
 
     const [records, conditions, procedures] = await Promise.all([
       this.prisma.odontogramRecord.findMany({
-        where: { patientId, toothNumber },
+        where: toothWhere,
         include: {
           professional: { select: { id: true, firstName: true, lastName: true } },
           procedure: { select: { id: true, code: true, name: true } }
@@ -661,6 +685,7 @@ export class ClinicalService {
         where: {
           patientId,
           toothNumber,
+          ...(surface ? { surface } : {}),
           OR: [
             { odontogramRecordId: null },
             { odontogramRecord: { is: { status: { not: ToothProcedureStatus.CANCELLED } } } }
@@ -669,7 +694,7 @@ export class ClinicalService {
         orderBy: { createdAt: "desc" }
       }),
       this.prisma.toothProcedure.findMany({
-        where: { patientId, toothNumber },
+        where: toothWhere,
         include: {
           professional: { select: { id: true, firstName: true, lastName: true } },
           procedure: { select: { id: true, code: true, name: true } }
@@ -678,7 +703,7 @@ export class ClinicalService {
       })
     ]);
 
-    return { toothNumber, records, conditions, procedures };
+    return { toothNumber, surface, records, conditions, procedures };
   }
 
   async createToothCondition(actor: AuthUser, patientId: string, dto: CreateToothConditionDto) {
@@ -1119,7 +1144,7 @@ export class ClinicalService {
       treatmentPlanItem: {
         include: {
           procedure: { select: { id: true, code: true, name: true } },
-          treatmentPlan: { select: { id: true, name: true, displayId: true } }
+          treatmentPlan: { select: { id: true, name: true } }
         }
       }
     };
@@ -1139,6 +1164,7 @@ export class ClinicalService {
   }
 
   async deleteClinicalDocument(actor: AuthUser, patientId: string, documentId: string, reason: string) {
+    await this.ensurePatient(actor, patientId);
     const document = await this.prisma.clinicalDocument.findFirst({
       where: { id: documentId, patientId, deletedAt: null }
     });
@@ -1150,13 +1176,36 @@ export class ClinicalService {
       data: {
         deletedAt: new Date(),
         deletedById: actor.id,
-        deleteReason: reason
-      }
+        deleteReason: reason.trim()
+      },
+      include: { template: true }
     });
 
-    await this.audit(actor, patientId, "delete_clinical_document", { documentId, reason });
+    await this.audit(actor, patientId, "delete_clinical_document", { documentId, reason: reason.trim() });
 
-    return updated;
+    return this.serializeClinicalDocument(updated);
+  }
+
+  private serializeClinicalDocument<T extends { content: Prisma.JsonValue; template?: ({ content: Prisma.JsonValue } | null) }>(document: T) {
+    return {
+      ...document,
+      content: coerceClinicalDocumentContent(document.content),
+      template: document.template
+        ? { ...document.template, content: coerceClinicalDocumentContent(document.template.content) }
+        : document.template
+    };
+  }
+
+  private serializeClinicalDocumentTemplate<T extends { content: Prisma.JsonValue }>(template: T) {
+    return { ...template, content: coerceClinicalDocumentContent(template.content) };
+  }
+
+  private async ensureClinicalDocumentTemplate(actor: AuthUser, templateId: string) {
+    const template = await this.prisma.clinicalDocumentTemplate.findFirst({
+      where: { id: templateId, organizationId: actor.organizationId, isActive: true }
+    });
+    if (!template) throw new NotFoundException("Clinical document template not found");
+    return template;
   }
 
   private clean<T extends object>(input: T): T {

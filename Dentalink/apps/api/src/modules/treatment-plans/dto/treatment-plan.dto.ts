@@ -1,5 +1,10 @@
 import { Type } from "class-transformer";
-import { BudgetStatus, TreatmentPlanItemStatus, TreatmentPlanStatus } from "@prisma/client";
+import {
+  BudgetStatus,
+  TreatmentPlanItemStatus,
+  TreatmentPlanKind,
+  TreatmentPlanStatus
+} from "@prisma/client";
 import {
   IsArray,
   IsBoolean,
@@ -7,6 +12,7 @@ import {
   IsEnum,
   IsInt,
   IsNumber,
+  IsObject,
   IsOptional,
   IsPositive,
   IsString,
@@ -40,6 +46,10 @@ export class TreatmentPlanItemInputDto {
   @IsOptional()
   @IsString()
   surface?: string;
+
+  @IsOptional()
+  @IsString()
+  odontogramSymbol?: string;
 
   @Type(() => Number)
   @IsNumber()
@@ -93,6 +103,10 @@ export class CreateTreatmentPlanDto {
   status?: TreatmentPlanStatus;
 
   @IsOptional()
+  @IsEnum(TreatmentPlanKind)
+  kind?: TreatmentPlanKind;
+
+  @IsOptional()
   @IsBoolean()
   isAlternative?: boolean;
 
@@ -135,6 +149,93 @@ export class UpdateTreatmentPlanDto {
   status?: TreatmentPlanStatus;
 }
 
+export class UpdateOrthodonticProfileDto {
+  @IsOptional()
+  @IsDateString()
+  startDate?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  estimatedMonths?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  estimatedControls?: number | null;
+
+  @IsOptional()
+  @IsString()
+  lastUpperArch?: string | null;
+
+  @IsOptional()
+  @IsString()
+  lastLowerArch?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  nextControlAt?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  nextRadiographyAt?: string | null;
+
+  @IsOptional()
+  @IsString()
+  hygieneStatus?: string | null;
+
+  @IsOptional()
+  @IsString()
+  alert?: string | null;
+
+  @IsOptional()
+  @IsString()
+  indications?: string | null;
+
+  @IsOptional()
+  @IsString()
+  elastics?: string | null;
+
+  @IsOptional()
+  @IsString()
+  planNotes?: string | null;
+}
+
+export class UpdateOrthodonticDiagnosisDto {
+  @IsObject()
+  diagnosis!: Record<string, unknown>;
+}
+
+export class CreateOrthodonticMonthlyItemsDto {
+  @IsString()
+  procedureId!: string;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  months!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitPrice?: number;
+
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+
+  @IsOptional()
+  @IsString()
+  sectionName?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
 export class ChangeTreatmentPlanBranchDto {
   @IsString()
   branchId!: string;
@@ -165,6 +266,10 @@ export class ListTreatmentPlansQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(TreatmentPlanStatus)
   status?: TreatmentPlanStatus;
+
+  @IsOptional()
+  @IsEnum(TreatmentPlanKind)
+  kind?: TreatmentPlanKind;
 }
 
 export class UpdateTreatmentPlanItemDto {
@@ -213,6 +318,10 @@ export class UpdateTreatmentPlanItemDto {
   @IsOptional()
   @IsBoolean()
   syncOdontogram?: boolean;
+
+  @IsOptional()
+  @IsString()
+  odontogramSymbol?: string;
 }
 
 export class UpdateTreatmentPlanItemStatusDto {
@@ -271,7 +380,7 @@ export class DuplicateTreatmentPlanDto {
   @IsOptional()
   @IsString()
   newProfessionalId?: string;
-  
+
   @IsOptional()
   @IsString()
   reason?: string;
@@ -292,5 +401,10 @@ export class ReferTreatmentPlanDto {
 export class ReactivateTreatmentPlanDto {
   @IsOptional()
   @IsString()
+  reason?: string;
+}
+export class PauseTreatmentPlanDto {
+  @IsString()
+  @IsOptional()
   reason?: string;
 }

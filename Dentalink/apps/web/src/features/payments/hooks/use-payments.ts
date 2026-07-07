@@ -16,6 +16,7 @@ import {
   getCurrentCashRegister,
   listAccountsReceivable,
   listCashRegisters,
+  listCancelledPendingPayments,
   listInstallments,
   listPatientPayments,
   listPaymentLinks,
@@ -24,7 +25,9 @@ import {
   openCashRegister,
   payInstallment,
   removePaymentAllocation,
+  updatePayment,
   voidPayment,
+  type CancelledPendingPaymentLinkStatus,
   type CashReportQuery,
   type CashRegisterStatus,
   type PaymentStatus,
@@ -35,6 +38,19 @@ export function usePayments(params?: { patientId?: string; branchId?: string; se
   return useQuery({
     queryKey: ["payments", params],
     queryFn: () => listPayments(params)
+  });
+}
+
+export function useCancelledPendingPayments(params?: {
+  branchId?: string;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  linkStatus?: CancelledPendingPaymentLinkStatus | "";
+}) {
+  return useQuery({
+    queryKey: ["payments", "cancelled-pending", params],
+    queryFn: () => listCancelledPendingPayments(params)
   });
 }
 
@@ -102,6 +118,7 @@ export function usePaymentsMutations() {
   const queryClient = useQueryClient();
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ["payments"] });
+    queryClient.invalidateQueries({ queryKey: ["payments", "cancelled-pending"] });
     queryClient.invalidateQueries({ queryKey: ["patient-payments"] });
     queryClient.invalidateQueries({ queryKey: ["accounts-receivable"] });
     queryClient.invalidateQueries({ queryKey: ["installments"] });
@@ -119,6 +136,26 @@ export function usePaymentsMutations() {
       mutationFn: createPayment,
       onSuccess: () => {
         toast.success("Pago registrado");
+        invalidate();
+      },
+      onError
+    }),
+    updatePayment: useMutation({
+      mutationFn: ({
+        paymentId,
+        payload
+      }: {
+        paymentId: string;
+        payload: {
+          paymentMethodId?: string;
+          financialInstitutionId?: string;
+          reference?: string;
+          notes?: string;
+          paidAt?: string;
+        };
+      }) => updatePayment(paymentId, payload),
+      onSuccess: () => {
+        toast.success("Pago actualizado");
         invalidate();
       },
       onError

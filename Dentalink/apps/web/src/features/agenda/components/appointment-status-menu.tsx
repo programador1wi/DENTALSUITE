@@ -99,8 +99,8 @@ export function AppointmentStatusMenu({
       const isUp = rect.bottom + menuHeight > window.innerHeight && rect.top > menuHeight;
       setOpenUp(isUp);
 
-      const top = isUp ? rect.top - menuHeight - 4 + window.scrollY : rect.bottom + 4 + window.scrollY;
-      const left = Math.max(12, rect.right - menuWidth + window.scrollX);
+      const top = isUp ? rect.top - menuHeight - 4 : rect.bottom + 4;
+      const left = Math.max(12, rect.right - menuWidth);
       setCoords({ top, left });
     }
     setOpen(nextOpen);
@@ -181,7 +181,7 @@ export function AppointmentStatusMenu({
         <div
           ref={menuRef}
           role="menu"
-          className="absolute z-[1000] w-[232px] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] py-1 text-[11px] font-normal leading-none text-[var(--text-primary)] shadow-[var(--shadow-modal)] ring-1 ring-black/[0.02] animate-in fade-in-0 zoom-in-95"
+          className="fixed z-[1000] w-[232px] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] py-1 text-[11px] font-normal leading-none text-[var(--text-primary)] shadow-[var(--shadow-modal)] ring-1 ring-black/[0.02] animate-in fade-in-0 zoom-in-95"
           style={{
             top: coords.top,
             left: coords.left

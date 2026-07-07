@@ -1,4 +1,4 @@
-import { RefundStatus } from "@prisma/client";
+import { PaymentLinkStatus, PaymentStatus, RefundStatus } from "@prisma/client";
 import type { AuthUser } from "../../common/types/auth-user";
 import { PaymentsService } from "./payments.service";
 
@@ -55,6 +55,84 @@ describe("PaymentsService refund listing", () => {
         })
       })
     );
+  });
+
+  it("lists cancelled and pending payments without using accounts receivable", async () => {
+    const prisma = {
+      payment: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "payment-1",
+            reference: "348717",
+            voidedById: "user-2",
+            allocations: [
+              {
+                id: "allocation-1",
+                treatmentPlanItem: {
+                  treatmentPlan: { id: "plan-1", name: "Ortodoncia" },
+                  procedure: { id: "procedure-1", code: "ORT", name: "Brackets" }
+                }
+              }
+            ]
+          }
+        ]),
+        aggregate: jest.fn().mockResolvedValue({ _count: { _all: 2 }, _sum: { amount: 300 } })
+      },
+      paymentLink: {
+        findMany: jest.fn().mockResolvedValue([]),
+        aggregate: jest.fn().mockResolvedValue({ _count: { _all: 1 }, _sum: { amount: 150 } }),
+        groupBy: jest.fn().mockResolvedValue([
+          { status: PaymentLinkStatus.CREATED, _count: { _all: 1 }, _sum: { amount: 150 } }
+        ])
+      },
+      user: {
+        findMany: jest.fn().mockResolvedValue([{ id: "user-2", firstName: "Rafael", lastName: "Farrera" }])
+      }
+    };
+    const service = new PaymentsService(prisma as never);
+
+    const result = await service.listCancelledPendingPayments(actor, {
+      branchId: "branch-1",
+      search: "ana",
+      linkStatus: PaymentLinkStatus.CREATED
+    } as never);
+
+    expect(prisma.payment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: "org-1",
+          status: PaymentStatus.VOIDED,
+          branchId: "branch-1",
+          patient: { branchId: "branch-1" }
+        })
+      })
+    );
+    expect(prisma.paymentLink.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          organizationId: "org-1",
+          status: { in: [PaymentLinkStatus.CREATED] },
+          patient: { branchId: "branch-1" }
+        })
+      })
+    );
+    expect(result.summary.voidedPayments).toEqual({ count: 2, amount: 300 });
+    expect(result.summary.pendingLinks).toEqual({ count: 1, amount: 150 });
+    expect(result.voidedPayments[0]).toEqual(
+      expect.objectContaining({
+        paymentNumber: "348717",
+        voidedBy: { id: "user-2", firstName: "Rafael", lastName: "Farrera" },
+        treatments: [{ id: "plan-1", name: "Ortodoncia", number: "PLAN-1", procedures: ["Brackets"] }]
+      })
+    );
+  });
+
+  it("rejects paid payment links from the cancelled and pending module", async () => {
+    const service = new PaymentsService({} as never);
+
+    await expect(
+      service.listCancelledPendingPayments(actor, { linkStatus: PaymentLinkStatus.PAID } as never)
+    ).rejects.toThrow("Paid payment links do not belong to cancelled and pending payments");
   });
 
   it("removes a payment allocation and keeps the payment as patient credit", async () => {
@@ -168,6 +246,148 @@ describe("PaymentsService refund listing", () => {
 
     await expect((service as any).ensureOpenCashRegister(actor, "branch-1")).rejects.toThrow(
       "No open cash register found for this user and branch"
+    );
+  });
+
+  it("records partial installment payments through an auditable installment allocation", async () => {
+    const installment = {
+      id: "installment-1",
+      patientId: "patient-1",
+      installmentPlanId: "plan-installments-1",
+      amount: 100,
+      paidAmount: 20,
+      status: "PARTIAL",
+      dueDate: new Date("2026-07-10T12:00:00.000Z"),
+      paymentId: null,
+      paidAt: null,
+      patient: { id: "patient-1", organizationId: "org-1" },
+      installmentPlan: { id: "plan-installments-1", treatmentPlanId: "plan-1" }
+    };
+    const payment = {
+      id: "payment-1",
+      organizationId: "org-1",
+      branchId: "branch-1",
+      patientId: "patient-1",
+      receivedById: "user-1",
+      amount: 30,
+      currency: "MXN",
+      paymentMethodId: "method-1",
+      financialInstitutionId: null,
+      status: "ALLOCATED",
+      reference: "AUTH-1",
+      notes: null,
+      voidReason: null,
+      voidedAt: null,
+      voidedById: null,
+      paidAt: new Date("2026-07-03T12:00:00.000Z"),
+      createdAt: new Date("2026-07-03T12:00:00.000Z"),
+      updatedAt: new Date("2026-07-03T12:00:00.000Z")
+    };
+    const tx = {
+      payment: {
+        create: jest.fn().mockResolvedValue(payment)
+      },
+      cashMovement: {
+        create: jest.fn()
+      },
+      paymentInstallmentAllocation: {
+        create: jest.fn()
+      },
+      installment: {
+        update: jest.fn(),
+        count: jest.fn().mockResolvedValue(1)
+      },
+      installmentPlan: {
+        update: jest.fn()
+      },
+      collectionCase: {
+        updateMany: jest.fn()
+      },
+      auditLog: {
+        create: jest.fn()
+      }
+    };
+    const prisma = {
+      installment: {
+        findFirst: jest.fn().mockResolvedValue(installment)
+      },
+      branch: {
+        findFirst: jest.fn().mockResolvedValue({ id: "branch-1" })
+      },
+      paymentMethod: {
+        findFirst: jest.fn().mockResolvedValue({ id: "method-1" })
+      },
+      cashRegister: {
+        findFirst: jest.fn().mockResolvedValue({ id: "register-1", status: "OPEN" })
+      },
+      payment: {
+        findFirst: jest.fn().mockResolvedValue({
+          ...payment,
+          patient: { id: "patient-1", firstName: "Ana", lastName: "Paz", documentNumber: "123" },
+          branch: { id: "branch-1", name: "Sucursal" },
+          paymentMethod: { id: "method-1", name: "Efectivo", type: "CASH" },
+          financialInstitution: null,
+          receivedBy: { id: "user-1", firstName: "User", lastName: "One" },
+          allocations: [],
+          installmentAllocations: [
+            {
+              id: "allocation-installment-1",
+              amount: 30,
+              installment: {
+                ...installment,
+                paidAmount: 50,
+                installmentPlan: {
+                  id: "plan-installments-1",
+                  treatmentPlanId: "plan-1",
+                  treatmentPlan: { id: "plan-1", name: "Ortodoncia" }
+                }
+              }
+            }
+          ],
+          cashMovements: [],
+          refunds: []
+        })
+      },
+      $transaction: jest.fn((callback) => callback(tx))
+    };
+    const service = new PaymentsService(prisma as never);
+
+    const result = await service.payInstallment(actor, "installment-1", {
+      branchId: "branch-1",
+      paymentMethodId: "method-1",
+      amount: 30,
+      reference: "AUTH-1"
+    });
+
+    expect(tx.payment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: "ALLOCATED",
+          amount: expect.anything()
+        })
+      })
+    );
+    expect(tx.paymentInstallmentAllocation.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        paymentId: "payment-1",
+        installmentId: "installment-1"
+      })
+    });
+    expect(tx.installment.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "installment-1" },
+        data: expect.objectContaining({
+          status: "PARTIAL",
+          paymentId: null
+        })
+      })
+    );
+    expect(result.breakdown[0]).toEqual(
+      expect.objectContaining({
+        kind: "INSTALLMENT",
+        treatmentNumber: "PLAN-1",
+        paidAmount: 30
+      })
     );
   });
 

@@ -1,23 +1,34 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import {
   AlertTriangle,
+  Calendar,
   CalendarDays,
   Check,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
   Clock3,
+  FilePlus2,
+  FolderX,
   Mail,
+  MapPin,
   Phone,
+  PlusCircle,
   Search,
-  Stethoscope
+  Stethoscope,
+  User,
+  Users
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { usePermissions } from "@/hooks/use-permissions";
 import type {
   PatientDetail,
   PatientListItem,
@@ -31,8 +42,11 @@ import {
   useSpecialtyAppointmentReasons
 } from "@/features/settings/specialties/hooks/use-specialties";
 import { specialtyMatchesSelection } from "@/features/settings/specialties/utils/allowed-specialties";
+import { useTreatmentPlans } from "@/features/treatments/hooks/use-treatments";
+import type { CreateTreatmentPlanPayload, TreatmentPlan } from "@/features/treatments/services/treatments.service";
 import {
   getAvailability,
+  listAppointments,
   type Appointment,
   type AppointmentPayload,
   type AppointmentStatus
@@ -76,6 +90,7 @@ type DayAvailability = {
 
 type Step = "schedule" | "reason" | "patient";
 type PatientMode = "existing" | "new";
+type TreatmentPlanChoice = "existing" | "new";
 type ReasonOption = {
   id: string;
   name: string;
@@ -85,6 +100,14 @@ type ReasonOption = {
 };
 
 const MAX_REASON_DURATION_MINUTES = 60;
+const PATIENT_DAILY_LIMIT_FREE_STATUSES: AppointmentStatus[] = [
+  "CANCELLED_BY_PATIENT",
+  "CANCELLED_BY_CLINIC",
+  "CANCELLED_CONFLICT",
+  "CANCELLED_RESCHEDULED",
+  "NO_SHOW",
+  "RESCHEDULED"
+];
 
 const defaultForm: FormState = {
   branchId: "",
@@ -144,6 +167,7 @@ export function AppointmentModal({
   onClose,
   onSubmit,
   onCreatePatient,
+  onCreateTreatmentPlan,
   multipleMode = false
 }: {
   open: boolean;
@@ -157,6 +181,7 @@ export function AppointmentModal({
   onClose: () => void;
   onSubmit: (payloads: AppointmentPayload[]) => Promise<void>;
   onCreatePatient: (payload: PatientPayload) => Promise<PatientDetail>;
+  onCreateTreatmentPlan: (payload: CreateTreatmentPlanPayload) => Promise<{ id: string }>;
   multipleMode?: boolean;
 }) {
   const [form, setForm] = useState<FormState>(defaultForm);
@@ -169,9 +194,18 @@ export function AppointmentModal({
   const [newPatient, setNewPatient] = useState<NewPatientState>(defaultNewPatient);
   const [submitting, setSubmitting] = useState(false);
   const [bookingProblems, setBookingProblems] = useState<string[]>([]);
+  const [treatmentPlanChoice, setTreatmentPlanChoice] = useState<TreatmentPlanChoice>("new");
+  const [selectedTreatmentPlanId, setSelectedTreatmentPlanId] = useState("");
+  const [lockedScheduleContext, setLockedScheduleContext] = useState(false);
 
+  const { hasPermission } = usePermissions();
+  const canReadTreatmentPlans =
+    hasPermission("treatment_plans.read") || hasPermission("system.manage_all");
+  const canCreateTreatmentPlans =
+    hasPermission("treatment_plans.create") || hasPermission("system.manage_all");
   const specialties = useSpecialties(undefined, "true");
   const reasons = useSpecialtyAppointmentReasons(form.specialtyId);
+  const selectedSlotsLookupRange = useMemo(() => buildSelectedSlotsLookupRange(selectedSlots), [selectedSlots]);
 
   useEffect(() => {
     if (!open) return;
@@ -190,7 +224,20 @@ export function AppointmentModal({
     setReasonSearch(nextForm.reason);
     setNewPatient(defaultNewPatient);
     setBookingProblems([]);
+    setLockedScheduleContext(
+      Boolean(!appointment && nextForm.branchId && nextForm.professionalId && nextForm.startAt && nextForm.endAt)
+    );
+    setSelectedTreatmentPlanId(appointment?.treatmentPlanId ?? initialValues?.treatmentPlanId ?? "");
+    setTreatmentPlanChoice(appointment?.treatmentPlanId ?? initialValues?.treatmentPlanId ? "existing" : "new");
   }, [appointment, defaultDate, initialValues, open]);
+
+  useEffect(() => {
+    if (!open || !lockedScheduleContext || form.specialtyId || !form.professionalId) return;
+    const professional = professionals.find((item) => item.id === form.professionalId);
+    const nextSpecialtyId = resolveProfessionalSpecialtyId(professional, "", null);
+    if (!nextSpecialtyId) return;
+    setForm((prev) => ({ ...prev, specialtyId: nextSpecialtyId }));
+  }, [form.professionalId, form.specialtyId, lockedScheduleContext, open, professionals]);
 
   const selectedBranch = useMemo(
     () => branches.find((branch) => branch.id === form.branchId),
@@ -211,6 +258,39 @@ export function AppointmentModal({
       null,
     [appointment?.specialty, form.specialtyId, specialties.data]
   );
+  const shouldLoadTreatmentPlans = Boolean(
+    open && canReadTreatmentPlans && patientMode === "existing" && requiresClinicalPatient(form.status) && form.patientId
+  );
+  const treatmentPlans = useTreatmentPlans(
+    { patientId: form.patientId || undefined },
+    shouldLoadTreatmentPlans
+  );
+  const shouldLoadPatientDayAppointments = Boolean(
+    open &&
+      requiresClinicalPatient(form.status) &&
+      patientMode === "existing" &&
+      form.branchId &&
+      form.patientId &&
+      selectedSlotsLookupRange
+  );
+  const patientDayAppointments = useQuery({
+    queryKey: [
+      "appointments",
+      "patient-day-limit",
+      form.branchId,
+      form.patientId,
+      selectedSlotsLookupRange?.start ?? "",
+      selectedSlotsLookupRange?.end ?? ""
+    ],
+    queryFn: () =>
+      listAppointments({
+        branchId: form.branchId,
+        patientId: form.patientId,
+        start: selectedSlotsLookupRange!.start,
+        end: selectedSlotsLookupRange!.end
+      }),
+    enabled: shouldLoadPatientDayAppointments
+  });
   const selectedProfessionalBranch = useMemo(
     () =>
       selectedProfessional?.branches?.find(
@@ -224,14 +304,12 @@ export function AppointmentModal({
     selectedProfessionalBranch?.agendaSlotMinutes ?? selectedBranch?.agendaSlotMinutes ?? 30;
   const fallbackDuration =
     selectedProfessionalBranch?.defaultAppointmentDurationMinutes ?? appointmentIntervalMinutes;
-  const selectedDuration = Number(form.durationMinutes);
-  const durationAvailabilityError =
-    form.professionalId &&
-    Number.isInteger(selectedDuration) &&
-    selectedDuration > 0 &&
-    selectedDuration % appointmentIntervalMinutes !== 0
-      ? `La duracion de ${selectedDuration} min no calza con intervalos de ${appointmentIntervalMinutes} min para este doctor.`
-      : "";
+  const rawDuration = Number(form.durationMinutes);
+  const selectedDuration =
+    Number.isInteger(rawDuration) && rawDuration > 0
+      ? Math.ceil(rawDuration / appointmentIntervalMinutes) * appointmentIntervalMinutes
+      : rawDuration;
+  const durationAvailabilityError = "";
 
   useEffect(() => {
     if (!open) return;
@@ -278,7 +356,7 @@ export function AppointmentModal({
       form.branchId,
       form.professionalId,
       form.chairId,
-      form.durationMinutes,
+      selectedDuration,
       weekStart
     ],
     queryFn: async () => {
@@ -306,7 +384,7 @@ export function AppointmentModal({
                   professionalId: form.professionalId,
                   chairId: form.chairId || undefined,
                   date: day.date,
-                  durationMinutes: form.durationMinutes || String(fallbackDuration)
+                  durationMinutes: String(selectedDuration)
                 })
               ).slots
             };
@@ -326,7 +404,7 @@ export function AppointmentModal({
         form.branchId &&
         form.professionalId &&
         selectedProfessionalIsAvailable &&
-        form.durationMinutes &&
+        selectedDuration &&
         !durationAvailabilityError
     )
   });
@@ -343,12 +421,68 @@ export function AppointmentModal({
     [activeReasons, form.reason]
   );
   const requiresPatient = form.status !== "BLOCKED";
+  const visibleTreatmentPlans = useMemo(
+    () => (shouldLoadTreatmentPlans ? treatmentPlans.data ?? [] : []),
+    [shouldLoadTreatmentPlans, treatmentPlans.data]
+  );
+  const selectableTreatmentPlans = useMemo(
+    () => visibleTreatmentPlans.filter((plan) => isSelectableTreatmentPlan(plan)),
+    [visibleTreatmentPlans]
+  );
+  const currentProfessionalTreatmentPlans = useMemo(
+    () => selectableTreatmentPlans.filter((plan) => plan.professional.id === form.professionalId),
+    [form.professionalId, selectableTreatmentPlans]
+  );
+  const otherProfessionalTreatmentPlans = useMemo(
+    () => selectableTreatmentPlans.filter((plan) => plan.professional.id !== form.professionalId),
+    [form.professionalId, selectableTreatmentPlans]
+  );
+  const historicalTreatmentPlans = useMemo(
+    () => visibleTreatmentPlans.filter((plan) => !isSelectableTreatmentPlan(plan)),
+    [visibleTreatmentPlans]
+  );
+  const patientDayConflict = useMemo(() => {
+    if (!shouldLoadPatientDayAppointments) return null;
+    return (
+      (patientDayAppointments.data ?? []).find((item) => {
+        if (item.id === appointment?.id) return false;
+        if (!appointmentCountsAgainstPatientDailyLimit(item)) return false;
+        return selectedSlots.some((slot) => isSameAppointmentLocalDay(item.startAt, slot.startAt));
+      }) ?? null
+    );
+  }, [
+    appointment?.id,
+    patientDayAppointments.data,
+    selectedSlots,
+    shouldLoadPatientDayAppointments
+  ]);
+  const patientDayConflictLoading = Boolean(shouldLoadPatientDayAppointments && patientDayAppointments.isFetching);
+  const needsTreatmentPlanDecision = Boolean(
+    requiresPatient &&
+      patientMode === "existing" &&
+      form.patientId &&
+      canReadTreatmentPlans &&
+      !treatmentPlans.isLoading &&
+      (selectableTreatmentPlans.length > 0 || canCreateTreatmentPlans)
+  );
+  const hasTreatmentPlanDecision =
+    !needsTreatmentPlanDecision ||
+    treatmentPlanChoice === "new" ||
+    (treatmentPlanChoice === "existing" &&
+      selectableTreatmentPlans.some((plan) => plan.id === selectedTreatmentPlanId));
   const canContinueReason = Boolean(form.branchId && form.specialtyId && selectedReason);
   const canContinueSchedule = Boolean(
     canContinueReason && form.professionalId && selectedProfessionalIsAvailable && selectedSlots.length > 0
   );
+  const scheduleResolvedFromContext = Boolean(
+    lockedScheduleContext && form.professionalId && selectedProfessionalIsAvailable && selectedSlots.length > 0
+  );
   const canSubmitPatient =
     canContinueSchedule &&
+    !patientDayConflict &&
+    !patientDayConflictLoading &&
+    !treatmentPlans.isLoading &&
+    hasTreatmentPlanDecision &&
     (!requiresPatient ||
       (patientMode === "existing" && Boolean(form.patientId)) ||
       (patientMode === "new" &&
@@ -366,6 +500,57 @@ export function AppointmentModal({
       )
       .slice(0, 12);
   }, [filteredPatients, patientSearch]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!requiresPatient || patientMode !== "existing" || !form.patientId) {
+      setSelectedTreatmentPlanId("");
+      setTreatmentPlanChoice("new");
+      return;
+    }
+    if (!canReadTreatmentPlans || treatmentPlans.isLoading) return;
+    if (
+      treatmentPlanChoice === "existing" &&
+      selectableTreatmentPlans.some((plan) => plan.id === selectedTreatmentPlanId)
+    ) {
+      return;
+    }
+
+    const preferredPlan = currentProfessionalTreatmentPlans[0];
+    if (preferredPlan) {
+      setTreatmentPlanChoice("existing");
+      setSelectedTreatmentPlanId(preferredPlan.id);
+      return;
+    }
+
+    if (canCreateTreatmentPlans) {
+      setTreatmentPlanChoice("new");
+      setSelectedTreatmentPlanId("");
+      return;
+    }
+
+    const fallbackPlan = selectableTreatmentPlans[0];
+    if (fallbackPlan) {
+      setTreatmentPlanChoice("existing");
+      setSelectedTreatmentPlanId(fallbackPlan.id);
+      return;
+    }
+
+    setTreatmentPlanChoice("new");
+    setSelectedTreatmentPlanId("");
+  }, [
+    canCreateTreatmentPlans,
+    canReadTreatmentPlans,
+    currentProfessionalTreatmentPlans,
+    form.patientId,
+    open,
+    patientMode,
+    requiresPatient,
+    selectableTreatmentPlans,
+    selectedTreatmentPlanId,
+    treatmentPlanChoice,
+    treatmentPlans.isLoading
+  ]);
 
   const handleProfessionalChange = (professionalId: string) => {
     const professional = professionals.find((item) => item.id === professionalId);
@@ -421,6 +606,27 @@ export function AppointmentModal({
       }
 
       const notes = patientMode === "new" ? newPatient.comment.trim() : form.notes.trim();
+      let treatmentPlanId =
+        patientMode === "existing" && treatmentPlanChoice === "existing"
+          ? selectedTreatmentPlanId || undefined
+          : undefined;
+
+      if (
+        requiresPatient &&
+        patientMode === "existing" &&
+        patientId &&
+        treatmentPlanChoice === "new" &&
+        canCreateTreatmentPlans
+      ) {
+        const createdPlan = await onCreateTreatmentPlan({
+          branchId: form.branchId,
+          patientId,
+          professionalId: form.professionalId,
+          name: "Plan de Tratamiento Inicial",
+          status: "DRAFT"
+        });
+        treatmentPlanId = createdPlan.id;
+      }
 
       const payloads: AppointmentPayload[] = selectedSlots.map((slot) => ({
         branchId: form.branchId,
@@ -436,11 +642,16 @@ export function AppointmentModal({
         startAt: new Date(slot.startAt).toISOString(),
         endAt: new Date(slot.endAt).toISOString(),
         durationMinutes: diffMinutes(slot.startAt, slot.endAt) ?? Number(form.durationMinutes),
-        notes: notes || undefined
+        notes: notes || undefined,
+        treatmentPlanId
       }));
 
-      await onSubmit(payloads);
-      onClose();
+      try {
+        await onSubmit(payloads);
+        onClose();
+      } catch (error: any) {
+        toast.error(error.message || "Error al agendar la cita.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -461,8 +672,16 @@ export function AppointmentModal({
           return prev.filter((_, i) => i !== index);
         }
 
-        const hasSameDay = prev.some((selectedSlot) => isSameAppointmentLocalDay(selectedSlot.startAt, slot.startAt));
-        if (hasSameDay) {
+        const sameDaySlots = prev.filter((selectedSlot) => isSameAppointmentLocalDay(selectedSlot.startAt, slot.startAt));
+        if (sameDaySlots.length) {
+          const mergeableSlots = sameDaySlots.filter((selectedSlot) => slotsTouchOrOverlap(selectedSlot, slot));
+          if (mergeableSlots.length) {
+            const mergedSlot = mergeSlots([slot, ...mergeableSlots]);
+            const next = [...prev.filter((selectedSlot) => !mergeableSlots.includes(selectedSlot)), mergedSlot];
+            next.sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+            return next;
+          }
+
           setBookingProblems([SAME_DAY_APPOINTMENT_MESSAGE]);
           return prev;
         }
@@ -477,8 +696,18 @@ export function AppointmentModal({
   const handleReasonSelect = (reason: ReasonOption) => {
     const nextDuration = String(reason.durationMinutes);
     const durationChanged = form.durationMinutes !== nextDuration;
+    const lockedStartAt = form.startAt || (selectedSlots[0] ? toLocalInput(selectedSlots[0].startAt) : "");
+    const lockedSlot =
+      lockedScheduleContext && lockedStartAt
+        ? buildSlotFromLocalStart(
+            lockedStartAt,
+            roundDurationToInterval(reason.durationMinutes, appointmentIntervalMinutes)
+          )
+        : null;
 
-    if (durationChanged) {
+    if (lockedSlot) {
+      setSelectedSlots([lockedSlot]);
+    } else if (durationChanged) {
       setSelectedSlots([]);
     }
 
@@ -488,8 +717,8 @@ export function AppointmentModal({
       reason: reason.name,
       title: "",
       durationMinutes: nextDuration,
-      startAt: durationChanged ? "" : prev.startAt,
-      endAt: durationChanged ? "" : prev.endAt
+      startAt: lockedSlot ? toLocalInput(lockedSlot.startAt) : durationChanged ? "" : prev.startAt,
+      endAt: lockedSlot ? toLocalInput(lockedSlot.endAt) : durationChanged ? "" : prev.endAt
     }));
   };
 
@@ -502,7 +731,7 @@ export function AppointmentModal({
 
   const closeOrStepBack = () => {
     if (step === "patient") {
-      setStep("schedule");
+      setStep(scheduleResolvedFromContext ? "reason" : "schedule");
       return;
     }
     if (step === "schedule") {
@@ -544,15 +773,15 @@ export function AppointmentModal({
                 <Select
                   value={form.specialtyId}
                   onChange={(event) => {
-                    setSelectedSlots([]);
+                    if (!lockedScheduleContext) setSelectedSlots([]);
                     setReasonSearch("");
                     setForm((prev) => ({
                       ...prev,
                       specialtyId: event.target.value,
-                      professionalId: "",
+                      professionalId: lockedScheduleContext ? prev.professionalId : "",
                       reason: "",
-                      startAt: "",
-                      endAt: ""
+                      startAt: lockedScheduleContext ? prev.startAt : "",
+                      endAt: lockedScheduleContext ? prev.endAt : ""
                     }));
                   }}
                   disabled={step !== "reason"}
@@ -618,9 +847,10 @@ export function AppointmentModal({
                 selectedSlots={selectedSlots}
                 selectedSpecialtyName={selectedSpecialty?.name ?? ""}
                 onBack={closeOrStepBack}
-                onContinue={() => setStep("schedule")}
+                onContinue={() => setStep(scheduleResolvedFromContext ? "patient" : "schedule")}
                 onReasonSearchChange={handleReasonSearchChange}
                 onReasonSelect={handleReasonSelect}
+                continueLabel={scheduleResolvedFromContext ? "Continuar a paciente" : "Continuar a horario"}
               />
             ) : step === "schedule" ? (
               <ScheduleStep
@@ -637,6 +867,8 @@ export function AppointmentModal({
                 onWeekChange={setWeekStart}
                 onRemoveSlot={(slot) => setSelectedSlots((prev) => prev.filter((s) => s.startAt !== slot.startAt))}
                 multipleMode={multipleMode}
+                selectedDuration={selectedDuration}
+                appointmentIntervalMinutes={appointmentIntervalMinutes}
               />
             ) : (
               <PatientStep
@@ -651,12 +883,30 @@ export function AppointmentModal({
                 selectedPatient={selectedPatient}
                 selectedProfessional={selectedProfessional}
                 selectedSlots={selectedSlots}
+                patientDayConflict={patientDayConflict}
+                patientDayConflictLoading={patientDayConflictLoading}
+                canCreateTreatmentPlans={canCreateTreatmentPlans}
+                canReadTreatmentPlans={canReadTreatmentPlans}
+                currentProfessionalTreatmentPlans={currentProfessionalTreatmentPlans}
+                historicalTreatmentPlans={historicalTreatmentPlans}
+                otherProfessionalTreatmentPlans={otherProfessionalTreatmentPlans}
+                selectedTreatmentPlanId={selectedTreatmentPlanId}
                 submitting={submitting}
+                treatmentPlanChoice={treatmentPlanChoice}
+                treatmentPlansLoading={treatmentPlans.isLoading}
                 onBack={closeOrStepBack}
                 onFormChange={setForm}
                 onModeChange={setPatientMode}
                 onNewPatientChange={setNewPatient}
                 onPatientSearchChange={setPatientSearch}
+                onTreatmentPlanChoiceChange={(choice) => {
+                  setTreatmentPlanChoice(choice);
+                  if (choice === "new") setSelectedTreatmentPlanId("");
+                }}
+                onTreatmentPlanSelect={(planId) => {
+                  setTreatmentPlanChoice("existing");
+                  setSelectedTreatmentPlanId(planId);
+                }}
                 onSubmit={() => void submit()}
               />
             )}
@@ -747,7 +997,9 @@ function ScheduleStep({
   onSelectSlot,
   onWeekChange,
   onRemoveSlot,
-  multipleMode = false
+  multipleMode = false,
+  selectedDuration,
+  appointmentIntervalMinutes
 }: {
   availability: ReturnType<typeof useQuery<DayAvailability[]>>;
   availabilityError?: string;
@@ -762,6 +1014,8 @@ function ScheduleStep({
   onWeekChange: (value: string) => void;
   onRemoveSlot: (slot: SelectedSlot) => void;
   multipleMode?: boolean;
+  selectedDuration: number;
+  appointmentIntervalMinutes: number;
 }) {
   return (
     <div className="space-y-4">
@@ -769,7 +1023,14 @@ function ScheduleStep({
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">Horarios libres</p>
           <h4 className="text-lg font-semibold text-slate-950">{formatWeekRange(days)}</h4>
-          <p className="text-xs text-slate-500">Duracion requerida: {form.durationMinutes} minutos</p>
+          <p className="text-xs text-slate-500">
+            Duración requerida: {selectedDuration} minutos
+            {Number(form.durationMinutes) !== selectedDuration && (
+              <span className="text-cyan-700 font-semibold ml-1">
+                (ajustado de {form.durationMinutes} min para calzar con intervalos de {appointmentIntervalMinutes} min)
+              </span>
+            )}
+          </p>
           {availabilityError ? <p className="mt-1 text-xs font-semibold text-red-600">{availabilityError}</p> : null}
         </div>
         <div className="flex items-center gap-2">
@@ -819,7 +1080,7 @@ function ScheduleStep({
                   dayAvailability.slots
                     .filter((slot) => slot.available)
                     .map((slot) => {
-                      const selected = selectedSlots.some((s) => s.startAt === slot.startAt);
+                      const selected = selectedSlots.some((selectedSlot) => slotInsideSelectedRange(selectedSlot, slot));
                       return (
                         <button
                           key={slot.startAt}
@@ -917,7 +1178,8 @@ function ReasonStep({
   onBack,
   onContinue,
   onReasonSearchChange,
-  onReasonSelect
+  onReasonSelect,
+  continueLabel = "Continuar a horario"
 }: {
   activeReasons: ReasonOption[];
   form: FormState;
@@ -930,6 +1192,7 @@ function ReasonStep({
   onContinue: () => void;
   onReasonSearchChange: (value: string) => void;
   onReasonSelect: (reason: ReasonOption) => void;
+  continueLabel?: string;
 }) {
   const normalizedSearch = normalizeReasonKey(reasonSearch);
   const filteredReasons = normalizedSearch
@@ -1040,7 +1303,7 @@ function ReasonStep({
           Regresar
         </Button>
         <Button onClick={onContinue} disabled={!selectedReasonId || !form.reason.trim()} type="button">
-          Continuar a horario
+          {continueLabel}
         </Button>
       </div>
     </div>
@@ -1059,12 +1322,24 @@ function PatientStep({
   selectedPatient,
   selectedProfessional,
   selectedSlots,
+  patientDayConflict,
+  patientDayConflictLoading,
+  canCreateTreatmentPlans,
+  canReadTreatmentPlans,
+  currentProfessionalTreatmentPlans,
+  historicalTreatmentPlans,
+  otherProfessionalTreatmentPlans,
+  selectedTreatmentPlanId,
   submitting,
+  treatmentPlanChoice,
+  treatmentPlansLoading,
   onBack,
   onFormChange,
   onModeChange,
   onNewPatientChange,
   onPatientSearchChange,
+  onTreatmentPlanChoiceChange,
+  onTreatmentPlanSelect,
   onSubmit
 }: {
   canSubmit: boolean;
@@ -1078,12 +1353,24 @@ function PatientStep({
   selectedPatient?: PatientListItem;
   selectedProfessional?: Professional;
   selectedSlots: SelectedSlot[];
+  patientDayConflict?: Appointment | null;
+  patientDayConflictLoading: boolean;
+  canCreateTreatmentPlans: boolean;
+  canReadTreatmentPlans: boolean;
+  currentProfessionalTreatmentPlans: TreatmentPlan[];
+  historicalTreatmentPlans: TreatmentPlan[];
+  otherProfessionalTreatmentPlans: TreatmentPlan[];
+  selectedTreatmentPlanId: string;
   submitting: boolean;
+  treatmentPlanChoice: TreatmentPlanChoice;
+  treatmentPlansLoading: boolean;
   onBack: () => void;
   onFormChange: React.Dispatch<React.SetStateAction<FormState>>;
   onModeChange: (mode: PatientMode) => void;
   onNewPatientChange: React.Dispatch<React.SetStateAction<NewPatientState>>;
   onPatientSearchChange: (value: string) => void;
+  onTreatmentPlanChoiceChange: (choice: TreatmentPlanChoice) => void;
+  onTreatmentPlanSelect: (planId: string) => void;
   onSubmit: () => void;
 }) {
   return (
@@ -1143,7 +1430,13 @@ function PatientStep({
                   className="pl-9"
                   placeholder="Buscar por nombre, documento, telefono o correo"
                   value={patientSearch}
-                  onChange={(event) => onPatientSearchChange(event.target.value)}
+                  onChange={(event) => {
+                    const newValue = event.target.value;
+                    onPatientSearchChange(newValue);
+                    if (selectedPatient && newValue !== `${selectedPatient.firstName} ${selectedPatient.lastName}`) {
+                      onFormChange((prev) => ({ ...prev, patientId: "" }));
+                    }
+                  }}
                 />
               </div>
 
@@ -1157,13 +1450,14 @@ function PatientStep({
                         key={patient.id}
                         type="button"
                         className={`grid w-full gap-1 border-b border-slate-100 px-3 py-3 text-left last:border-b-0 ${selected ? "bg-cyan-50" : "bg-white hover:bg-slate-50"}`}
-                        onClick={() =>
+                        onClick={() => {
                           onFormChange((prev) => ({
                             ...prev,
                             patientId: patient.id,
                             title: prev.title || `Cita - ${patient.firstName} ${patient.lastName}`
-                          }))
-                        }
+                          }));
+                          onPatientSearchChange(`${patient.firstName} ${patient.lastName}`);
+                        }}
                       >
                         <span className="flex items-center justify-between gap-3">
                           <span className="font-semibold uppercase text-slate-900">
@@ -1192,7 +1486,32 @@ function PatientStep({
                 </div>
               )}
 
-              {selectedPatient ? <PatientSummary patient={selectedPatient} /> : null}
+              {selectedPatient ? (
+                <PatientDailyLimitNotice
+                  conflict={patientDayConflict ?? null}
+                  loading={patientDayConflictLoading}
+                />
+              ) : null}
+
+              {selectedPatient ? (
+                <TreatmentPlanSelector
+                  canCreateTreatmentPlans={canCreateTreatmentPlans}
+                  canReadTreatmentPlans={canReadTreatmentPlans}
+                  currentProfessionalPlans={currentProfessionalTreatmentPlans}
+                  historicalPlans={historicalTreatmentPlans}
+                  loading={treatmentPlansLoading}
+                  otherProfessionalPlans={otherProfessionalTreatmentPlans}
+                  selectedPlanId={selectedTreatmentPlanId}
+                  selectedProfessionalName={
+                    selectedProfessional
+                      ? `${selectedProfessional.firstName} ${selectedProfessional.lastName}`
+                      : "este profesional"
+                  }
+                  treatmentPlanChoice={treatmentPlanChoice}
+                  onChoiceChange={onTreatmentPlanChoiceChange}
+                  onPlanSelect={onTreatmentPlanSelect}
+                />
+              ) : null}
 
               <FieldLabel label="Comentario">
                 <Textarea
@@ -1304,6 +1623,44 @@ function PatientStep({
   );
 }
 
+function PatientDailyLimitNotice({
+  conflict,
+  loading
+}: {
+  conflict: Appointment | null;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
+        Validando si el paciente ya tiene cita activa en esta fecha...
+      </div>
+    );
+  }
+
+  if (!conflict) return null;
+
+  const professionalName = conflict.professional
+    ? `${conflict.professional.firstName} ${conflict.professional.lastName}`
+    : "profesional asignado";
+
+  return (
+    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800">
+      <div className="flex gap-2">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div>
+          <p className="font-semibold">
+            Este paciente ya tiene una cita activa este dia: {formatTime(conflict.startAt)} - {formatTime(conflict.endAt)} con {professionalName}.
+          </p>
+          <p className="mt-1 text-xs">
+            Por regla de la clinica, un paciente solo puede tener 1 cita al dia (incluso con diferentes profesionales). Para darle mas duracion, edita la cita existente en la agenda de {professionalName}.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PatientSummary({ patient }: { patient: PatientListItem }) {
   return (
     <div className="grid gap-3 rounded-md border border-cyan-100 bg-cyan-50 p-3 sm:grid-cols-[auto_minmax(0,1fr)]">
@@ -1319,6 +1676,253 @@ function PatientSummary({ patient }: { patient: PatientListItem }) {
           <span>{patient.branchName || "Sucursal activa"}</span>
           <span>{patient.hasFutureAppointment ? "Tiene cita futura" : "Sin cita futura"}</span>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function TreatmentPlanSelector({
+  canCreateTreatmentPlans,
+  canReadTreatmentPlans,
+  currentProfessionalPlans,
+  historicalPlans,
+  loading,
+  otherProfessionalPlans,
+  selectedPlanId,
+  selectedProfessionalName,
+  treatmentPlanChoice,
+  onChoiceChange,
+  onPlanSelect
+}: {
+  canCreateTreatmentPlans: boolean;
+  canReadTreatmentPlans: boolean;
+  currentProfessionalPlans: TreatmentPlan[];
+  historicalPlans: TreatmentPlan[];
+  loading: boolean;
+  otherProfessionalPlans: TreatmentPlan[];
+  selectedPlanId: string;
+  selectedProfessionalName: string;
+  treatmentPlanChoice: TreatmentPlanChoice;
+  onChoiceChange: (choice: TreatmentPlanChoice) => void;
+  onPlanSelect: (planId: string) => void;
+}) {
+  if (!canReadTreatmentPlans) {
+    return (
+      <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-subtle)] px-[var(--space-3)] py-[var(--space-3)] text-[var(--text-sm)] text-[var(--text-secondary)]">
+        Los planes de tratamiento no se muestran por permisos. La cita se puede guardar sin bloquear el flujo.
+      </div>
+    );
+  }
+
+  const hasSelectablePlans = currentProfessionalPlans.length > 0 || otherProfessionalPlans.length > 0;
+
+  return (
+    <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)]">
+      <div className="flex flex-col gap-2 border-b border-[var(--border-default)] px-[var(--space-3)] py-[var(--space-3)] sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            <ClipboardList className="h-4 w-4 text-slate-500" />
+            Planes de Tratamiento
+          </p>
+          <p className="mt-0.5 text-xs text-slate-500">
+            Selecciona el plan que quedará asociado a esta cita.
+          </p>
+        </div>
+        {loading ? <Badge value="Cargando" tone="default" /> : <Badge value={`${currentProfessionalPlans.length + otherProfessionalPlans.length} activos`} tone="brand" />}
+      </div>
+
+      <div className="grid gap-[var(--space-3)] p-[var(--space-3)] max-h-[380px] overflow-y-auto overflow-x-hidden pr-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300">
+        {loading ? (
+          <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border-strong)] bg-[var(--bg-subtle)] px-[var(--space-3)] py-[var(--space-4)] text-center text-[var(--text-sm)] text-[var(--text-secondary)]">
+            Consultando planes del paciente...
+          </div>
+        ) : (
+          <>
+            <TreatmentPlanGroup
+              icon={<User className="h-4 w-4" />}
+              emptyText={`No hay planes activos con ${selectedProfessionalName}.`}
+              plans={currentProfessionalPlans}
+              selectedPlanId={selectedPlanId}
+              title={`Con ${selectedProfessionalName}`}
+              onPlanSelect={onPlanSelect}
+            />
+            <TreatmentPlanGroup
+              icon={<Users className="h-4 w-4" />}
+              emptyText="No hay planes activos con otros profesionales."
+              plans={otherProfessionalPlans}
+              selectedPlanId={selectedPlanId}
+              title="Con otros profesionales"
+              onPlanSelect={onPlanSelect}
+            />
+
+            {canCreateTreatmentPlans ? (
+              <button
+                type="button"
+                className={`group flex w-full items-center gap-[var(--space-3)] rounded-[var(--radius-md)] border border-dashed px-[var(--space-3)] py-[var(--space-3)] text-left transition-[background-color,border-color] duration-[var(--duration-fast)] ${
+                  treatmentPlanChoice === "new"
+                    ? "border-[var(--border-brand)] bg-[var(--bg-brand-light)]"
+                    : "border-slate-300 bg-[var(--bg-surface)] hover:bg-slate-50 hover:border-slate-400"
+                }`}
+                onClick={() => onChoiceChange("new")}
+              >
+                <div
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors ${
+                    treatmentPlanChoice === "new"
+                      ? "bg-[var(--action-brand)] text-white"
+                      : "bg-slate-100 text-slate-400 group-hover:bg-slate-200 group-hover:text-slate-600"
+                  }`}
+                >
+                  <PlusCircle className="h-4 w-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className={`block text-sm font-semibold transition-colors ${treatmentPlanChoice === "new" ? "text-[var(--text-brand)]" : "text-slate-700 group-hover:text-slate-900"}`}>
+                    Crear nuevo plan de tratamiento
+                  </span>
+                  <span className="block text-xs text-slate-500">
+                    Se creará un borrador asociado a esta sucursal y profesional.
+                  </span>
+                </div>
+                {treatmentPlanChoice === "new" && (
+                  <CheckCircle2 className="h-5 w-5 text-[var(--text-brand)] shrink-0" />
+                )}
+              </button>
+            ) : null}
+
+            {!hasSelectablePlans && !canCreateTreatmentPlans ? (
+              <div className="flex flex-col items-center justify-center gap-2 rounded-[var(--radius-md)] bg-slate-50 px-[var(--space-3)] py-6 text-center text-[var(--text-sm)] text-[var(--text-secondary)]">
+                <FolderX className="h-8 w-8 text-slate-300" />
+                <p>No hay planes activos seleccionables y tu usuario no puede crear uno desde agenda.</p>
+              </div>
+            ) : null}
+
+            {historicalPlans.length ? (
+              <div className="border-t border-[var(--border-default)] pt-[var(--space-3)] mt-2">
+                <p className="mb-[var(--space-2)] flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+                  <ClipboardList className="h-3.5 w-3.5" />
+                  Historial inactivo
+                </p>
+                <div className="grid gap-[var(--space-2)]">
+                  {historicalPlans.map((plan) => (
+                    <TreatmentPlanSummary key={plan.id} disabled plan={plan} selected={false} />
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TreatmentPlanGroup({
+  emptyText,
+  icon,
+  plans,
+  selectedPlanId,
+  title,
+  onPlanSelect
+}: {
+  emptyText: string;
+  icon?: React.ReactNode;
+  plans: TreatmentPlan[];
+  selectedPlanId: string;
+  title: string;
+  onPlanSelect: (planId: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+        {icon && <span className="text-slate-400">{icon}</span>}
+        {title}
+      </p>
+      {plans.length ? (
+        <div className="grid gap-[var(--space-2)]">
+          {plans.map((plan) => (
+            <button key={plan.id} type="button" onClick={() => onPlanSelect(plan.id)} className="text-left w-full outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-[var(--radius-md)]">
+              <TreatmentPlanSummary plan={plan} selected={selectedPlanId === plan.id} />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center justify-center gap-2 rounded-md bg-slate-50 px-4 py-5 text-sm text-slate-500">
+          <FolderX className="h-6 w-6 text-slate-300" />
+          {emptyText}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TreatmentPlanSummary({
+  disabled = false,
+  plan,
+  selected
+}: {
+  disabled?: boolean;
+  plan: TreatmentPlan;
+  selected: boolean;
+}) {
+  return (
+    <div
+      className={`relative flex w-full flex-col gap-2 rounded-[var(--radius-md)] border px-3 py-3 transition-[background-color,border-color,box-shadow] duration-200 ${
+        selected
+          ? "border-[var(--border-brand)] bg-[var(--bg-brand-light)] shadow-sm"
+          : disabled
+          ? "border-slate-200 bg-slate-50 opacity-70"
+          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`truncate text-sm font-semibold ${selected ? "text-[var(--text-brand)]" : "text-slate-800"}`}>
+              {plan.name}
+            </span>
+            <Badge value={treatmentPlanStatusLabel(plan.status)} tone={treatmentPlanStatusTone(plan.status)} />
+            {disabled ? (
+              <span className="rounded-[var(--radius-sm)] bg-[var(--status-danger-bg)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--status-danger-text)]">
+                No seleccionable
+              </span>
+            ) : null}
+          </div>
+
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <User className="h-3 w-3 text-slate-400" />
+              Dr(a). {plan.professional.firstName} {plan.professional.lastName}
+            </span>
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <MapPin className="h-3 w-3 text-slate-400" />
+              {plan.branch.name}
+            </span>
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <Stethoscope className="h-3 w-3 text-slate-400" />
+              {plan.specialty?.name ?? plan.specialtySnapshotName ?? "Sin especialidad"}
+            </span>
+            <span className="flex items-center gap-1 whitespace-nowrap">
+              <Calendar className="h-3 w-3 text-slate-400" />
+              {formatTreatmentPlanDate(plan.updatedAt ?? plan.createdAt)}
+            </span>
+          </div>
+        </div>
+        
+        <div className="flex shrink-0 items-center justify-center pl-2">
+          {selected ? (
+            <CheckCircle2 className="h-5 w-5 text-[var(--text-brand)]" />
+          ) : (
+            <div className={`h-5 w-5 rounded-full border ${disabled ? "border-slate-200" : "border-slate-300"}`} />
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mt-1">
+        <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+          {plan.itemsCount ?? 0} prestaciones
+        </span>
+        <span className="inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+          {plan.budgetCount ?? 0} presupuestos
+        </span>
       </div>
     </div>
   );
@@ -1459,6 +2063,79 @@ function diffMinutes(startAt: string, endAt: string) {
   return Math.round((end.getTime() - start.getTime()) / 60000);
 }
 
+function buildSelectedSlotsLookupRange(slots: SelectedSlot[]) {
+  const timestamps = slots
+    .flatMap((slot) => [new Date(slot.startAt).getTime(), new Date(slot.endAt).getTime()])
+    .filter((value) => !Number.isNaN(value));
+
+  if (!timestamps.length) return null;
+
+  const start = new Date(Math.min(...timestamps));
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(Math.max(...timestamps));
+  end.setHours(0, 0, 0, 0);
+  end.setDate(end.getDate() + 1);
+
+  return { start: start.toISOString(), end: end.toISOString() };
+}
+
+function appointmentCountsAgainstPatientDailyLimit(appointment: Appointment) {
+  return Boolean(appointment.patientId) &&
+    appointment.status !== "BLOCKED" &&
+    !PATIENT_DAILY_LIMIT_FREE_STATUSES.includes(appointment.status);
+}
+
+function roundDurationToInterval(durationMinutes: number, intervalMinutes: number) {
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) return durationMinutes;
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return durationMinutes;
+  return Math.ceil(durationMinutes / intervalMinutes) * intervalMinutes;
+}
+
+function buildSlotFromLocalStart(startAt: string, durationMinutes: number): SelectedSlot | null {
+  const start = new Date(startAt);
+  if (Number.isNaN(start.getTime()) || !Number.isFinite(durationMinutes) || durationMinutes <= 0) return null;
+  const end = new Date(start.getTime() + durationMinutes * 60000);
+  return { startAt: start.toISOString(), endAt: end.toISOString() };
+}
+
+function slotsTouchOrOverlap(left: SelectedSlot, right: SelectedSlot) {
+  if (!isSameAppointmentLocalDay(left.startAt, right.startAt)) return false;
+  const leftStart = new Date(left.startAt).getTime();
+  const leftEnd = new Date(left.endAt).getTime();
+  const rightStart = new Date(right.startAt).getTime();
+  const rightEnd = new Date(right.endAt).getTime();
+  if ([leftStart, leftEnd, rightStart, rightEnd].some((value) => Number.isNaN(value))) return false;
+  return rightStart <= leftEnd && rightEnd >= leftStart;
+}
+
+function slotInsideSelectedRange(selectedSlot: SelectedSlot, slot: SelectedSlot) {
+  const selectedStart = new Date(selectedSlot.startAt).getTime();
+  const selectedEnd = new Date(selectedSlot.endAt).getTime();
+  const slotStart = new Date(slot.startAt).getTime();
+  const slotEnd = new Date(slot.endAt).getTime();
+  if ([selectedStart, selectedEnd, slotStart, slotEnd].some((value) => Number.isNaN(value))) return false;
+  return slotStart >= selectedStart && slotEnd <= selectedEnd;
+}
+
+function mergeSlots(slots: SelectedSlot[]): SelectedSlot {
+  const sorted = [...slots].sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+  const first = sorted[0]!;
+  return sorted.reduce(
+    (merged, slot) => {
+      const slotStart = new Date(slot.startAt).getTime();
+      const slotEnd = new Date(slot.endAt).getTime();
+      const mergedStart = new Date(merged.startAt).getTime();
+      const mergedEnd = new Date(merged.endAt).getTime();
+
+      return {
+        startAt: slotStart < mergedStart ? slot.startAt : merged.startAt,
+        endAt: slotEnd > mergedEnd ? slot.endAt : merged.endAt
+      };
+    },
+    { startAt: first.startAt, endAt: first.endAt }
+  );
+}
+
 function resolveProfessionalSpecialtyId(
   professional: Professional | undefined,
   currentSpecialtyId: string,
@@ -1498,6 +2175,41 @@ function normalizeReasonKey(value: string) {
 
 function normalizeSearch(value: string) {
   return value.trim().toLowerCase();
+}
+
+function requiresClinicalPatient(status: AppointmentStatus) {
+  return status !== "BLOCKED";
+}
+
+function isSelectableTreatmentPlan(plan: TreatmentPlan) {
+  return plan.status !== "CANCELLED" && plan.status !== "REJECTED";
+}
+
+function treatmentPlanStatusLabel(status: TreatmentPlan["status"]) {
+  const labels: Record<TreatmentPlan["status"], string> = {
+    DRAFT: "Borrador",
+    PRESENTED: "Presentado",
+    ACCEPTED: "Aceptado",
+    IN_PROGRESS: "En curso",
+    COMPLETED: "Completado",
+    CANCELLED: "Cancelado",
+    REJECTED: "Rechazado"
+  };
+  return labels[status] ?? status;
+}
+
+function treatmentPlanStatusTone(status: TreatmentPlan["status"]) {
+  if (status === "ACCEPTED" || status === "IN_PROGRESS" || status === "COMPLETED") return "success";
+  if (status === "PRESENTED") return "brand";
+  if (status === "CANCELLED" || status === "REJECTED") return "danger";
+  return "default";
+}
+
+function formatTreatmentPlanDate(value?: string | null) {
+  if (!value) return "Sin fecha";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Fecha invalida";
+  return `Actualizado ${date.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })}`;
 }
 
 function isBranchAssignmentActiveAt(

@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/feedback/empty-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { SurfaceSelector } from "./surface-selector";
 import type { ToothProcedureStatus } from "../services/clinical.service";
+import { pieceSurfaceLabel, surfaceLabel } from "../utils/tooth-surface";
 
 type ProfessionalOption = { id: string; label: string };
 type ProcedureOption = { id: string; label: string };
@@ -22,14 +23,11 @@ type ToothHistoryPayload = {
     status: ToothProcedureStatus;
     diagnosis?: string | null;
     notes?: string | null;
+    surface?: string | null;
     procedure?: { code: string; name: string } | null;
     createdAt: string;
   }>;
 };
-
-function fdiLabel(toothNumber: string) {
-  return toothNumber.length >= 2 ? `${toothNumber[0]}.${toothNumber[1]}` : toothNumber;
-}
 
 export function ToothTreatmentModal({
   open,
@@ -72,7 +70,7 @@ export function ToothTreatmentModal({
   }, [toothNumber, open]);
 
   return (
-    <Modal open={open} title={`Agregar tratamiento - Pieza ${fdiLabel(toothNumber)}`} onClose={onClose} size="lg">
+    <Modal open={open} title={`Agregar tratamiento - ${pieceSurfaceLabel(toothNumber, surface)}`} onClose={onClose} size="lg">
       <div className="grid gap-3 md:grid-cols-2">
         <Select value={professionalId} onChange={(event) => setProfessionalId(event.target.value)}>
           <option value="">Profesional</option>
@@ -134,6 +132,7 @@ export function ToothTreatmentModal({
 export function ToothInformationModal({
   open,
   toothNumber,
+  surface,
   history,
   historyLoading,
   onClose,
@@ -142,6 +141,7 @@ export function ToothInformationModal({
 }: {
   open: boolean;
   toothNumber: string;
+  surface?: string;
   history?: ToothHistoryPayload;
   historyLoading: boolean;
   onClose: () => void;
@@ -161,13 +161,18 @@ export function ToothInformationModal({
         </header>
 
         <div className="border-b border-slate-200 px-6 py-4">
-          <h4 className="text-lg text-slate-900">Pieza {fdiLabel(toothNumber)}</h4>
+          <h4 className="text-lg text-slate-900">{pieceSurfaceLabel(toothNumber, surface)}</h4>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {historyLoading ? <LoadingState message="Cargando informacion dental..." /> : null}
 
-          {!history?.records.length ? <EmptyState title="Sin diagnosticos" description="No hay diagnosticos registrados para esta pieza." /> : null}
+          {!history?.records.length ? (
+            <EmptyState
+              title="Sin diagnosticos"
+              description={surface ? "No hay diagnosticos registrados para esta cara." : "No hay diagnosticos registrados para esta pieza."}
+            />
+          ) : null}
           {(history?.records ?? []).map((record) => {
             const cancelled = record.status === "CANCELLED";
             return (
@@ -180,7 +185,7 @@ export function ToothInformationModal({
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className={cancelled ? "font-medium text-slate-400 line-through" : "font-medium text-slate-900"}>{record.condition}</p>
-                      <p className={`text-sm italic ${cancelled ? "text-slate-400" : "text-slate-600"}`}>{record.surface && record.surface !== "ALL" ? record.surface : "Pieza completa"}</p>
+                      <p className={`text-sm italic ${cancelled ? "text-slate-400" : "text-slate-600"}`}>{surfaceLabel(record.surface)}</p>
                       {record.notes ? <p className={`mt-1 text-sm ${cancelled ? "text-slate-400" : "text-slate-500"}`}>{record.notes}</p> : null}
                     </div>
                     <div className="flex items-center gap-3">
@@ -213,6 +218,7 @@ export function ToothInformationModal({
                       {procedure.procedure ? `${procedure.procedure.code} - ${procedure.procedure.name}` : "Procedimiento sin catalogo"}
                     </p>
                     <p className="text-xs text-slate-500">{new Date(procedure.createdAt).toLocaleString()}</p>
+                    <p className="text-xs italic text-slate-500">{surfaceLabel(procedure.surface)}</p>
                   </div>
                   <Badge value={procedure.status} tone={procedure.status === "COMPLETED" ? "success" : procedure.status === "CANCELLED" ? "danger" : "warning"} />
                 </div>

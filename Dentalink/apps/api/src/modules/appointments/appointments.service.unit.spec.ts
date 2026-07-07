@@ -176,6 +176,50 @@ describe("AppointmentsService - Batch creation rules", () => {
     expect(result).toHaveLength(2);
   });
 
+  it("merges contiguous batch intervals for the same patient into one appointment", async () => {
+    const { prisma, tx } = buildPrisma();
+    const service = new AppointmentsService(prisma as never);
+    mockPrepareAppointment(service)
+      .mockResolvedValueOnce(buildPrepared({
+        startAt: "2026-06-29T15:00:00.000Z",
+        endAt: "2026-06-29T15:20:00.000Z",
+        durationMinutes: 20
+      }))
+      .mockResolvedValueOnce(buildPrepared({
+        startAt: "2026-06-29T15:20:00.000Z",
+        endAt: "2026-06-29T15:40:00.000Z",
+        durationMinutes: 20
+      }));
+
+    const result = await service.createBatch(actor, {
+      appointments: [
+        buildDto({
+          startAt: "2026-06-29T15:00:00.000Z",
+          endAt: "2026-06-29T15:20:00.000Z",
+          durationMinutes: 20
+        }),
+        buildDto({
+          startAt: "2026-06-29T15:20:00.000Z",
+          endAt: "2026-06-29T15:40:00.000Z",
+          durationMinutes: 20
+        })
+      ]
+    });
+
+    expect(tx.appointment.create).toHaveBeenCalledTimes(1);
+    expect(tx.appointment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          startAt: new Date("2026-06-29T15:00:00.000Z"),
+          endAt: new Date("2026-06-29T15:40:00.000Z"),
+          durationMinutes: 40
+        })
+      })
+    );
+    expect(prisma.appointment.findFirst).toHaveBeenCalledTimes(1);
+    expect(result).toHaveLength(1);
+  });
+
   it("rejects a batch appointment when the patient already has an active appointment that day", async () => {
     const { prisma } = buildPrisma();
     prisma.appointment.findFirst.mockResolvedValueOnce({ id: "existing-appt" });
@@ -235,5 +279,49 @@ describe("AppointmentsService - Batch creation rules", () => {
     expect(tx.treatmentPlan.create).toHaveBeenCalledTimes(1);
     expect(tx.appointment.create).toHaveBeenCalledTimes(2);
     expect(prisma.appointment.findMany).not.toHaveBeenCalled();
+  });
+
+  it("rejects a treatment plan that does not belong to the selected patient", async () => {
+    const prisma = {
+      branch: { findFirst: jest.fn().mockResolvedValue({ id: "branch-1" }) },
+      professional: { findFirst: jest.fn().mockResolvedValue({ id: "professional-1" }) },
+      patient: { findFirst: jest.fn().mockResolvedValue({ id: "patient-1" }) },
+      treatmentPlan: { findFirst: jest.fn().mockResolvedValue(null) }
+    };
+    const service = new AppointmentsService(prisma as never);
+
+    await expect(
+      (
+        service as unknown as {
+          validateReferences: (
+            actor: AuthUser,
+            input: {
+              branchId: string;
+              patientId?: string;
+              professionalId: string;
+              treatmentPlanId?: string;
+              status: AppointmentStatus;
+            }
+          ) => Promise<void>;
+        }
+      ).validateReferences(actor, {
+        branchId: "branch-1",
+        patientId: "patient-1",
+        professionalId: "professional-1",
+        treatmentPlanId: "plan-other-patient",
+        status: AppointmentStatus.SCHEDULED
+      })
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prisma.treatmentPlan.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "plan-other-patient",
+          organizationId: "org-1",
+          patientId: "patient-1",
+          branchId: { in: ["branch-1"] }
+        })
+      })
+    );
   });
 });

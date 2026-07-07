@@ -93,6 +93,10 @@ export class ListOdontogramQueryDto {
   @IsOptional()
   @IsString()
   toothNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  surface?: string;
 }
 
 export class CreatePeriodontalMeasurementDto {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { SimpleCrudPage } from "@/components/forms/simple-crud-page";
+import { ODONTOGRAM_PROCEDURE_SYMBOL_OPTIONS } from "@/features/clinical/components/tooth-diagnosis-symbols";
 import { useProcedureCategories, useProcedureMutations, useProcedures } from "../hooks/use-procedures";
 
 function asNumber(value: unknown, fallback: number) {
@@ -93,7 +94,14 @@ export function ProceduresSettingsPage() {
           { key: "defaultDuration", label: "Duracion (min)", type: "number" },
           { key: "requiresTooth", label: "Requiere diente", type: "checkbox" },
           { key: "requiresSurface", label: "Requiere superficie", type: "checkbox" },
-          { key: "requiresLab", label: "Requiere laboratorio", type: "checkbox" }
+          { key: "requiresLab", label: "Requiere laboratorio", type: "checkbox" },
+          { key: "requiresOdontogramSymbol", label: "Solicitar simbolo odontograma", type: "checkbox" },
+          {
+            key: "defaultOdontogramSymbol",
+            label: "Simbolo por defecto",
+            type: "select",
+            options: ODONTOGRAM_PROCEDURE_SYMBOL_OPTIONS
+          }
         ]}
         columns={[
           { key: "code", title: "Codigo" },
@@ -114,7 +122,9 @@ export function ProceduresSettingsPage() {
               defaultDuration: asNumber(record.defaultDuration, 30),
               requiresTooth: Boolean(record.requiresTooth),
               requiresSurface: Boolean(record.requiresSurface),
-              requiresLab: Boolean(record.requiresLab)
+              requiresLab: Boolean(record.requiresLab),
+              requiresOdontogramSymbol: Boolean(record.requiresOdontogramSymbol),
+              defaultOdontogramSymbol: String(record.defaultOdontogramSymbol ?? "") || null
             } as never);
           },
           update: async (id, payload) => {
@@ -126,7 +136,9 @@ export function ProceduresSettingsPage() {
                 defaultDuration: asNumber(record.defaultDuration, 30),
                 requiresTooth: Boolean(record.requiresTooth),
                 requiresSurface: Boolean(record.requiresSurface),
-                requiresLab: Boolean(record.requiresLab)
+                requiresLab: Boolean(record.requiresLab),
+                requiresOdontogramSymbol: Boolean(record.requiresOdontogramSymbol),
+                defaultOdontogramSymbol: String(record.defaultOdontogramSymbol ?? "") || null
               }
             });
           },
@@ -139,7 +151,9 @@ export function ProceduresSettingsPage() {
             defaultDuration: row.defaultDuration,
             requiresTooth: row.requiresTooth,
             requiresSurface: row.requiresSurface,
-            requiresLab: row.requiresLab
+            requiresLab: row.requiresLab,
+            requiresOdontogramSymbol: row.requiresOdontogramSymbol,
+            defaultOdontogramSymbol: row.defaultOdontogramSymbol ?? ""
           }),
           getId: (row) => row.id
         }}

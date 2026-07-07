@@ -27,6 +27,7 @@ vi.mock("../services/clinical.service", () => ({
   updatePrescriptionStatus: vi.fn(),
   listDocuments: vi.fn(),
   listDocumentTemplates: vi.fn(),
+  createDocument: vi.fn(),
   createDocumentFromTemplate: vi.fn(),
   createDocumentTemplate: vi.fn(),
   getOdontogram: vi.fn(),

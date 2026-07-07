@@ -126,6 +126,7 @@ function itemFixture({
       requiresTooth,
       requiresSurface,
       requiresLab: false,
+      requiresOdontogramSymbol: false,
       isActive
     }
   };

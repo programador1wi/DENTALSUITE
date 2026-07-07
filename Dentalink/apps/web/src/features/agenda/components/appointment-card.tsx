@@ -3,6 +3,7 @@ import { MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import { appointmentColorPalette, appointmentStatusLabel } from "./appointment-status";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { AppointmentActionsMenu, type AppointmentMenuAction } from "./appointment-actions-menu";
 import { AppointmentStatusMenu } from "./appointment-status-menu";
 
@@ -38,10 +39,10 @@ export function AppointmentCard({
   onMenuAction
 }: AppointmentCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const [showTooltip, setShowTooltip] = useState(false);
 
   const start = new Date(appointment.startAt);
   const end = new Date(appointment.endAt);
+  const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
   const timeRange = `${start.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false })} - ${end.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
   const patientName = appointment.patient ? `${appointment.patient.firstName} ${appointment.patient.lastName}` : "Bloqueo Clinico";
   const patientId = appointment.patient?.id || "N/A";
@@ -54,6 +55,15 @@ export function AppointmentCard({
       (appointment._count?.appointmentNotes ?? 0) > 0
   );
   const commentButtonLabel = hasAppointmentComment ? "Editar comentario de cita" : "Agregar comentario de cita";
+
+  const handleCommentClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    if (onMenuAction) {
+      onMenuAction(appointment, "addComment");
+    } else {
+      onEdit(appointment);
+    }
+  };
 
   const handleMenuAction = (action: AppointmentMenuAction) => {
     if (action === "changeDate") {
@@ -74,80 +84,121 @@ export function AppointmentCard({
     onMenuAction?.(appointment, action);
   };
 
-  const handleCommentClick = () => {
-    handleMenuAction("addComment");
-  };
-
   if (compact) {
-    return (
-      <div
-        className={cn(
-          "relative flex h-full w-full cursor-pointer flex-col justify-start rounded-[var(--radius-sm)] border p-[var(--space-1)] transition-[border-color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:shadow-[var(--shadow-card-hover)]",
-          menuOpen
-            ? "z-[80] overflow-visible menu-open"
-            : showTooltip
-              ? "z-[70] overflow-visible tooltip-open"
-              : "z-0 overflow-hidden",
-          palette.cardClass
-        )}
-        onMouseEnter={() => setShowTooltip(true)}
-        onMouseLeave={() => setShowTooltip(false)}
-        onClick={() => onEdit(appointment)}
-      >
-        <div className={cn("flex h-full w-full items-center justify-between gap-1", menuOpen ? "overflow-visible" : "overflow-hidden")}>
-          <span className={cn("h-2.5 w-2.5 shrink-0 rounded-[var(--radius-full)] ring-1 ring-[var(--bg-surface)]", palette.dotClass)} />
-
-          <span className="flex min-w-0 flex-1 flex-col justify-center overflow-hidden leading-tight">
-            <span className="truncate text-[10px] font-semibold text-[var(--text-primary)]">
-              ({patientId.slice(0, 5)}) {patientFirstName} {patientLastName}
-            </span>
-            <span className="truncate text-[9px] font-medium text-[var(--text-secondary)]">{timeRange}</span>
+    const tooltipContent = (
+      <div className="flex flex-col gap-0.5">
+        <div className="text-[12px] font-semibold text-slate-900">
+          {appointment.title.toUpperCase()}{" "}
+          <span className="font-normal text-slate-500">
+            ({appointment.chair?.name || "BOX 1"})
           </span>
-
-          <div className="flex shrink-0 items-center gap-0.5" onClick={(event) => event.stopPropagation()}>
-            <button
-              type="button"
-              aria-label={commentButtonLabel}
-              title={commentButtonLabel}
-              onClick={handleCommentClick}
-              className={cn(
-                "flex h-4 w-4 items-center justify-center rounded-[var(--radius-sm)] transition-colors hover:bg-[var(--bg-surface)]/80 focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]",
-                hasAppointmentComment ? "text-[var(--text-brand)]" : "text-[var(--text-secondary)] hover:text-[var(--text-brand)]"
-              )}
-            >
-              <MessageSquare className="h-3 w-3" />
-            </button>
-            <AppointmentActionsMenu
-              appointment={appointment}
-              triggerVariant="compact"
-              placement="auto"
-              onOpenChange={(open) => {
-                setMenuOpen(open);
-                if (open) setShowTooltip(false);
-              }}
-              onAction={handleMenuAction}
-            />
-          </div>
         </div>
+        <div className="mb-2 border-b border-slate-100 pb-1 text-[11px] text-slate-500">
+          {appointmentStatusLabel(appointment.status)}
+        </div>
+        <div className="text-[11px] text-slate-700">
+          ({patientId.slice(0, 5)}) {patientName.toUpperCase()}
+        </div>
+      </div>
+    );
 
-        {showTooltip && !menuOpen && (
-          <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-1.5 w-64 -translate-x-1/2 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-[var(--space-2)] shadow-[var(--shadow-card-hover)] animate-in fade-in-0 zoom-in-95">
-            <div className="absolute -top-1.5 left-1/2 h-3 w-3 -translate-x-1/2 rotate-45 border-l border-t border-[var(--border-default)] bg-[var(--bg-surface)]" />
+    return (
+      <HelpTooltip
+        disabled={menuOpen}
+        position="auto"
+        triggerClassName="h-full w-full flex"
+        content={tooltipContent}
+      >
+        <div
+          className={cn(
+            "relative group flex h-full w-full cursor-pointer flex-col justify-between rounded-[var(--radius-sm)] border py-1 pr-1 pl-2.5 transition-[border-color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:shadow-[var(--shadow-card-hover)]",
+            menuOpen ? "z-[80] overflow-visible menu-open" : "z-0 overflow-hidden",
+            palette.cardClass
+          )}
+          onClick={(e) => {
+            e.stopPropagation();
+            const trigger = e.currentTarget.querySelector('button[aria-haspopup="menu"]') as HTMLButtonElement;
+            if (trigger) {
+              setTimeout(() => trigger.click(), 0);
+            }
+          }}
+        >
+          {/* Color bar indicator on left side */}
+          <div className={cn("absolute left-0 top-0 bottom-0 w-[3.5px] rounded-l-[var(--radius-sm)]", palette.dotClass)} />
 
-            <div className="relative z-10 flex flex-col gap-0.5">
-              <div className="text-[var(--text-xs)] font-semibold text-[var(--text-primary)]">
-                {appointment.title.toUpperCase()} <span className="font-normal text-[var(--text-secondary)]">({appointment.chair?.name || "BOX 1"})</span>
+          {durationMin <= 20 ? (
+            <div className="flex h-full w-full items-center justify-between gap-1 overflow-hidden">
+              <div className="flex items-center min-w-0 gap-1 select-none">
+                <span className="shrink-0 text-[8.5px] font-semibold opacity-75">
+                  {start.toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false })}
+                </span>
+                <span className="shrink-0 text-[8px] opacity-40">|</span>
+                <span className="truncate text-[9.5px] font-bold">
+                  {patientFirstName} {patientLastName}
+                </span>
               </div>
-              <div className="mb-[var(--space-2)] border-b border-[var(--border-default)] pb-[var(--space-1)] text-[var(--text-xs)] text-[var(--text-secondary)]">
-                {appointmentStatusLabel(appointment.status)}
-              </div>
-              <div className="text-[var(--text-xs)] text-[var(--text-primary)]">
-                ({patientId.slice(0, 5)}) {patientName.toUpperCase()}
+              
+              <div className="flex shrink-0 items-center opacity-0 group-hover:opacity-100 transition-opacity duration-150" onClick={(event) => event.stopPropagation()}>
+                <AppointmentActionsMenu
+                  appointment={appointment}
+                  triggerVariant="compact"
+                  placement="auto"
+                  onOpenChange={setMenuOpen}
+                  onAction={handleMenuAction}
+                />
               </div>
             </div>
-          </div>
-        )}
-      </div>
+          ) : (
+            <div className="flex flex-col justify-between h-full w-full relative">
+              <div className="min-w-0 pr-5">
+                <div className="flex items-center gap-1">
+                  <span className="truncate text-[10px] font-bold text-[var(--text-primary)] leading-tight">
+                    {patientFirstName} {patientLastName}
+                  </span>
+                  {hasAppointmentComment && (
+                    <MessageSquare className="h-2.5 w-2.5 text-[var(--text-brand)] shrink-0" />
+                  )}
+                </div>
+                <span className="truncate text-[9px] font-medium text-[var(--text-secondary)] leading-none block mt-0.5">
+                  {timeRange}
+                </span>
+              </div>
+
+              {durationMin >= 45 && (
+                <span className="truncate text-[8px] font-bold uppercase tracking-wider opacity-75 select-none mt-1">
+                  {appointmentStatusLabel(appointment.status)}
+                </span>
+              )}
+
+              {/* Compact action menu showing on hover */}
+              <div 
+                className="absolute right-0 top-0.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 bg-inherit pr-0.5 rounded-[var(--radius-sm)]" 
+                onClick={(event) => event.stopPropagation()}
+              >
+                <button
+                  type="button"
+                  aria-label={commentButtonLabel}
+                  title={commentButtonLabel}
+                  onClick={handleCommentClick}
+                  className={cn(
+                    "flex h-4 w-4 items-center justify-center rounded-[var(--radius-sm)] transition-colors hover:bg-[var(--bg-surface)]/80 focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]",
+                    hasAppointmentComment ? "text-[var(--text-brand)]" : "text-[var(--text-secondary)] hover:text-[var(--text-brand)]"
+                  )}
+                >
+                  <MessageSquare className="h-3 w-3" />
+                </button>
+                <AppointmentActionsMenu
+                  appointment={appointment}
+                  triggerVariant="compact"
+                  placement="auto"
+                  onOpenChange={setMenuOpen}
+                  onAction={handleMenuAction}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </HelpTooltip>
     );
   }
 

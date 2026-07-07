@@ -7,6 +7,8 @@ export type InstallmentFrequency = "WEEKLY" | "BIWEEKLY" | "MONTHLY";
 
 export type Payment = {
   id: string;
+  paymentNumber: string;
+  ticketId?: string | null;
   branchId: string;
   patientId: string;
   amount: string;
@@ -16,14 +18,54 @@ export type Payment = {
   notes?: string | null;
   voidReason?: string | null;
   voidedAt?: string | null;
+  voidedById?: string | null;
   paidAt: string;
   createdAt: string;
-  patient: { id: string; firstName: string; lastName: string };
+  patient: { id: string; firstName: string; lastName: string; documentNumber?: string | null };
   branch: { id: string; name: string };
   paymentMethod: { id: string; name: string; type: string };
   financialInstitution?: { id: string; name: string } | null;
   receivedBy: { id: string; firstName: string; lastName: string };
-  allocations: Array<{ id: string; treatmentPlanItemId: string; amount: string }>;
+  voidedBy?: { id: string; firstName: string; lastName: string } | null;
+  treatments?: Array<{ id: string; number: string; name: string; procedures: string[] }>;
+  treatmentRefs?: Array<{ id: string; number: string; name: string; procedures: string[] }>;
+  cashRegister?: {
+    id: string;
+    movementId: string;
+    status: CashRegisterStatus;
+    openedAt: string;
+    closedAt?: string | null;
+    branch: { id: string; name: string };
+    openedBy: { id: string; firstName: string; lastName: string };
+  } | null;
+  dueDate?: string | null;
+  allocatedAmount: number;
+  unallocatedAmount: number;
+  breakdown: Array<{
+    id: string;
+    kind: "TREATMENT" | "INSTALLMENT";
+    treatmentPlanId?: string | null;
+    treatmentNumber: string;
+    treatmentName: string;
+    detail: string;
+    baseAmount: number;
+    paidAmount: number;
+    remainingAmount: number;
+    dueDate?: string | null;
+  }>;
+  allocations: Array<{
+    id: string;
+    treatmentPlanItemId: string;
+    amount: string;
+    treatmentPlanItem?: {
+      id: string;
+      treatmentPlanId: string;
+      treatmentPlan?: { id: string; name: string } | null;
+      procedure?: { id: string; code: string; name: string } | null;
+      toothNumber?: string | null;
+      surface?: string | null;
+    };
+  }>;
   refunds: Array<{ id: string; amount: string; status: string; createdAt: string }>;
 };
 
@@ -67,8 +109,20 @@ export type PaymentLink = {
   expiresAt?: string | null;
   paidAt?: string | null;
   createdAt: string;
-  patient: { id: string; firstName: string; lastName: string };
+  patient: { id: string; firstName: string; lastName: string; documentNumber?: string | null; branch?: { id: string; name: string } };
   treatmentPlan?: { id: string; name: string } | null;
+};
+
+export type CancelledPendingPaymentLinkStatus = Exclude<PaymentLink["status"], "PAID">;
+
+export type CancelledPendingPaymentsResponse = {
+  summary: {
+    voidedPayments: { count: number; amount: number };
+    pendingLinks: { count: number; amount: number };
+    linkStatusTotals: Record<PaymentLink["status"], { count: number; amount: number }>;
+  };
+  voidedPayments: Payment[];
+  pendingLinks: PaymentLink[];
 };
 
 export type Installment = {
@@ -225,6 +279,17 @@ export async function listPayments(params?: { patientId?: string; branchId?: str
   return data;
 }
 
+export async function listCancelledPendingPayments(params?: {
+  branchId?: string;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  linkStatus?: CancelledPendingPaymentLinkStatus | "";
+}) {
+  const { data } = await http.get<CancelledPendingPaymentsResponse>("/payments/cancelled-pending", { params });
+  return data;
+}
+
 export async function createPayment(payload: {
   branchId: string;
   patientId: string;
@@ -238,6 +303,20 @@ export async function createPayment(payload: {
   allocations?: Array<{ treatmentPlanItemId: string; amount: number }>;
 }) {
   const { data } = await http.post<Payment>("/payments", payload);
+  return data;
+}
+
+export async function updatePayment(
+  paymentId: string,
+  payload: {
+    paymentMethodId?: string;
+    financialInstitutionId?: string;
+    reference?: string;
+    notes?: string;
+    paidAt?: string;
+  }
+) {
+  const { data } = await http.patch<Payment>(`/payments/${paymentId}`, payload);
   return data;
 }
 
@@ -263,6 +342,11 @@ export async function listRefunds(params?: { patientId?: string; treatmentPlanId
 
 export async function voidPayment(paymentId: string, payload: { reason: string }) {
   const { data } = await http.post<Payment>(`/payments/${paymentId}/void`, payload);
+  return data;
+}
+
+export async function getPaymentReceipt(paymentId: string) {
+  const { data } = await http.get<{ payment: Payment; printableText: string }>(`/payments/${paymentId}/receipt`);
   return data;
 }
 
@@ -437,4 +521,3 @@ export async function getCashPaymentsByProfessional(params?: CashReportQuery & {
   const { data } = await http.get<PaymentsByProfessionalResponse>("/cash-register/reports/payments-by-professional", { params });
   return data;
 }
-

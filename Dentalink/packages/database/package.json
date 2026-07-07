@@ -10,7 +10,9 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:seed:demo": "tsx prisma/seed-demo-patient.ts",
     "prisma:seed:full-demo": "tsx prisma/seed-full-demo.ts",
-    "prisma:seed:professionals-agenda": "tsx prisma/seed-professionals-agenda.ts"
+    "prisma:seed:professionals-agenda": "tsx prisma/seed-professionals-agenda.ts",
+    "prisma:seed:test-cases": "tsx prisma/seed-test-cases.ts",
+    "prisma:seed:test-treatment-plans": "tsx prisma/seed-test-treatment-plans.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

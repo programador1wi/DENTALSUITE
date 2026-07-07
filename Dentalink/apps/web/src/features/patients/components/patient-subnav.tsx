@@ -7,7 +7,7 @@ const tabs = [
   { key: "clinical/history", label: "Ficha clinica", permission: "clinical.read" },
   { key: "treatments", label: "Planes de tratamiento", permission: "treatment_plans.read" },
   { key: "billing", label: "Facturacion y pagos", permission: "payments.read" },
-  { key: "payments", label: "Recibir pago", permission: "payments.read" }
+  { key: "payments", label: "Recibir pago", permission: "payments.create" }
 ] as const;
 
 export function PatientSubnav({ patientId }: { patientId: string }) {

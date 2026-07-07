@@ -65,6 +65,8 @@ export function PatientPaymentsPage() {
 
   const branchId = patient.data?.branchId ?? "";
   const canOpenCashRegister = hasPermission("cash_register.open") || hasPermission("system.manage_all");
+  const canCreatePayment = hasPermission("payments.create") || hasPermission("system.manage_all");
+  const canPayInstallments = hasPermission("installments.pay") || hasPermission("system.manage_all");
   const hasOpenRegister = Boolean(currentRegister.data);
 
   useEffect(() => {
@@ -134,6 +136,7 @@ export function PatientPaymentsPage() {
       paymentMethodId &&
       Number(amount) > 0 &&
       hasOpenRegister &&
+      (selection.kind === "installment" ? canPayInstallments : canCreatePayment) &&
       !mutations.createPayment.isPending &&
       !mutations.payInstallment.isPending
   );
@@ -229,11 +232,12 @@ export function PatientPaymentsPage() {
                       <input
                         type="checkbox"
                         checked={selection?.kind === "plan" && selection.id === plan.id}
+                        disabled={!canCreatePayment}
                         onChange={() => selectPlan(plan)}
                       />
                     </td>
                     <td className="px-3 py-4">
-                      <button type="button" className="text-left text-brand-700 hover:underline" onClick={() => selectPlan(plan)}>
+                      <button type="button" className="text-left text-brand-700 hover:underline disabled:text-slate-400 disabled:no-underline" disabled={!canCreatePayment} onClick={() => selectPlan(plan)}>
                         Tratamiento #{shortId(plan.id)}: {plan.name}
                       </button>
                       <p className="font-semibold text-slate-900">Sin citas</p>
@@ -256,7 +260,7 @@ export function PatientPaymentsPage() {
             </div>
           ) : (
             <div className="mt-6 flex justify-end">
-              <Button type="button" disabled={selection?.kind !== "plan"} onClick={() => selection && setAmount(String(selection.amount))}>
+            <Button type="button" disabled={!canCreatePayment || selection?.kind !== "plan"} onClick={() => selection && setAmount(String(selection.amount))}>
                 Pagar tratamiento(s)
               </Button>
             </div>
@@ -285,6 +289,7 @@ export function PatientPaymentsPage() {
                         <input
                           type="checkbox"
                           checked={selection?.kind === "installment" && selection.id === installment.id}
+                          disabled={!canPayInstallments}
                           onChange={() => selectInstallment(installment)}
                         />
                       </td>
@@ -301,7 +306,7 @@ export function PatientPaymentsPage() {
             </table>
           </div>
           <div className="mt-6 flex justify-end">
-            <Button type="button" disabled={selection?.kind !== "installment"} onClick={() => selection && setAmount(String(selection.amount))}>
+            <Button type="button" disabled={!canPayInstallments || selection?.kind !== "installment"} onClick={() => selection && setAmount(String(selection.amount))}>
               Pagar cuotas »
             </Button>
           </div>

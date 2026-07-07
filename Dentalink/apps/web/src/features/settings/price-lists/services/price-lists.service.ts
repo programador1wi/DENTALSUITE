@@ -59,6 +59,8 @@ export type PriceListItem = {
     requiresTooth: boolean;
     requiresSurface: boolean;
     requiresLab: boolean;
+    requiresOdontogramSymbol: boolean;
+    defaultOdontogramSymbol?: string | null;
     isActive: boolean;
   };
 };

@@ -223,14 +223,15 @@ export function SchedulesSettingsPage() {
   const actionPending = createSchedule.isPending || updateSchedule.isPending || updateAgendaConfig.isPending || branchActiveSchedules.isLoading;
 
   useEffect(() => {
-    if (selectedBranchId || selectedProfessionalId || !activeBranchId) return;
+    if (!activeBranchId) return;
+    
     setParams((current) => {
-      if (current.get("branchId") || current.get("professionalId")) return current;
+      if (current.get("branchId") === activeBranchId) return current;
       const next = new URLSearchParams(current);
       next.set("branchId", activeBranchId);
       return next;
     }, { replace: true });
-  }, [activeBranchId, selectedBranchId, selectedProfessionalId, setParams]);
+  }, [activeBranchId, setParams]);
 
   useEffect(() => {
     if (!selectedProfessionalId || !professionalBranchFilterId || !professionals.data) return;
@@ -423,50 +424,34 @@ export function SchedulesSettingsPage() {
 
       <Card className="space-y-[var(--space-4)]">
         <div className="grid gap-[var(--space-3)] md:grid-cols-2">
-          {isProfessionalLocked && selectedProfessional ? (
-            <ReadonlyField label="Profesional" value={selectedProfessionalName} />
-          ) : (
-            <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
-              Profesional
-              <Select value={selectedProfessionalId} onChange={(event) => updateParam("professionalId", event.target.value)}>
-                <option value="">Selecciona profesional</option>
-                {professionals.data?.map((professional) => (
-                  <option key={professional.id} value={professional.id}>
-                    {professional.firstName} {professional.lastName}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          )}
+          <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+            Profesional
+            <Select value={selectedProfessionalId} onChange={(event) => updateParam("professionalId", event.target.value)}>
+              <option value="">Selecciona profesional</option>
+              {professionals.data?.map((professional) => (
+                <option key={professional.id} value={professional.id}>
+                  {professional.firstName} {professional.lastName}
+                </option>
+              ))}
+            </Select>
+          </label>
 
-          {hasSingleBranch && selectedBranch ? (
-            <ReadonlyField label="Sucursal" value={selectedBranch.name} />
-          ) : (
-            <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
-              Sucursal
-              <Select
-                value={selectedBranchId}
-                disabled={Boolean(selectedProfessional && !professionalBranches.length)}
-                onChange={(event) => updateParam("branchId", event.target.value)}
-              >
-                <option value="">{needsBranchSelection ? "Selecciona sucursal del doctor" : "Selecciona sucursal"}</option>
-                {branchOptions.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          )}
+          <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+            Sucursal
+            <Select
+              value={selectedBranchId}
+              disabled={Boolean(selectedProfessional && !professionalBranches.length)}
+              onChange={(event) => updateParam("branchId", event.target.value)}
+            >
+              <option value="">{needsBranchSelection ? "Selecciona sucursal del doctor" : "Selecciona sucursal"}</option>
+              {branchOptions.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </Select>
+          </label>
         </div>
-
-        {selectedProfessional && selectedBranch ? (
-          <div className="grid gap-[var(--space-3)] md:grid-cols-3">
-            <SummaryPill label="Profesional" value={selectedProfessionalName} />
-            <SummaryPill label="Sucursal" value={selectedBranch.name} />
-            <SummaryPill label="Boxes activos" value={`${branchChairs.length}`} />
-          </div>
-        ) : null}
       </Card>
 
       {schedules.isLoading || branchActiveSchedules.isLoading || professionals.isLoading || branches.isLoading || chairs.isLoading ? (

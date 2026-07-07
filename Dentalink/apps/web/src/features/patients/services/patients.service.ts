@@ -201,6 +201,8 @@ export type PatientsQuery = {
   hasDebt?: "true" | "false";
   withoutFutureAppointment?: "true" | "false";
   isNew?: "true" | "false";
+  page?: number;
+  pageSize?: number;
 };
 
 export type PatientAnalysisQuery = {

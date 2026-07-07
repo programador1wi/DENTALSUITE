@@ -27,12 +27,14 @@ import {
   CreateRefundDto,
   ListAccountsReceivableQueryDto,
   ListCashRegistersQueryDto,
+  ListCancelledPendingPaymentsQueryDto,
   ListInstallmentsQueryDto,
   ListPaymentLinksQueryDto,
   ListPaymentsQueryDto,
   ListRefundsQueryDto,
   OpenCashRegisterDto,
   PayInstallmentDto,
+  UpdatePaymentDto,
   VoidPaymentDto
 } from "./dto/payments.dto";
 import { PaymentsService } from "./payments.service";
@@ -50,10 +52,28 @@ export class PaymentsController {
     return this.service.listPayments(actor, query);
   }
 
+  @Get("payments/cancelled-pending")
+  @RequirePermissions("payments.read")
+  listCancelledPendingPayments(@CurrentUser() actor: AuthUser, @Query() query: ListCancelledPendingPaymentsQueryDto) {
+    return this.service.listCancelledPendingPayments(actor, query);
+  }
+
   @Post("payments")
   @RequirePermissions("payments.create")
   createPayment(@CurrentUser() actor: AuthUser, @Body() dto: CreatePaymentDto) {
     return this.service.createPayment(actor, dto);
+  }
+
+  @Get("payments/:id/receipt")
+  @RequirePermissions("payments.read")
+  getPaymentReceipt(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getPaymentReceipt(actor, id);
+  }
+
+  @Patch("payments/:id")
+  @RequirePermissions("payments.update")
+  updatePayment(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdatePaymentDto) {
+    return this.service.updatePayment(actor, id, dto);
   }
 
   @Post("payments/:id/allocations")

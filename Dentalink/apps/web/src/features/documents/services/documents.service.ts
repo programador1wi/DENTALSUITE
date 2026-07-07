@@ -6,6 +6,7 @@ export type FileAttachment = {
   patientId?: string | null;
   userId?: string | null;
   professionalId?: string | null;
+  treatmentPlanId?: string | null;
   uploadedById: string;
   fileName: string;
   originalName: string;
@@ -76,7 +77,7 @@ export type Consent = {
   }>;
 };
 
-export async function listPatientFiles(patientId: string, params?: { category?: string }) {
+export async function listPatientFiles(patientId: string, params?: { category?: string; treatmentPlanId?: string }) {
   const { data } = await http.get<FileAttachment[]>(`/patients/${patientId}/files`, { params });
   return data;
 }
@@ -90,16 +91,18 @@ export async function uploadPatientFile(
     size: number;
     url: string;
     category: string;
+    treatmentPlanId?: string;
   }
 ) {
   const { data } = await http.post<FileAttachment>(`/patients/${patientId}/files`, payload);
   return data;
 }
 
-export async function uploadPatientBinaryFile(patientId: string, payload: { file: File; category: string }) {
+export async function uploadPatientBinaryFile(patientId: string, payload: { file: File; category: string; treatmentPlanId?: string }) {
   const formData = new FormData();
   formData.append("file", payload.file);
   formData.append("category", payload.category);
+  if (payload.treatmentPlanId) formData.append("treatmentPlanId", payload.treatmentPlanId);
   const { data } = await http.post<FileAttachment>(`/patients/${patientId}/files/upload`, formData);
   return data;
 }

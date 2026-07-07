@@ -201,7 +201,9 @@ export function HelpTooltip({
     };
   }, [close, open, updatePosition]);
 
-  const describedBy = open ? tooltipId : undefined;
+  const isModalOpen = typeof document !== "undefined" && !!document.querySelector(".backdrop-blur-sm");
+  const shouldRenderTooltip = open && !isModalOpen;
+  const describedBy = shouldRenderTooltip ? tooltipId : undefined;
   const child = isValidElement(children)
     ? cloneElement(children as ReactElement<{ "aria-describedby"?: string }>, {
         "aria-describedby": describedBy
@@ -254,7 +256,7 @@ export function HelpTooltip({
         )}
       </span>
 
-      {open && typeof document !== "undefined"
+      {shouldRenderTooltip && typeof document !== "undefined"
         ? createPortal(
             <div
               ref={tooltipRef}

@@ -4,6 +4,7 @@ import {
   CashRegisterStatus,
   InstallmentFrequency,
   InstallmentStatus,
+  PaymentLinkStatus,
   PaymentStatus,
   Prisma,
   RefundStatus,
@@ -23,13 +24,14 @@ import {
   CreateRefundDto,
   ListAccountsReceivableQueryDto,
   ListCashRegistersQueryDto,
+  ListCancelledPendingPaymentsQueryDto,
   ListInstallmentsQueryDto,
   ListPaymentLinksQueryDto,
   ListPaymentsQueryDto,
   ListRefundsQueryDto,
   OpenCashRegisterDto,
-  PayInstallmentDto
-  ,
+  PayInstallmentDto,
+  UpdatePaymentDto,
   VoidPaymentDto
 } from "./dto/payments.dto";
 
@@ -37,9 +39,76 @@ import {
 export class PaymentsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private paymentDetailInclude() {
+    return {
+      patient: { select: { id: true, firstName: true, lastName: true, documentNumber: true } },
+      branch: { select: { id: true, name: true } },
+      paymentMethod: { select: { id: true, name: true, type: true } },
+      financialInstitution: { select: { id: true, name: true } },
+      receivedBy: { select: { id: true, firstName: true, lastName: true } },
+      allocations: {
+        include: {
+          treatmentPlanItem: {
+            select: {
+              id: true,
+              treatmentPlanId: true,
+              toothNumber: true,
+              surface: true,
+              total: true,
+              status: true,
+              treatmentPlan: { select: { id: true, name: true } },
+              procedure: { select: { id: true, code: true, name: true } },
+              paymentAllocations: {
+                select: {
+                  amount: true,
+                  payment: { select: { status: true } }
+                }
+              }
+            }
+          }
+        }
+      },
+      installmentAllocations: {
+        include: {
+          installment: {
+            include: {
+              installmentPlan: {
+                select: {
+                  id: true,
+                  treatmentPlanId: true,
+                  treatmentPlan: { select: { id: true, name: true } }
+                }
+              }
+            }
+          }
+        }
+      },
+      cashMovements: {
+        select: {
+          id: true,
+          cashRegisterId: true,
+          createdAt: true,
+          cashRegister: {
+            select: {
+              id: true,
+              status: true,
+              openedAt: true,
+              closedAt: true,
+              branch: { select: { id: true, name: true } },
+              openedBy: { select: { id: true, firstName: true, lastName: true } }
+            }
+          }
+        },
+        orderBy: { createdAt: "asc" as const },
+        take: 1
+      },
+      refunds: { select: { id: true, amount: true, status: true, createdAt: true } }
+    } satisfies Prisma.PaymentInclude;
+  }
+
   async listPayments(actor: AuthUser, query: ListPaymentsQueryDto) {
     const { skip, take } = resolvePagination(query);
-    return this.prisma.payment.findMany({
+    const payments = await this.prisma.payment.findMany({
       where: {
         organizationId: actor.organizationId,
         patient: { branchId: branchScope(actor) },
@@ -57,19 +126,205 @@ export class PaymentsService {
             }
           : {})
       },
-      include: {
-        patient: { select: { id: true, firstName: true, lastName: true } },
-        branch: { select: { id: true, name: true } },
-        paymentMethod: { select: { id: true, name: true, type: true } },
-        financialInstitution: { select: { id: true, name: true } },
-        receivedBy: { select: { id: true, firstName: true, lastName: true } },
-        allocations: { select: { id: true, amount: true, treatmentPlanItemId: true } },
-        refunds: { select: { id: true, amount: true, status: true, createdAt: true } }
-      },
+      include: this.paymentDetailInclude(),
       skip,
       take,
       orderBy: { paidAt: "desc" }
     });
+
+    return payments.map((payment) => this.enrichPayment(payment));
+  }
+
+  async listCancelledPendingPayments(actor: AuthUser, query: ListCancelledPendingPaymentsQueryDto) {
+    if (query.linkStatus === PaymentLinkStatus.PAID) {
+      throw new BadRequestException("Paid payment links do not belong to cancelled and pending payments");
+    }
+
+    const { skip, take } = resolvePagination(query);
+    const branchWhere = branchScope(actor, query.branchId);
+    const search = query.search?.trim();
+    const dateRange = this.resolveOptionalDateRange(query.dateFrom, query.dateTo);
+    const pendingLinkStatuses = query.linkStatus
+      ? [query.linkStatus]
+      : [PaymentLinkStatus.CREATED, PaymentLinkStatus.EXPIRED, PaymentLinkStatus.CANCELLED];
+
+    const paymentSearchWhere: Prisma.PaymentWhereInput = search
+      ? {
+          OR: [
+            { reference: { contains: search, mode: "insensitive" } },
+            { notes: { contains: search, mode: "insensitive" } },
+            { voidReason: { contains: search, mode: "insensitive" } },
+            { patient: { firstName: { contains: search, mode: "insensitive" } } },
+            { patient: { lastName: { contains: search, mode: "insensitive" } } },
+            { branch: { name: { contains: search, mode: "insensitive" } } },
+            { paymentMethod: { name: { contains: search, mode: "insensitive" } } },
+            { receivedBy: { firstName: { contains: search, mode: "insensitive" } } },
+            { receivedBy: { lastName: { contains: search, mode: "insensitive" } } }
+          ]
+        }
+      : {};
+
+    const linkSearchWhere: Prisma.PaymentLinkWhereInput = search
+      ? {
+          OR: [
+            { url: { contains: search, mode: "insensitive" } },
+            { patient: { firstName: { contains: search, mode: "insensitive" } } },
+            { patient: { lastName: { contains: search, mode: "insensitive" } } },
+            { patient: { documentNumber: { contains: search, mode: "insensitive" } } },
+            { treatmentPlan: { name: { contains: search, mode: "insensitive" } } }
+          ]
+        }
+      : {};
+
+    const voidedPaymentWhere: Prisma.PaymentWhereInput = {
+      organizationId: actor.organizationId,
+      status: PaymentStatus.VOIDED,
+      branchId: branchWhere,
+      patient: { branchId: branchWhere },
+      ...(dateRange ? { voidedAt: dateRange } : {}),
+      ...paymentSearchWhere
+    };
+
+    const pendingLinkWhere: Prisma.PaymentLinkWhereInput = {
+      organizationId: actor.organizationId,
+      status: { in: pendingLinkStatuses },
+      patient: { branchId: branchWhere },
+      ...(dateRange ? { createdAt: dateRange } : {}),
+      ...linkSearchWhere
+    };
+
+    const [voidedPayments, pendingLinks, voidedSummary, linkSummary, linkStatusSummary] = await Promise.all([
+      this.prisma.payment.findMany({
+        where: voidedPaymentWhere,
+        include: {
+          patient: { select: { id: true, firstName: true, lastName: true, documentNumber: true } },
+          branch: { select: { id: true, name: true } },
+          paymentMethod: { select: { id: true, name: true, type: true } },
+          financialInstitution: { select: { id: true, name: true } },
+          receivedBy: { select: { id: true, firstName: true, lastName: true } },
+          allocations: {
+            select: {
+              id: true,
+              amount: true,
+              treatmentPlanItemId: true,
+              treatmentPlanItem: {
+                select: {
+                  id: true,
+                  treatmentPlanId: true,
+                  treatmentPlan: { select: { id: true, name: true } },
+                  procedure: { select: { id: true, code: true, name: true } },
+                  toothNumber: true,
+                  surface: true
+                }
+              }
+            }
+          },
+          refunds: { select: { id: true, amount: true, status: true, createdAt: true } }
+        },
+        skip,
+        take,
+        orderBy: [{ voidedAt: "desc" }, { paidAt: "desc" }]
+      }),
+      this.prisma.paymentLink.findMany({
+        where: pendingLinkWhere,
+        include: {
+          patient: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              documentNumber: true,
+              branch: { select: { id: true, name: true } }
+            }
+          },
+          treatmentPlan: { select: { id: true, name: true } }
+        },
+        skip,
+        take,
+        orderBy: { createdAt: "desc" }
+      }),
+      this.prisma.payment.aggregate({
+        where: voidedPaymentWhere,
+        _count: { _all: true },
+        _sum: { amount: true }
+      }),
+      this.prisma.paymentLink.aggregate({
+        where: pendingLinkWhere,
+        _count: { _all: true },
+        _sum: { amount: true }
+      }),
+      this.prisma.paymentLink.groupBy({
+        by: ["status"],
+        where: pendingLinkWhere,
+        _count: { _all: true },
+        _sum: { amount: true }
+      })
+    ]);
+
+    const voidedByIds = [
+      ...new Set(voidedPayments.map((payment) => payment.voidedById).filter((id): id is string => Boolean(id)))
+    ];
+    const voidedByUsers = voidedByIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: voidedByIds }, organizationId: actor.organizationId },
+          select: { id: true, firstName: true, lastName: true }
+        })
+      : [];
+    const voidedByUserById = new Map(voidedByUsers.map((user) => [user.id, user]));
+    const enrichedVoidedPayments = voidedPayments.map((payment) => {
+      const treatmentMap = new Map<string, { id: string; name: string; procedures: string[] }>();
+      for (const allocation of payment.allocations) {
+        const item = allocation.treatmentPlanItem;
+        const plan = item?.treatmentPlan;
+        if (!plan) continue;
+        const current = treatmentMap.get(plan.id) ?? { id: plan.id, name: plan.name, procedures: [] };
+        const procedureName = item.procedure?.name ?? item.procedure?.code;
+        if (procedureName && !current.procedures.includes(procedureName)) current.procedures.push(procedureName);
+        treatmentMap.set(plan.id, current);
+      }
+
+      return {
+        ...payment,
+        paymentNumber: this.shortCode(payment.reference || payment.id),
+        voidedBy: payment.voidedById ? voidedByUserById.get(payment.voidedById) ?? null : null,
+        treatments: Array.from(treatmentMap.values()).map((treatment) => ({
+          ...treatment,
+          number: this.shortCode(treatment.id)
+        }))
+      };
+    });
+
+    const linkStatusTotals = linkStatusSummary.reduce<Record<PaymentLinkStatus, { count: number; amount: number }>>(
+      (totals, row) => {
+        totals[row.status] = {
+          count: row._count._all,
+          amount: this.roundMoney(Number(row._sum.amount ?? 0))
+        };
+        return totals;
+      },
+      {
+        [PaymentLinkStatus.CREATED]: { count: 0, amount: 0 },
+        [PaymentLinkStatus.PAID]: { count: 0, amount: 0 },
+        [PaymentLinkStatus.EXPIRED]: { count: 0, amount: 0 },
+        [PaymentLinkStatus.CANCELLED]: { count: 0, amount: 0 }
+      }
+    );
+
+    return {
+      summary: {
+        voidedPayments: {
+          count: voidedSummary._count._all,
+          amount: this.roundMoney(Number(voidedSummary._sum.amount ?? 0))
+        },
+        pendingLinks: {
+          count: linkSummary._count._all,
+          amount: this.roundMoney(Number(linkSummary._sum.amount ?? 0))
+        },
+        linkStatusTotals
+      },
+      voidedPayments: enrichedVoidedPayments,
+      pendingLinks
+    };
   }
 
   async createPayment(actor: AuthUser, dto: CreatePaymentDto) {
@@ -133,6 +388,73 @@ export class PaymentsService {
     return this.getPayment(actor, created);
   }
 
+  async updatePayment(actor: AuthUser, paymentId: string, dto: UpdatePaymentDto) {
+    const payment = await this.prisma.payment.findFirst({
+      where: { id: paymentId, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      include: {
+        paymentMethod: { select: { id: true, name: true } },
+        financialInstitution: { select: { id: true, name: true } }
+      }
+    });
+    if (!payment) throw new NotFoundException("Payment not found");
+    if (payment.status === PaymentStatus.VOIDED || payment.status === PaymentStatus.REFUNDED) {
+      throw new BadRequestException("Voided or refunded payments cannot be edited");
+    }
+
+    if (dto.paymentMethodId) await this.ensurePaymentMethod(actor, dto.paymentMethodId);
+    if (dto.financialInstitutionId) await this.ensureFinancialInstitution(actor, dto.financialInstitutionId);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.payment.update({
+        where: { id: payment.id },
+        data: {
+          ...(dto.paymentMethodId ? { paymentMethodId: dto.paymentMethodId } : {}),
+          ...(dto.financialInstitutionId !== undefined
+            ? { financialInstitutionId: dto.financialInstitutionId.trim() || null }
+            : {}),
+          ...(dto.reference !== undefined ? { reference: dto.reference.trim() || null } : {}),
+          ...(dto.notes !== undefined ? { notes: dto.notes.trim() || null } : {}),
+          ...(dto.paidAt ? { paidAt: new Date(dto.paidAt) } : {})
+        }
+      });
+
+      await this.audit(tx, actor, {
+        entity: "Payment",
+        entityId: payment.id,
+        action: "update",
+        before: {
+          paymentMethodId: payment.paymentMethodId,
+          financialInstitutionId: payment.financialInstitutionId,
+          reference: payment.reference,
+          notes: payment.notes,
+          paidAt: payment.paidAt
+        },
+        after: dto as Prisma.InputJsonValue
+      });
+    });
+
+    return this.getPayment(actor, payment.id);
+  }
+
+  async getPaymentReceipt(actor: AuthUser, paymentId: string) {
+    const payment = await this.getPayment(actor, paymentId);
+    await this.audit(this.prisma, actor, {
+      entity: "Payment",
+      entityId: payment.id,
+      action: "receipt_print",
+      after: {
+        paymentNumber: payment.paymentNumber,
+        patientId: payment.patientId,
+        amount: payment.amount
+      }
+    });
+
+    return {
+      payment,
+      printableText: this.buildReceiptText(payment)
+    };
+  }
+
   async addAllocations(actor: AuthUser, paymentId: string, dto: AddPaymentAllocationsDto) {
     await this.prisma.$transaction(async (tx) => {
       await this.applyAllocations(tx, actor, paymentId, dto.allocations);
@@ -190,7 +512,10 @@ export class PaymentsService {
 
       const itemAllocatedAfter = await tx.paymentAllocation.aggregate({
         _sum: { amount: true },
-        where: { treatmentPlanItemId: allocation.treatmentPlanItemId }
+        where: {
+          treatmentPlanItemId: allocation.treatmentPlanItemId,
+          payment: { status: { in: [PaymentStatus.RECEIVED, PaymentStatus.PARTIALLY_ALLOCATED, PaymentStatus.ALLOCATED] } }
+        }
       });
       const allocatedOnItem = Number(itemAllocatedAfter._sum.amount ?? 0);
       if (allocatedOnItem < Number(allocation.treatmentPlanItem.total) && allocation.treatmentPlanItem.status === TreatmentPlanItemStatus.PAID) {
@@ -226,20 +551,19 @@ export class PaymentsService {
         allocations: true,
         refunds: true,
         installments: true,
+        installmentAllocations: { include: { installment: true } },
         cashMovements: true
       }
     });
     if (!payment) throw new NotFoundException("Payment not found");
     if (payment.status === PaymentStatus.VOIDED) throw new BadRequestException("Payment is already voided");
     if (payment.refunds.length) throw new BadRequestException("Refunded payments cannot be voided");
-    if (payment.installments.length) throw new BadRequestException("Installment payments must be corrected from the installment flow");
 
     const reason = dto.reason.trim();
     if (!reason) throw new BadRequestException("Void reason is required");
     const itemIds = [...new Set(payment.allocations.map((allocation) => allocation.treatmentPlanItemId))];
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.paymentAllocation.deleteMany({ where: { paymentId: payment.id } });
       await tx.payment.update({
         where: { id: payment.id },
         data: {
@@ -249,6 +573,86 @@ export class PaymentsService {
           voidedById: actor.id
         }
       });
+
+      for (const allocation of payment.installmentAllocations) {
+        const installment = allocation.installment;
+        const nextPaid = this.roundMoney(Math.max(Number(installment.paidAmount) - Number(allocation.amount), 0));
+        const isOverdue = installment.dueDate < new Date();
+        await tx.installment.update({
+          where: { id: installment.id },
+          data: {
+            paidAmount: this.toDecimal(nextPaid),
+            status:
+              nextPaid <= 0
+                ? isOverdue
+                  ? InstallmentStatus.OVERDUE
+                  : InstallmentStatus.PENDING
+                : nextPaid >= Number(installment.amount)
+                  ? InstallmentStatus.PAID
+                  : InstallmentStatus.PARTIAL,
+            paidAt: nextPaid >= Number(installment.amount) ? installment.paidAt : null,
+            paymentId: installment.paymentId === payment.id ? null : installment.paymentId
+          }
+        });
+
+        await tx.collectionCase.updateMany({
+          where: {
+            installmentId: installment.id,
+            status: { in: ["PAID", "PENDING", "CONTACTED", "PROMISE_TO_PAY"] }
+          },
+          data: {
+            status: nextPaid >= Number(installment.amount) ? "PAID" : "PENDING",
+            amountDue: this.toDecimal(this.roundMoney(Math.max(Number(installment.amount) - nextPaid, 0))),
+            daysOverdue: isOverdue && nextPaid < Number(installment.amount) ? 1 : 0,
+            lastContactAt: new Date()
+          }
+        });
+
+        await tx.installmentPlan.update({
+          where: { id: installment.installmentPlanId },
+          data: { status: "ACTIVE" }
+        });
+      }
+
+      const installmentIdsWithAllocations = new Set(payment.installmentAllocations.map((allocation) => allocation.installmentId));
+      for (const installment of payment.installments.filter((row) => !installmentIdsWithAllocations.has(row.id))) {
+        const nextPaid = this.roundMoney(Math.max(Number(installment.paidAmount) - Number(payment.amount), 0));
+        const isOverdue = installment.dueDate < new Date();
+        await tx.installment.update({
+          where: { id: installment.id },
+          data: {
+            paidAmount: this.toDecimal(nextPaid),
+            status:
+              nextPaid <= 0
+                ? isOverdue
+                  ? InstallmentStatus.OVERDUE
+                  : InstallmentStatus.PENDING
+                : nextPaid >= Number(installment.amount)
+                  ? InstallmentStatus.PAID
+                  : InstallmentStatus.PARTIAL,
+            paidAt: nextPaid >= Number(installment.amount) ? installment.paidAt : null,
+            paymentId: installment.paymentId === payment.id ? null : installment.paymentId
+          }
+        });
+
+        await tx.collectionCase.updateMany({
+          where: {
+            installmentId: installment.id,
+            status: { in: ["PAID", "PENDING", "CONTACTED", "PROMISE_TO_PAY"] }
+          },
+          data: {
+            status: nextPaid >= Number(installment.amount) ? "PAID" : "PENDING",
+            amountDue: this.toDecimal(this.roundMoney(Math.max(Number(installment.amount) - nextPaid, 0))),
+            daysOverdue: isOverdue && nextPaid < Number(installment.amount) ? 1 : 0,
+            lastContactAt: new Date()
+          }
+        });
+
+        await tx.installmentPlan.update({
+          where: { id: installment.installmentPlanId },
+          data: { status: "ACTIVE" }
+        });
+      }
 
       for (const movement of payment.cashMovements) {
         await tx.cashMovement.create({
@@ -268,7 +672,10 @@ export class PaymentsService {
         if (!item) continue;
         const allocation = await tx.paymentAllocation.aggregate({
           _sum: { amount: true },
-          where: { treatmentPlanItemId: itemId }
+          where: {
+            treatmentPlanItemId: itemId,
+            payment: { status: { in: [PaymentStatus.RECEIVED, PaymentStatus.PARTIALLY_ALLOCATED, PaymentStatus.ALLOCATED] } }
+          }
         });
         if (Number(allocation._sum.amount ?? 0) < Number(item.total) && item.status === TreatmentPlanItemStatus.PAID) {
           await tx.treatmentPlanItem.update({
@@ -485,7 +892,7 @@ export class PaymentsService {
           amount: this.toDecimal(dto.amount),
           currency: "MXN",
           paymentMethodId: dto.paymentMethodId,
-          status: PaymentStatus.RECEIVED,
+          status: PaymentStatus.ALLOCATED,
           reference: dto.reference?.trim(),
           notes: dto.notes?.trim(),
           paidAt: new Date()
@@ -504,6 +911,14 @@ export class PaymentsService {
           }
         });
       }
+
+      await tx.paymentInstallmentAllocation.create({
+        data: {
+          paymentId: payment.id,
+          installmentId: installment.id,
+          amount: this.toDecimal(dto.amount)
+        }
+      });
 
       const nextPaid = this.roundMoney(Number(installment.paidAmount) + dto.amount);
       await tx.installment.update({
@@ -560,7 +975,7 @@ export class PaymentsService {
       await this.audit(tx, actor, {
         entity: "Installment",
         entityId: installment.id,
-        action: "pay",
+        action: "installment_pay",
         after: {
           paymentId: payment.id,
           amount: dto.amount
@@ -791,15 +1206,8 @@ export class PaymentsService {
     await this.ensurePatient(actor, patientId);
     const [payments, links, installments, treatmentPlans] = await Promise.all([
       this.prisma.payment.findMany({
-        where: { organizationId: actor.organizationId, patientId },
-        include: {
-          paymentMethod: { select: { id: true, name: true, type: true } },
-          receivedBy: { select: { id: true, firstName: true, lastName: true } },
-          allocations: {
-            include: { treatmentPlanItem: { select: { id: true, treatmentPlanId: true, status: true } } }
-          },
-          refunds: true
-        },
+        where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) },
+        include: this.paymentDetailInclude(),
         orderBy: { paidAt: "desc" }
       }),
       this.prisma.paymentLink.findMany({
@@ -844,7 +1252,7 @@ export class PaymentsService {
 
     const balance = await this.getPatientBalance(actor, patientId);
     const { payablePlans, payableItems } = this.buildPayableTreatmentSummaries(treatmentPlans);
-    return { payments, links, installments, balance, payablePlans, payableItems };
+    return { payments: payments.map((payment) => this.enrichPayment(payment)), links, installments, balance, payablePlans, payableItems };
   }
 
   async getPatientBalance(actor: AuthUser, patientId: string) {
@@ -1118,21 +1526,158 @@ export class PaymentsService {
         organizationId: actor.organizationId,
         branchId: branchScope(actor)
       },
-      include: {
-        patient: { select: { id: true, firstName: true, lastName: true } },
-        branch: { select: { id: true, name: true } },
-        paymentMethod: { select: { id: true, name: true, type: true } },
-        receivedBy: { select: { id: true, firstName: true, lastName: true } },
-        allocations: {
-          include: {
-            treatmentPlanItem: { select: { id: true, treatmentPlanId: true, status: true } }
-          }
-        },
-        refunds: true
-      }
+      include: this.paymentDetailInclude()
     });
     if (!payment) throw new NotFoundException("Payment not found");
-    return payment;
+    return this.enrichPayment(payment);
+  }
+
+  private enrichPayment(payment: any) {
+    const activeStatuses = new Set<PaymentStatus>([
+      PaymentStatus.RECEIVED,
+      PaymentStatus.PARTIALLY_ALLOCATED,
+      PaymentStatus.ALLOCATED
+    ]);
+    const treatmentMap = new Map<string, { id: string; number: string; name: string; procedures: string[] }>();
+    const breakdown: Array<{
+      id: string;
+      kind: "TREATMENT" | "INSTALLMENT";
+      treatmentPlanId: string | null;
+      treatmentNumber: string;
+      treatmentName: string;
+      detail: string;
+      baseAmount: number;
+      paidAmount: number;
+      remainingAmount: number;
+      dueDate: Date | null;
+    }> = [];
+
+    for (const allocation of payment.allocations ?? []) {
+      const item = allocation.treatmentPlanItem;
+      const plan = item?.treatmentPlan;
+      if (!item || !plan) continue;
+      const procedureName = item.procedure?.name ?? item.procedure?.code ?? "Prestacion";
+      const current = treatmentMap.get(plan.id) ?? {
+        id: plan.id,
+        number: this.shortCode(plan.id),
+        name: plan.name,
+        procedures: [] as string[]
+      };
+      if (!current.procedures.includes(procedureName)) current.procedures.push(procedureName);
+      treatmentMap.set(plan.id, current);
+
+      const activePaid = this.roundMoney(
+        (item.paymentAllocations ?? []).reduce((sum: number, row: any) => {
+          if (!activeStatuses.has(row.payment?.status)) return sum;
+          return sum + Number(row.amount);
+        }, 0)
+      );
+      const baseAmount = this.roundMoney(Number(item.total ?? 0));
+      breakdown.push({
+        id: allocation.id,
+        kind: "TREATMENT",
+        treatmentPlanId: plan.id,
+        treatmentNumber: this.shortCode(plan.id),
+        treatmentName: plan.name,
+        detail: [procedureName, item.toothNumber ? `Pieza ${item.toothNumber}` : null, item.surface ? `Cara ${item.surface}` : null]
+          .filter(Boolean)
+          .join(" - "),
+        baseAmount,
+        paidAmount: this.roundMoney(Number(allocation.amount ?? 0)),
+        remainingAmount: this.roundMoney(Math.max(baseAmount - activePaid, 0)),
+        dueDate: null
+      });
+    }
+
+    for (const allocation of payment.installmentAllocations ?? []) {
+      const installment = allocation.installment;
+      const plan = installment?.installmentPlan?.treatmentPlan;
+      const planId = plan?.id ?? installment?.installmentPlan?.treatmentPlanId ?? null;
+      if (planId) {
+        const current = treatmentMap.get(planId) ?? {
+          id: planId,
+          number: this.shortCode(planId),
+          name: plan?.name ?? "Financiamiento",
+          procedures: [] as string[]
+        };
+        if (!current.procedures.includes("Cuota de financiamiento")) current.procedures.push("Cuota de financiamiento");
+        treatmentMap.set(planId, current);
+      }
+      const baseAmount = this.roundMoney(Number(installment?.amount ?? 0));
+      breakdown.push({
+        id: allocation.id,
+        kind: "INSTALLMENT",
+        treatmentPlanId: planId,
+        treatmentNumber: planId ? this.shortCode(planId) : "-",
+        treatmentName: plan?.name ?? "Financiamiento",
+        detail: `Cuota ${installment?.number ?? "-"}`,
+        baseAmount,
+        paidAmount: this.roundMoney(Number(allocation.amount ?? 0)),
+        remainingAmount: this.roundMoney(Math.max(baseAmount - Number(installment?.paidAmount ?? 0), 0)),
+        dueDate: installment?.dueDate ?? null
+      });
+    }
+
+    const allocatedAmount = this.roundMoney(
+      [...(payment.allocations ?? []), ...(payment.installmentAllocations ?? [])].reduce(
+        (sum, allocation) => sum + Number(allocation.amount ?? 0),
+        0
+      )
+    );
+    const dueDates = breakdown.map((row) => row.dueDate).filter((date): date is Date => Boolean(date));
+    const firstMovement = payment.cashMovements?.[0] ?? null;
+    const cashRegister = firstMovement?.cashRegister
+      ? {
+          id: firstMovement.cashRegister.id,
+          movementId: firstMovement.id,
+          branch: firstMovement.cashRegister.branch,
+          openedBy: firstMovement.cashRegister.openedBy,
+          status: firstMovement.cashRegister.status,
+          openedAt: firstMovement.cashRegister.openedAt,
+          closedAt: firstMovement.cashRegister.closedAt
+        }
+      : null;
+
+    return {
+      ...payment,
+      paymentNumber: this.shortCode(payment.id),
+      ticketId: payment.reference ?? firstMovement?.id ?? this.shortCode(payment.id),
+      cashRegister,
+      treatmentRefs: Array.from(treatmentMap.values()),
+      breakdown,
+      dueDate: dueDates.length ? dueDates.sort((a, b) => a.getTime() - b.getTime())[0] : null,
+      allocatedAmount,
+      unallocatedAmount: this.roundMoney(Math.max(Number(payment.amount ?? 0) - allocatedAmount, 0))
+    };
+  }
+
+  private buildReceiptText(payment: any) {
+    const patientName = `${payment.patient?.firstName ?? ""} ${payment.patient?.lastName ?? ""}`.trim();
+    const receiverName = `${payment.receivedBy?.firstName ?? ""} ${payment.receivedBy?.lastName ?? ""}`.trim();
+    const lines = [
+      `Comprobante de pago #${payment.paymentNumber}`,
+      "",
+      `Paciente: ${patientName || payment.patientId}`,
+      `Sucursal: ${payment.branch?.name ?? "-"}`,
+      `Recibido por: ${receiverName || "-"}`,
+      `Fecha recepcion: ${payment.paidAt ? new Date(payment.paidAt).toLocaleString("es-MX") : "-"}`,
+      `Metodo: ${payment.paymentMethod?.name ?? "-"}`,
+      `Referencia: ${payment.reference ?? payment.ticketId ?? "-"}`,
+      `Caja: ${payment.cashRegister?.id ? this.shortCode(payment.cashRegister.id) : "-"}`,
+      `Monto: ${this.formatCurrency(payment.amount)} ${payment.currency ?? ""}`.trim(),
+      "",
+      "Desglose"
+    ];
+
+    for (const row of payment.breakdown ?? []) {
+      lines.push(
+        `- Trat. ${row.treatmentNumber} | ${row.detail} | Base ${this.formatCurrency(row.baseAmount)} | Pagado ${this.formatCurrency(row.paidAmount)}`
+      );
+    }
+
+    if (!payment.breakdown?.length) lines.push("- Pago recibido sin aplicaciones a tratamiento o cuota.");
+    if (payment.notes) lines.push("", `Notas: ${payment.notes}`);
+    return lines.join("\n");
   }
 
   private async getCashRegister(actor: AuthUser, registerId: string) {
@@ -1396,10 +1941,13 @@ export class PaymentsService {
     if (!allocations.length) throw new BadRequestException("Allocations are required");
 
     const payment = await tx.payment.findFirst({
-      where: { id: paymentId, organizationId: actor.organizationId },
+      where: { id: paymentId, organizationId: actor.organizationId, branchId: branchScope(actor) },
       include: { allocations: true }
     });
     if (!payment) throw new NotFoundException("Payment not found");
+    if (payment.status === PaymentStatus.VOIDED || payment.status === PaymentStatus.REFUNDED) {
+      throw new BadRequestException("Voided or refunded payments cannot receive allocations");
+    }
 
     const existingAllocated = payment.allocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0);
     const requested = allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
@@ -1442,7 +1990,10 @@ export class PaymentsService {
     const existingByItem = await tx.paymentAllocation.groupBy({
       by: ["treatmentPlanItemId"],
       _sum: { amount: true },
-      where: { treatmentPlanItemId: { in: itemIds } }
+      where: {
+        treatmentPlanItemId: { in: itemIds },
+        payment: { status: { in: [PaymentStatus.RECEIVED, PaymentStatus.PARTIALLY_ALLOCATED, PaymentStatus.ALLOCATED] } }
+      }
     });
     const existingByItemId = new Map(
       existingByItem.map((row) => [row.treatmentPlanItemId, Number(row._sum.amount ?? 0)])
@@ -1496,7 +2047,10 @@ export class PaymentsService {
       if (!item) continue;
       const allocatedOnItem = await tx.paymentAllocation.aggregate({
         _sum: { amount: true },
-        where: { treatmentPlanItemId: itemId }
+        where: {
+          treatmentPlanItemId: itemId,
+          payment: { status: { in: [PaymentStatus.RECEIVED, PaymentStatus.PARTIALLY_ALLOCATED, PaymentStatus.ALLOCATED] } }
+        }
       });
       const allocatedTotal = Number(allocatedOnItem._sum.amount ?? 0);
       if (
@@ -1602,8 +2156,34 @@ export class PaymentsService {
     return Math.round(value * 100) / 100;
   }
 
+  private formatCurrency(value: number | string | Prisma.Decimal) {
+    return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(Number(value ?? 0));
+  }
+
+  private shortCode(value: string) {
+    const cleaned = value.trim();
+    if (!cleaned) return "-";
+    return cleaned.length <= 8 ? cleaned.toUpperCase() : cleaned.slice(-8).toUpperCase();
+  }
+
   private dateKey(date: Date) {
     return date.toISOString().slice(0, 10);
+  }
+
+  private resolveOptionalDateRange(dateFrom?: string, dateTo?: string): Prisma.DateTimeFilter | undefined {
+    if (!dateFrom && !dateTo) return undefined;
+    const range: Prisma.DateTimeFilter = {};
+    if (dateFrom) {
+      const start = new Date(dateFrom);
+      start.setHours(0, 0, 0, 0);
+      range.gte = start;
+    }
+    if (dateTo) {
+      const end = new Date(dateTo);
+      end.setHours(23, 59, 59, 999);
+      range.lte = end;
+    }
+    return range;
   }
 
   private resolveReportRange(dateFrom?: string, dateTo?: string): { start: Date; end: Date } {

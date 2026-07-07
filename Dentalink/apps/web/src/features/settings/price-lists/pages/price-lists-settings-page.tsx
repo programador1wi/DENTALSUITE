@@ -452,15 +452,19 @@ export function PriceListsSettingsPage() {
     if (!selectedList || !selectedCategory?.procedureCategoryId) return;
     if (!productForm.code.trim() || !productForm.name.trim()) return;
 
+    const inferredType = Number(productForm.labCost) > 0 
+      ? "MIXED" 
+      : (selectedCategory.procedureCategoryId ? (section === "lab" ? "LAB" : "CLINICAL") : "CLINICAL");
+
     const payload = {
       categoryId: selectedCategory.procedureCategoryId,
       code: productForm.code.trim(),
       name: productForm.name.trim(),
-      type: productForm.type,
+      type: inferredType as ProcedureType,
       defaultDuration: 30,
       requiresTooth: false,
       requiresSurface: false,
-      requiresLab: productForm.type !== "CLINICAL" || Number(productForm.labCost) > 0
+      requiresLab: inferredType !== "CLINICAL" || Number(productForm.labCost) > 0
     };
 
     const procedure = editingProcedureId
@@ -870,21 +874,7 @@ export function PriceListsSettingsPage() {
               }
             />
           </label>
-          <label className="block text-sm font-medium text-slate-700">
-            Tipo
-            <Select
-              value={categoryForm.type}
-              onChange={(event) =>
-                setCategoryForm((current) => ({ ...current, type: event.target.value as ProcedureType }))
-              }
-            >
-              {Object.entries(PROCEDURE_TYPE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </Select>
-          </label>
+          {/* Tipo field hidden to align with Dentalink behavior - automatically resolved */}
           <label className="block text-sm font-medium text-slate-700">
             Orden
             <Input
@@ -1280,7 +1270,7 @@ function CategoryList({
             <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="px-5 py-3">Categoria</th>
-                <th className="px-5 py-3">Tipo</th>
+                {/* Tipo column hidden */}
                 <th className="px-5 py-3">Prestaciones</th>
                 <th className="px-5 py-3 text-right">Acciones</th>
               </tr>
@@ -1302,9 +1292,7 @@ function CategoryList({
                         <p className="mt-1 text-xs text-slate-500">{category.description}</p>
                       ) : null}
                     </td>
-                    <td className="px-5 py-4">
-                      <Badge value={PROCEDURE_TYPE_LABELS[categoryType(category)]} tone="default" />
-                    </td>
+                    {/* Tipo column hidden */}
                     <td className="px-5 py-4">{visibleProcedures.length || "-"}</td>
                     <td className="px-5 py-4">
                       <div className="flex justify-end gap-2">
@@ -1405,7 +1393,7 @@ function CategoryDetail({
                 <th className="w-[120px] px-4 py-3">ID</th>
                 <th className="w-[120px] px-4 py-3">Codigo</th>
                 <th className="min-w-[260px] px-4 py-3">Nombre</th>
-                <th className="w-[170px] px-4 py-3">Tipo</th>
+                {/* Tipo column hidden */}
                 <th className="w-[150px] px-4 py-3">Permite descuento</th>
                 <th className="w-[150px] px-4 py-3">Precio final</th>
                 <th className="w-[160px] px-4 py-3">Costo Laboratorio</th>
@@ -1434,7 +1422,7 @@ function CategoryDetail({
                     <td className="px-4 py-3 font-mono text-xs text-slate-500">{procedure.displayId}</td>
                     <td className="px-4 py-3 font-medium text-slate-700">{procedure.code}</td>
                     <td className="px-4 py-3 font-semibold text-slate-900">{procedure.name}</td>
-                    <td className="px-4 py-3">{PROCEDURE_TYPE_LABELS[procedureType(procedure)]}</td>
+                    {/* Tipo column hidden */}
                     <td className="px-4 py-3">{price?.allowsDiscount ? "Si" : "No"}</td>
                     <td className="px-4 py-3 font-semibold text-slate-900">
                       {money(price?.price, price?.currency)}
@@ -1530,19 +1518,7 @@ function ProductEditRow({
           className="h-8"
         />
       </td>
-      <td className="px-4 py-3">
-        <Select
-          value={form.type}
-          onChange={(event) => onChange({ ...form, type: event.target.value as ProcedureType })}
-          className="h-8"
-        >
-          {Object.entries(PROCEDURE_TYPE_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </Select>
-      </td>
+      {/* Tipo cell hidden */}
       <td className="px-4 py-3">
         <input
           type="checkbox"

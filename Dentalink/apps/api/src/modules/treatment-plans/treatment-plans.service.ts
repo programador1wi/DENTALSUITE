@@ -7,20 +7,25 @@ import {
   TreatmentPriceSource,
   ToothProcedureStatus,
   TreatmentPlanItemStatus,
+  TreatmentPlanKind,
   TreatmentPlanStatus
 } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
+import { resolveAllowedSpecialtyName } from "../../common/utils/specialty-policy.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
   ChangeTreatmentPlanBranchDto,
   CreateAlternativeDto,
   CreateBudgetDto,
+  CreateOrthodonticMonthlyItemsDto,
   CreateTreatmentPlanDto,
   ListBudgetsQueryDto,
   ListTreatmentPlansQueryDto,
   TreatmentPlanSectionInputDto,
+  UpdateOrthodonticDiagnosisDto,
+  UpdateOrthodonticProfileDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
   UpdateTreatmentPlanItemStatusDto,
@@ -61,6 +66,12 @@ type TreatmentPlanItemBuildInput = Required<
   UpdateTreatmentPlanItemDto &
   ProcedurePriceSnapshot;
 
+type ProfessionalPlanSpecialty = {
+  id: string;
+  name: string;
+  kind: TreatmentPlanKind;
+};
+
 @Injectable()
 export class TreatmentPlansService {
   constructor(private readonly prisma: PrismaService) {}
@@ -73,14 +84,39 @@ export class TreatmentPlansService {
         ...(query.patientId ? { patientId: query.patientId } : {}),
         branchId: branchScope(actor, query.branchId),
         ...(query.professionalId ? { professionalId: query.professionalId } : {}),
-        ...(query.status ? { status: query.status } : {})
+        ...(query.status ? { status: query.status } : {}),
+        ...(query.kind ? { kind: query.kind } : {})
       },
       include: {
         patient: { select: { id: true, firstName: true, lastName: true } },
-        professional: { select: { id: true, firstName: true, lastName: true } },
+        professional: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            specialties: { include: { specialty: { select: { id: true, name: true } } } }
+          }
+        },
+        specialty: { select: { id: true, name: true } },
+        orthodonticProfile: true,
+        pauses: true,
         branch: { select: { id: true, name: true } },
         items: true,
-        budgets: true
+        budgets: true,
+        clinicalEvolutions: {
+          where: { annulledAt: null },
+          select: {
+            id: true,
+            createdAt: true,
+            subjective: true,
+            objective: true,
+            assessment: true,
+            plan: true,
+            notes: true
+          },
+          orderBy: { createdAt: "desc" },
+          take: 100
+        }
       },
       skip,
       take,
@@ -90,14 +126,20 @@ export class TreatmentPlansService {
     return rows.map((row) => ({
       ...row,
       itemsCount: row.items.length,
-      budgetCount: row.budgets.length
+      budgetCount: row.budgets.length,
+      orthodonticSummary: this.buildOrthodonticSummary(row)
     }));
   }
 
   async createTreatmentPlan(actor: AuthUser, dto: CreateTreatmentPlanDto) {
     await this.validateBranch(actor, dto.branchId);
     const patient = await this.validatePatient(actor, dto.patientId);
-    await this.validateProfessional(actor, dto.professionalId, dto.branchId);
+    const planSpecialty = await this.validateProfessionalPlanSpecialty(
+      actor,
+      dto.professionalId,
+      dto.branchId,
+      dto.kind
+    );
     if (dto.parentTreatmentPlanId) await this.ensureTreatmentPlan(actor, dto.parentTreatmentPlanId);
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -107,6 +149,9 @@ export class TreatmentPlansService {
           branchId: dto.branchId,
           patientId: dto.patientId,
           professionalId: dto.professionalId,
+          kind: planSpecialty.kind,
+          specialtyId: planSpecialty.id,
+          specialtySnapshotName: planSpecialty.name,
           name: dto.name.trim(),
           description: dto.description?.trim(),
           status: dto.status ?? TreatmentPlanStatus.DRAFT,
@@ -114,6 +159,12 @@ export class TreatmentPlansService {
           parentTreatmentPlanId: dto.parentTreatmentPlanId
         }
       });
+
+      if (planSpecialty.kind === TreatmentPlanKind.ORTHODONTICS) {
+        await tx.orthodonticTreatmentProfile.create({
+          data: { treatmentPlanId: plan.id }
+        });
+      }
 
       if (dto.sections?.length) {
         for (const section of dto.sections) {
@@ -159,11 +210,20 @@ export class TreatmentPlansService {
       return plan;
     });
 
-    await this.audit(actor, "TreatmentPlan", created.id, "create", {}, {
-      name: created.name,
-      status: created.status,
-      isAlternative: created.isAlternative
-    });
+    await this.audit(
+      actor,
+      "TreatmentPlan",
+      created.id,
+      "create",
+      {},
+      {
+        name: created.name,
+        status: created.status,
+        isAlternative: created.isAlternative,
+        kind: created.kind,
+        specialtySnapshotName: created.specialtySnapshotName
+      }
+    );
     return this.getTreatmentPlan(actor, created.id);
   }
 
@@ -172,7 +232,17 @@ export class TreatmentPlansService {
       where: { id, organizationId: actor.organizationId, branchId: branchScope(actor) },
       include: {
         patient: { select: { id: true, firstName: true, lastName: true } },
-        professional: { select: { id: true, firstName: true, lastName: true } },
+        professional: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            specialties: { include: { specialty: { select: { id: true, name: true } } } }
+          }
+        },
+        specialty: { select: { id: true, name: true } },
+        orthodonticProfile: true,
+        pauses: true,
         branch: { select: { id: true, name: true } },
         sections: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
         items: {
@@ -193,6 +263,20 @@ export class TreatmentPlansService {
             professional: { select: { firstName: true, lastName: true } }
           }
         },
+        clinicalEvolutions: {
+          where: { annulledAt: null },
+          select: {
+            id: true,
+            createdAt: true,
+            subjective: true,
+            objective: true,
+            assessment: true,
+            plan: true,
+            notes: true
+          },
+          orderBy: { createdAt: "desc" },
+          take: 24
+        },
         alternativesAsParent: {
           include: {
             alternativeTreatmentPlan: {
@@ -204,14 +288,23 @@ export class TreatmentPlansService {
     });
 
     if (!plan) throw new NotFoundException("Treatment plan not found");
-    return plan;
+    return {
+      ...plan,
+      orthodonticSummary: this.buildOrthodonticSummary(plan)
+    };
   }
 
   async updateTreatmentPlan(actor: AuthUser, id: string, dto: UpdateTreatmentPlanDto) {
     const current = await this.ensureTreatmentPlan(actor, id);
     if (dto.branchId) await this.validateBranch(actor, dto.branchId);
+    let planSpecialty: ProfessionalPlanSpecialty | null = null;
     if (dto.branchId || dto.professionalId) {
-      await this.validateProfessional(actor, dto.professionalId ?? current.professionalId, dto.branchId ?? current.branchId);
+      planSpecialty = await this.validateProfessionalPlanSpecialty(
+        actor,
+        dto.professionalId ?? current.professionalId,
+        dto.branchId ?? current.branchId,
+        current.kind
+      );
     }
 
     const updated = await this.prisma.treatmentPlan.update({
@@ -219,22 +312,162 @@ export class TreatmentPlansService {
       data: {
         branchId: dto.branchId,
         professionalId: dto.professionalId,
+        specialtyId: planSpecialty?.id,
+        specialtySnapshotName: planSpecialty?.name,
         name: dto.name?.trim(),
         description: dto.description?.trim(),
         status: dto.status,
-        acceptedAt: dto.status === TreatmentPlanStatus.ACCEPTED ? current.acceptedAt ?? new Date() : current.acceptedAt,
-        completedAt: dto.status === TreatmentPlanStatus.COMPLETED ? current.completedAt ?? new Date() : current.completedAt
+        acceptedAt:
+          dto.status === TreatmentPlanStatus.ACCEPTED
+            ? (current.acceptedAt ?? new Date())
+            : current.acceptedAt,
+        completedAt:
+          dto.status === TreatmentPlanStatus.COMPLETED
+            ? (current.completedAt ?? new Date())
+            : current.completedAt
       }
     });
 
-    await this.audit(actor, "TreatmentPlan", id, "update", current as Prisma.InputJsonValue, updated as Prisma.InputJsonValue);
+    await this.audit(
+      actor,
+      "TreatmentPlan",
+      id,
+      "update",
+      current as Prisma.InputJsonValue,
+      updated as Prisma.InputJsonValue
+    );
+    return this.getTreatmentPlan(actor, id);
+  }
+
+  async updateOrthodonticProfile(actor: AuthUser, id: string, dto: UpdateOrthodonticProfileDto) {
+    const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    const payload = {
+      startDate: this.optionalDate(dto.startDate),
+      estimatedMonths: dto.estimatedMonths === undefined ? undefined : dto.estimatedMonths,
+      estimatedControls: dto.estimatedControls === undefined ? undefined : dto.estimatedControls,
+      lastUpperArch: this.optionalString(dto.lastUpperArch),
+      lastLowerArch: this.optionalString(dto.lastLowerArch),
+      nextControlAt: this.optionalDate(dto.nextControlAt),
+      nextRadiographyAt: this.optionalDate(dto.nextRadiographyAt),
+      hygieneStatus: this.optionalString(dto.hygieneStatus),
+      alert: this.optionalString(dto.alert),
+      indications: this.optionalString(dto.indications),
+      elastics: this.optionalString(dto.elastics),
+      planNotes: this.optionalString(dto.planNotes)
+    };
+
+    const saved = await this.prisma.orthodonticTreatmentProfile.upsert({
+      where: { treatmentPlanId: plan.id },
+      create: {
+        treatmentPlanId: plan.id,
+        ...payload
+      },
+      update: payload
+    });
+
+    await this.audit(
+      actor,
+      "OrthodonticTreatmentProfile",
+      saved.id,
+      "update",
+      {},
+      saved as Prisma.InputJsonValue
+    );
+    return this.getTreatmentPlan(actor, id);
+  }
+
+  async updateOrthodonticDiagnosis(actor: AuthUser, id: string, dto: UpdateOrthodonticDiagnosisDto) {
+    const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    const saved = await this.prisma.orthodonticTreatmentProfile.upsert({
+      where: { treatmentPlanId: plan.id },
+      create: {
+        treatmentPlanId: plan.id,
+        diagnosis: dto.diagnosis as Prisma.InputJsonValue
+      },
+      update: {
+        diagnosis: dto.diagnosis as Prisma.InputJsonValue
+      }
+    });
+
+    await this.audit(actor, "OrthodonticTreatmentProfile", saved.id, "update_diagnosis", {}, {
+      treatmentPlanId: plan.id
+    } as Prisma.InputJsonValue);
+    return this.getTreatmentPlan(actor, id);
+  }
+
+  async createOrthodonticMonthlyItems(actor: AuthUser, id: string, dto: CreateOrthodonticMonthlyItemsDto) {
+    const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    await this.validateProcedure(actor, dto.procedureId);
+    const agreement = plan.patient.agreement;
+    const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
+    if (Number.isNaN(startDate.getTime())) throw new BadRequestException("Invalid startDate");
+    const sectionName = dto.sectionName?.trim() || "Mensualidades";
+
+    const createdIds = await this.prisma.$transaction(async (tx) => {
+      const section =
+        (await tx.treatmentPlanSection.findFirst({
+          where: { treatmentPlanId: plan.id, name: sectionName }
+        })) ??
+        (await tx.treatmentPlanSection.create({
+          data: {
+            treatmentPlanId: plan.id,
+            name: sectionName,
+            sortOrder:
+              ((
+                await tx.treatmentPlanSection.aggregate({
+                  where: { treatmentPlanId: plan.id },
+                  _max: { sortOrder: true }
+                })
+              )._max.sortOrder ?? -1) + 1
+          }
+        }));
+
+      const ids: string[] = [];
+      for (let index = 0; index < dto.months; index++) {
+        const plannedAt = new Date(startDate);
+        plannedAt.setMonth(startDate.getMonth() + index);
+        const itemPayload = await this.resolveItemPayload(actor, plan.branchId, plan.patient, {
+          procedureId: dto.procedureId,
+          quantity: 1,
+          unitPrice: dto.unitPrice,
+          discount: 0,
+          plannedAt: plannedAt.toISOString(),
+          notes: dto.notes?.trim()
+        });
+
+        const item = await tx.treatmentPlanItem.create({
+          data: this.buildItemData(
+            plan.id,
+            {
+              ...itemPayload,
+              sectionId: section.id,
+              plannedAt: plannedAt.toISOString(),
+              notes: dto.notes?.trim() || `Mensualidad ${index + 1}/${dto.months}`
+            },
+            agreement
+          )
+        });
+        ids.push(item.id);
+      }
+      return ids;
+    });
+
+    await this.audit(actor, "TreatmentPlanItem", null, "create_orthodontic_monthly_items", {}, {
+      treatmentPlanId: plan.id,
+      count: createdIds.length
+    } as Prisma.InputJsonValue);
     return this.getTreatmentPlan(actor, id);
   }
 
   async changeBranch(actor: AuthUser, id: string, dto: ChangeTreatmentPlanBranchDto) {
     const current = await this.ensureTreatmentPlan(actor, id);
     await this.validateBranch(actor, dto.branchId);
-    await this.validateProfessional(actor, dto.professionalId, dto.branchId);
+    const planSpecialty = await this.validateProfessionalPlanSpecialty(
+      actor,
+      dto.professionalId,
+      dto.branchId,
+      current.kind
+    );
 
     const futureAppointmentWhere: Prisma.AppointmentWhereInput = {
       organizationId: actor.organizationId,
@@ -264,7 +497,9 @@ export class TreatmentPlansService {
         where: { id },
         data: {
           branchId: dto.branchId,
-          professionalId: dto.professionalId
+          professionalId: dto.professionalId,
+          specialtyId: planSpecialty.id,
+          specialtySnapshotName: planSpecialty.name
         }
       });
 
@@ -311,10 +546,12 @@ export class TreatmentPlansService {
     await this.ensureTreatmentPlan(actor, treatmentPlanId);
     const nextSortOrder =
       dto.sortOrder ??
-      ((await this.prisma.treatmentPlanSection.aggregate({
-        where: { treatmentPlanId },
-        _max: { sortOrder: true }
-      }))._max.sortOrder ?? -1) + 1;
+      ((
+        await this.prisma.treatmentPlanSection.aggregate({
+          where: { treatmentPlanId },
+          _max: { sortOrder: true }
+        })
+      )._max.sortOrder ?? -1) + 1;
 
     const created = await this.prisma.treatmentPlanSection.create({
       data: {
@@ -324,7 +561,14 @@ export class TreatmentPlansService {
       }
     });
 
-    await this.audit(actor, "TreatmentPlanSection", created.id, "create", {}, created as Prisma.InputJsonValue);
+    await this.audit(
+      actor,
+      "TreatmentPlanSection",
+      created.id,
+      "create",
+      {},
+      created as Prisma.InputJsonValue
+    );
     return this.getTreatmentPlan(actor, treatmentPlanId);
   }
 
@@ -355,8 +599,12 @@ export class TreatmentPlansService {
       })
     ]);
 
-    if (!link) throw new BadRequestException("The selected plan is not registered as an alternative of the parent plan");
-    if (parent.patientId !== alternative.patientId) throw new BadRequestException("Alternative and parent plan must belong to the same patient");
+    if (!link)
+      throw new BadRequestException(
+        "The selected plan is not registered as an alternative of the parent plan"
+      );
+    if (parent.patientId !== alternative.patientId)
+      throw new BadRequestException("Alternative and parent plan must belong to the same patient");
 
     await this.prisma.$transaction(async (tx) => {
       await tx.treatmentPlan.update({
@@ -377,10 +625,17 @@ export class TreatmentPlansService {
       });
     });
 
-    await this.audit(actor, "TreatmentPlanAlternative", parentId, "activate_alternative", {
+    await this.audit(
+      actor,
+      "TreatmentPlanAlternative",
       parentId,
-      alternativeId
-    } as Prisma.InputJsonValue, {});
+      "activate_alternative",
+      {
+        parentId,
+        alternativeId
+      } as Prisma.InputJsonValue,
+      {}
+    );
 
     return this.getTreatmentPlan(actor, alternative.id);
   }
@@ -415,7 +670,12 @@ export class TreatmentPlansService {
     return this.getTreatmentPlan(actor, plan.id);
   }
 
-  async updateItem(actor: AuthUser, treatmentPlanId: string, itemId: string, dto: UpdateTreatmentPlanItemDto) {
+  async updateItem(
+    actor: AuthUser,
+    treatmentPlanId: string,
+    itemId: string,
+    dto: UpdateTreatmentPlanItemDto
+  ) {
     const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
     const current = await this.prisma.treatmentPlanItem.findFirst({
       where: { id: itemId, treatmentPlanId }
@@ -429,7 +689,8 @@ export class TreatmentPlansService {
         dto.unitPrice !== undefined ||
         dto.discount !== undefined ||
         dto.toothNumber !== undefined ||
-        dto.surface !== undefined)
+        dto.surface !== undefined ||
+        dto.odontogramSymbol !== undefined)
     ) {
       throw new BadRequestException("Paid procedures cannot be modified");
     }
@@ -454,18 +715,20 @@ export class TreatmentPlansService {
       unitPrice = resolvedPayload.unitPrice;
       priceSnapshot = this.snapshotFromResolvedPayload(resolvedPayload);
     }
-    
+
     let discount = dto.discount ?? Number(current.discount);
     let agreementCoverage = Number(current.agreementCoverage || 0);
     const agreement = plan.patient.agreement;
 
     if (dto.quantity !== undefined || dto.unitPrice !== undefined) {
       if (agreement && agreement.isActive && Number(agreement.discountPercent) > 0) {
-        agreementCoverage = Number((quantity * unitPrice * (Number(agreement.discountPercent) / 100)).toFixed(2));
+        agreementCoverage = Number(
+          (quantity * unitPrice * (Number(agreement.discountPercent) / 100)).toFixed(2)
+        );
         discount = Number(agreementCoverage.toFixed(2));
       }
     }
-    
+
     const total = this.computeTotal(quantity, unitPrice, discount);
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -476,6 +739,8 @@ export class TreatmentPlansService {
           procedureId: dto.procedureId ?? current.procedureId,
           toothNumber: dto.toothNumber ?? current.toothNumber,
           surface: dto.surface ?? current.surface,
+          odontogramSymbol:
+            dto.odontogramSymbol === undefined ? current.odontogramSymbol : dto.odontogramSymbol.trim() || null,
           quantity: this.decimal(quantity),
           unitPrice: this.decimal(unitPrice),
           discount: this.decimal(discount),
@@ -488,7 +753,8 @@ export class TreatmentPlansService {
           priceSnapshotCategory: priceSnapshot.priceSnapshotCategory,
           priceResolvedAt: priceSnapshot.priceResolvedAt,
           notes: dto.notes ?? current.notes,
-          plannedAt: dto.plannedAt === undefined ? current.plannedAt : dto.plannedAt ? new Date(dto.plannedAt) : null,
+          plannedAt:
+            dto.plannedAt === undefined ? current.plannedAt : dto.plannedAt ? new Date(dto.plannedAt) : null,
           agreementId: agreement?.id || null,
           agreementCoverage: this.decimal(agreementCoverage)
         }
@@ -526,13 +792,25 @@ export class TreatmentPlansService {
         } as Prisma.InputJsonValue
       );
     } else {
-      await this.audit(actor, "TreatmentPlanItem", itemId, "update", current as Prisma.InputJsonValue, updated as Prisma.InputJsonValue);
+      await this.audit(
+        actor,
+        "TreatmentPlanItem",
+        itemId,
+        "update",
+        current as Prisma.InputJsonValue,
+        updated as Prisma.InputJsonValue
+      );
     }
 
     return this.getTreatmentPlan(actor, treatmentPlanId);
   }
 
-  async updateItemStatus(actor: AuthUser, treatmentPlanId: string, itemId: string, dto: UpdateTreatmentPlanItemStatusDto) {
+  async updateItemStatus(
+    actor: AuthUser,
+    treatmentPlanId: string,
+    itemId: string,
+    dto: UpdateTreatmentPlanItemStatusDto
+  ) {
     const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
     const current = await this.prisma.treatmentPlanItem.findFirst({
       where: { id: itemId, treatmentPlanId }
@@ -540,7 +818,9 @@ export class TreatmentPlansService {
     if (!current) throw new NotFoundException("Treatment plan item not found");
 
     if (dto.status === TreatmentPlanItemStatus.PAID && plan.isAlternative) {
-      throw new BadRequestException("Alternative plans cannot receive paid items until they become the principal plan");
+      throw new BadRequestException(
+        "Alternative plans cannot receive paid items until they become the principal plan"
+      );
     }
 
     const updated = await this.prisma.treatmentPlanItem.update({
@@ -548,7 +828,10 @@ export class TreatmentPlansService {
       data: {
         status: dto.status,
         notes: dto.notes ?? current.notes,
-        completedAt: dto.status === TreatmentPlanItemStatus.COMPLETED ? current.completedAt ?? new Date() : current.completedAt
+        completedAt:
+          dto.status === TreatmentPlanItemStatus.COMPLETED
+            ? (current.completedAt ?? new Date())
+            : current.completedAt
       }
     });
 
@@ -568,15 +851,44 @@ export class TreatmentPlansService {
   async deleteItem(actor: AuthUser, treatmentPlanId: string, itemId: string) {
     await this.ensureTreatmentPlan(actor, treatmentPlanId);
     const current = await this.prisma.treatmentPlanItem.findFirst({
-      where: { id: itemId, treatmentPlanId }
+      where: { id: itemId, treatmentPlanId },
+      include: { budgetItems: { include: { budget: true } } }
     });
     if (!current) throw new NotFoundException("Treatment plan item not found");
     if (current.status === TreatmentPlanItemStatus.PAID) {
       throw new BadRequestException("Cannot remove paid procedures");
     }
 
-    await this.prisma.treatmentPlanItem.delete({ where: { id: itemId } });
-    await this.audit(actor, "TreatmentPlanItem", itemId, "delete", current as Prisma.InputJsonValue, {});
+    const nonDraftBudgets = current.budgetItems.filter((bi) => bi.budget.status !== BudgetStatus.DRAFT);
+    if (nonDraftBudgets.length > 0) {
+      throw new BadRequestException("Cannot remove item because it belongs to a sent or accepted budget");
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const bi of current.budgetItems) {
+        await tx.budgetItem.delete({ where: { id: bi.id } });
+
+        const itemRawSubtotal = Number(bi.quantity) * Number(bi.unitPrice);
+        const newSubtotal = Number(bi.budget.subtotal) - itemRawSubtotal;
+        const newDiscountTotal = Number(bi.budget.discountTotal) - Number(bi.discount);
+        const newTotal = Number(bi.budget.total) - Number(bi.total);
+
+        await tx.budget.update({
+          where: { id: bi.budgetId },
+          data: {
+            subtotal: this.decimal(Math.max(0, newSubtotal)),
+            discountTotal: this.decimal(Math.max(0, newDiscountTotal)),
+            total: this.decimal(Math.max(0, newTotal))
+          }
+        });
+      }
+
+      await tx.treatmentPlanItem.delete({ where: { id: itemId } });
+    });
+
+    const auditData = { ...current };
+    delete (auditData as any).budgetItems;
+    await this.audit(actor, "TreatmentPlanItem", itemId, "delete", auditData as Prisma.InputJsonValue, {});
     return { success: true };
   }
 
@@ -586,7 +898,8 @@ export class TreatmentPlansService {
       where: { treatmentPlanId, status: { not: TreatmentPlanItemStatus.CANCELLED } },
       include: { procedure: true }
     });
-    if (!items.length) throw new BadRequestException("Treatment plan requires at least one active item to generate a budget");
+    if (!items.length)
+      throw new BadRequestException("Treatment plan requires at least one active item to generate a budget");
 
     let rawSubtotal = 0;
     let itemsDiscount = 0;
@@ -598,8 +911,9 @@ export class TreatmentPlansService {
 
     const budgetDiscountTotal = dto.discountTotal ?? 0;
     const totalDiscount = itemsDiscount + budgetDiscountTotal;
-    
-    if (totalDiscount > rawSubtotal) throw new BadRequestException("total discount cannot be greater than subtotal");
+
+    if (totalDiscount > rawSubtotal)
+      throw new BadRequestException("total discount cannot be greater than subtotal");
     const total = rawSubtotal - totalDiscount;
 
     const budget = await this.prisma.$transaction(async (tx) => {
@@ -692,19 +1006,29 @@ export class TreatmentPlansService {
 
   async sendBudget(actor: AuthUser, id: string) {
     const current = await this.getBudget(actor, id);
-    if (current.status !== BudgetStatus.DRAFT) throw new BadRequestException("Only DRAFT budgets can be sent");
+    if (current.status !== BudgetStatus.DRAFT)
+      throw new BadRequestException("Only DRAFT budgets can be sent");
     const updated = await this.prisma.budget.update({
       where: { id },
       data: { status: BudgetStatus.SENT, sentAt: new Date() }
     });
-    await this.audit(actor, "Budget", id, "send", { status: current.status } as Prisma.InputJsonValue, updated as Prisma.InputJsonValue);
+    await this.audit(
+      actor,
+      "Budget",
+      id,
+      "send",
+      { status: current.status } as Prisma.InputJsonValue,
+      updated as Prisma.InputJsonValue
+    );
     return this.getBudget(actor, id);
   }
 
   async acceptBudget(actor: AuthUser, id: string) {
     const current = await this.getBudget(actor, id);
     if (current.treatmentPlan.isAlternative) {
-      throw new BadRequestException("Alternative treatment plans cannot be accepted for payments until converted to principal");
+      throw new BadRequestException(
+        "Alternative treatment plans cannot be accepted for payments until converted to principal"
+      );
     }
     const acceptStatuses: BudgetStatus[] = [BudgetStatus.DRAFT, BudgetStatus.SENT];
     if (!acceptStatuses.includes(current.status)) {
@@ -728,7 +1052,14 @@ export class TreatmentPlansService {
       });
     });
 
-    await this.audit(actor, "Budget", id, "accept", { status: current.status } as Prisma.InputJsonValue, { status: BudgetStatus.ACCEPTED } as Prisma.InputJsonValue);
+    await this.audit(
+      actor,
+      "Budget",
+      id,
+      "accept",
+      { status: current.status } as Prisma.InputJsonValue,
+      { status: BudgetStatus.ACCEPTED } as Prisma.InputJsonValue
+    );
     return this.getBudget(actor, id);
   }
 
@@ -755,7 +1086,14 @@ export class TreatmentPlansService {
       }
     });
 
-    await this.audit(actor, "Budget", id, "reject", { status: current.status } as Prisma.InputJsonValue, { status: BudgetStatus.REJECTED } as Prisma.InputJsonValue);
+    await this.audit(
+      actor,
+      "Budget",
+      id,
+      "reject",
+      { status: current.status } as Prisma.InputJsonValue,
+      { status: BudgetStatus.REJECTED } as Prisma.InputJsonValue
+    );
     return this.getBudget(actor, id);
   }
 
@@ -789,7 +1127,9 @@ export class TreatmentPlansService {
     let finalDiscount = dto.discount;
     let agreementCoverage = 0;
     if (agreement && agreement.isActive && Number(agreement.discountPercent) > 0) {
-      agreementCoverage = Number((dto.quantity * dto.unitPrice * (Number(agreement.discountPercent) / 100)).toFixed(2));
+      agreementCoverage = Number(
+        (dto.quantity * dto.unitPrice * (Number(agreement.discountPercent) / 100)).toFixed(2)
+      );
       finalDiscount = finalDiscount + agreementCoverage;
     }
     const total = this.computeTotal(dto.quantity, dto.unitPrice, finalDiscount);
@@ -799,6 +1139,7 @@ export class TreatmentPlansService {
       procedureId: dto.procedureId,
       toothNumber: dto.toothNumber?.trim(),
       surface: dto.surface?.trim().toUpperCase(),
+      odontogramSymbol: dto.odontogramSymbol?.trim() || null,
       quantity: this.decimal(dto.quantity),
       unitPrice: this.decimal(dto.unitPrice),
       discount: this.decimal(finalDiscount),
@@ -848,7 +1189,9 @@ export class TreatmentPlansService {
         unitPrice = dto.unitPrice;
       } else {
         if (!this.canOverrideManualPrices(actor)) {
-          throw new BadRequestException("Manual price overrides require price_lists.override_manual permission");
+          throw new BadRequestException(
+            "Manual price overrides require price_lists.override_manual permission"
+          );
         }
         unitPrice = dto.unitPrice;
         priceSource = TreatmentPriceSource.MANUAL;
@@ -1018,7 +1361,10 @@ export class TreatmentPlansService {
   }
 
   private canOverrideManualPrices(actor: AuthUser) {
-    return actor.permissions.includes("system.manage_all") || actor.permissions.includes("price_lists.override_manual");
+    return (
+      actor.permissions.includes("system.manage_all") ||
+      actor.permissions.includes("price_lists.override_manual")
+    );
   }
 
   private sameMoney(left: number, right: number) {
@@ -1045,8 +1391,16 @@ export class TreatmentPlansService {
     if (allowedSingle.has(surface) || allowedLegacy.has(surface)) return surface;
 
     const preferredOrder = ["P", "M", "B", "D", "O", "I", "L", "C"];
-    const parts = [...new Set(surface.split(",").map((part) => part.trim()).filter(Boolean))];
-    if (!parts.length || parts.some((part) => !allowedSingle.has(part))) throw new BadRequestException("Invalid tooth surface");
+    const parts = [
+      ...new Set(
+        surface
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean)
+      )
+    ];
+    if (!parts.length || parts.some((part) => !allowedSingle.has(part)))
+      throw new BadRequestException("Invalid tooth surface");
     parts.sort((left, right) => preferredOrder.indexOf(left) - preferredOrder.indexOf(right));
     return parts.join(",");
   }
@@ -1055,7 +1409,8 @@ export class TreatmentPlansService {
     if (status === TreatmentPlanItemStatus.IN_PROGRESS) return ToothProcedureStatus.IN_PROGRESS;
     if (status === TreatmentPlanItemStatus.COMPLETED) return ToothProcedureStatus.COMPLETED;
     if (status === TreatmentPlanItemStatus.CANCELLED) return ToothProcedureStatus.CANCELLED;
-    if (status === TreatmentPlanItemStatus.ACCEPTED || status === TreatmentPlanItemStatus.PAID) return ToothProcedureStatus.ACCEPTED;
+    if (status === TreatmentPlanItemStatus.ACCEPTED || status === TreatmentPlanItemStatus.PAID)
+      return ToothProcedureStatus.ACCEPTED;
     return ToothProcedureStatus.PLANNED;
   }
 
@@ -1067,6 +1422,7 @@ export class TreatmentPlansService {
       procedureId: string;
       toothNumber: string | null;
       surface: string | null;
+      odontogramSymbol: string | null;
       status: TreatmentPlanItemStatus;
       notes: string | null;
     },
@@ -1077,7 +1433,8 @@ export class TreatmentPlansService {
     const toothNumber = this.normalizeToothNumber(item.toothNumber);
     const surface = this.normalizeSurface(item.surface ?? undefined);
     const status = this.mapItemStatusToToothProcedureStatus(item.status);
-    const diagnosis = notes ?? item.notes?.trim();
+    const odontogramSymbol = item.odontogramSymbol?.trim() || null;
+    const diagnosis = odontogramSymbol ?? notes ?? item.notes?.trim() ?? null;
     const current = await tx.toothProcedure.findUnique({
       where: { treatmentPlanItemId: item.id },
       include: { odontogramRecord: true }
@@ -1090,6 +1447,7 @@ export class TreatmentPlansService {
       surface,
       condition: "TOOTH_PROCEDURE",
       diagnosis,
+      odontogramSymbol,
       procedureId: item.procedureId,
       status,
       notes: diagnosis
@@ -1120,9 +1478,10 @@ export class TreatmentPlansService {
           toothNumber,
           surface,
           diagnosis,
+          odontogramSymbol,
           status,
           notes: diagnosis,
-          completedAt: status === ToothProcedureStatus.COMPLETED ? current.completedAt ?? new Date() : null
+          completedAt: status === ToothProcedureStatus.COMPLETED ? (current.completedAt ?? new Date()) : null
         }
       });
       return;
@@ -1140,6 +1499,7 @@ export class TreatmentPlansService {
         toothNumber,
         surface,
         diagnosis,
+        odontogramSymbol,
         status,
         notes: diagnosis,
         completedAt: status === ToothProcedureStatus.COMPLETED ? new Date() : null
@@ -1155,7 +1515,8 @@ export class TreatmentPlansService {
     });
     if (!current) return;
 
-    const completedAt = status === ToothProcedureStatus.COMPLETED ? current.completedAt ?? new Date() : null;
+    const completedAt =
+      status === ToothProcedureStatus.COMPLETED ? (current.completedAt ?? new Date()) : null;
     await this.prisma.$transaction(async (tx) => {
       await tx.toothProcedure.update({
         where: { id: current.id },
@@ -1183,16 +1544,120 @@ export class TreatmentPlansService {
     return row;
   }
 
+  private async ensureOrthodonticTreatmentPlan(actor: AuthUser, treatmentPlanId: string) {
+    const row = await this.ensureTreatmentPlan(actor, treatmentPlanId);
+    if (row.kind !== TreatmentPlanKind.ORTHODONTICS) {
+      throw new BadRequestException("Orthodontic data can only be updated on orthodontic treatment plans");
+    }
+    return row;
+  }
+
+  private buildOrthodonticSummary(plan: {
+    kind: TreatmentPlanKind;
+    orthodonticProfile?: {
+      startDate: Date | null;
+      estimatedMonths: number | null;
+      estimatedControls: number | null;
+    } | null;
+    clinicalEvolutions?: Array<{
+      id: string;
+      createdAt: Date;
+      notes: string | null;
+      objective: string | null;
+      assessment: string | null;
+      plan: string | null;
+    }>;
+    pauses?: Array<{ startDate: Date; endDate: Date | null }>;
+  }) {
+    if (plan.kind !== TreatmentPlanKind.ORTHODONTICS) return null;
+
+    const startDate = plan.orthodonticProfile?.startDate;
+    const estimatedMonths = plan.orthodonticProfile?.estimatedMonths ?? 0;
+    const estimatedControls = plan.orthodonticProfile?.estimatedControls ?? estimatedMonths;
+    const pauses = plan.pauses ?? [];
+
+    let calendarProgress = 0;
+    let isPaused = false;
+    let pauseStartDate: Date | null = null;
+    let totalPauseDays = 0;
+
+    const now = new Date();
+
+    for (const pause of pauses) {
+      if (!pause.endDate) {
+        isPaused = true;
+        pauseStartDate = pause.startDate;
+        // Pause active, calculate days up to now
+        const diffMs = now.getTime() - pause.startDate.getTime();
+        totalPauseDays += Math.max(0, diffMs / (1000 * 60 * 60 * 24));
+      } else {
+        const diffMs = pause.endDate.getTime() - pause.startDate.getTime();
+        totalPauseDays += Math.max(0, diffMs / (1000 * 60 * 60 * 24));
+      }
+    }
+
+    if (startDate && estimatedMonths > 0) {
+      // Calculate total elapsed days
+      const totalElapsedMs = now.getTime() - startDate.getTime();
+      const totalElapsedDays = Math.max(0, totalElapsedMs / (1000 * 60 * 60 * 24));
+
+      const effectiveElapsedDays = Math.max(0, totalElapsedDays - totalPauseDays);
+      const effectiveElapsedMonths = effectiveElapsedDays / 30.436875; // Average days in month
+
+      calendarProgress = Math.min(100, (effectiveElapsedMonths / estimatedMonths) * 100);
+    }
+
+    const realControlsCount = plan.clinicalEvolutions?.length ?? 0;
+    let realProgress = 0;
+    if (estimatedControls > 0) {
+      realProgress = Math.min(100, (realControlsCount / estimatedControls) * 100);
+    }
+
+    return {
+      calendarProgress,
+      realProgress,
+      realControlsCount,
+      estimatedControls,
+      isPaused,
+      pauseStartDate,
+      latestEvolution: plan.clinicalEvolutions?.[0] ?? null
+    };
+  }
+
+  private optionalDate(value?: string | null) {
+    if (value === undefined) return undefined;
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) throw new BadRequestException("Invalid date");
+    return date;
+  }
+
+  private optionalString(value?: string | null) {
+    if (value === undefined) return undefined;
+    const trimmed = value?.trim();
+    return trimmed || null;
+  }
+
   private async validateBranch(actor: AuthUser, branchId: string) {
     const row = await this.prisma.branch.findFirst({
-      where: { id: branchScope(actor, branchId), organizationId: actor.organizationId, deletedAt: null, status: "ACTIVE" }
+      where: {
+        id: branchScope(actor, branchId),
+        organizationId: actor.organizationId,
+        deletedAt: null,
+        status: "ACTIVE"
+      }
     });
     if (!row) throw new BadRequestException("Invalid branchId");
   }
 
   private async validatePatient(actor: AuthUser, patientId: string) {
     const row = await this.prisma.patient.findFirst({
-      where: { id: patientId, organizationId: actor.organizationId, branchId: branchScope(actor), deletedAt: null },
+      where: {
+        id: patientId,
+        organizationId: actor.organizationId,
+        branchId: branchScope(actor),
+        deletedAt: null
+      },
       include: { agreement: true }
     });
     if (!row) throw new BadRequestException("Invalid patientId");
@@ -1223,6 +1688,80 @@ export class TreatmentPlansService {
     if (!row) throw new BadRequestException("Invalid professionalId");
   }
 
+  private async validateProfessionalPlanSpecialty(
+    actor: AuthUser,
+    professionalId: string,
+    branchId: string | undefined,
+    requestedKind?: TreatmentPlanKind
+  ): Promise<ProfessionalPlanSpecialty> {
+    const now = new Date();
+    const row = await this.prisma.professional.findFirst({
+      where: {
+        id: professionalId,
+        organizationId: actor.organizationId,
+        isActive: true,
+        ...(branchId
+          ? {
+              branches: {
+                some: {
+                  branchId,
+                  status: ProfessionalBranchStatus.ACTIVE,
+                  startsAt: { lte: now },
+                  OR: [{ endsAt: null }, { endsAt: { gt: now } }]
+                }
+              }
+            }
+          : {})
+      },
+      include: {
+        specialties: {
+          include: {
+            specialty: { select: { id: true, name: true, isActive: true } }
+          }
+        }
+      }
+    });
+    if (!row) throw new BadRequestException("Invalid professionalId");
+
+    const options = row.specialties
+      .map(({ specialty }) => this.mapSpecialtyToPlanKind(specialty))
+      .filter((option): option is ProfessionalPlanSpecialty => Boolean(option));
+
+    if (!options.length) {
+      throw new BadRequestException(
+        "El profesional seleccionado no tiene una especialidad valida para planes de tratamiento"
+      );
+    }
+
+    if (requestedKind) {
+      const match = options.find((option) => option.kind === requestedKind);
+      if (!match)
+        throw new BadRequestException(
+          "El profesional seleccionado no tiene la especialidad requerida para este plan"
+        );
+      return match;
+    }
+
+    const uniqueKinds = [...new Set(options.map((option) => option.kind))];
+    if (uniqueKinds.length > 1) {
+      throw new BadRequestException("Selecciona si el plan es general u ortodoncia para este profesional");
+    }
+
+    return options[0];
+  }
+
+  private mapSpecialtyToPlanKind(specialty: {
+    id: string;
+    name: string;
+    isActive?: boolean | null;
+  }): ProfessionalPlanSpecialty | null {
+    if (specialty.isActive === false) return null;
+    const allowedName = resolveAllowedSpecialtyName(specialty.name);
+    if (!allowedName) return null;
+    const kind = allowedName === "Ortodoncia" ? TreatmentPlanKind.ORTHODONTICS : TreatmentPlanKind.GENERAL;
+    return { id: specialty.id, name: allowedName, kind };
+  }
+
   private async validateProcedure(actor: AuthUser, procedureId: string) {
     const row = await this.prisma.procedure.findFirst({
       where: { id: procedureId, organizationId: actor.organizationId, isActive: true }
@@ -1230,7 +1769,11 @@ export class TreatmentPlansService {
     if (!row) throw new BadRequestException("Invalid procedureId");
   }
 
-  private async validateProcedureInTransaction(tx: Prisma.TransactionClient, actor: AuthUser, procedureId: string) {
+  private async validateProcedureInTransaction(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    procedureId: string
+  ) {
     const row = await tx.procedure.findFirst({
       where: { id: procedureId, organizationId: actor.organizationId, isActive: true }
     });
@@ -1244,7 +1787,11 @@ export class TreatmentPlansService {
     if (!row) throw new BadRequestException("Invalid sectionId for treatment plan");
   }
 
-  private async validateSectionInTransaction(tx: Prisma.TransactionClient, treatmentPlanId: string, sectionId: string) {
+  private async validateSectionInTransaction(
+    tx: Prisma.TransactionClient,
+    treatmentPlanId: string,
+    sectionId: string
+  ) {
     const row = await tx.treatmentPlanSection.findFirst({
       where: { id: sectionId, treatmentPlanId }
     });
@@ -1283,39 +1830,73 @@ export class TreatmentPlansService {
       where: { id },
       data: {
         status: "DRAFT",
-        description: dto.reason ? `${plan.description || ""}\nReactivated: ${dto.reason}`.trim() : plan.description
-      },
+        description: dto.reason
+          ? `${plan.description || ""}\nReactivated: ${dto.reason}`.trim()
+          : plan.description
+      }
     });
   }
 
   async duplicateTreatmentPlan(actor: AuthUser, id: string, dto: DuplicateTreatmentPlanDto) {
     const plan = await this.getTreatmentPlan(actor, id);
+    const branchId = dto.newBranchId || plan.branchId;
+    const professionalId = dto.newProfessionalId || plan.professionalId;
+    const planSpecialty = await this.validateProfessionalPlanSpecialty(
+      actor,
+      professionalId,
+      branchId,
+      plan.kind
+    );
 
     // Deep clone the plan, sections, and items
     return this.prisma.$transaction(async (tx) => {
       const newPlan = await tx.treatmentPlan.create({
         data: {
           organizationId: actor.organizationId,
-          branchId: dto.newBranchId || plan.branchId,
+          branchId,
           patientId: plan.patientId,
-          professionalId: dto.newProfessionalId || plan.professionalId,
+          professionalId,
+          kind: plan.kind,
+          specialtyId: planSpecialty.id,
+          specialtySnapshotName: planSpecialty.name,
           name: `${plan.name} (Copy)`,
           description: dto.reason || plan.description,
-          status: "DRAFT",
-          createdById: actor.id,
-        },
+          status: TreatmentPlanStatus.DRAFT
+        }
       });
+
+      if (plan.kind === TreatmentPlanKind.ORTHODONTICS) {
+        await tx.orthodonticTreatmentProfile.create({
+          data: plan.orthodonticProfile
+            ? {
+                treatmentPlanId: newPlan.id,
+                startDate: plan.orthodonticProfile.startDate,
+                estimatedMonths: plan.orthodonticProfile.estimatedMonths,
+                lastUpperArch: plan.orthodonticProfile.lastUpperArch,
+                lastLowerArch: plan.orthodonticProfile.lastLowerArch,
+                nextControlAt: plan.orthodonticProfile.nextControlAt,
+                nextRadiographyAt: plan.orthodonticProfile.nextRadiographyAt,
+                hygieneStatus: plan.orthodonticProfile.hygieneStatus,
+                alert: plan.orthodonticProfile.alert,
+                indications: plan.orthodonticProfile.indications,
+                elastics: plan.orthodonticProfile.elastics,
+                diagnosis: plan.orthodonticProfile.diagnosis as Prisma.InputJsonValue,
+                planNotes: plan.orthodonticProfile.planNotes
+              }
+            : { treatmentPlanId: newPlan.id }
+        });
+      }
 
       for (const section of plan.sections) {
         const newSection = await tx.treatmentPlanSection.create({
           data: {
             treatmentPlanId: newPlan.id,
             name: section.name,
-            sortOrder: section.sortOrder,
-          },
+            sortOrder: section.sortOrder
+          }
         });
 
-        const sectionItems = plan.items.filter(item => item.sectionId === section.id);
+        const sectionItems = plan.items.filter((item) => item.sectionId === section.id);
         for (const item of sectionItems) {
           await tx.treatmentPlanItem.create({
             data: {
@@ -1329,9 +1910,8 @@ export class TreatmentPlansService {
               discount: item.discount,
               total: item.total,
               notes: item.notes,
-              status: "PLANNED",
-              createdById: actor.id,
-            },
+              status: TreatmentPlanItemStatus.PLANNED
+            }
           });
         }
       }
@@ -1342,6 +1922,13 @@ export class TreatmentPlansService {
 
   async referTreatmentPlan(actor: AuthUser, id: string, dto: ReferTreatmentPlanDto) {
     const plan = await this.getTreatmentPlan(actor, id);
+    const targetProfessionalId = dto.toProfessionalId || plan.professionalId;
+    const planSpecialty = await this.validateProfessionalPlanSpecialty(
+      actor,
+      targetProfessionalId,
+      dto.toBranchId,
+      plan.kind
+    );
 
     return this.prisma.$transaction(async (tx) => {
       // 1. Create a referral record
@@ -1354,37 +1941,61 @@ export class TreatmentPlansService {
           fromProfessionalId: plan.professionalId,
           toProfessionalId: dto.toProfessionalId,
           reason: dto.reason,
-          createdById: actor.id,
-        },
+          createdById: actor.id
+        }
       });
 
       // 2. We can either transfer the current plan or duplicate it.
       // Usually "refer" implies transferring the plan, or duplicating it and cancelling the original.
       // We'll duplicate it and mark the original as cancelled for tracking.
-      
+
       const newPlan = await tx.treatmentPlan.create({
         data: {
           organizationId: actor.organizationId,
           branchId: dto.toBranchId,
           patientId: plan.patientId,
-          professionalId: dto.toProfessionalId || plan.professionalId,
+          professionalId: targetProfessionalId,
+          kind: plan.kind,
+          specialtyId: planSpecialty.id,
+          specialtySnapshotName: planSpecialty.name,
           name: `${plan.name} (Referred)`,
           description: dto.reason,
-          status: "DRAFT",
-          createdById: actor.id,
-        },
+          status: TreatmentPlanStatus.DRAFT
+        }
       });
+
+      if (plan.kind === TreatmentPlanKind.ORTHODONTICS) {
+        await tx.orthodonticTreatmentProfile.create({
+          data: plan.orthodonticProfile
+            ? {
+                treatmentPlanId: newPlan.id,
+                startDate: plan.orthodonticProfile.startDate,
+                estimatedMonths: plan.orthodonticProfile.estimatedMonths,
+                lastUpperArch: plan.orthodonticProfile.lastUpperArch,
+                lastLowerArch: plan.orthodonticProfile.lastLowerArch,
+                nextControlAt: plan.orthodonticProfile.nextControlAt,
+                nextRadiographyAt: plan.orthodonticProfile.nextRadiographyAt,
+                hygieneStatus: plan.orthodonticProfile.hygieneStatus,
+                alert: plan.orthodonticProfile.alert,
+                indications: plan.orthodonticProfile.indications,
+                elastics: plan.orthodonticProfile.elastics,
+                diagnosis: plan.orthodonticProfile.diagnosis as Prisma.InputJsonValue,
+                planNotes: plan.orthodonticProfile.planNotes
+              }
+            : { treatmentPlanId: newPlan.id }
+        });
+      }
 
       for (const section of plan.sections) {
         const newSection = await tx.treatmentPlanSection.create({
           data: {
             treatmentPlanId: newPlan.id,
             name: section.name,
-            sortOrder: section.sortOrder,
-          },
+            sortOrder: section.sortOrder
+          }
         });
 
-        const sectionItems = plan.items.filter(item => item.sectionId === section.id);
+        const sectionItems = plan.items.filter((item) => item.sectionId === section.id);
         for (const item of sectionItems) {
           if (item.status === "COMPLETED") continue; // only refer pending work
 
@@ -1400,9 +2011,8 @@ export class TreatmentPlansService {
               discount: item.discount,
               total: item.total,
               notes: item.notes,
-              status: "PLANNED",
-              createdById: actor.id,
-            },
+              status: TreatmentPlanItemStatus.PLANNED
+            }
           });
         }
       }
@@ -1414,6 +2024,46 @@ export class TreatmentPlansService {
       });
 
       return referral;
+    });
+  }
+
+  async pauseTreatment(actor: AuthUser, id: string, dto: { reason?: string }) {
+    const plan = await this.ensureTreatmentPlan(actor, id);
+
+    // Check if already paused
+    const activePause = await this.prisma.treatmentPlanPause.findFirst({
+      where: { treatmentPlanId: plan.id, endDate: null }
+    });
+
+    if (activePause) {
+      throw new BadRequestException("Treatment is already paused");
+    }
+
+    return this.prisma.treatmentPlanPause.create({
+      data: {
+        treatmentPlanId: plan.id,
+        startDate: new Date(),
+        reason: dto.reason,
+        createdById: actor.id
+      }
+    });
+  }
+
+  async resumeTreatment(actor: AuthUser, id: string) {
+    const plan = await this.ensureTreatmentPlan(actor, id);
+
+    // Find active pause
+    const activePause = await this.prisma.treatmentPlanPause.findFirst({
+      where: { treatmentPlanId: plan.id, endDate: null }
+    });
+
+    if (!activePause) {
+      throw new BadRequestException("Treatment is not currently paused");
+    }
+
+    return this.prisma.treatmentPlanPause.update({
+      where: { id: activePause.id },
+      data: { endDate: new Date() }
     });
   }
 }

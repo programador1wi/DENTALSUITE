@@ -23,6 +23,8 @@ export type Procedure = {
   requiresTooth: boolean;
   requiresSurface: boolean;
   requiresLab: boolean;
+  requiresOdontogramSymbol: boolean;
+  defaultOdontogramSymbol?: string | null;
   isActive: boolean;
   category: { id: string; name: string };
 };
@@ -45,6 +47,8 @@ export type ProcedurePayload = {
   requiresTooth?: boolean;
   requiresSurface?: boolean;
   requiresLab?: boolean;
+  requiresOdontogramSymbol?: boolean;
+  defaultOdontogramSymbol?: string | null;
   isActive?: boolean;
 };
 

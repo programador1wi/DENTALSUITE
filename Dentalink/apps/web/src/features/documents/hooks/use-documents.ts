@@ -18,10 +18,10 @@ import {
   type FileAttachment
 } from "../services/documents.service";
 
-export function usePatientFiles(patientId: string, category?: string) {
+export function usePatientFiles(patientId: string, category?: string, treatmentPlanId?: string) {
   return useQuery({
-    queryKey: ["patient-files", patientId, category],
-    queryFn: () => listPatientFiles(patientId, { category: category || undefined }),
+    queryKey: ["patient-files", patientId, category, treatmentPlanId],
+    queryFn: () => listPatientFiles(patientId, { category: category || undefined, treatmentPlanId: treatmentPlanId || undefined }),
     enabled: Boolean(patientId)
   });
 }
@@ -109,7 +109,8 @@ export function useDocumentsMutations() {
         mimeType,
         size,
         url,
-        category
+        category,
+        treatmentPlanId
       }: {
         patientId: string;
         fileName: string;
@@ -118,7 +119,8 @@ export function useDocumentsMutations() {
         size: number;
         url: string;
         category: string;
-      }) => uploadPatientFile(patientId, { fileName, originalName, mimeType, size, url, category }),
+        treatmentPlanId?: string;
+      }) => uploadPatientFile(patientId, { fileName, originalName, mimeType, size, url, category, treatmentPlanId }),
       onSuccess: (file, variables) => {
         toast.success("Archivo registrado");
         upsertPatientFile(variables.patientId, file);
@@ -126,8 +128,8 @@ export function useDocumentsMutations() {
       onError
     }),
     uploadPatientBinaryFile: useMutation({
-      mutationFn: ({ patientId, file, category }: { patientId: string; file: File; category: string }) =>
-        uploadPatientBinaryFile(patientId, { file, category }),
+      mutationFn: ({ patientId, file, category, treatmentPlanId }: { patientId: string; file: File; category: string; treatmentPlanId?: string }) =>
+        uploadPatientBinaryFile(patientId, { file, category, treatmentPlanId }),
       onSuccess: (file, variables) => {
         toast.success("Archivo subido");
         upsertPatientFile(variables.patientId, file);

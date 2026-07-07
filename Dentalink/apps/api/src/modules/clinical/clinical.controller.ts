@@ -166,7 +166,7 @@ export class ClinicalController {
   }
 
   @Delete("documents/:documentId")
-  @RequirePermissions("clinical.documents.manage")
+  @RequirePermissions("clinical.documents.delete")
   deleteDocument(
     @CurrentUser() user: AuthUser,
     @Param("patientId") patientId: string,
@@ -210,8 +210,13 @@ export class ClinicalController {
 
   @Get("odontogram/history/:toothNumber")
   @RequirePermissions("clinical.odontogram.read")
-  toothHistory(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string, @Param("toothNumber") toothNumber: string) {
-    return this.clinicalService.getToothHistory(user, patientId, toothNumber);
+  toothHistory(
+    @CurrentUser() user: AuthUser,
+    @Param("patientId") patientId: string,
+    @Param("toothNumber") toothNumber: string,
+    @Query() query: ListOdontogramQueryDto
+  ) {
+    return this.clinicalService.getToothHistory(user, patientId, toothNumber, query.surface);
   }
 
   @Post("odontogram/conditions")

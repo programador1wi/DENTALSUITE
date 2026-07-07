@@ -4,6 +4,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsDefined,
   IsEnum,
   IsIn,
   IsInt,
@@ -24,6 +25,10 @@ export class PatientFilesQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsString()
   category?: string;
+
+  @IsOptional()
+  @IsString()
+  treatmentPlanId?: string;
 }
 
 export class UploadFileAttachmentDto {
@@ -51,6 +56,10 @@ export class UploadFileAttachmentDto {
   @IsString()
   @MaxLength(80)
   category!: string;
+
+  @IsOptional()
+  @IsString()
+  treatmentPlanId?: string;
 }
 
 export class UploadBinaryFileAttachmentDto {
@@ -62,6 +71,10 @@ export class UploadBinaryFileAttachmentDto {
   @IsOptional()
   @IsString()
   professionalId?: string;
+
+  @IsOptional()
+  @IsString()
+  treatmentPlanId?: string;
 }
 
 export class RadiographyFindingBboxDto {
@@ -194,9 +207,8 @@ export class CreateClinicalDocumentTemplateSettingsDto {
   @IsString()
   description?: string;
 
-  @IsString()
-  @IsNotEmpty()
-  content!: string;
+  @IsDefined()
+  content!: unknown;
 }
 
 export class UpdateClinicalDocumentTemplateSettingsDto {
@@ -210,9 +222,7 @@ export class UpdateClinicalDocumentTemplateSettingsDto {
   description?: string;
 
   @IsOptional()
-  @IsString()
-  @IsNotEmpty()
-  content?: string;
+  content?: unknown;
 
   @IsOptional()
   @IsBoolean()

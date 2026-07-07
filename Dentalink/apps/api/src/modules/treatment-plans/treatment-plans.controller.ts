@@ -18,11 +18,15 @@ import { AuthUser } from "../../common/types/auth-user";
 import {
   ChangeTreatmentPlanBranchDto,
   CreateAlternativeDto,
+  PauseTreatmentPlanDto,
   CreateBudgetDto,
+  CreateOrthodonticMonthlyItemsDto,
   CreateTreatmentPlanDto,
   ListBudgetsQueryDto,
   ListTreatmentPlansQueryDto,
   TreatmentPlanSectionInputDto,
+  UpdateOrthodonticDiagnosisDto,
+  UpdateOrthodonticProfileDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
   UpdateTreatmentPlanItemStatusDto,
@@ -61,6 +65,24 @@ export class TreatmentPlansController {
   @RequirePermissions("treatment_plans.update")
   updateTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateTreatmentPlanDto) {
     return this.service.updateTreatmentPlan(actor, id, dto);
+  }
+
+  @Patch("treatment-plans/:id/orthodontics/profile")
+  @RequirePermissions("treatment_plans.update")
+  updateOrthodonticProfile(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateOrthodonticProfileDto) {
+    return this.service.updateOrthodonticProfile(actor, id, dto);
+  }
+
+  @Patch("treatment-plans/:id/orthodontics/diagnosis")
+  @RequirePermissions("treatment_plans.update")
+  updateOrthodonticDiagnosis(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateOrthodonticDiagnosisDto) {
+    return this.service.updateOrthodonticDiagnosis(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/orthodontics/monthly-items")
+  @RequirePermissions("treatment_plans.update")
+  createOrthodonticMonthlyItems(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: CreateOrthodonticMonthlyItemsDto) {
+    return this.service.createOrthodonticMonthlyItems(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/change-branch")
@@ -174,5 +196,17 @@ export class TreatmentPlansController {
   @RequirePermissions("treatment_plans.update")
   referTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: ReferTreatmentPlanDto) {
     return this.service.referTreatmentPlan(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/pause")
+  @RequirePermissions("treatment_plans.update")
+  pauseTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: PauseTreatmentPlanDto) {
+    return this.service.pauseTreatment(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/resume")
+  @RequirePermissions("treatment_plans.update")
+  resumeTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.resumeTreatment(actor, id);
   }
 }

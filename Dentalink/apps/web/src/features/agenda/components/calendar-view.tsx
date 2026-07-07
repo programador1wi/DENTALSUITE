@@ -738,37 +738,55 @@ function BlockedAppointmentBlock({
   onEdit: (appointment: Appointment) => void;
 }) {
   const range = `${formatDisplayTime(appointment.startAt)} - ${formatDisplayTime(appointment.endAt)}`;
+  
+  const start = new Date(appointment.startAt);
+  const end = new Date(appointment.endAt);
+  const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
+
+  if (durationMin <= 20) {
+    return (
+      <HelpTooltip content={`${appointment.title || "Bloqueo"} ${range}`} position="top" triggerClassName="h-full w-full">
+        <button
+          type="button"
+          onClick={() => onEdit(appointment)}
+          className="flex h-full w-full items-center overflow-hidden rounded-[var(--radius-sm)] border border-slate-350 bg-slate-50 bg-[repeating-linear-gradient(-45deg,transparent,transparent_6px,rgba(100,116,139,0.12)_6px,rgba(100,116,139,0.12)_12px)] px-2 text-left text-slate-700 shadow-sm transition-[border-color,box-shadow] hover:border-slate-400 hover:shadow-[var(--shadow-card-hover)]"
+        >
+          <div className="flex items-center gap-1.5 text-[9.5px] font-medium w-full overflow-hidden select-none">
+            <span className="shrink-0 text-[8px] font-extrabold uppercase tracking-wider text-slate-500">Bloqueo</span>
+            <span className="shrink-0 text-slate-300">|</span>
+            <span className="truncate font-bold text-slate-700">{appointment.title || "Bloqueo programado"}</span>
+            <span className="shrink-0 text-slate-300">|</span>
+            <span className="shrink-0 text-[8px] font-semibold text-slate-500">{range}</span>
+          </div>
+        </button>
+      </HelpTooltip>
+    );
+  }
 
   return (
     <HelpTooltip content={`${appointment.title} ${range}`} position="top" triggerClassName="h-full w-full">
       <button
         type="button"
         onClick={() => onEdit(appointment)}
-        className="flex h-full w-full flex-col justify-center overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] px-2 py-1 text-left text-[var(--text-brand-strong)] shadow-sm transition-[border-color,box-shadow] hover:border-[var(--border-brand)] hover:shadow-[var(--shadow-card-hover)]"
+        className="flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden rounded-[var(--radius-sm)] border border-slate-350 bg-slate-50 bg-[repeating-linear-gradient(-45deg,transparent,transparent_6px,rgba(100,116,139,0.12)_6px,rgba(100,116,139,0.12)_12px)] px-2 py-1 text-left text-slate-700 shadow-sm transition-[border-color,box-shadow] hover:border-slate-400 hover:shadow-[var(--shadow-card-hover)]"
       >
-        <span className="truncate text-[10px] font-semibold uppercase tracking-[0.08em]">{compact ? "Bloqueo" : "Horario bloqueado"}</span>
-        <span className="truncate text-[11px] font-semibold">{appointment.title || "Bloqueo programado"}</span>
-        <span className="truncate text-[10px] font-medium text-[var(--text-brand)]">{range}</span>
+        <span className="truncate text-[8px] font-bold uppercase tracking-wider text-slate-500 leading-none">{compact ? "Bloqueo" : "Horario bloqueado"}</span>
+        <span className="truncate text-[10px] font-bold text-slate-700 leading-tight">{appointment.title || "Bloqueo programado"}</span>
+        <span className="truncate text-[8.5px] font-semibold text-slate-500 leading-none">{range}</span>
       </button>
     </HelpTooltip>
   );
 }
 
-function BreakBlock({ top, height, range }: { top: number; height: number; range: string }) {
+function BreakBlock({ top, height }: { top: number; height: number; range: string }) {
   return (
-    <HelpTooltip
-      content={`Horario de comida ${range}`}
-      position="right"
-      triggerClassName="absolute left-1 right-1 z-[2] block"
-      triggerStyle={{
+    <div
+      className="absolute left-1 right-1 z-[2] select-none bg-slate-100 bg-[repeating-linear-gradient(-45deg,transparent,transparent_6px,rgba(100,116,139,0.22)_6px,rgba(100,116,139,0.22)_12px)] border-y border-slate-300/80"
+      style={{
         top,
         height
       }}
-    >
-      <div className="flex h-full w-full select-none items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-blue-900/30 bg-blue-900 bg-[repeating-linear-gradient(-45deg,transparent,transparent_8px,rgba(255,255,255,0.1)_8px,rgba(255,255,255,0.1)_16px)] px-2 text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-sm">
-        <span className="truncate">Comida {range}</span>
-      </div>
-    </HelpTooltip>
+    />
   );
 }
 

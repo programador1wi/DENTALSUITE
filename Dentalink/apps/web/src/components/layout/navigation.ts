@@ -35,6 +35,7 @@ export type MenuItem = {
   icon?: LucideIcon;
   disabled?: boolean;
   badge?: string;
+  exact?: boolean;
 };
 
 export type MainNavItem = MenuItem & {
@@ -53,7 +54,7 @@ export const navItems: MainNavItem[] = [
     permission: "accounts_receivable.read",
     children: [
       { to: "/accounts-receivable", label: "Cuentas por cobrar", permission: "accounts_receivable.read", icon: ReceiptText },
-      { to: "/payments", label: "Pagos recibidos", permission: "payments.read", icon: DollarSign },
+      { to: "/payments", label: "Pagos recibidos", permission: "payments.read", icon: DollarSign, exact: true },
       { to: "/installments", label: "Cuotas", permission: "installments.read", icon: Calculator },
       { to: "/collections", label: "Gestion de morosidad", permission: "collections.read", icon: Clock }
     ]
@@ -107,7 +108,9 @@ export function canSee(item: MenuItem, permissions: string[]) {
 }
 
 export function itemMatchesPath(pathname: string, item: MenuItem) {
-  return pathname === item.to || (item.to !== "/dashboard" && pathname.startsWith(item.to));
+  if (pathname === item.to) return true;
+  if (item.exact || item.to === "/dashboard") return false;
+  return pathname.startsWith(`${item.to}/`);
 }
 
 export function visibleNavigation(permissions: string[]) {

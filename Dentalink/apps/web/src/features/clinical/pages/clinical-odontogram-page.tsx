@@ -32,7 +32,7 @@ export function ClinicalOdontogramPage() {
   const professionals = useProfessionals(undefined, "true", { branchId: branchId || undefined, pageSize: 100 });
   const procedures = useProcedures(undefined, "true");
   const odontogram = useOdontogram(id);
-  const history = useToothHistory(id, selectedTooth);
+  const history = useToothHistory(id, selectedTooth, selectedSurface || undefined);
   const mutations = useClinicalMutations(id);
   const professionalOptions = (professionals.data ?? []).map((professional) => ({
     id: professional.id,
@@ -104,6 +104,7 @@ export function ClinicalOdontogramPage() {
       <ToothDiagnosisModal
         open={activeModal === "diagnosis" && Boolean(selectedTooth)}
         toothNumber={selectedTooth}
+        surface={selectedSurface}
         onClose={closeModal}
         onAddDiagnosis={(diagnosis, notes) => void createDiagnosisForSelectedTeeth(diagnosis, notes)}
       />
@@ -114,6 +115,7 @@ export function ClinicalOdontogramPage() {
         tone="preexistence"
         sectionTitles={["Preexistencias"]}
         toothNumbers={actionTeeth}
+        surface={selectedSurface}
         onClose={closeModal}
         onAddDiagnosis={(diagnosis, notes) => void createDiagnosisForSelectedTeeth(diagnosis, notes)}
       />
@@ -124,6 +126,7 @@ export function ClinicalOdontogramPage() {
         tone="lesion"
         sectionTitles={["Lesiones"]}
         toothNumbers={actionTeeth}
+        surface={selectedSurface}
         onClose={closeModal}
         onAddDiagnosis={(diagnosis, notes) => void createDiagnosisForSelectedTeeth(diagnosis, notes)}
       />
@@ -142,6 +145,7 @@ export function ClinicalOdontogramPage() {
       <ToothInformationModal
         open={activeModal === "info" && Boolean(selectedTooth)}
         toothNumber={selectedTooth}
+        surface={selectedSurface}
         history={history.data}
         historyLoading={history.isLoading}
         onCancelRecord={(odontogramRecordId) => mutations.cancelOdontogramRecord.mutate(odontogramRecordId)}

@@ -286,7 +286,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           <div
             ref={dropdownRef}
             className={cn(
-              "fixed z-[100] mt-0 flex flex-col overflow-hidden rounded-[var(--radius-lg)] border p-1 shadow-2xl animate-in fade-in-50 duration-[var(--duration-fast)]",
+              "fixed z-[2000] mt-0 flex flex-col overflow-hidden rounded-[var(--radius-lg)] border p-1 shadow-2xl animate-in fade-in-50 duration-[var(--duration-fast)]",
               coords.direction === "up" ? "slide-in-from-bottom-1 origin-bottom" : "slide-in-from-top-1 origin-top",
               theme === "dark"
                 ? "border-slate-850 bg-slate-950/95 backdrop-blur-xl text-white shadow-black/45"

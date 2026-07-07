@@ -163,6 +163,13 @@ export function PatientsPage() {
   }));
   const [confirmId, setConfirmId] = useState<string | null>(null);
   const [expandedPatientId, setExpandedPatientId] = useState<string | null>(null);
+  
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 10;
+
+  useEffect(() => {
+    setPage(1);
+  }, [filters.search, filters.status, filters.branchId, activeBranchId]);
 
   const branchQuery = useBranches(undefined, "ACTIVE");
   const isGlobalHeaderSearch = Boolean(filters.search.trim()) && !filters.branchId && !searchParams.has("branchId");
@@ -170,7 +177,9 @@ export function PatientsPage() {
   const patientQuery = usePatients({
     search: filters.search || undefined,
     status: filters.status || undefined,
-    branchId: selectedBranchId || undefined
+    branchId: selectedBranchId || undefined,
+    page,
+    pageSize: PAGE_SIZE
   });
   const deactivatePatient = useDeactivatePatient();
 
@@ -384,6 +393,55 @@ export function PatientsPage() {
                 })}
               </tbody>
             </table>
+            
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/50 px-4 py-3 sm:px-6">
+              <div className="flex flex-1 justify-between sm:hidden">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="relative inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={(patientQuery.data?.length ?? 0) < PAGE_SIZE}
+                  className="relative ml-3 inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                >
+                  Siguiente
+                </button>
+              </div>
+              <div className="hidden sm:flex sm:flex-1 sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs text-slate-500">
+                    Página <span className="font-semibold text-slate-700">{page}</span>
+                  </p>
+                </div>
+                <div>
+                  <nav className="isolate inline-flex -space-x-px rounded-lg shadow-sm" aria-label="Pagination">
+                    <button
+                      type="button"
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      disabled={page === 1}
+                      className="relative inline-flex items-center rounded-l-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 focus:z-20 disabled:opacity-50"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPage((p) => p + 1)}
+                      disabled={(patientQuery.data?.length ?? 0) < PAGE_SIZE}
+                      className="relative inline-flex items-center rounded-r-lg border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 focus:z-20 disabled:opacity-50"
+                    >
+                      Siguiente
+                    </button>
+                  </nav>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>

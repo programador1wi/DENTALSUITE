@@ -8,29 +8,46 @@ import {
   changeTreatmentPlanBranch,
   createAlternative,
   createBudget,
+  createOrthodonticMonthlyItems,
   createTreatmentPlan,
   deleteTreatmentPlanItem,
   getBudget,
   getTreatmentPlan,
   listBudgets,
   listTreatmentPlans,
+  pauseTreatmentPlan,
   printBudget,
   rejectBudget,
+  resumeTreatmentPlan,
   sendBudget,
+  updateOrthodonticDiagnosis,
+  updateOrthodonticProfile,
   updateTreatmentPlan,
   updateTreatmentPlanItem,
   updateTreatmentPlanItemStatus,
   type BudgetStatus,
   type CreateTreatmentPlanPayload,
+  type OrthodonticProfilePayload,
+  type TreatmentPlanKind,
   type TreatmentPlanItemPayload,
   type TreatmentPlanStatus,
   type TreatmentPlanItemStatus
 } from "../services/treatments.service";
 
-export function useTreatmentPlans(params?: { patientId?: string; branchId?: string; professionalId?: string; status?: TreatmentPlanStatus }) {
+export function useTreatmentPlans(
+  params?: {
+    patientId?: string;
+    branchId?: string;
+    professionalId?: string;
+    status?: TreatmentPlanStatus;
+    kind?: TreatmentPlanKind;
+  },
+  enabled = true
+) {
   return useQuery({
     queryKey: ["treatment-plans", params],
-    queryFn: () => listTreatmentPlans(params)
+    queryFn: () => listTreatmentPlans(params),
+    enabled
   });
 }
 
@@ -42,7 +59,10 @@ export function useTreatmentPlan(id: string) {
   });
 }
 
-export function useBudgets(params?: { patientId?: string; treatmentPlanId?: string; status?: BudgetStatus }, enabled = true) {
+export function useBudgets(
+  params?: { patientId?: string; treatmentPlanId?: string; status?: BudgetStatus },
+  enabled = true
+) {
   return useQuery({
     queryKey: ["budgets", params],
     queryFn: () => listBudgets(params),
@@ -80,8 +100,43 @@ export function useTreatmentMutations() {
       onError
     }),
     updateTreatmentPlan: useMutation({
-      mutationFn: ({ id, payload }: { id: string; payload: Partial<CreateTreatmentPlanPayload> & { status?: TreatmentPlanStatus } }) =>
-        updateTreatmentPlan(id, payload),
+      mutationFn: ({
+        id,
+        payload
+      }: {
+        id: string;
+        payload: Partial<CreateTreatmentPlanPayload> & { status?: TreatmentPlanStatus };
+      }) => updateTreatmentPlan(id, payload),
+      onSuccess: invalidate,
+      onError
+    }),
+    updateOrthodonticProfile: useMutation({
+      mutationFn: ({ id, payload }: { id: string; payload: OrthodonticProfilePayload }) =>
+        updateOrthodonticProfile(id, payload),
+      onSuccess: invalidate,
+      onError
+    }),
+    updateOrthodonticDiagnosis: useMutation({
+      mutationFn: ({ id, diagnosis }: { id: string; diagnosis: Record<string, unknown> }) =>
+        updateOrthodonticDiagnosis(id, { diagnosis }),
+      onSuccess: invalidate,
+      onError
+    }),
+    createOrthodonticMonthlyItems: useMutation({
+      mutationFn: ({
+        id,
+        payload
+      }: {
+        id: string;
+        payload: {
+          procedureId: string;
+          months: number;
+          unitPrice?: number;
+          startDate?: string;
+          sectionName?: string;
+          notes?: string;
+        };
+      }) => createOrthodonticMonthlyItems(id, payload),
       onSuccess: invalidate,
       onError
     }),
@@ -101,53 +156,111 @@ export function useTreatmentMutations() {
       onError
     }),
     addSection: useMutation({
-      mutationFn: ({ treatmentPlanId, name, sortOrder }: { treatmentPlanId: string; name: string; sortOrder?: number }) =>
-        addTreatmentPlanSection(treatmentPlanId, { name, sortOrder }),
+      mutationFn: ({
+        treatmentPlanId,
+        name,
+        sortOrder
+      }: {
+        treatmentPlanId: string;
+        name: string;
+        sortOrder?: number;
+      }) => addTreatmentPlanSection(treatmentPlanId, { name, sortOrder }),
       onSuccess: invalidate,
       onError
     }),
     addItem: useMutation({
-      mutationFn: ({ treatmentPlanId, payload }: { treatmentPlanId: string; payload: TreatmentPlanItemPayload }) =>
-        addTreatmentPlanItem(treatmentPlanId, payload),
+      mutationFn: ({
+        treatmentPlanId,
+        payload
+      }: {
+        treatmentPlanId: string;
+        payload: TreatmentPlanItemPayload;
+      }) => addTreatmentPlanItem(treatmentPlanId, payload),
       onSuccess: invalidate,
       onError
     }),
     updateItem: useMutation({
-      mutationFn: ({ treatmentPlanId, itemId, payload }: { treatmentPlanId: string; itemId: string; payload: TreatmentPlanItemPayload }) =>
-        updateTreatmentPlanItem(treatmentPlanId, itemId, payload),
+      mutationFn: ({
+        treatmentPlanId,
+        itemId,
+        payload
+      }: {
+        treatmentPlanId: string;
+        itemId: string;
+        payload: TreatmentPlanItemPayload;
+      }) => updateTreatmentPlanItem(treatmentPlanId, itemId, payload),
       onSuccess: invalidate,
       onError
     }),
     deleteItem: useMutation({
-      mutationFn: ({ treatmentPlanId, itemId }: { treatmentPlanId: string; itemId: string }) => deleteTreatmentPlanItem(treatmentPlanId, itemId),
+      mutationFn: ({ treatmentPlanId, itemId }: { treatmentPlanId: string; itemId: string }) =>
+        deleteTreatmentPlanItem(treatmentPlanId, itemId),
       onSuccess: invalidate,
       onError
     }),
     createAlternative: useMutation({
-      mutationFn: ({ parentId, payload }: { parentId: string; payload: CreateTreatmentPlanPayload }) => createAlternative(parentId, payload),
+      mutationFn: ({ parentId, payload }: { parentId: string; payload: CreateTreatmentPlanPayload }) =>
+        createAlternative(parentId, payload),
       onSuccess: invalidate,
       onError
     }),
     activateAlternative: useMutation({
-      mutationFn: ({ parentId, alternativeId }: { parentId: string; alternativeId: string }) => activateAlternative(parentId, alternativeId),
+      mutationFn: ({ parentId, alternativeId }: { parentId: string; alternativeId: string }) =>
+        activateAlternative(parentId, alternativeId),
       onSuccess: invalidate,
       onError
     }),
     updateItemStatus: useMutation({
-      mutationFn: ({ treatmentPlanId, itemId, status, notes }: { treatmentPlanId: string; itemId: string; status: TreatmentPlanItemStatus; notes?: string }) =>
-        updateTreatmentPlanItemStatus(treatmentPlanId, itemId, { status, notes }),
+      mutationFn: ({
+        treatmentPlanId,
+        itemId,
+        status,
+        notes
+      }: {
+        treatmentPlanId: string;
+        itemId: string;
+        status: TreatmentPlanItemStatus;
+        notes?: string;
+      }) => updateTreatmentPlanItemStatus(treatmentPlanId, itemId, { status, notes }),
       onSuccess: invalidate,
       onError
     }),
     createBudget: useMutation({
-      mutationFn: ({ treatmentPlanId, discountTotal, expiresAt, notes }: { treatmentPlanId: string; discountTotal?: number; expiresAt?: string; notes?: string }) =>
-        createBudget(treatmentPlanId, { discountTotal, expiresAt, notes }),
+      mutationFn: ({
+        treatmentPlanId,
+        discountTotal,
+        expiresAt,
+        notes
+      }: {
+        treatmentPlanId: string;
+        discountTotal?: number;
+        expiresAt?: string;
+        notes?: string;
+      }) => createBudget(treatmentPlanId, { discountTotal, expiresAt, notes }),
       onSuccess: invalidate,
       onError
     }),
     sendBudget: useMutation({ mutationFn: (id: string) => sendBudget(id), onSuccess: invalidate, onError }),
-    acceptBudget: useMutation({ mutationFn: (id: string) => acceptBudget(id), onSuccess: invalidate, onError }),
-    rejectBudget: useMutation({ mutationFn: (id: string) => rejectBudget(id), onSuccess: invalidate, onError }),
-    printBudget: useMutation({ mutationFn: (id: string) => printBudget(id), onError })
+    acceptBudget: useMutation({
+      mutationFn: (id: string) => acceptBudget(id),
+      onSuccess: invalidate,
+      onError
+    }),
+    rejectBudget: useMutation({
+      mutationFn: (id: string) => rejectBudget(id),
+      onSuccess: invalidate,
+      onError
+    }),
+    printBudget: useMutation({ mutationFn: (id: string) => printBudget(id), onError }),
+    pauseTreatment: useMutation({
+      mutationFn: ({ id, reason }: { id: string; reason?: string }) => pauseTreatmentPlan(id, { reason }),
+      onSuccess: invalidate,
+      onError
+    }),
+    resumeTreatment: useMutation({
+      mutationFn: (id: string) => resumeTreatmentPlan(id),
+      onSuccess: invalidate,
+      onError
+    })
   };
 }

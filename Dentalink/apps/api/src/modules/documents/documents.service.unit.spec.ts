@@ -133,8 +133,77 @@ function createPrismaMock() {
       findUnique: jest.fn(),
       upsert: jest.fn()
     },
+    clinicalDocumentTemplate: {
+      findMany: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+      update: jest.fn()
+    },
     auditLog: {
       create: jest.fn().mockResolvedValue({})
     }
   };
 }
+
+
+describe("DocumentsService clinical document templates", () => {
+  const actor: AuthUser = {
+    id: "user-1",
+    organizationId: "org-1",
+    email: "user@example.com",
+    firstName: "User",
+    lastName: "One",
+    roleIds: [],
+    roleNames: [],
+    branchIds: ["branch-1"],
+    permissions: []
+  };
+
+  it("creates structured template content", async () => {
+    const prisma = createPrismaMock();
+    prisma.clinicalDocumentTemplate.create.mockResolvedValue({
+      id: "template-1",
+      organizationId: "org-1",
+      name: "Aviso",
+      description: null,
+      content: { version: "clinical-doc-blocks/v1", blocks: [{ id: "title", type: "title", text: "Aviso" }] },
+      isActive: true
+    });
+    const service = new DocumentsService(prisma as never);
+
+    await service.createClinicalDocumentTemplate(actor, {
+      name: "Aviso",
+      content: { blocks: [{ id: "title", type: "title", text: "Aviso" }] }
+    } as never);
+
+    expect(prisma.clinicalDocumentTemplate.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        organizationId: "org-1",
+        content: { version: "clinical-doc-blocks/v1", blocks: [{ id: "title", type: "title", text: "Aviso" }] }
+      })
+    }));
+  });
+
+  it("duplicates a template with a unique copy name", async () => {
+    const prisma = createPrismaMock();
+    prisma.clinicalDocumentTemplate.findFirst
+      .mockResolvedValueOnce({ id: "template-1", organizationId: "org-1", name: "Aviso", description: "Base", content: "Texto", isActive: true })
+      .mockResolvedValueOnce(null);
+    prisma.clinicalDocumentTemplate.create.mockResolvedValue({
+      id: "template-2",
+      organizationId: "org-1",
+      name: "Copia de Aviso",
+      description: "Base",
+      content: { version: "clinical-doc-blocks/v1", blocks: [{ id: "legacy-text", type: "text", text: "Texto" }] },
+      isActive: true
+    });
+    const service = new DocumentsService(prisma as never);
+
+    const duplicated = await service.duplicateClinicalDocumentTemplate(actor, "template-1");
+
+    expect(duplicated.name).toBe("Copia de Aviso");
+    expect(prisma.clinicalDocumentTemplate.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ name: "Copia de Aviso", isActive: true })
+    }));
+  });
+});

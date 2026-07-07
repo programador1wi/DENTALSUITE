@@ -236,7 +236,12 @@ export const router = createBrowserRouter([
               { path: "/patients/:id/billing/coverage", element: <PatientBillingPage /> },
               { path: "/patients/:id/billing/refunds", element: <PatientBillingPage /> },
               { path: "/patients/:id/billing/deleted", element: <PatientBillingPage /> },
-              { path: "/patients/:id/billing/balance", element: <PatientBillingPage /> },
+              { path: "/patients/:id/billing/balance", element: <PatientBillingPage /> }
+            ]
+          },
+          {
+            element: <RequirePermissions required={["patients.read", "payments.create"]} />,
+            children: [
               { path: "/patients/:id/payments", element: <PatientPaymentsPage /> }
             ]
           },

@@ -1,9 +1,10 @@
 import { create } from "zustand";
+import { toggleSurfaceForTooth } from "@/features/clinical/utils/tooth-surface";
 
 export type OdontogramDentition = "permanent" | "temporal";
 export type OdontogramTool = "diagnosis" | "procedure" | "info" | "cancel" | "preexistence" | "lesion";
 export type OdontogramModal = Extract<OdontogramTool, "diagnosis" | "procedure" | "info" | "preexistence" | "lesion"> | "multi-help";
-export type OdontogramContextMenu = { toothNumber: string; x: number; y: number } | null;
+export type OdontogramContextMenu = { toothNumber: string; surface?: string; x: number; y: number } | null;
 
 type OdontogramState = {
   selectedTooth: string;
@@ -17,6 +18,7 @@ type OdontogramState = {
   multiSelectMode: boolean;
   showOnlyDiagnosis: boolean;
   selectTooth: (toothNumber: string, options?: { additive?: boolean }) => void;
+  selectToothSurface: (toothNumber: string, surface: string, options?: { additive?: boolean }) => void;
   setHoveredTooth: (toothNumber: string) => void;
   openContextMenu: (menu: NonNullable<OdontogramContextMenu>) => void;
   closeContextMenu: () => void;
@@ -53,14 +55,36 @@ export const useOdontogramStore = create<OdontogramState>()((set, get) => ({
         return {
           selectedTooth,
           selectedTeeth: nextTeeth,
-          selectedSurface: state.selectedTooth === selectedTooth ? state.selectedSurface : ""
+          selectedSurface: ""
         };
       }
 
       return {
         selectedTooth: toothNumber,
         selectedTeeth: toothNumber ? [toothNumber] : [],
-        selectedSurface: state.selectedTooth === toothNumber ? state.selectedSurface : ""
+        selectedSurface: ""
+      };
+    }),
+  selectToothSurface: (toothNumber, surface, options) =>
+    set((state) => {
+      if (options?.additive) {
+        const nextTeeth = state.selectedTeeth.includes(toothNumber)
+          ? state.selectedTeeth.filter((item) => item !== toothNumber)
+          : [...state.selectedTeeth, toothNumber];
+        const selectedTooth = nextTeeth.includes(toothNumber) ? toothNumber : nextTeeth[0] ?? "";
+
+        return {
+          selectedTooth,
+          selectedTeeth: nextTeeth,
+          selectedSurface: selectedTooth ? toggleSurfaceForTooth(selectedTooth, selectedTooth === state.selectedTooth ? state.selectedSurface : "", surface) : ""
+        };
+      }
+
+      const sameSingleToothSelection = state.selectedTooth === toothNumber && state.selectedTeeth.length === 1;
+      return {
+        selectedTooth: toothNumber,
+        selectedTeeth: toothNumber ? [toothNumber] : [],
+        selectedSurface: toothNumber ? toggleSurfaceForTooth(toothNumber, sameSingleToothSelection ? state.selectedSurface : "", surface) : ""
       };
     }),
   setHoveredTooth: (toothNumber) => set({ hoveredTooth: toothNumber }),
@@ -69,7 +93,7 @@ export const useOdontogramStore = create<OdontogramState>()((set, get) => ({
       contextMenu: menu,
       selectedTooth: menu.toothNumber,
       selectedTeeth: state.selectedTeeth.includes(menu.toothNumber) ? state.selectedTeeth : [menu.toothNumber],
-      selectedSurface: state.selectedTooth === menu.toothNumber ? state.selectedSurface : ""
+      selectedSurface: menu.surface ?? ""
     })),
   closeContextMenu: () => set({ contextMenu: null }),
   enableMultiSelectMode: () => set({ multiSelectMode: true, activeModal: "multi-help", contextMenu: null }),

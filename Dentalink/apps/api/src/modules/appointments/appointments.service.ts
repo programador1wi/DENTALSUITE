@@ -334,20 +334,22 @@ export class AppointmentsService {
       preparedAppointments.push(await this.prepareAppointmentForCreate(actor, appointmentDto));
     }
 
-    this.enforceBatchSchedulingRules(actor, preparedAppointments);
-    this.enforceBatchPatientDailyLimit(preparedAppointments);
+    const normalizedAppointments = this.mergeContiguousBatchAppointments(preparedAppointments);
 
-    for (const prepared of preparedAppointments) {
+    this.enforceBatchSchedulingRules(actor, normalizedAppointments);
+    this.enforceBatchPatientDailyLimit(normalizedAppointments);
+
+    for (const prepared of normalizedAppointments) {
       await this.enforcePatientDailyLimit(actor, this.toPatientDailyLimitInput(prepared));
     }
 
     const createdIds = await this.prisma.$transaction(async (tx) => {
       const treatmentPlanId = dto.autoCreateInitialTreatmentPlan
-        ? await this.createInitialTreatmentPlanForBatch(tx, actor, preparedAppointments)
+        ? await this.createInitialTreatmentPlanForBatch(tx, actor, normalizedAppointments)
         : undefined;
       const ids: string[] = [];
 
-      for (const prepared of preparedAppointments) {
+      for (const prepared of normalizedAppointments) {
         const appointment = await this.createAppointmentInTransaction(
           tx,
           actor,
@@ -401,6 +403,7 @@ export class AppointmentsService {
       professionalId,
       chairId,
       specialtyId: dto.specialtyId ?? current.specialtyId ?? undefined,
+      treatmentPlanId: dto.treatmentPlanId ?? current.treatmentPlanId ?? undefined,
       status,
       startAt
     });
@@ -803,6 +806,7 @@ export class AppointmentsService {
       professionalId: dto.professionalId,
       chairId,
       specialtyId: dto.specialtyId,
+      treatmentPlanId: dto.treatmentPlanId,
       status,
       startAt
     });
@@ -873,6 +877,55 @@ export class AppointmentsService {
         }
       }
     }
+  }
+
+  private mergeContiguousBatchAppointments(appointments: PreparedAppointmentCreate[]) {
+    const sorted = [...appointments].sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+    const merged: PreparedAppointmentCreate[] = [];
+
+    for (const appointment of sorted) {
+      const mergeIndex = merged.findIndex((current) => this.canMergeBatchAppointments(current, appointment));
+      if (mergeIndex > -1) {
+        const previous = merged[mergeIndex]!;
+        const startAt = previous.startAt <= appointment.startAt ? previous.startAt : appointment.startAt;
+        const endAt = previous.endAt >= appointment.endAt ? previous.endAt : appointment.endAt;
+        const durationMinutes = this.diffMinutes(startAt, endAt);
+
+        merged[mergeIndex] = {
+          ...previous,
+          dto: {
+            ...previous.dto,
+            startAt: startAt.toISOString(),
+            endAt: endAt.toISOString(),
+            durationMinutes
+          },
+          startAt,
+          endAt,
+          durationMinutes
+        };
+      } else {
+        merged.push(appointment);
+      }
+    }
+
+    return merged.sort((a, b) => a.startAt.getTime() - b.startAt.getTime());
+  }
+
+  private canMergeBatchAppointments(left: PreparedAppointmentCreate, right: PreparedAppointmentCreate) {
+    if (!this.countsAgainstPatientDailyLimit(left.dto.patientId, left.status)) return false;
+    if (!this.countsAgainstPatientDailyLimit(right.dto.patientId, right.status)) return false;
+    if (left.status !== right.status) return false;
+    if (left.dto.branchId !== right.dto.branchId) return false;
+    if (left.dto.patientId !== right.dto.patientId) return false;
+    if (left.dto.professionalId !== right.dto.professionalId) return false;
+    if ((left.chairId ?? "") !== (right.chairId ?? "")) return false;
+    if ((left.dto.specialtyId ?? "") !== (right.dto.specialtyId ?? "")) return false;
+    if ((left.dto.treatmentPlanId ?? "") !== (right.dto.treatmentPlanId ?? "")) return false;
+    if ((left.dto.reason?.trim() ?? "") !== (right.dto.reason?.trim() ?? "")) return false;
+    if ((left.dto.title?.trim() ?? "") !== (right.dto.title?.trim() ?? "")) return false;
+    if ((left.dto.notes?.trim() ?? "") !== (right.dto.notes?.trim() ?? "")) return false;
+    if (this.clinicDayKey(left.startAt) !== this.clinicDayKey(right.startAt)) return false;
+    return right.startAt <= left.endAt && right.endAt >= left.startAt;
   }
 
   private enforceBatchPatientDailyLimit(appointments: PreparedAppointmentCreate[]) {
@@ -980,6 +1033,7 @@ export class AppointmentsService {
       professionalId: string;
       chairId?: string;
       specialtyId?: string;
+      treatmentPlanId?: string;
       status: AppointmentStatus;
       requirePatient?: boolean;
       startAt?: Date;
@@ -1034,6 +1088,23 @@ export class AppointmentsService {
         where: { id: input.specialtyId, organizationId: actor.organizationId }
       });
       if (!specialty || !isAllowedSpecialtyName(specialty.name)) throw new BadRequestException("Invalid specialtyId");
+    }
+
+    if (input.treatmentPlanId) {
+      if (!input.patientId) {
+        throw new BadRequestException("patientId is required when assigning treatmentPlanId");
+      }
+
+      const treatmentPlan = await this.prisma.treatmentPlan.findFirst({
+        where: {
+          id: input.treatmentPlanId,
+          organizationId: actor.organizationId,
+          patientId: input.patientId,
+          branchId: { in: actor.branchIds }
+        },
+        select: { id: true }
+      });
+      if (!treatmentPlan) throw new BadRequestException("Invalid treatmentPlanId for selected patient");
     }
   }
 

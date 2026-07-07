@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsDefined, IsOptional, IsString } from "class-validator";
 
 export class CreateClinicalDocumentTemplateDto {
   @IsString()
@@ -8,8 +8,8 @@ export class CreateClinicalDocumentTemplateDto {
   @IsString()
   description?: string;
 
-  @IsString()
-  content!: string;
+  @IsDefined()
+  content!: unknown;
 }
 
 export class CreateClinicalDocumentDto {
@@ -20,8 +20,8 @@ export class CreateClinicalDocumentDto {
   @IsString()
   title!: string;
 
-  @IsString()
-  content!: string;
+  @IsDefined()
+  content!: unknown;
 }
 
 export class CreateClinicalDocumentFromTemplateDto {

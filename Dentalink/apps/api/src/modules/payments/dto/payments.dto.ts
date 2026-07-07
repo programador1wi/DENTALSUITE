@@ -98,6 +98,30 @@ export class AddPaymentAllocationsDto {
   allocations!: PaymentAllocationInputDto[];
 }
 
+export class UpdatePaymentDto {
+  @IsOptional()
+  @IsString()
+  paymentMethodId?: string;
+
+  @IsOptional()
+  @IsString()
+  financialInstitutionId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  reference?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  notes?: string;
+
+  @IsOptional()
+  @IsDateString()
+  paidAt?: string;
+}
+
 export class CreatePaymentLinkDto {
   @IsString()
   patientId!: string;
@@ -123,6 +147,28 @@ export class ListPaymentLinksQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(PaymentLinkStatus)
   status?: PaymentLinkStatus;
+}
+
+export class ListCancelledPendingPaymentsQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
+
+  @IsOptional()
+  @IsEnum(PaymentLinkStatus)
+  linkStatus?: PaymentLinkStatus;
 }
 
 export class CreateInstallmentPlanDto {

@@ -1,17 +1,20 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useOdontogramStore } from "@/stores/odontogram.store";
 import { OdontogramView } from "./odontogram-view";
 import { ToothDiagnosisPickerWindow } from "./tooth-diagnosis-modal";
+import type { ToothProcedure } from "../services/clinical.service";
 
 function TestOdontogram({
   mode = "clinical",
   onApplyQuickDiagnosis = vi.fn(),
-  onOpenProcedureCatalog = vi.fn()
+  onOpenProcedureCatalog = vi.fn(),
+  procedures = []
 }: {
   mode?: "clinical" | "treatment-plan";
   onApplyQuickDiagnosis?: (diagnosis: string) => void;
   onOpenProcedureCatalog?: () => void;
+  procedures?: ToothProcedure[];
 }) {
   const selectedTooth = useOdontogramStore((state) => state.selectedTooth);
   const selectTooth = useOdontogramStore((state) => state.selectTooth);
@@ -24,7 +27,7 @@ function TestOdontogram({
       latestByTooth={{}}
       conditions={[]}
       records={[]}
-      procedures={[]}
+      procedures={procedures}
       onSelectTooth={selectTooth}
       onOpenDiagnosis={() => openModal("diagnosis")}
       onOpenPreexistence={() => openModal("preexistence")}
@@ -104,6 +107,127 @@ describe("OdontogramView contextual interactions", () => {
     expect(useOdontogramStore.getState().selectedTeeth).toEqual(["14", "13"]);
   });
 
+  it("selects a superior distal surface from the surface circle", () => {
+    render(<TestOdontogram />);
+
+    fireEvent.click(screen.getByLabelText("Cara distal de pieza 1.8"));
+
+    expect(useOdontogramStore.getState().selectedTooth).toBe("18");
+    expect(useOdontogramStore.getState().selectedSurface).toBe("D");
+  });
+
+  it("selects multiple surfaces on the same tooth", () => {
+    render(<TestOdontogram />);
+
+    fireEvent.click(screen.getByLabelText("Cara distal de pieza 1.8"));
+    fireEvent.click(screen.getByLabelText("Cara mesial de pieza 1.8"));
+
+    expect(useOdontogramStore.getState().selectedTooth).toBe("18");
+    expect(useOdontogramStore.getState().selectedSurface).toBe("M,D");
+    expect(screen.getByTestId("surface-face-18-D")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("surface-face-18-M")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("marks every face for a procedure stored as full tooth", () => {
+    render(
+      <TestOdontogram
+        procedures={[
+          {
+            id: "procedure-14",
+            toothNumber: "14",
+            surface: "ALL",
+            status: "PLANNED",
+            createdAt: "2026-07-06T12:00:00.000Z",
+            procedure: { id: "procedure-1", code: "RES", name: "Resina compuesta" }
+          }
+        ]}
+      />
+    );
+
+    for (const surface of ["B", "M", "P", "D", "O"]) {
+      const face = screen.getByTestId(`surface-face-14-${surface}`);
+      expect(face.getAttribute("class")).toContain("fill-[#ff0000]");
+      expect(face.getAttribute("class")).toContain("stroke-black");
+      expect(face).toHaveAttribute("stroke-width", "1.9");
+    }
+  });
+
+  it("uses the explicit odontogram symbol before inferring from procedure text", () => {
+    render(
+      <TestOdontogram
+        procedures={[
+          {
+            id: "procedure-14",
+            toothNumber: "14",
+            surface: "ALL",
+            odontogramSymbol: "restoration",
+            diagnosis: null,
+            status: "PLANNED",
+            createdAt: "2026-07-06T12:00:00.000Z",
+            procedure: { id: "procedure-1", code: "GEN", name: "Consulta general" }
+          }
+        ]}
+      />
+    );
+
+    expect(document.querySelector("style")?.textContent).toContain("#r_14");
+  });
+
+  it("toggles one selected surface without clearing the others", () => {
+    render(<TestOdontogram />);
+
+    fireEvent.click(screen.getByLabelText("Cara distal de pieza 1.8"));
+    fireEvent.click(screen.getByLabelText("Cara mesial de pieza 1.8"));
+    fireEvent.click(screen.getByLabelText("Cara distal de pieza 1.8"));
+
+    expect(useOdontogramStore.getState().selectedSurface).toBe("M");
+    expect(screen.getByTestId("surface-face-18-D")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("surface-face-18-M")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("starts a new surface selection when switching tooth", () => {
+    render(<TestOdontogram />);
+
+    fireEvent.click(screen.getByLabelText("Cara distal de pieza 1.8"));
+    fireEvent.click(screen.getByLabelText("Cara mesial de pieza 1.8"));
+    fireEvent.click(screen.getByLabelText("Cara lingual de pieza 4.8"));
+
+    expect(useOdontogramStore.getState().selectedTooth).toBe("48");
+    expect(useOdontogramStore.getState().selectedSurface).toBe("L");
+  });
+
+  it("selects an inferior lingual surface from the surface circle", () => {
+    render(<TestOdontogram />);
+
+    fireEvent.click(screen.getByLabelText("Cara lingual de pieza 4.8"));
+
+    expect(useOdontogramStore.getState().selectedTooth).toBe("48");
+    expect(useOdontogramStore.getState().selectedSurface).toBe("L");
+  });
+
+  it("clears selected surface when clicking the tooth body", () => {
+    render(<TestOdontogram />);
+
+    fireEvent.click(screen.getByLabelText("Cara distal de pieza 1.8"));
+    fireEvent.click(screen.getByLabelText("Pieza 1.8"));
+
+    expect(useOdontogramStore.getState().selectedTooth).toBe("18");
+    expect(useOdontogramStore.getState().selectedSurface).toBe("");
+  });
+
+  it("loads temporal odontogram and selects temporal teeth", async () => {
+    const fetchMock = vi.mocked(fetch);
+    render(<TestOdontogram />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Temporal/i }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/warner-suite-odontogram-temporal.svg"));
+    fireEvent.click(screen.getByLabelText("Pieza 5.5"));
+    fireEvent.click(screen.getByLabelText("Pieza 8.5"), { ctrlKey: true });
+
+    expect(useOdontogramStore.getState().selectedTeeth).toEqual(["55", "85"]);
+  });
+
   it("enables multiple selection mode from the contextual menu", () => {
     render(<TestOdontogram />);
 
@@ -138,5 +262,39 @@ describe("ToothDiagnosisPickerWindow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Agregar al odontograma/i }));
 
     expect(onAddDiagnosis).toHaveBeenCalledWith("Corona", undefined);
+  });
+
+  it("shows the selected surface in the diagnosis picker", () => {
+    render(
+      <ToothDiagnosisPickerWindow
+        open
+        title="Agregar una lesion"
+        tone="lesion"
+        sectionTitles={["Lesiones"]}
+        toothNumbers={["18"]}
+        surface="D"
+        onClose={vi.fn()}
+        onAddDiagnosis={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("1.8 - Cara distal")).toBeInTheDocument();
+  });
+
+  it("shows multiple selected surfaces in the diagnosis picker", () => {
+    render(
+      <ToothDiagnosisPickerWindow
+        open
+        title="Agregar una lesion"
+        tone="lesion"
+        sectionTitles={["Lesiones"]}
+        toothNumbers={["18"]}
+        surface="M,D"
+        onClose={vi.fn()}
+        onAddDiagnosis={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("1.8 - Cara mesial, distal")).toBeInTheDocument();
   });
 });

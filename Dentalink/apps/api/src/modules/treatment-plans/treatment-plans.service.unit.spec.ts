@@ -1,9 +1,18 @@
-import { BadRequestException } from "@nestjs/common";
-import { AppointmentStatus, ProfessionalBranchStatus, TreatmentPlanItemStatus, TreatmentPriceSource } from "@prisma/client";
+﻿import { BadRequestException } from "@nestjs/common";
+import {
+  AppointmentStatus,
+  ProfessionalBranchStatus,
+  TreatmentPlanItemStatus,
+  TreatmentPlanKind,
+  TreatmentPriceSource
+} from "@prisma/client";
 import type { AuthUser } from "../../common/types/auth-user";
 import { TreatmentPlansService } from "./treatment-plans.service";
 
 describe("TreatmentPlansService professional branch validation", () => {
+  const generalProfessionalSpecialty = {
+    specialty: { id: "specialty-general", name: "General", isActive: true }
+  };
   const actor: AuthUser = {
     id: "user-1",
     organizationId: "org-1",
@@ -56,6 +65,71 @@ describe("TreatmentPlansService professional branch validation", () => {
     );
   });
 
+  it("stores planned orthodontic controls in the treatment profile", async () => {
+    const currentPlan = {
+      id: "plan-ortho",
+      organizationId: "org-1",
+      patientId: "patient-1",
+      branchId: "branch-1",
+      professionalId: "professional-1",
+      kind: TreatmentPlanKind.ORTHODONTICS,
+      patient: { id: "patient-1", agreement: null }
+    };
+    const savedProfile = {
+      id: "profile-1",
+      treatmentPlanId: "plan-ortho",
+      startDate: null,
+      estimatedMonths: 24,
+      estimatedControls: 18
+    };
+    const detailPlan = {
+      ...currentPlan,
+      patient: { id: "patient-1", firstName: "Ana", lastName: "Lopez" },
+      professional: { id: "professional-1", firstName: "Andrea", lastName: "Silva" },
+      branch: { id: "branch-1", name: "Sucursal 1" },
+      specialty: { id: "specialty-ortho", name: "Ortodoncia" },
+      orthodonticProfile: savedProfile,
+      pauses: [],
+      sections: [],
+      items: [],
+      budgets: [],
+      alternativePlans: [],
+      alternativesAsParent: [],
+      clinicalEvolutions: []
+    };
+    const prisma = {
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValueOnce(currentPlan).mockResolvedValueOnce(detailPlan)
+      },
+      orthodonticTreatmentProfile: {
+        upsert: jest.fn().mockResolvedValue(savedProfile)
+      },
+      auditLog: {
+        create: jest.fn()
+      }
+    };
+    const service = new TreatmentPlansService(prisma as never);
+
+    const result = await service.updateOrthodonticProfile(actor, "plan-ortho", {
+      estimatedMonths: 24,
+      estimatedControls: 18
+    });
+
+    expect(prisma.orthodonticTreatmentProfile.upsert).toHaveBeenCalledWith({
+      where: { treatmentPlanId: "plan-ortho" },
+      create: expect.objectContaining({
+        treatmentPlanId: "plan-ortho",
+        estimatedMonths: 24,
+        estimatedControls: 18
+      }),
+      update: expect.objectContaining({
+        estimatedMonths: 24,
+        estimatedControls: 18
+      })
+    });
+    expect(result.orthodonticSummary?.estimatedControls).toBe(18);
+  });
+
   it("changes patient and current plan branch without moving future appointments by default", async () => {
     const currentPlan = {
       id: "plan-1",
@@ -63,6 +137,7 @@ describe("TreatmentPlansService professional branch validation", () => {
       patientId: "patient-1",
       branchId: "branch-1",
       professionalId: "professional-1",
+      kind: TreatmentPlanKind.GENERAL,
       patient: { id: "patient-1", agreement: null }
     };
     const updatedPlan = {
@@ -91,7 +166,9 @@ describe("TreatmentPlansService professional branch validation", () => {
         findFirst: jest.fn().mockResolvedValue({ id: "branch-2" })
       },
       professional: {
-        findFirst: jest.fn().mockResolvedValue({ id: "professional-2" })
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: "professional-2", specialties: [generalProfessionalSpecialty] })
       },
       appointment: {
         count: jest.fn().mockResolvedValue(2)
@@ -108,10 +185,18 @@ describe("TreatmentPlansService professional branch validation", () => {
       professionalId: "professional-2"
     });
 
-    expect(tx.patient.update).toHaveBeenCalledWith({ where: { id: "patient-1" }, data: { branchId: "branch-2" } });
+    expect(tx.patient.update).toHaveBeenCalledWith({
+      where: { id: "patient-1" },
+      data: { branchId: "branch-2" }
+    });
     expect(tx.treatmentPlan.update).toHaveBeenCalledWith({
       where: { id: "plan-1" },
-      data: { branchId: "branch-2", professionalId: "professional-2" }
+      data: {
+        branchId: "branch-2",
+        professionalId: "professional-2",
+        specialtyId: "specialty-general",
+        specialtySnapshotName: expect.any(String)
+      }
     });
     expect(tx.appointment.updateMany).not.toHaveBeenCalled();
     expect(result.futureAppointmentsCount).toBe(2);
@@ -125,6 +210,7 @@ describe("TreatmentPlansService professional branch validation", () => {
       patientId: "patient-1",
       branchId: "branch-1",
       professionalId: "professional-1",
+      kind: TreatmentPlanKind.GENERAL,
       patient: { id: "patient-1", agreement: null }
     };
     const updatedPlan = {
@@ -153,7 +239,9 @@ describe("TreatmentPlansService professional branch validation", () => {
         findFirst: jest.fn().mockResolvedValue({ id: "branch-2" })
       },
       professional: {
-        findFirst: jest.fn().mockResolvedValue({ id: "professional-2" })
+        findFirst: jest
+          .fn()
+          .mockResolvedValue({ id: "professional-2", specialties: [generalProfessionalSpecialty] })
       },
       appointment: {
         count: jest.fn().mockResolvedValue(2)
@@ -176,7 +264,10 @@ describe("TreatmentPlansService professional branch validation", () => {
         where: expect.objectContaining({
           treatmentPlanId: "plan-1",
           status: expect.objectContaining({
-            notIn: expect.arrayContaining([AppointmentStatus.COMPLETED, AppointmentStatus.CANCELLED_BY_PATIENT])
+            notIn: expect.arrayContaining([
+              AppointmentStatus.COMPLETED,
+              AppointmentStatus.CANCELLED_BY_PATIENT
+            ])
           })
         }),
         data: {
@@ -284,6 +375,118 @@ describe("TreatmentPlansService professional branch validation", () => {
           treatmentPlanItemId: "item-1",
           toothNumber: "14",
           surface: "P,M",
+          odontogramRecordId: "record-1"
+        })
+      })
+    );
+  });
+
+  it("syncs an added treatment item with full-tooth surface to the odontogram", async () => {
+    const plan = {
+      id: "plan-1",
+      organizationId: "org-1",
+      patientId: "patient-1",
+      branchId: "branch-1",
+      professionalId: "professional-1",
+      patient: { id: "patient-1", agreement: null }
+    };
+    const createdItem = {
+      id: "item-1",
+      treatmentPlanId: "plan-1",
+      procedureId: "procedure-1",
+      sectionId: null,
+      toothNumber: "14",
+      surface: "ALL",
+      odontogramSymbol: "restoration",
+      quantity: 1,
+      unitPrice: 0,
+      discount: 0,
+      total: 0,
+      status: TreatmentPlanItemStatus.PLANNED,
+      notes: null,
+      agreementCoverage: 0
+    };
+    const detailPlan = {
+      ...plan,
+      patient: { id: "patient-1", firstName: "Ana", lastName: "Lopez" },
+      professional: { id: "professional-1", firstName: "Andrea", lastName: "Silva" },
+      branch: { id: "branch-1", name: "Sucursal 1" },
+      sections: [],
+      items: [createdItem],
+      budgets: [],
+      alternativePlans: [],
+      alternativesAsParent: []
+    };
+    const tx = {
+      treatmentPlanItem: {
+        create: jest.fn().mockResolvedValue(createdItem)
+      },
+      toothProcedure: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn()
+      },
+      odontogramRecord: {
+        create: jest.fn().mockResolvedValue({ id: "record-1" })
+      }
+    };
+    const prisma = {
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValueOnce(plan).mockResolvedValueOnce(detailPlan)
+      },
+      procedure: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce({ id: "procedure-1" })
+          .mockResolvedValueOnce({
+            id: "procedure-1",
+            code: "RES",
+            category: { name: "Operatoria" }
+          })
+      },
+      branchPriceList: {
+        count: jest.fn().mockResolvedValue(0)
+      },
+      priceListItem: {
+        findFirst: jest.fn().mockResolvedValue(null)
+      },
+      auditLog: {
+        create: jest.fn()
+      },
+      $transaction: jest.fn((callback) => callback(tx))
+    };
+    const service = new TreatmentPlansService(prisma as never);
+
+    await service.addItem(actor, "plan-1", {
+      procedureId: "procedure-1",
+      toothNumber: "14",
+      surface: "ALL",
+      odontogramSymbol: "restoration",
+      quantity: 1,
+      syncOdontogram: true
+    } as never);
+
+    expect(tx.odontogramRecord.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          patientId: "patient-1",
+          toothNumber: "14",
+          surface: "ALL",
+          diagnosis: "restoration",
+          odontogramSymbol: "restoration",
+          procedureId: "procedure-1",
+          status: "PLANNED"
+        })
+      })
+    );
+    expect(tx.toothProcedure.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          treatmentPlanId: "plan-1",
+          treatmentPlanItemId: "item-1",
+          toothNumber: "14",
+          surface: "ALL",
+          diagnosis: "restoration",
+          odontogramSymbol: "restoration",
           odontogramRecordId: "record-1"
         })
       })

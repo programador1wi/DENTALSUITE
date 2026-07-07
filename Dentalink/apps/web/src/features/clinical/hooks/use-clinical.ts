@@ -6,6 +6,7 @@ import {
   createPeriodontalChart,
   createAllergy,
   createCondition,
+  createDocument,
   createDocumentFromTemplate,
   createDocumentTemplate,
   createEvolution,
@@ -31,6 +32,7 @@ import {
   deleteClinicalDocument,
   updateEvolution,
   annulEvolution,
+  type ClinicalDocument,
   type ClinicalEvolution,
   type MedicalHistory,
   type PeriodontalMeasurement,
@@ -65,18 +67,18 @@ export function useClinicalTemplates(patientId: string) {
   return useQuery({ queryKey: ["clinical", patientId, "templates"], queryFn: () => listDocumentTemplates(patientId), enabled: Boolean(patientId) });
 }
 
-export function useOdontogram(patientId: string, toothNumber?: string) {
+export function useOdontogram(patientId: string, toothNumber?: string, surface?: string) {
   return useQuery({
-    queryKey: ["clinical", patientId, "odontogram", toothNumber ?? "all"],
-    queryFn: () => getOdontogram(patientId, toothNumber),
+    queryKey: ["clinical", patientId, "odontogram", toothNumber ?? "all", surface ?? "all"],
+    queryFn: () => getOdontogram(patientId, toothNumber, surface),
     enabled: Boolean(patientId)
   });
 }
 
-export function useToothHistory(patientId: string, toothNumber: string) {
+export function useToothHistory(patientId: string, toothNumber: string, surface?: string) {
   return useQuery({
-    queryKey: ["clinical", patientId, "odontogram-history", toothNumber],
-    queryFn: () => getToothHistory(patientId, toothNumber),
+    queryKey: ["clinical", patientId, "odontogram-history", toothNumber, surface ?? "all"],
+    queryFn: () => getToothHistory(patientId, toothNumber, surface),
     enabled: Boolean(patientId && toothNumber)
   });
 }
@@ -103,6 +105,11 @@ export function useClinicalMutations(patientId: string) {
     queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "evolutions"] });
     queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "summary"] });
     queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "appointment-history"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "odontogram"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "odontogram-history"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "documents"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "templates"] });
+    queryClient.invalidateQueries({ queryKey: ["settings", "clinical-document-templates"] });
   };
   const options = { onSuccess: invalidate, onError: (error: Error) => toast.error(error.message) };
 
@@ -138,9 +145,13 @@ export function useClinicalMutations(patientId: string) {
         updatePrescriptionStatus(patientId, prescriptionId, status),
       ...options
     }),
+    createDocument: useMutation({
+      mutationFn: (payload: { templateId?: string; title: string; content: ClinicalDocument["content"] }) => createDocument(patientId, payload),
+      ...options
+    }),
     createDocumentFromTemplate: useMutation({ mutationFn: (payload: { templateId: string; title: string }) => createDocumentFromTemplate(patientId, payload), ...options }),
     createDocumentTemplate: useMutation({
-      mutationFn: (payload: { name: string; description?: string; content: string }) => createDocumentTemplate(patientId, payload),
+      mutationFn: (payload: { name: string; description?: string; content: ClinicalDocument["content"] }) => createDocumentTemplate(patientId, payload),
       ...options
     }),
     createToothCondition: useMutation({

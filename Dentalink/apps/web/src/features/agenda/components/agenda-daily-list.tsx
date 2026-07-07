@@ -148,7 +148,7 @@ export function AgendaDailyList({
   }, [totalPages, safePage]);
 
   return (
-    <div className="flex rounded-xl border border-zinc-200/70 bg-white shadow-sm overflow-hidden" style={{ minHeight: "640px" }}>
+    <div className="flex h-full rounded-xl border border-zinc-200/70 bg-white shadow-sm overflow-hidden" style={{ minHeight: "780px" }}>
 
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col min-w-0">

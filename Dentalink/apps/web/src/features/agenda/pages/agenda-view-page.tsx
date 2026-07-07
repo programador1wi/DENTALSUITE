@@ -27,6 +27,8 @@ import {
 } from "../components/appointment-action-modals";
 import { AvailabilityPicker } from "../components/availability-picker";
 import { CalendarView } from "../components/calendar-view";
+import { BlockedAppointmentModal } from "../components/blocked-appointment-modal";
+import { toast } from "sonner";
 import { AgendaDailyList } from "../components/agenda-daily-list";
 import { CancelAppointmentModal } from "../components/cancel-appointment-modal";
 import { ChairFilter, BranchFilter, ProfessionalFilter } from "../components/filters";
@@ -46,7 +48,7 @@ import {
 import type { Appointment, AppointmentPayload, AppointmentReminderPayload, AppointmentStatus } from "../services/appointments.service";
 import type { AppointmentMenuAction } from "../components/appointment-actions-menu";
 import { useTreatmentMutations } from "@/features/treatments/hooks/use-treatments";
-import { resolveAgendaViewConfig } from "../utils/agenda-grid-config";
+import { resolveAgendaViewConfig, getProfessionalBranchAgendaConfig } from "../utils/agenda-grid-config";
 
 type CommentPopoverAnchor = Pick<DOMRect, "top" | "right" | "bottom" | "left" | "width" | "height">;
 
@@ -83,6 +85,15 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   useEffect(() => {
     localStorage.setItem("dentalink_agenda_status_filters", JSON.stringify(selectedStatuses));
   }, [selectedStatuses]);
+
+  const [blockingSlot, setBlockingSlot] = useState<{
+    professionalId: string;
+    branchId?: string;
+    chairId?: string;
+    startAt: string;
+    endAt: string;
+    defaultDuration: number;
+  } | null>(null);
 
   const [editing, setEditing] = useState<Appointment | null>(null);
   const [initialAppointmentValues, setInitialAppointmentValues] = useState<Partial<AppointmentPayload> | null>(null);
@@ -129,7 +140,10 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     pageSize: 100
   });
   const chairs = useChairs(undefined, "true");
-  const patients = usePatients({});
+  const patients = usePatients({
+    branchId: activeBranchId || undefined,
+    pageSize: 1000
+  });
   const prefillPatient = usePatient(prefillPatientId);
 
   const selectedProfessional = useMemo(
@@ -175,10 +189,13 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     active: "true"
   });
 
+  const showSidebar = view !== "day" && view !== "week";
+
   const filteredAppointments = useMemo(() => {
     const list = appointments.data ?? [];
+    if (!showSidebar) return list;
     return list.filter((appt) => selectedStatuses.includes(appt.status));
-  }, [appointments.data, selectedStatuses]);
+  }, [appointments.data, selectedStatuses, showSidebar]);
 
   const createAppointment = useCreateAppointment();
   const createAppointmentsBatch = useCreateAppointmentsBatch();
@@ -491,12 +508,14 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         </div>
       </Card>
 
-      <div className="grid gap-4 xl:grid-cols-[240px_1fr]">
-        <SidebarStatusFilters
-          appointments={appointments.data ?? []}
-          selectedStatuses={selectedStatuses}
-          onChange={setSelectedStatuses}
-        />
+      <div className={showSidebar ? "grid gap-4 xl:grid-cols-[240px_1fr]" : "w-full"}>
+        {showSidebar && (
+          <SidebarStatusFilters
+            appointments={appointments.data ?? []}
+            selectedStatuses={selectedStatuses}
+            onChange={setSelectedStatuses}
+          />
+        )}
 
         <div className="min-w-0">
           {/* Lista diaria */}
@@ -533,7 +552,24 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
                 schedules={schedules.data ?? []}
                 onSelectProfessional={setProfessionalId}
                 onCreateClick={() => openCreate()}
-                onCreateSlotClick={(slot) => openCreate(slot)}
+                onCreateSlotClick={(slot) => {
+                  if (slot.status === "BLOCKED") {
+                    const prof = visibleProfessionals.find((p) => p.id === slot.professionalId);
+                    const professionalAgenda = prof 
+                      ? getProfessionalBranchAgendaConfig(prof, slot.branchId || activeBranchId || "", agendaSlotMinutes)
+                      : { slotMinutes: agendaSlotMinutes };
+                    setBlockingSlot({
+                      professionalId: slot.professionalId,
+                      branchId: slot.branchId || activeBranchId || undefined,
+                      chairId: slot.chairId || undefined,
+                      startAt: slot.startAt,
+                      endAt: slot.endAt,
+                      defaultDuration: professionalAgenda.slotMinutes
+                    });
+                    return;
+                  }
+                  openCreate(slot);
+                }}
                 onEdit={openEdit}
                 onCancel={openCancelAppointment}
                 onReschedule={setRescheduling}
@@ -606,6 +642,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         onClose={closeAppointmentModal}
         onSubmit={submitAppointment}
         onCreatePatient={async (payload) => (await createPatient.mutateAsync(payload)).patient}
+        onCreateTreatmentPlan={(payload) => treatmentMutations.createTreatmentPlan.mutateAsync(payload)}
         multipleMode={isMultipleBooking}
       />
       <CancelAppointmentModal
@@ -661,6 +698,34 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
             reminderId,
             payload: { status: reminderStatus }
           });
+        }}
+      />
+      <BlockedAppointmentModal
+        open={Boolean(blockingSlot)}
+        onClose={() => setBlockingSlot(null)}
+        defaultDuration={blockingSlot?.defaultDuration ?? agendaSlotMinutes}
+        onSubmit={async (data) => {
+          if (!blockingSlot) return;
+          try {
+            const start = new Date(blockingSlot.startAt);
+            const end = new Date(start.getTime() + data.durationMinutes * 60 * 1000);
+
+            await createAppointment.mutateAsync({
+              branchId: blockingSlot.branchId || activeBranchId || "",
+              professionalId: blockingSlot.professionalId,
+              chairId: blockingSlot.chairId || undefined,
+              title: data.reason,
+              status: "BLOCKED",
+              startAt: blockingSlot.startAt,
+              endAt: end.toISOString(),
+              durationMinutes: data.durationMinutes,
+              notes: data.notes
+            });
+            setBlockingSlot(null);
+            toast.success("Espacio bloqueado exitosamente");
+          } catch (error) {
+            toast.error("Error al bloquear el espacio");
+          }
         }}
       />
     </div>

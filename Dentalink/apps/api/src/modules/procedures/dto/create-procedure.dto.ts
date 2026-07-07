@@ -35,4 +35,12 @@ export class CreateProcedureDto {
   @IsOptional()
   @IsBoolean()
   requiresLab?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresOdontogramSymbol?: boolean;
+
+  @IsOptional()
+  @IsString()
+  defaultOdontogramSymbol?: string;
 }

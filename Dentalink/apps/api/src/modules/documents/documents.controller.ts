@@ -222,10 +222,41 @@ export class DocumentsController {
     return this.service.updateClinicalDocumentTemplate(actor, id, dto);
   }
 
+  @Post("settings/clinical-document-templates/:id/duplicate")
+  @RequirePermissions("clinical.templates.manage")
+  duplicateClinicalDocumentTemplate(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.duplicateClinicalDocumentTemplate(actor, id);
+  }
+
   @Patch("settings/clinical-document-templates/:id/deactivate")
   @RequirePermissions("clinical.templates.manage")
   deactivateClinicalDocumentTemplate(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
     return this.service.deactivateClinicalDocumentTemplate(actor, id);
+  }
+
+  @Post("settings/clinical-document-templates/assets/upload")
+  @RequirePermissions("clinical.templates.manage")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))
+  @ApiConsumes("multipart/form-data")
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: { file: { type: "string", format: "binary" } },
+      required: ["file"]
+    }
+  })
+  uploadClinicalDocumentTemplateAsset(@CurrentUser() actor: AuthUser, @UploadedFile() file?: UploadedPatientFile) {
+    return this.service.uploadClinicalDocumentTemplateAsset(actor, file);
+  }
+
+  @Get("settings/clinical-document-templates/assets/:fileName")
+  @RequirePermissions("clinical.read")
+  async getClinicalDocumentTemplateAsset(@CurrentUser() actor: AuthUser, @Param("fileName") fileName: string) {
+    const file = await this.service.getClinicalDocumentTemplateAsset(actor, fileName);
+    return new StreamableFile(file.stream, {
+      type: file.mimeType,
+      disposition: `inline; filename="${file.downloadName}"`
+    });
   }
 
   @Get("patients/:patientId/consents")

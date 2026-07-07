@@ -27,6 +27,7 @@ describe("SpecialtiesService - appointment reasons", () => {
         })
       },
       specialtyAppointmentReason: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
         findMany: jest.fn().mockResolvedValue([]),
         findFirst: jest.fn().mockResolvedValue({
           id: "reason-1",

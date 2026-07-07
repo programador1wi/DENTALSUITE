@@ -43,9 +43,15 @@ export function AppointmentActionsMenu({
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
+      const card = triggerRef.current?.closest('.group, article');
+      const target = event.target as HTMLElement;
+      const clickedInteractive = target.closest('button, a, input, select, textarea');
+      const clickedTrigger = triggerRef.current?.contains(target);
+
       if (
-        triggerRef.current?.contains(event.target as Node) ||
-        menuRef.current?.contains(event.target as Node)
+        clickedTrigger ||
+        menuRef.current?.contains(target) ||
+        (card?.contains(target) && !clickedInteractive)
       ) {
         return;
       }
@@ -86,8 +92,8 @@ export function AppointmentActionsMenu({
       const isUp = placement === "top" || (placement === "auto" && rect.bottom + menuHeight > window.innerHeight && rect.top > menuHeight);
       setOpenUp(isUp);
       
-      const top = isUp ? rect.top - menuHeight - 4 + window.scrollY : rect.bottom + 4 + window.scrollY;
-      const left = Math.max(12, rect.right - menuWidth + window.scrollX);
+      const top = isUp ? rect.top - menuHeight - 4 : rect.bottom + 4;
+      const left = Math.max(12, rect.right - menuWidth);
       setCoords({ top, left });
     }
 
@@ -160,7 +166,7 @@ export function AppointmentActionsMenu({
             <div
               ref={menuRef}
               role="menu"
-              className="absolute z-[1000] w-[204px] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] py-1 text-[11px] font-normal leading-none text-[var(--text-primary)] shadow-[var(--shadow-modal)] ring-1 ring-black/[0.02] animate-in fade-in-0 zoom-in-95"
+              className="fixed z-[1000] w-[204px] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] py-1 text-[11px] font-normal leading-none text-[var(--text-primary)] shadow-[var(--shadow-modal)] ring-1 ring-black/[0.02] animate-in fade-in-0 zoom-in-95"
               style={{
                 top: coords.top,
                 left: coords.left
@@ -222,7 +228,7 @@ function ActionItem({
       role="menuitem"
       disabled={disabled}
       onClick={onClick}
-      className="block h-6 w-full px-4 text-left text-[11px] font-normal leading-6 text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-subtle)] focus:bg-[var(--bg-subtle)] focus:outline-none disabled:cursor-not-allowed disabled:text-[var(--text-secondary)] disabled:opacity-40 disabled:hover:bg-transparent"
+      className="block min-h-[24px] h-auto w-full py-1 px-4 text-left text-[11px] font-normal leading-snug text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-subtle)] focus:bg-[var(--bg-subtle)] focus:outline-none disabled:cursor-not-allowed disabled:text-[var(--text-secondary)] disabled:opacity-40 disabled:hover:bg-transparent"
     >
       {children}
     </button>

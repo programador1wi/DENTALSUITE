@@ -42,5 +42,13 @@ export class UpdateProcedureDto {
 
   @IsOptional()
   @IsBoolean()
+  requiresOdontogramSymbol?: boolean;
+
+  @IsOptional()
+  @IsString()
+  defaultOdontogramSymbol?: string;
+
+  @IsOptional()
+  @IsBoolean()
   isActive?: boolean;
 }

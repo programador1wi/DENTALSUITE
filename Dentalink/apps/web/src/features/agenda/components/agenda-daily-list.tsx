@@ -55,6 +55,7 @@ type ActionHandlers = {
   onEdit: (appointment: Appointment) => void;
   onCancel: (appointment: Appointment, cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled") => void;
   onReschedule: (appointment: Appointment) => void;
+  statusAction?: { appointmentId: string; status: AppointmentStatus } | null;
   onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
   onConfirm: (id: string) => void;
   onArrive: (id: string) => void;
@@ -256,7 +257,7 @@ export function AgendaDailyList({
           ) : (
             <table className="w-full text-xs border-collapse">
               <thead className="sticky top-0 z-10">
-                <tr className="bg-zinc-50/95 backdrop-blur-sm border-b border-zinc-200/60">
+                <tr className="bg-zinc-50 border-b border-zinc-200/60">
                   <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-[88px]">Hora</th>
                   <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400">Paciente</th>
                   <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-40">Doctor</th>
@@ -357,6 +358,7 @@ function AgendaListRow({
   onComplete,
   onNoShow,
   onMenuAction,
+  statusAction,
   highlighted
 }: { appointment: Appointment; highlighted?: boolean } & ActionHandlers) {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -486,6 +488,7 @@ function AgendaListRow({
         <AppointmentStatusMenu
           appointment={appointment}
           variant="list"
+          pendingStatus={statusAction?.appointmentId === appointment.id ? statusAction.status : undefined}
           onChangeStatus={onChangeStatus}
           onConfirm={onConfirm}
           onArrive={onArrive}

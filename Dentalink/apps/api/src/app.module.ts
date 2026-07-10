@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { validateEnvironment } from "./config/environment.validation";
 import { AppLogger } from "./common/utils/app-logger.util";
+import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { AppointmentsModule } from "./modules/appointments/appointments.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BranchesModule } from "./modules/branches/branches.module";
@@ -30,6 +31,7 @@ import { TreatmentPlansModule } from "./modules/treatment-plans/treatment-plans.
 import { UsersModule } from "./modules/users/users.module";
 import { OnlineSchedulingModule } from "./modules/online-scheduling/online-scheduling.module";
 import { PublicBookingModule } from "./modules/public-booking/public-booking.module";
+import { IntegrationsModule } from "./modules/integrations/integrations.module";
 
 @Module({
   imports: [
@@ -40,6 +42,7 @@ import { PublicBookingModule } from "./modules/public-booking/public-booking.mod
     }),
     PrismaModule,
     RedisModule,
+    NotificationsModule,
     AppointmentsModule,
     AuthModule,
     ClinicalModule,
@@ -65,7 +68,8 @@ import { PublicBookingModule } from "./modules/public-booking/public-booking.mod
     TreatmentPlansModule,
     HealthModule,
     OnlineSchedulingModule,
-    PublicBookingModule
+    PublicBookingModule,
+    IntegrationsModule
   ],
   providers: [AppLogger],
   exports: [AppLogger]

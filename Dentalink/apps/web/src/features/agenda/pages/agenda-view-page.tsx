@@ -16,7 +16,7 @@ import { useBranchStore } from "@/stores/branch.store";
 import { useAuthStore } from "@/stores/auth.store";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { RotateCcw, ChevronDown, Plus, Layers } from "lucide-react";
-import { AppointmentModal } from "../components/appointment-modal";
+import { AppointmentModal, type AppointmentSubmitOptions } from "../components/appointment-modal";
 import {
   AppointmentCommentModal,
   AppointmentDurationModal,
@@ -86,6 +86,8 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     localStorage.setItem("dentalink_agenda_status_filters", JSON.stringify(selectedStatuses));
   }, [selectedStatuses]);
 
+  const density = "compact";
+
   const [blockingSlot, setBlockingSlot] = useState<{
     professionalId: string;
     branchId?: string;
@@ -120,6 +122,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const [durationEditing, setDurationEditing] = useState<Appointment | null>(null);
   const [commenting, setCommenting] = useState<{ appointment: Appointment; anchorRect: CommentPopoverAnchor | null } | null>(null);
   const [statusChanging, setStatusChanging] = useState<Appointment | null>(null);
+  const [statusAction, setStatusAction] = useState<{ appointmentId: string; status: AppointmentStatus } | null>(null);
   const [historyViewing, setHistoryViewing] = useState<Appointment | null>(null);
   const [emailAction, setEmailAction] = useState<{ appointment: Appointment; mode: AppointmentEmailMode } | null>(null);
 
@@ -291,14 +294,33 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     setInitialAppointmentValues(null);
   };
 
-  const submitAppointment = async (payloads: AppointmentPayload[]) => {
+  const notifyAppointmentsByEmail = async (savedAppointments: Appointment[]) => {
+    const notifiedAppointments: Appointment[] = [];
+    for (const appointment of savedAppointments) {
+      const notified = await actions.changeStatus.mutateAsync({
+        id: appointment.id,
+        status: "NOTIFIED_BY_EMAIL"
+      });
+      notifiedAppointments.push(notified);
+    }
+    toast.success(
+      savedAppointments.length === 1
+        ? "Correo de confirmacion enviado"
+        : "Correos de confirmacion enviados"
+    );
+    return notifiedAppointments;
+  };
+
+  const submitAppointment = async (payloads: AppointmentPayload[], options?: AppointmentSubmitOptions) => {
     if (payloads.length === 0) return;
+    const shouldNotifyByEmail = Boolean(options?.notifyByEmail);
 
     if (editing) {
       const payload = payloads[0];
       if (!payload) return;
       const saved = await updateAppointment.mutateAsync({ id: editing.id, payload });
-      focusSavedAppointment(saved);
+      const [finalSaved] = shouldNotifyByEmail ? await notifyAppointmentsByEmail([saved]) : [saved];
+      if (finalSaved) focusSavedAppointment(finalSaved);
       return;
     }
 
@@ -307,8 +329,11 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         appointments: payloads,
         autoCreateInitialTreatmentPlan: true
       });
-      if (savedAppointments[0]) {
-        focusSavedAppointment(savedAppointments[0]);
+      const finalAppointments = shouldNotifyByEmail
+        ? await notifyAppointmentsByEmail(savedAppointments)
+        : savedAppointments;
+      if (finalAppointments[0]) {
+        focusSavedAppointment(finalAppointments[0]);
       }
       return;
     }
@@ -327,7 +352,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
       treatmentPlanId = treatmentPlan.id;
     }
 
-    let firstSaved: Appointment | null = null;
+    const savedAppointments: Appointment[] = [];
 
     for (let i = 0; i < payloads.length; i++) {
       const payload = { ...payloads[i] };
@@ -335,13 +360,15 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         payload.treatmentPlanId = treatmentPlanId;
       }
       const saved = await createAppointment.mutateAsync(payload);
-      if (i === 0) {
-        firstSaved = saved;
-      }
+      savedAppointments.push(saved);
     }
 
-    if (firstSaved) {
-      focusSavedAppointment(firstSaved);
+    const finalAppointments = shouldNotifyByEmail
+      ? await notifyAppointmentsByEmail(savedAppointments)
+      : savedAppointments;
+
+    if (finalAppointments[0]) {
+      focusSavedAppointment(finalAppointments[0]);
     }
   };
 
@@ -405,28 +432,36 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   };
 
   const changeAppointmentStatus = async (id: string, nextStatus: AppointmentStatus) => {
-    switch (nextStatus) {
-      case "CONFIRMED":
-        await actions.confirm.mutateAsync(id);
-        break;
-      case "ARRIVED":
-        await actions.arrive.mutateAsync(id);
-        break;
-      case "WAITING_ROOM":
-        await actions.waitingRoom.mutateAsync(id);
-        break;
-      case "IN_PROGRESS":
-        await actions.start.mutateAsync(id);
-        break;
-      case "COMPLETED":
-        await actions.complete.mutateAsync(id);
-        break;
-      case "NO_SHOW":
-        await actions.noShow.mutateAsync(id);
-        break;
-      default:
-        await updateAppointment.mutateAsync({ id, payload: { status: nextStatus } });
-        break;
+    setStatusAction({ appointmentId: id, status: nextStatus });
+    try {
+      switch (nextStatus) {
+        case "CONFIRMED":
+          await actions.confirm.mutateAsync(id);
+          break;
+        case "ARRIVED":
+          await actions.arrive.mutateAsync(id);
+          break;
+        case "WAITING_ROOM":
+          await actions.waitingRoom.mutateAsync(id);
+          break;
+        case "IN_PROGRESS":
+          await actions.start.mutateAsync(id);
+          break;
+        case "COMPLETED":
+          await actions.complete.mutateAsync(id);
+          break;
+        case "NO_SHOW":
+          await actions.noShow.mutateAsync(id);
+          break;
+        default:
+          await actions.changeStatus.mutateAsync({ id, status: nextStatus });
+          if (nextStatus === "NOTIFIED_BY_EMAIL") {
+            toast.success("Correo de confirmación enviado");
+          }
+          break;
+      }
+    } finally {
+      setStatusAction((current) => (current?.appointmentId === id ? null : current));
     }
   };
 
@@ -436,8 +471,6 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Agenda clínica" description="Operación diaria, semanal y mensual de citas." />
-
       <AgendaToolbar 
         view={view} 
         date={date}
@@ -450,63 +483,67 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         }}
       />
 
-      <Card className="relative z-20">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <div className="flex items-center gap-1.5 w-full">
-            <BranchFilter value={activeBranchId} branches={assignedBranches} onChange={setActiveBranchId} />
-            <HelpTooltip content="Filtra la agenda para mostrar las citas y sillones exclusivos de esta sucursal. Los clínicos solo pueden alternar entre sus sucursales asignadas." />
-          </div>
-          <div className="flex items-center gap-1.5 w-full">
-            <ProfessionalFilter value={professionalId} professionals={visibleProfessionals} onChange={setProfessionalId} />
-            <HelpTooltip content="Muestra únicamente la columna y los horarios del odontólogo seleccionado. Déjalo vacío para ver la agenda de todos los doctores en paralelo." />
-          </div>
-          <div className="flex items-center gap-1.5 w-full">
-            <ChairFilter value={chairId} chairs={visibleChairs} onChange={setChairId} />
-            <HelpTooltip content="Permite filtrar las citas por el sillón de atención asignado (ej. Sillón General o Quirófano) para organizar el espacio físico." />
-          </div>
-          <Button variant="ghost" onClick={clearFilters} disabled={!hasActiveFilters} className="w-full">
-            <RotateCcw className="h-4 w-4" />
-            Limpiar filtros
-          </Button>
-          <div ref={dropdownRef} className="relative w-full">
-            <button
-              type="button"
-              onClick={() => setDropdownOpen((prev) => !prev)}
-              className="flex h-[38px] w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--action-primary)] bg-[var(--action-primary)] px-[var(--space-4)] text-[var(--text-base)] text-[var(--text-inverse)] font-medium transition-[background-color,border-color,color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] active:scale-[0.98] hover:border-[var(--action-primary-hover)] hover:bg-[var(--action-primary-hover)] shadow-sm"
-            >
-              <span className="truncate">Nueva cita</span>
-              <ChevronDown className={`h-4 w-4 transition-transform duration-150 ${dropdownOpen ? "rotate-180" : ""}`} />
-            </button>
+      {view !== "day" && (
+        <Card className="relative z-20">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="flex items-center gap-1.5 w-full">
+              <BranchFilter value={activeBranchId} branches={assignedBranches} onChange={setActiveBranchId} />
+              <HelpTooltip content="Filtra la agenda para mostrar las citas y sillones exclusivos de esta sucursal. Los clínicos solo pueden alternar entre sus sucursales asignadas." />
+            </div>
+            <div className="flex items-center gap-1.5 w-full">
+              <ProfessionalFilter value={professionalId} professionals={visibleProfessionals} onChange={setProfessionalId} />
+              <HelpTooltip content="Muestra únicamente la columna y los horarios del odontólogo seleccionado. Déjalo vacío para ver la agenda de todos los doctores en paralelo." />
+            </div>
+            <div className="flex items-center gap-1.5 w-full">
+              <ChairFilter value={chairId} chairs={visibleChairs} onChange={setChairId} />
+              <HelpTooltip content="Permite filtrar las citas por el sillón de atención asignado (ej. Sillón General o Quirófano) para organizar el espacio físico." />
+            </div>
+            <Button variant="ghost" onClick={clearFilters} disabled={!hasActiveFilters} className="w-full">
+              <RotateCcw className="h-4 w-4" />
+              Limpiar filtros
+            </Button>
+            <div ref={dropdownRef} className="relative w-full">
+              <button
+                type="button"
+                onClick={() => setDropdownOpen((prev) => !prev)}
+                className="flex h-[38px] w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--action-primary)] bg-[var(--action-primary)] px-[var(--space-4)] text-[var(--text-base)] text-[var(--text-inverse)] font-medium transition-[background-color,border-color,color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] active:scale-[0.98] hover:border-[var(--action-primary-hover)] hover:bg-[var(--action-primary-hover)] shadow-sm"
+              >
+                <span className="truncate">Nueva cita</span>
+                <ChevronDown className={`h-4 w-4 transition-transform duration-150 ${dropdownOpen ? "rotate-180" : ""}`} />
+              </button>
 
-            {dropdownOpen && (
-              <div className="absolute right-0 left-0 lg:left-auto lg:w-56 z-50 mt-1.5 rounded-[var(--radius-lg)] border border-[var(--border-default)]/90 bg-white p-1 shadow-[0_12px_30px_rgba(4,44,83,0.12)] animate-in fade-in-50 slide-in-from-top-1 duration-[var(--duration-fast)]">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[var(--text-sm)] text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-all duration-150"
-                  onClick={() => {
-                    openCreate();
-                    setDropdownOpen(false);
-                  }}
-                >
-                  <Plus className="h-4 w-4 text-[var(--text-secondary)]" />
-                  <span>Cita individual</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[var(--text-sm)] text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-all duration-150"
-                  onClick={() => {
-                    openCreate(undefined, true);
-                    setDropdownOpen(false);
-                  }}
-                >
-                  <Layers className="h-4 w-4 text-[var(--text-secondary)]" />
-                  <span>Agendamiento múltiple</span>
-                </button>
-              </div>
-            )}
+              {dropdownOpen && (
+                <div className="absolute right-0 left-0 lg:left-auto lg:w-56 z-50 mt-1.5 rounded-[var(--radius-lg)] border border-[var(--border-default)]/90 bg-white p-1 shadow-[0_12px_30px_rgba(4,44,83,0.12)] animate-in fade-in-50 slide-in-from-top-1 duration-[var(--duration-fast)]">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[var(--text-sm)] text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-all duration-150"
+                    onClick={() => {
+                      openCreate();
+                      setDropdownOpen(false);
+                    }}
+                  >
+                    <Plus className="h-4 w-4 text-[var(--text-secondary)]" />
+                    <span>Cita individual</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[var(--text-sm)] text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-all duration-150"
+                    onClick={() => {
+                      openCreate(undefined, true);
+                      setDropdownOpen(false);
+                    }}
+                  >
+                    <Layers className="h-4 w-4 text-[var(--text-secondary)]" />
+                    <span>Agendamiento múltiple</span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-      </Card>
+        </Card>
+      )}
+
+
 
       <div className={showSidebar ? "grid gap-4 xl:grid-cols-[240px_1fr]" : "w-full"}>
         {showSidebar && (
@@ -528,6 +565,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
               onEdit={openEdit}
               onCancel={openCancelAppointment}
               onReschedule={setRescheduling}
+              statusAction={statusAction}
               onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
               onConfirm={(id) => void actions.confirm.mutate(id)}
               onArrive={(id) => void actions.arrive.mutate(id)}
@@ -538,72 +576,57 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
               onMenuAction={handleAppointmentMenuAction}
             />
           ) : view === "day" ? (
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-              <CalendarView
-                appointments={filteredAppointments}
-                date={date}
-                view={view}
-                professionals={visibleProfessionals}
-                selectedProfessionalId={professionalId}
-                selectedBranchId={activeBranchId}
-                daySlotMinutes={agendaSlotMinutes}
-                dayStartHour={agendaStartHour}
-                dayEndHour={agendaEndHour}
-                schedules={schedules.data ?? []}
-                onSelectProfessional={setProfessionalId}
-                onCreateClick={() => openCreate()}
-                onCreateSlotClick={(slot) => {
-                  if (slot.status === "BLOCKED") {
-                    const prof = visibleProfessionals.find((p) => p.id === slot.professionalId);
-                    const professionalAgenda = prof 
-                      ? getProfessionalBranchAgendaConfig(prof, slot.branchId || activeBranchId || "", agendaSlotMinutes)
-                      : { slotMinutes: agendaSlotMinutes };
-                    setBlockingSlot({
-                      professionalId: slot.professionalId,
-                      branchId: slot.branchId || activeBranchId || undefined,
-                      chairId: slot.chairId || undefined,
-                      startAt: slot.startAt,
-                      endAt: slot.endAt,
-                      defaultDuration: professionalAgenda.slotMinutes
-                    });
-                    return;
-                  }
-                  openCreate(slot);
-                }}
-                onEdit={openEdit}
-                onCancel={openCancelAppointment}
-                onReschedule={setRescheduling}
-                onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
-                onConfirm={(id) => void actions.confirm.mutate(id)}
-                onArrive={(id) => void actions.arrive.mutate(id)}
-                onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
-                onStart={(id) => void actions.start.mutate(id)}
-                onComplete={(id) => void actions.complete.mutate(id)}
-                onNoShow={(id) => void actions.noShow.mutate(id)}
-                onMenuAction={handleAppointmentMenuAction}
-              />
-              <AvailabilityPicker
-                branchId={activeBranchId}
-                professionalId={professionalId}
-                chairId={chairId || undefined}
-                date={date}
-                durationMinutes={String(defaultAppointmentDurationMinutes)}
-                onSelectSlot={(slot) =>
-                  openCreate({
-                    branchId: activeBranchId,
-                    professionalId,
-                    chairId: chairId || undefined,
+            <CalendarView
+              appointments={filteredAppointments}
+              date={date}
+              view={view}
+              density={density}
+              professionals={visibleProfessionals}
+              selectedProfessionalId={professionalId}
+              selectedBranchId={activeBranchId}
+              daySlotMinutes={agendaSlotMinutes}
+              dayStartHour={agendaStartHour}
+              dayEndHour={agendaEndHour}
+              schedules={schedules.data ?? []}
+              onSelectProfessional={setProfessionalId}
+              onCreateClick={() => openCreate()}
+              onCreateSlotClick={(slot) => {
+                if (slot.status === "BLOCKED") {
+                  const prof = visibleProfessionals.find((p) => p.id === slot.professionalId);
+                  const professionalAgenda = prof 
+                    ? getProfessionalBranchAgendaConfig(prof, slot.branchId || activeBranchId || "", agendaSlotMinutes)
+                    : { slotMinutes: agendaSlotMinutes };
+                  setBlockingSlot({
+                    professionalId: slot.professionalId,
+                    branchId: slot.branchId || activeBranchId || undefined,
+                    chairId: slot.chairId || undefined,
                     startAt: slot.startAt,
-                    endAt: slot.endAt
-                  })
+                    endAt: slot.endAt,
+                    defaultDuration: professionalAgenda.slotMinutes
+                  });
+                  return;
                 }
-              />
-            </div>
+                openCreate(slot);
+              }}
+              onEdit={openEdit}
+              onCancel={openCancelAppointment}
+              onReschedule={setRescheduling}
+              statusAction={statusAction}
+              onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
+              onConfirm={(id) => void actions.confirm.mutate(id)}
+              onArrive={(id) => void actions.arrive.mutate(id)}
+              onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
+              onStart={(id) => void actions.start.mutate(id)}
+              onComplete={(id) => void actions.complete.mutate(id)}
+              onNoShow={(id) => void actions.noShow.mutate(id)}
+              onMenuAction={handleAppointmentMenuAction}
+            />
           ) : (
             <CalendarView
               appointments={filteredAppointments}
               date={date}
               view={view}
+              density={density}
               professionals={visibleProfessionals}
               selectedProfessionalId={professionalId}
               selectedBranchId={activeBranchId}
@@ -617,6 +640,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
               onEdit={openEdit}
               onCancel={openCancelAppointment}
               onReschedule={setRescheduling}
+              statusAction={statusAction}
               onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
               onConfirm={(id) => void actions.confirm.mutate(id)}
               onArrive={(id) => void actions.arrive.mutate(id)}

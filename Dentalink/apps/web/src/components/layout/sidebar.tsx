@@ -4,7 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { ChevronDown, ChevronLeft, ChevronRight, Sparkles, X, Building2, LogOut, UserRound } from "lucide-react";
 import { useAuthStore } from "@/stores/auth.store";
 import { useBranchStore } from "@/stores/branch.store";
-import { useBranches, ORDERED_NAMES, normalizeName } from "@/features/settings/branches/hooks/use-branches";
+import { useBranches, normalizeName } from "@/features/settings/branches/hooks/use-branches";
 import { useLogout } from "@/features/auth/hooks/use-logout";
 import { Select } from "@/components/ui/select";
 import { itemMatchesPath, type MainNavItem, type MenuItem, visibleNavigation } from "@/components/layout/navigation";
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils/cn";
 
 const EMPTY_PERMISSIONS: string[] = [];
 const PRODUCT_NAME = "Warner Suite";
-const FLYOUT_PANEL_WIDTH = 560;
+const FLYOUT_PANEL_WIDTH = 680;
 const SIDEBAR_NAV_GROUPS = [
   { key: "principal", label: "Principal", paths: ["/agenda", "/patients"] },
   { key: "operation", label: "Operacion", paths: ["/cash-register/open", "/accounts-receivable"] },
@@ -25,6 +25,7 @@ type FlyoutState = {
   top: number;
   left: number;
   maxHeight: number;
+  triggerRect: { top: number; right: number; height: number; left: number };
 };
 
 function groupedChildren(children: MenuItem[]) {
@@ -45,42 +46,34 @@ function groupedNavigation(items: MainNavItem[]) {
 function NavItemContent({
   item,
   collapsed,
-  active,
-  index
+  active
 }: {
   item: MainNavItem;
   collapsed: boolean;
   active: boolean;
-  index: number;
 }) {
   const Icon = item.icon;
 
   return (
     <>
-      <span
+      <Icon
         className={cn(
-          "absolute left-0 top-1/2 h-6 w-[3px] -translate-y-1/2 rounded-r-[var(--radius-full)] bg-[var(--nav-item-active-border)] opacity-0 transition-[opacity,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)]",
-          active && "opacity-100 shadow-[0_0_12px_rgba(55,138,221,0.55)]"
+          "h-4 w-4 shrink-0 transition-colors duration-[var(--duration-fast)] ease-[var(--ease-default)]",
+          active ? "text-[var(--nav-item-active-text)]" : "text-[var(--nav-item-default-icon)] group-hover:text-[var(--text-inverse)]"
         )}
       />
-      <span
-        className={cn(
-          "flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--nav-control-border)] bg-[var(--nav-control-bg)] text-[var(--nav-item-default-icon)] transition-[background-color,border-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] group-hover:translate-x-0.5 group-hover:border-[rgba(255,255,255,0.22)] group-hover:bg-[rgba(255,255,255,0.1)] group-hover:text-[var(--text-inverse)]",
-          active && "border-[rgba(55,138,221,0.55)] bg-[rgba(55,138,221,0.22)] text-[var(--text-inverse)]"
-        )}
-      >
-        <Icon className="h-[18px] w-[18px]" />
-      </span>
       {!collapsed ? (
-        <span className={cn("min-w-0 flex-1 truncate", active && "text-[var(--text-inverse)]")}>{item.label}</span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate font-medium transition-colors duration-[var(--duration-fast)]",
+            active ? "text-[var(--text-inverse)] font-semibold" : "text-[var(--nav-item-default-text)] group-hover:text-[var(--text-inverse)]"
+          )}
+        >
+          {item.label}
+        </span>
       ) : (
         <span className="sr-only">{item.label}</span>
       )}
-      <span
-        aria-hidden="true"
-        className="absolute inset-0 -z-10 rounded-[var(--radius-md)] opacity-0 transition-[opacity,transform] duration-[var(--duration-normal)] ease-[var(--ease-out)] group-hover:translate-x-1 group-hover:opacity-100"
-        style={{ transitionDelay: `${Math.min(index, 6) * 12}ms` }}
-      />
     </>
   );
 }
@@ -120,13 +113,13 @@ function SidebarContent({
     };
 
     assignedBranches.forEach((branch) => {
+      const zoneCode = branch.zone?.code?.toUpperCase();
       const norm = normalizeName(branch.name);
-      const idx = ORDERED_NAMES.indexOf(norm);
-      if (idx >= 0 && idx <= 10) {
+      if (zoneCode === "NORTE") {
         groups["Plataforma NORTE"].push(branch);
-      } else if (idx >= 11 && idx <= 25) {
+      } else if (zoneCode === "SUR") {
         groups["Plataforma SUR"].push(branch);
-      } else if (idx >= 26) {
+      } else if (zoneCode === "DJWARNER" || norm.includes("jwarner")) {
         groups["Plataforma DJWARNER"].push(branch);
       } else {
         groups["Otras sucursales"].push(branch);
@@ -203,7 +196,18 @@ function SidebarContent({
       const preferredLeft = rect.right + 10;
       const left = preferredLeft + width > viewportWidth - 12 ? Math.max(12, rect.left - width - 10) : preferredLeft;
 
-      return { item, top, left, maxHeight };
+      return { 
+        item, 
+        top, 
+        left, 
+        maxHeight, 
+        triggerRect: { 
+          top: rect.top, 
+          right: rect.right, 
+          height: rect.height, 
+          left: rect.left 
+        } 
+      };
     });
   }, []);
 
@@ -217,16 +221,16 @@ function SidebarContent({
         collapsed ? "w-[72px]" : "w-60"
       )}
     >
-      <div className="relative flex h-16 items-center gap-[var(--space-3)] border-b border-[var(--nav-border-subtle)] bg-[rgba(255,255,255,0.02)] px-[var(--space-3)]">
+      <div className="relative flex h-16 items-center gap-[var(--space-3)] border-b border-[var(--nav-border-subtle)] bg-[rgba(255,255,255,0.01)] px-[var(--space-3)]">
         <Link to="/dashboard" onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-[var(--space-3)]">
-          <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white p-1 shadow-[0_2px_10px_rgba(0,0,0,0.1)] transition-transform duration-[var(--duration-normal)] hover:scale-105">
+          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/95 p-1.5 border border-white/20 shadow-[0_4px_12px_rgba(4,44,83,0.15)] transition-transform duration-[var(--duration-normal)] hover:scale-105">
             <img src="/logo-2.png" alt="Warner Suite Logo" className="h-full w-full object-contain" />
           </div>
           {!collapsed ? (
             <span className="min-w-0">
               <span className="block truncate text-[var(--text-base)] font-semibold leading-tight tracking-[0.01em]">{PRODUCT_NAME}</span>
-              <span className="flex items-center gap-[var(--space-1)] truncate text-[var(--text-xs)] font-medium text-[rgba(248,250,252,0.52)]">
-                <Sparkles className="h-3 w-3" />
+              <span className="flex items-center gap-1 truncate text-[var(--text-xs)] font-medium text-[rgba(248,250,252,0.6)]">
+                <Sparkles className="h-3 w-3 text-[var(--text-brand)]" />
                 Gestion clinica
               </span>
             </span>
@@ -276,12 +280,12 @@ function SidebarContent({
                   to={item.to}
                   onClick={onNavigate}
                   className={cn(
-                    "group relative isolate flex h-11 animate-[sidebar-item-in_var(--duration-slow)_var(--ease-out)_both] items-center gap-[var(--space-3)] rounded-[var(--radius-md)] px-[var(--space-2)] text-[var(--text-sm)] font-semibold text-[var(--nav-item-default-text)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[rgba(255,255,255,0.07)] hover:text-[var(--text-inverse)]",
-                    active && "bg-[rgba(255,255,255,0.075)] text-[var(--text-inverse)]"
+                    "group relative flex h-10 animate-[sidebar-item-in_var(--duration-slow)_var(--ease-out)_both] items-center gap-[var(--space-3)] border-l-[3px] border-transparent rounded-r-[var(--radius-md)] px-3 text-[var(--text-sm)] font-medium text-[var(--nav-item-default-text)] transition-all duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:bg-[var(--nav-item-hover-bg)] hover:text-[var(--text-inverse)]",
+                    active ? "bg-[var(--nav-item-active-bg)] border-[var(--nav-item-active-border)] text-[var(--nav-item-active-text)]" : ""
                   )}
                   style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
                 >
-                  <NavItemContent item={item} collapsed={collapsed} active={active} index={index} />
+                  <NavItemContent item={item} collapsed={collapsed} active={active} />
                 </Link>
               );
 
@@ -308,18 +312,18 @@ function SidebarContent({
                   toggleDesktopFlyout(item, event.currentTarget);
                 }}
                 className={cn(
-                  "group relative isolate flex h-11 w-full animate-[sidebar-item-in_var(--duration-slow)_var(--ease-out)_both] items-center gap-[var(--space-3)] rounded-[var(--radius-md)] px-[var(--space-2)] text-left text-[var(--text-sm)] font-semibold text-[var(--nav-item-default-text)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[rgba(255,255,255,0.07)] hover:text-[var(--text-inverse)]",
-                  active && "bg-[rgba(255,255,255,0.075)] text-[var(--text-inverse)]",
-                  flyoutOpen && "bg-[rgba(255,255,255,0.1)] text-[var(--text-inverse)]"
+                  "group relative flex h-10 w-full animate-[sidebar-item-in_var(--duration-slow)_var(--ease-out)_both] items-center gap-[var(--space-3)] border-l-[3px] border-transparent rounded-r-[var(--radius-md)] px-3 text-left text-[var(--text-sm)] font-medium text-[var(--nav-item-default-text)] transition-all duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:bg-[var(--nav-item-hover-bg)] hover:text-[var(--text-inverse)]",
+                  active ? "bg-[var(--nav-item-active-bg)] border-[var(--nav-item-active-border)] text-[var(--nav-item-active-text)]" : "",
+                  flyoutOpen && "bg-[var(--nav-item-hover-bg)] text-[var(--text-inverse)]"
                 )}
                 style={{ animationDelay: `${Math.min(index, 8) * 24}ms` }}
               >
-                <NavItemContent item={item} collapsed={collapsed} active={active} index={index} />
+                <NavItemContent item={item} collapsed={collapsed} active={active} />
                 {!collapsed ? (
                   isMobileMenu ? (
-                    <ChevronDown className={cn("h-4 w-4 shrink-0 text-[var(--nav-item-default-icon)] transition-transform duration-[var(--duration-normal)] ease-[var(--ease-spring)]", open && "rotate-180")} />
+                    <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 text-[var(--nav-item-default-icon)] transition-transform duration-[var(--duration-normal)] ease-[var(--ease-spring)]", open && "rotate-180")} />
                   ) : (
-                    <ChevronRight className={cn("h-4 w-4 shrink-0 text-[var(--nav-item-default-icon)] transition-transform duration-[var(--duration-normal)] ease-[var(--ease-spring)]", flyoutOpen && "translate-x-0.5 text-[var(--text-inverse)]")} />
+                    <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-[var(--nav-item-default-icon)] transition-transform duration-[var(--duration-normal)] ease-[var(--ease-spring)]", flyoutOpen && "translate-x-0.5 text-[var(--text-inverse)]")} />
                   )
                 ) : null}
               </button>
@@ -336,7 +340,7 @@ function SidebarContent({
                 )}
 
                 {isMobileMenu && !collapsed && open ? (
-                  <div className="ml-[var(--space-5)] mt-1 animate-[sidebar-item-in_var(--duration-normal)_var(--ease-out)_both] space-y-1 border-l border-[var(--nav-border-subtle)] pl-[var(--space-2)]">
+                  <div className="ml-5 mt-1 animate-[sidebar-item-in_var(--duration-normal)_var(--ease-out)_both] space-y-1 border-l border-[var(--nav-border-subtle)] pl-3">
                     {item.children?.map((child) => {
                       const ChildIcon = child.icon;
                       const childActive = itemMatchesPath(location.pathname, child);
@@ -346,14 +350,14 @@ function SidebarContent({
                           to={child.to}
                           onClick={onNavigate}
                           className={cn(
-                            "flex min-h-9 items-center gap-[var(--space-2)] rounded-[var(--radius-md)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--text-sm)] font-medium text-[var(--nav-item-default-icon)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[var(--nav-item-hover-bg)]",
-                            childActive && "bg-[var(--nav-item-hover-bg)] text-[var(--nav-item-active-text)]"
+                            "flex min-h-[36px] items-center gap-[var(--space-2)] rounded-[var(--radius-md)] px-3 py-1.5 text-[var(--text-sm)] font-medium text-[var(--nav-item-default-text)] transition-all duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:bg-[var(--nav-item-hover-bg)] hover:text-[var(--text-inverse)]",
+                            childActive && "bg-[var(--nav-item-active-bg)] text-[var(--nav-item-active-text)]"
                           )}
                         >
-                          {ChildIcon ? <ChildIcon className="h-4 w-4 shrink-0" /> : null}
+                          {ChildIcon ? <ChildIcon className="h-3.5 w-3.5 shrink-0 text-[var(--nav-item-default-icon)]" /> : null}
                           <span className="truncate">{child.label}</span>
                           {child.badge ? (
-                            <span className="ml-auto rounded-[var(--radius-full)] bg-[var(--action-primary)] px-[var(--space-2)] py-0.5 text-[var(--text-xs)] font-semibold text-[var(--text-inverse)]">
+                            <span className="ml-auto rounded-[var(--radius-full)] bg-[var(--action-primary)] px-2 py-0.5 text-[var(--text-xs)] font-semibold text-[var(--text-inverse)]">
                               {child.badge}
                             </span>
                           ) : null}
@@ -373,29 +377,41 @@ function SidebarContent({
 
       {!isMobileMenu && flyout && flyout.item.children?.length && typeof document !== "undefined"
         ? createPortal(
-            <div
-              ref={flyoutRef}
-              role="menu"
-              data-sidebar-flyout
-              aria-label={`Opciones de ${flyout.item.label}`}
-              className="fixed z-[70] flex flex-col overflow-hidden rounded-[var(--radius-md)] border border-[var(--nav-border-subtle)] bg-[var(--bg-nav)] text-[var(--text-inverse)] shadow-[0_18px_42px_rgba(4,44,83,0.22)]"
-              style={{
-                top: flyout.top,
-                left: flyout.left,
-                maxHeight: flyout.maxHeight,
-                width: `min(${FLYOUT_PANEL_WIDTH}px, calc(100vw - 24px))`
-              }}
-            >
-              <div className="border-b border-[var(--nav-border-subtle)] bg-[rgba(255,255,255,0.025)] px-[var(--space-4)] py-[var(--space-3)]">
-                <span className="block text-[var(--text-xs)] font-semibold uppercase tracking-widest text-[var(--nav-section-label)]">Menu rapido</span>
-                <span className="mt-0.5 block text-[var(--text-base)] font-semibold text-[var(--text-inverse)]">{flyout.item.label}</span>
+            <>
+              {flyout.triggerRect && (
+                <div
+                  className="fixed z-[69] h-[2px] bg-gradient-to-r from-blue-500/80 to-blue-500/10 shadow-[0_0_8px_rgba(59,130,246,0.8)] origin-left animate-in fade-in zoom-in-x duration-150"
+                  style={{
+                    top: `${flyout.triggerRect.top + flyout.triggerRect.height / 2 - 1}px`,
+                    left: `${flyout.triggerRect.right}px`,
+                    width: `${Math.max(0, flyout.left - flyout.triggerRect.right)}px`
+                  }}
+                />
+              )}
+              <div
+                ref={flyoutRef}
+                role="menu"
+                data-sidebar-flyout
+                aria-label={`Opciones de ${flyout.item.label}`}
+                className="fixed z-[70] flex flex-col overflow-hidden rounded-[var(--radius-lg)] border border-white/[0.08] bg-[#031c35]/95 backdrop-blur-xl text-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.5)] shadow-black/60 animate-in fade-in-50 slide-in-from-left-2 duration-150"
+                style={{
+                  top: flyout.top,
+                  left: flyout.left,
+                  maxHeight: flyout.maxHeight,
+                  width: `min(${FLYOUT_PANEL_WIDTH}px, calc(100vw - 24px))`
+                }}
+              >
+              <div className="border-b border-white/[0.06] bg-white/[0.01] px-5 py-4">
+                <span className="block text-[10px] font-extrabold uppercase tracking-[0.18em] text-[var(--nav-section-label)]">Menú rápido</span>
+                <span className="mt-1 block text-lg font-bold text-white tracking-tight">{flyout.item.label}</span>
               </div>
 
-              <div className={cn("grid min-h-0 gap-[var(--space-3)] overflow-y-auto p-[var(--space-3)]", flyoutGroups.length > 1 && "grid-cols-2")}>
+              <div className={cn("grid min-h-0 gap-5 overflow-y-auto p-5 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/20", flyoutGroups.length > 1 && "grid-cols-2")}>
                 {flyoutGroups.map((group) => (
                   <section key={group.key} className="min-w-0">
                     {flyoutGroups.length > 1 ? (
-                      <p className="mb-[var(--space-2)] px-[var(--space-2)] text-[var(--text-xs)] font-semibold uppercase tracking-widest text-[var(--nav-section-label)]">
+                      <p className="mb-3 px-1 text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--nav-item-active-text)] flex items-center gap-1.5">
+                        <span className="h-1.5 w-1.5 rounded-full bg-current" />
                         {group.label}
                       </p>
                     ) : null}
@@ -414,18 +430,18 @@ function SidebarContent({
                               onNavigate?.();
                             }}
                             className={cn(
-                              "flex min-h-10 items-center gap-[var(--space-2)] rounded-[var(--radius-md)] px-[var(--space-2)] py-[var(--space-2)] text-[var(--text-sm)] font-medium text-[var(--nav-item-default-text)] transition-[background-color,transform,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:translate-x-0.5 hover:bg-[rgba(255,255,255,0.07)] hover:text-[var(--text-inverse)]",
-                              childActive && "bg-[rgba(255,255,255,0.075)] text-[var(--text-inverse)]"
+                              "flex min-h-[38px] items-center gap-3 rounded-lg border border-transparent px-3.5 py-2.5 text-[var(--text-sm)] font-medium transition-all duration-150 ease-in-out cursor-pointer",
+                              childActive
+                                ? "bg-[var(--nav-item-active-bg)] border-[var(--nav-item-active-border)]/30 text-[var(--nav-item-active-text)] font-semibold"
+                                : "text-[var(--nav-item-default-text)] hover:bg-[var(--nav-item-hover-bg)] hover:border-white/[0.04] hover:text-[var(--text-inverse)]"
                             )}
                           >
                             {ChildIcon ? (
-                              <span className={cn("flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--nav-control-border)] bg-[var(--nav-control-bg)] text-[var(--nav-item-default-icon)]", childActive && "border-[rgba(55,138,221,0.55)] bg-[rgba(55,138,221,0.22)] text-[var(--text-inverse)]")}>
-                                <ChildIcon className="h-4 w-4" />
-                              </span>
+                              <ChildIcon className={cn("h-4 w-4 shrink-0 transition-colors duration-150", childActive ? "text-[var(--nav-item-active-text)]" : "text-[var(--nav-item-default-icon)]")} />
                             ) : null}
                             <span className="min-w-0 flex-1 truncate">{child.label}</span>
                             {child.badge ? (
-                              <span className="shrink-0 rounded-[var(--radius-full)] bg-[var(--action-primary)] px-[var(--space-2)] py-0.5 text-[var(--text-xs)] font-semibold text-[var(--text-inverse)]">
+                              <span className="shrink-0 rounded-full bg-[var(--action-primary)]/10 border border-[var(--action-primary)]/20 px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wider text-[var(--action-primary)]">
                                 {child.badge}
                               </span>
                             ) : null}
@@ -436,25 +452,26 @@ function SidebarContent({
                   </section>
                 ))}
               </div>
-            </div>,
+            </div>
+            </>,
             document.body
           )
         : null}
 
       {/* Bottom Section: Branch Switcher & User Profile */}
-      <div className={cn("mt-auto border-t border-slate-800 bg-slate-950/30 transition-all duration-300", collapsed ? "p-2 space-y-0" : "p-4 space-y-4")}>
+      <div className={cn("mt-auto border-t border-[var(--nav-border-subtle)] bg-black/10 transition-all duration-300", collapsed ? "p-2 space-y-0" : "p-4 space-y-3.5")}>
         {/* Branch Selector */}
         {!collapsed && assignedBranches.length > 0 ? (
-          <div className="rounded-xl border border-slate-800/60 bg-slate-900/35 p-3 shadow-inner">
-            <label className="mb-2 text-[9px] font-extrabold uppercase tracking-widest text-[var(--nav-section-label)] flex items-center gap-1.5 opacity-80">
-              <Building2 className="h-3.5 w-3.5 text-sky-400" />
+          <div className="space-y-1.5">
+            <label className="px-1 text-[9px] font-bold uppercase tracking-[0.15em] text-[var(--nav-section-label)] flex items-center gap-1.5">
+              <Building2 className="h-3 w-3 text-[var(--text-brand)]" />
               Sucursal Activa
             </label>
             <Select
               value={activeBranchId}
               onChange={(event) => setActiveBranchId(event.target.value)}
               theme="dark"
-              className="h-9 border-slate-700 bg-slate-950/40 text-slate-200 hover:bg-slate-950/60 focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+              className="h-[36px] text-xs font-medium"
               containerClassName="text-white"
             >
               {Object.entries(groupedBranches).map(([groupLabel, list]) => {
@@ -475,15 +492,17 @@ function SidebarContent({
 
         {/* User Profile Info & Logout */}
         <div className={cn(
-          "flex items-center gap-3 transition-all duration-200",
-          collapsed ? "justify-center py-1" : "bg-slate-900/20 border border-slate-850 p-2.5 rounded-xl"
+          "flex items-center gap-3 transition-all duration-200 border",
+          collapsed 
+            ? "justify-center py-2 border-transparent" 
+            : "bg-white/[0.02] border-white/5 hover:bg-white/[0.04] p-2.5 rounded-xl shadow-sm"
         )}>
-          <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-sky-500 to-indigo-500 p-[1.5px] text-xs font-extrabold text-white border border-slate-700/30 shadow-md">
-            <div className="flex h-full w-full items-center justify-center rounded-full bg-slate-950">
+          <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-[var(--color-base-blue-400)] to-[var(--color-base-blue-600)] p-[1px] text-[11px] font-semibold text-white shadow-sm">
+            <div className="flex h-full w-full items-center justify-center rounded-full bg-[var(--bg-nav)]">
               {initials}
             </div>
             {/* Active online dot */}
-            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border border-slate-950 bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.7)] animate-pulse" />
+            <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full border border-[var(--bg-nav)] bg-[var(--color-base-emerald-500)] shadow-[0_0_6px_rgba(16,185,129,0.6)] animate-pulse" />
           </div>
           {!collapsed && (
             <div className="min-w-0 flex-1">
@@ -496,10 +515,10 @@ function SidebarContent({
               type="button"
               onClick={() => logout.mutate()}
               disabled={logout.isPending}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-950/20 text-slate-400 border border-slate-800/40 hover:bg-red-500/10 hover:text-red-400 hover:border-red-500/20 transition-all active:scale-95"
+              className="flex h-7.5 w-7.5 shrink-0 items-center justify-center rounded-md text-[var(--nav-item-default-icon)] hover:bg-white/[0.05] hover:text-[var(--text-danger)] transition-all active:scale-95 cursor-pointer"
               title="Cerrar sesión"
             >
-              <LogOut className="h-3.5 w-3.5" />
+              <LogOut className="h-4 w-4" />
             </button>
           )}
         </div>
@@ -539,13 +558,13 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => setDesktopExpanded(!desktopExpanded)}
-          className="absolute right-0 top-8 z-50 flex h-6 w-6 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-slate-700 bg-slate-900 text-slate-400 shadow-[0_2px_8px_rgba(0,0,0,0.3)] transition-all hover:bg-slate-800 hover:text-white hover:scale-105 active:scale-95 cursor-pointer"
+          className="absolute right-0 top-8 z-50 flex h-5 w-5 -translate-y-1/2 translate-x-1/2 items-center justify-center rounded-full border border-[var(--nav-border-subtle)] bg-[var(--bg-nav)] text-[var(--nav-item-default-icon)] shadow-[0_4px_12px_rgba(4,44,83,0.15)] transition-all hover:text-[var(--text-inverse)] hover:scale-105 active:scale-95 cursor-pointer"
           aria-label={desktopExpanded ? "Colapsar menu lateral" : "Expandir menu lateral"}
         >
           {desktopExpanded ? (
-            <ChevronLeft className="h-3.5 w-3.5" />
+            <ChevronLeft className="h-3 w-3" />
           ) : (
-            <ChevronRight className="h-3.5 w-3.5" />
+            <ChevronRight className="h-3 w-3" />
           )}
         </button>
       </div>

@@ -120,6 +120,11 @@ export type AppointmentReminderUpdatePayload = Partial<AppointmentReminderPayloa
   errorMessage?: string;
 };
 
+export type AppointmentStatusPayload = {
+  status: AppointmentStatus;
+  reason?: string;
+};
+
 export type RescheduleAppointmentPayload = {
   branchId?: string;
   professionalId?: string;
@@ -129,6 +134,7 @@ export type RescheduleAppointmentPayload = {
   endAt: string;
   durationMinutes?: number;
   reason?: string;
+  allowOverbooking?: boolean;
 };
 
 export type AppointmentPayload = {
@@ -145,6 +151,7 @@ export type AppointmentPayload = {
   endAt: string;
   durationMinutes?: number;
   notes?: string;
+  allowOverbooking?: boolean;
 };
 
 export type CreateAppointmentsBatchPayload = {
@@ -226,6 +233,11 @@ export async function updateAppointment(id: string, payload: Partial<Appointment
   return data;
 }
 
+export async function updateAppointmentStatus(id: string, payload: AppointmentStatusPayload) {
+  const { data } = await http.patch<Appointment>(`/appointments/${id}/status`, payload);
+  return data;
+}
+
 export async function deleteAppointment(id: string) {
   const { data } = await http.delete<Appointment>(`/appointments/${id}`);
   return data;
@@ -277,6 +289,7 @@ export async function getAvailability(params: {
   chairId?: string;
   date: string;
   durationMinutes?: string;
+  excludeAppointmentId?: string;
 }) {
   const { data } = await http.get<{ slots: AvailabilitySlot[] }>("/appointments/availability", { params });
   return data;

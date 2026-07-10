@@ -1,5 +1,8 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
 import { AppointmentStatus, Prisma, ProfessionalBranchStatus, TreatmentPlanStatus } from "@prisma/client";
+import { EmailService, AppointmentEmailData } from "../notifications/email.service";
+import { JwtService } from "@nestjs/jwt";
+import { ConfigService } from "@nestjs/config";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
@@ -28,6 +31,13 @@ const FREE_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.CANCELLED_RESCHEDULED,
   AppointmentStatus.NO_SHOW,
   AppointmentStatus.RESCHEDULED
+];
+
+const CANCELLATION_STATUSES: AppointmentStatus[] = [
+  AppointmentStatus.CANCELLED_BY_PATIENT,
+  AppointmentStatus.CANCELLED_BY_CLINIC,
+  AppointmentStatus.CANCELLED_CONFLICT,
+  AppointmentStatus.CANCELLED_RESCHEDULED
 ];
 
 const APPOINTMENT_STATUS_TRANSITIONS: Partial<Record<AppointmentStatus, AppointmentStatus[]>> = {
@@ -207,7 +217,77 @@ type PreparedAppointmentCreate = {
 
 @Injectable()
 export class AppointmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailService,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService
+  ) {}
+
+  async dispatchEmailNotification(appointmentId: string, type: "SCHEDULED" | "CONFIRMATION") {
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      include: { patient: true, professional: true, branch: true }
+    });
+    
+    if (!appointment) {
+      if (type === "CONFIRMATION") throw new NotFoundException("Appointment not found");
+      return;
+    }
+
+    const patientEmail = appointment.patient?.email?.trim();
+    if (!appointment.patient || !patientEmail) {
+      if (type === "CONFIRMATION") throw new BadRequestException("El paciente no tiene correo electronico registrado");
+      return;
+    }
+
+    const tz = appointment.branch.timezone || "America/Mexico_City";
+    const data: AppointmentEmailData = {
+      patientName: `${appointment.patient.firstName} ${appointment.patient.lastName}`.trim(),
+      professionalName: `${appointment.professional.firstName} ${appointment.professional.lastName}`.trim(),
+      dateStr: new Intl.DateTimeFormat("es-MX", { month: "long", day: "numeric", timeZone: tz }).format(appointment.startAt),
+      timeStr: new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }).format(appointment.startAt) + " hrs",
+      address: [appointment.branch.address, appointment.branch.city, appointment.branch.state].filter(Boolean).join(", "),
+      clinicPhone: appointment.branch.phone || "+525555555555"
+    };
+
+    if (type === "SCHEDULED") {
+      await this.emailService.sendAppointmentScheduled(patientEmail, data);
+    } else if (type === "CONFIRMATION") {
+      const secret = this.configService.get<string>("JWT_ACCESS_SECRET") || "secret";
+      const frontendUrl = this.resolveConfirmationFrontendUrl();
+      if (Math.floor(appointment.startAt.getTime() / 1000) - Math.floor(Date.now() / 1000) <= 0) {
+        throw new BadRequestException("No se puede enviar confirmacion por email para una cita pasada");
+      }
+      const expSeconds = Math.floor(appointment.startAt.getTime() / 1000) - Math.floor(Date.now() / 1000);
+      
+      if (expSeconds <= 0) return; // Ya pasó la cita
+      
+      const token = this.jwtService.sign({ sub: appointment.id }, { secret, expiresIn: expSeconds });
+      data.confirmUrl = this.buildConfirmationUrl(frontendUrl, appointment.id, token);
+      await this.emailService.sendAppointmentConfirmationRequired(patientEmail, data);
+    }
+  }
+
+  private resolveConfirmationFrontendUrl() {
+    const value = this.configService.get<string>("FRONTEND_URL")?.trim();
+    if (!value) {
+      throw new ServiceUnavailableException("FRONTEND_URL no esta configurado para generar enlaces de confirmacion");
+    }
+
+    try {
+      return new URL(value);
+    } catch {
+      throw new ServiceUnavailableException("FRONTEND_URL no es una URL valida");
+    }
+  }
+
+  private buildConfirmationUrl(frontendUrl: URL, appointmentId: string, token: string) {
+    const url = new URL("/confirm-appointment", frontendUrl);
+    url.searchParams.set("id", appointmentId);
+    url.searchParams.set("token", token);
+    return url.toString();
+  }
 
   async findAll(actor: AuthUser, query: AppointmentQueryDto) {
     const { skip, take } = resolvePagination(query);
@@ -324,6 +404,8 @@ export class AppointmentsService {
       return this.createAppointmentInTransaction(tx, actor, prepared, dto.treatmentPlanId);
     });
 
+    await this.dispatchEmailNotification(created.id, "SCHEDULED");
+
     return this.findOne(actor, created.id);
   }
 
@@ -429,6 +511,10 @@ export class AppointmentsService {
       id
     );
 
+    if (status !== current.status && status === AppointmentStatus.NOTIFIED_BY_EMAIL) {
+      await this.dispatchStatusSideEffects(id, status);
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.appointment.update({
         where: { id },
@@ -457,6 +543,10 @@ export class AppointmentsService {
       await this.audit(tx, actor, id, "update", { status, startAt, endAt });
     });
 
+    if (status !== current.status && status !== AppointmentStatus.NOTIFIED_BY_EMAIL) {
+      await this.dispatchStatusSideEffects(id, status);
+    }
+
     return this.findOne(actor, id);
   }
 
@@ -468,6 +558,21 @@ export class AppointmentsService {
 
   async confirm(actor: AuthUser, id: string) {
     return this.changeStatus(actor, id, AppointmentStatus.CONFIRMED, "Confirmado");
+  }
+
+  async changeAppointmentStatus(actor: AuthUser, id: string, status: AppointmentStatus, reason?: string) {
+    if (this.isCancellationStatus(status)) {
+      throw new BadRequestException("Usa el flujo de cancelacion para cancelar una cita");
+    }
+    if (status === AppointmentStatus.RESCHEDULED) {
+      throw new BadRequestException("Usa el flujo de reagendado para reagendar una cita");
+    }
+
+    return this.changeStatus(actor, id, status, reason?.trim() || this.defaultStatusReason(status));
+  }
+
+  async confirmByEmail(actor: AuthUser, id: string) {
+    return this.changeStatus(actor, id, AppointmentStatus.CONFIRMED_BY_EMAIL, "Confirmado por el paciente via enlace publico de email");
   }
 
   async cancel(actor: AuthUser, id: string, dto: CancelAppointmentDto) {
@@ -750,6 +855,11 @@ export class AppointmentsService {
     const current = await this.findOne(actor, id);
     if (current.status === newStatus) return current;
     this.assertStatusTransition(current.status, newStatus);
+
+    if (newStatus === AppointmentStatus.NOTIFIED_BY_EMAIL) {
+      await this.dispatchStatusSideEffects(id, newStatus);
+    }
+
     await this.prisma.$transaction(async (tx) => {
       await tx.appointment.update({
         where: { id },
@@ -762,7 +872,24 @@ export class AppointmentsService {
       await this.createStatusHistory(tx, id, current.status, newStatus, actor.id, reason);
       await this.audit(tx, actor, id, "status_change", { previousStatus: current.status, newStatus, reason });
     });
+
+    if (newStatus !== AppointmentStatus.NOTIFIED_BY_EMAIL) {
+      await this.dispatchStatusSideEffects(id, newStatus);
+    }
+
     return this.findOne(actor, id);
+  }
+
+  private async dispatchStatusSideEffects(id: string, newStatus: AppointmentStatus) {
+    if (newStatus === AppointmentStatus.NOTIFIED_BY_EMAIL) {
+      await this.dispatchEmailNotification(id, "CONFIRMATION");
+    }
+  }
+
+  private defaultStatusReason(status: AppointmentStatus) {
+    if (status === AppointmentStatus.NOTIFIED_BY_EMAIL) return "Enviado para confirmacion por email";
+    if (status === AppointmentStatus.CONFIRMED_BY_EMAIL) return "Marcado como confirmado por email";
+    return "Actualizacion manual";
   }
 
   private assertStatusTransition(currentStatus: AppointmentStatus, newStatus: AppointmentStatus) {
@@ -777,7 +904,7 @@ export class AppointmentsService {
   }
 
   private isCancellationStatus(status: AppointmentStatus) {
-    return status === AppointmentStatus.CANCELLED_BY_PATIENT || status === AppointmentStatus.CANCELLED_BY_CLINIC;
+    return CANCELLATION_STATUSES.includes(status);
   }
 
   private async ensureAppointmentAccess(actor: AuthUser, id: string) {

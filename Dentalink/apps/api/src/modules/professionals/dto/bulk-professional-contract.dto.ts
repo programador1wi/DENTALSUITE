@@ -21,6 +21,24 @@ export class BulkProfessionalContractCategoryRateDto {
   rate!: number;
 }
 
+export class BulkProfessionalContractFixedAmountDto {
+  @IsString()
+  procedureId!: string;
+
+  @IsOptional()
+  @IsString()
+  priceListId?: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  amount!: number;
+
+  @IsOptional()
+  @IsIn(["MXN", "USD", "EUR"])
+  currency?: "MXN" | "USD" | "EUR";
+}
+
 export class BulkProfessionalContractDto {
   @IsArray()
   @ValidateNested({ each: true })
@@ -54,6 +72,12 @@ export class BulkProfessionalContractDto {
   @ValidateNested({ each: true })
   @Type(() => BulkProfessionalContractCategoryRateDto)
   categoryRates?: BulkProfessionalContractCategoryRateDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BulkProfessionalContractFixedAmountDto)
+  fixedAmounts?: BulkProfessionalContractFixedAmountDto[];
 
   @IsOptional()
   @IsBoolean()

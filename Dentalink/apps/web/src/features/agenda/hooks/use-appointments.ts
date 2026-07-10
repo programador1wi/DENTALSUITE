@@ -20,7 +20,9 @@ import {
   startAppointment,
   updateAppointmentReminder,
   updateAppointment,
+  updateAppointmentStatus,
   waitingRoomAppointment,
+  type AppointmentStatus,
   type AppointmentNotePayload,
   type AppointmentPayload,
   type AppointmentQuery,
@@ -55,6 +57,7 @@ export function useAvailability(params: {
   chairId?: string;
   date: string;
   durationMinutes?: string;
+  excludeAppointmentId?: string;
 }) {
   return useQuery({
     queryKey: ["appointments", "availability", params],
@@ -180,6 +183,11 @@ export function useAppointmentActions() {
     start: useMutation({ mutationFn: startAppointment, ...options }),
     complete: useMutation({ mutationFn: completeAppointment, ...options }),
     noShow: useMutation({ mutationFn: noShowAppointment, ...options }),
+    changeStatus: useMutation({
+      mutationFn: ({ id, status, reason }: { id: string; status: AppointmentStatus; reason?: string }) =>
+        updateAppointmentStatus(id, { status, reason }),
+      ...options
+    }),
     remove: useMutation({ mutationFn: deleteAppointment, ...options }),
     cancel: useMutation({
       mutationFn: ({ id, reason, cancelledBy }: { id: string; reason: string; cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled" }) =>

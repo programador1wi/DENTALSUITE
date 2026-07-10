@@ -16,6 +16,7 @@ import { useTreatmentMutations, useTreatmentPlans } from "../hooks/use-treatment
 import type { TreatmentPlanStatus } from "../services/treatments.service";
 
 const STATUS_OPTIONS: TreatmentPlanStatus[] = ["DRAFT", "PRESENTED", "ACCEPTED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "REJECTED"];
+const CLOSED_PLAN_STATUSES = new Set<TreatmentPlanStatus>(["CANCELLED", "REJECTED"]);
 
 export function TreatmentPlansPage() {
   const { branchId, setBranchId } = useActiveBranchFilter();
@@ -32,6 +33,7 @@ export function TreatmentPlansPage() {
   const mutations = useTreatmentMutations();
 
   const selected = useMemo(() => plans.data?.find((plan) => plan.id === selectedPlanId) ?? null, [plans.data, selectedPlanId]);
+  const selectedIsClosed = selected ? CLOSED_PLAN_STATUSES.has(selected.status) : false;
 
   if (plans.isLoading) return <LoadingState message="Cargando planes de tratamiento..." />;
   if (plans.isError) return <ErrorState message={plans.error.message} />;
@@ -93,6 +95,9 @@ export function TreatmentPlansPage() {
 
       <DataTable
         rows={plans.data ?? []}
+        stickyFirstColumn={true}
+        stickyLastColumn={true}
+        responsiveCards={true}
         empty={<EmptyState title="Sin planes" description="No hay planes para los filtros seleccionados." />}
         columns={[
           {
@@ -130,7 +135,12 @@ export function TreatmentPlansPage() {
                 <Button variant="secondary" onClick={() => setSelectedPlanId(row.id)}>
                   Ver detalle
                 </Button>
-                <Button onClick={() => mutations.createBudget.mutate({ treatmentPlanId: row.id })}>Generar presupuesto</Button>
+                <Button
+                  disabled={CLOSED_PLAN_STATUSES.has(row.status)}
+                  onClick={() => mutations.createBudget.mutate({ treatmentPlanId: row.id })}
+                >
+                  Generar presupuesto
+                </Button>
               </div>
             )
           }
@@ -148,6 +158,7 @@ export function TreatmentPlansPage() {
               <div className="flex items-center gap-1.5">
                 <Button
                   variant="secondary"
+                  disabled={selectedIsClosed}
                   onClick={() => mutations.updateTreatmentPlan.mutate({ id: selected.id, payload: { status: "PRESENTED" } })}
                 >
                   Marcar presentado
@@ -155,11 +166,31 @@ export function TreatmentPlansPage() {
                 <HelpTooltip content="Cambia el estado del plan a 'Presentado' para registrar que las opciones clínicas y el presupuesto fueron formalmente explicados y mostrados al paciente en consulta." />
               </div>
               <div className="flex items-center gap-1.5">
-                <Button onClick={() => mutations.updateTreatmentPlan.mutate({ id: selected.id, payload: { status: "IN_PROGRESS" } })}>
+                <Button
+                  disabled={selectedIsClosed}
+                  onClick={() => mutations.updateTreatmentPlan.mutate({ id: selected.id, payload: { status: "IN_PROGRESS" } })}
+                >
                   Iniciar
                 </Button>
                 <HelpTooltip content="Cambia el estado a 'En Progreso'. Activa el plan para que puedas registrar evoluciones clínicas de cada pieza dental tratada en las siguientes citas de atención." />
               </div>
+              {selectedIsClosed ? (
+                <Button
+                  variant="secondary"
+                  disabled={mutations.reactivateTreatmentPlan.isPending}
+                  onClick={() => mutations.reactivateTreatmentPlan.mutate({ id: selected.id })}
+                >
+                  Reactivar
+                </Button>
+              ) : (
+                <Button
+                  variant="danger"
+                  disabled={selected.status === "COMPLETED" || mutations.deactivateTreatmentPlan.isPending}
+                  onClick={() => mutations.deactivateTreatmentPlan.mutate({ id: selected.id })}
+                >
+                  Deshabilitar
+                </Button>
+              )}
             </div>
           </div>
           <div className="mt-3 flex items-center gap-1.5">

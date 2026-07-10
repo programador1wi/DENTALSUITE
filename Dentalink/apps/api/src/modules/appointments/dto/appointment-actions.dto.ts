@@ -1,4 +1,4 @@
-import { IsDateString, IsInt, IsOptional, IsString, Min } from "class-validator";
+import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, Min } from "class-validator";
 
 export class CancelAppointmentDto {
   @IsString()
@@ -40,6 +40,10 @@ export class RescheduleAppointmentDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowOverbooking?: boolean;
 }
 
 export class AppointmentStatusReasonDto {
@@ -65,4 +69,8 @@ export class AvailabilityQueryDto {
   @IsOptional()
   @IsString()
   durationMinutes?: string;
+
+  @IsOptional()
+  @IsString()
+  excludeAppointmentId?: string;
 }

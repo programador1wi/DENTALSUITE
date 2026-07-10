@@ -6,11 +6,13 @@ import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { useOrganizationSettings, useUpdateOrganizationSettings } from "../hooks/use-organization";
 
+const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
 function readLogo(event: ChangeEvent<HTMLInputElement>, onLoaded: (value: string) => void, onError: (message: string) => void) {
   const file = event.target.files?.[0];
   if (!file) return;
-  if (file.type !== "image/jpeg") {
-    onError("El logotipo debe ser una imagen JPG.");
+  if (!ALLOWED_MIME_TYPES.includes(file.type)) {
+    onError("El logotipo debe ser una imagen JPG, PNG o WebP.");
     return;
   }
 
@@ -36,17 +38,17 @@ export function OrganizationLogoSettingsPage() {
       <PageHeader
         title="Logotipo"
         description="Imagen institucional para documentos generados por la clinica."
-        helpText="Warner Suite usa el logotipo en presupuestos, recetas y documentos clinicos. Usa un JPG horizontal, idealmente de 230 x 76 px."
+        helpText="Warner Suite usa el logotipo en presupuestos, recetas y documentos clinicos. Usa una imagen horizontal (JPG, PNG o WebP), idealmente de 230 x 76 px."
       />
 
       <Card className="space-y-4">
         <div className="grid gap-4 lg:grid-cols-[minmax(280px,420px)_1fr]">
           <label className="text-sm font-medium text-slate-700">
-            Archivo JPG
+            Archivo de imagen (JPG, PNG, WebP)
             <input
               className="mt-2 block w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700"
               type="file"
-              accept="image/jpeg"
+              accept="image/jpeg,image/png,image/webp"
               onChange={(event) => readLogo(event, (value) => {
                 setError("");
                 setDraftLogo(value);

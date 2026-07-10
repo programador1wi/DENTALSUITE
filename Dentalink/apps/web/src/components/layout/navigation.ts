@@ -22,7 +22,8 @@ import {
   Stethoscope,
   UserCog,
   UsersRound,
-  WalletCards
+  WalletCards,
+  Building2
 } from "lucide-react";
 
 export type MenuSection = "administration" | "configuration";
@@ -81,6 +82,7 @@ export const navItems: MainNavItem[] = [
       { to: "/settings/banks", label: "Bancos y entidades financieras", permission: "settings.read", section: "configuration", icon: Landmark },
       { to: "/settings/clinical-documents", label: "Documentos clinicos", permission: ["clinical.read", "clinical.templates.manage"], section: "configuration", icon: FileText },
       { to: "/settings/consent-templates", label: "Consentimientos informados", permission: "consent_templates.read", section: "configuration", icon: FileCheck },
+      { to: "/settings/branches", label: "Sucursales", permission: "branches.read", section: "configuration", icon: Building2 },
       { to: "/settings/logo", label: "Logotipo", permission: "settings.read", section: "configuration", icon: Image },
       { to: "/settings/payment-methods", label: "Opciones de pago", permission: "payment_methods.read", section: "configuration", icon: Receipt },
       { to: "/payments/cancelled-pending", label: "Pagos anulados y pendientes", permission: "payments.read", section: "configuration", icon: Clock }
@@ -99,10 +101,11 @@ export const navItems: MainNavItem[] = [
       { to: "/reports/professionals", label: "Profesionales", permission: "reports.read", icon: UserCog }
     ]
   },
-  { to: "/dashboard", label: "CRM", icon: Handshake }
+  { to: "/integrations", label: "CRM", icon: Handshake, permission: "integrations.communications.read" }
 ];
 
 export function canSee(item: MenuItem, permissions: string[]) {
+  if (permissions.includes("system.manage_all")) return true;
   const requiredPermissions = Array.isArray(item.permission) ? item.permission : item.permission ? [item.permission] : [];
   return requiredPermissions.length === 0 || requiredPermissions.every((permission) => permissions.includes(permission));
 }

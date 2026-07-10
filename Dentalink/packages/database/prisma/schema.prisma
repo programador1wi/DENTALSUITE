@@ -235,6 +235,105 @@ enum RadiographyAnalysisStatus {
   CONFIRMED
 }
 
+enum CommunicationChannel {
+  EMAIL
+  WHATSAPP
+  SMS
+  PHONE
+  INTERNAL
+}
+
+enum CommunicationJobStatus {
+  PENDING
+  QUEUED
+  SENT
+  FAILED
+  CANCELLED
+}
+
+enum MessageDeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  RESPONDED
+  FAILED
+}
+
+enum SurveyType {
+  SATISFACTION
+  NPS
+  CUSTOM
+}
+
+enum SurveyStatus {
+  DRAFT
+  SCHEDULED
+  SENT
+  COMPLETED
+  CANCELLED
+}
+
+enum TelemedicineSessionStatus {
+  SCHEDULED
+  STARTED
+  COMPLETED
+  CANCELLED
+}
+
+enum ImportJobType {
+  PATIENTS
+  PROCEDURES
+  INVENTORY
+  PAYMENTS
+  CUSTOM
+}
+
+enum ImportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum DocumentRequirementStatus {
+  PENDING
+  SATISFIED
+  WAIVED
+  CANCELLED
+}
+
+enum DocumentRequirementScope {
+  PATIENT
+  TREATMENT_PLAN
+  PROCEDURE
+}
+
+enum PaymentWebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  IGNORED
+  FAILED
+}
+
+enum AiUseCase {
+  RADIOGRAPHY
+  CLINICAL_NOTE
+  REPORT
+  CRM
+  CONTROL
+  SMILE_SIMULATOR
+}
+
+enum AiRequestStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
 enum ProfessionalBranchStatus {
   ACTIVE
   PAUSED
@@ -333,6 +432,15 @@ model Organization {
   payrollDiscounts                 PayrollDiscount[]
   procedureEvolutionFieldTemplates ProcedureEvolutionFieldTemplate[]
   procedureInventoryTemplates      ProcedureInventoryTemplate[]
+  communicationJobs                CommunicationJob[]
+  surveys                          Survey[]
+  chatMessages                     ChatMessage[]
+  telemedicineSessions             TelemedicineSession[]
+  importJobs                       ImportJob[]
+  documentRequirements             DocumentRequirement[]
+  paymentWebhookEvents             PaymentWebhookEvent[]
+  aiRequests                       AiRequest[]
+  aiResults                        AiResult[]
 
   @@index([isActive])
   @@index([status])
@@ -361,6 +469,9 @@ model Branch {
   agendaEndHour                Int                           @default(19)
   isActive                     Boolean                       @default(true)
   code                         String?
+  dentalinkPlatformCode        String?
+  dentalinkSucursalId          Int?
+  dentalinkSucursalName        String?
   status                       BranchStatus                  @default(ACTIVE)
   users                        UserBranch[]
   professionalBranches         ProfessionalBranch[]
@@ -394,8 +505,10 @@ model Branch {
   procedureInventoryTemplates      ProcedureInventoryTemplate[]
 
   @@unique([organizationId, code])
+  @@unique([organizationId, dentalinkPlatformCode, dentalinkSucursalId])
   @@index([brandId])
   @@index([zoneId])
+  @@index([organizationId, dentalinkPlatformCode])
   @@index([organizationId, isActive])
   @@index([organizationId, status])
 }
@@ -493,6 +606,12 @@ model User {
   createdEvolutions              ClinicalEvolution[]         @relation("ClinicalEvolutionCreatedBy")
   annulledEvolutions             ClinicalEvolution[]         @relation("ClinicalEvolutionAnnulledBy")
   specialtyClinicalTemplates     SpecialtyClinicalTemplate[]
+  communicationJobsCreated       CommunicationJob[]          @relation("CommunicationJobCreatedBy")
+  chatMessagesSent               ChatMessage[]               @relation("ChatMessageSender")
+  importJobsCreated              ImportJob[]                 @relation("ImportJobCreatedBy")
+  documentRequirementsCreated    DocumentRequirement[]       @relation("DocumentRequirementCreatedBy")
+  documentRequirementsWaived     DocumentRequirement[]       @relation("DocumentRequirementWaivedBy")
+  aiRequestsRequested            AiRequest[]                 @relation("AiRequestRequestedBy")
 
   @@index([organizationId, isActive])
   @@index([organizationId, status])
@@ -620,6 +739,7 @@ model Professional {
   payrollLiquidations     PayrollLiquidation[]
   contracts               ProfessionalContract[]
   commissionRate          Decimal                       @default(0) @db.Decimal(5, 2)
+  telemedicineSessions    TelemedicineSession[]
   createdAt               DateTime                      @default(now())
   updatedAt               DateTime                      @updatedAt
 
@@ -998,6 +1118,7 @@ model Procedure {
   toothProcedures                  ToothProcedure[]
   treatmentPlanItems               TreatmentPlanItem[]
   consentTemplates                 ConsentTemplate[]
+  documentRequirements             DocumentRequirement[]
   createdAt                        DateTime                          @default(now())
   updatedAt                        DateTime                          @updatedAt
   fieldTemplates                   ProcedureEvolutionFieldTemplate[]
@@ -1213,6 +1334,12 @@ model Patient {
   payrollDiscounts      PayrollDiscount[]
   inventoryMovements    InventoryMovement[]
   inventoryProductSales InventoryProductSale[]
+  communicationJobs     CommunicationJob[]
+  surveys               Survey[]
+  chatMessages          ChatMessage[]
+  telemedicineSessions  TelemedicineSession[]
+  documentRequirements  DocumentRequirement[]
+  aiRequests            AiRequest[]
 
   @@index([organizationId, branchId, status])
   @@index([organizationId, phone])
@@ -1347,8 +1474,11 @@ model Appointment {
   updatedBy          User?                      @relation("AppointmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   statusHistory      AppointmentStatusHistory[]
   appointmentNotes   AppointmentNote[]
-  reminders          AppointmentReminder[]
-  clinicalEvolutions ClinicalEvolution[]
+  reminders            AppointmentReminder[]
+  communicationJobs    CommunicationJob[]
+  surveys              Survey[]
+  telemedicineSessions TelemedicineSession[]
+  clinicalEvolutions   ClinicalEvolution[]
   prescriptions      Prescription[]
   odontogramRecords  OdontogramRecord[]
   toothProcedures    ToothProcedure[]
@@ -1522,6 +1652,7 @@ model ClinicalDocument {
   deletedById  String?
   deletedBy    User?     @relation("ClinicalDocumentDeletedBy", fields: [deletedById], references: [id], onDelete: SetNull)
   deleteReason String?
+  documentRequirements DocumentRequirement[]
 
   @@index([patientId, createdAt])
   @@index([templateId])
@@ -1697,6 +1828,7 @@ model TreatmentPlan {
   consents              Consent[]
   labOrders             LabOrder[]
   prescriptions         Prescription[]
+  documentRequirements  DocumentRequirement[]
   acceptedAt            DateTime?
   completedAt           DateTime?
   createdAt             DateTime                     @default(now())
@@ -1864,6 +1996,8 @@ model Payment {
   refunds                Refund[]
   installments           Installment[]
   installmentAllocations PaymentInstallmentAllocation[]
+  communicationJobs      CommunicationJob[]
+  webhookEvents          PaymentWebhookEvent[]
   createdAt              DateTime                       @default(now())
   updatedAt              DateTime                       @updatedAt
 
@@ -1899,6 +2033,7 @@ model PaymentLink {
   status          PaymentLinkStatus @default(CREATED)
   expiresAt       DateTime?
   paidAt          DateTime?
+  webhookEvents   PaymentWebhookEvent[]
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -2320,6 +2455,7 @@ model FileAttachment {
   category            String
   noteAttachments     PatientNoteAttachment[]
   radiographyAnalysis RadiographyAnalysis?
+  documentRequirements DocumentRequirement[]
   createdAt           DateTime                @default(now())
   updatedAt           DateTime                @updatedAt
 
@@ -2389,6 +2525,7 @@ model Consent {
   status          ConsentStatus       @default(DRAFT)
   signedAt        DateTime?
   signatures      DocumentSignature[]
+  documentRequirements DocumentRequirement[]
   createdAt       DateTime            @default(now())
   updatedAt       DateTime            @updatedAt
 
@@ -2453,6 +2590,271 @@ model AppointmentReminder {
 
   @@index([appointmentId, scheduledAt])
   @@index([status, scheduledAt])
+}
+
+model CommunicationJob {
+  id                String                 @id @default(cuid())
+  organizationId    String
+  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patientId         String?
+  patient           Patient?               @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  appointmentId     String?
+  appointment       Appointment?           @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  paymentId         String?
+  payment           Payment?               @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  createdById       String?
+  createdBy         User?                  @relation("CommunicationJobCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  channel           CommunicationChannel
+  templateKey       String?
+  recipient         String
+  subject           String?
+  body              String
+  status            CommunicationJobStatus @default(PENDING)
+  provider          String                 @default("manual")
+  providerMessageId String?
+  scheduledAt       DateTime?
+  queuedAt          DateTime?
+  sentAt            DateTime?
+  failedAt          DateTime?
+  errorMessage      String?
+  metadata          Json?
+  deliveries        MessageDelivery[]
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@index([organizationId, status, scheduledAt])
+  @@index([patientId, createdAt])
+  @@index([appointmentId])
+  @@index([paymentId])
+}
+
+model MessageDelivery {
+  id                String                @id @default(cuid())
+  communicationJobId String
+  communicationJob   CommunicationJob     @relation(fields: [communicationJobId], references: [id], onDelete: Cascade)
+  status            MessageDeliveryStatus
+  provider          String                @default("manual")
+  providerMessageId String?
+  rawPayload        Json?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  respondedAt       DateTime?
+  failedAt          DateTime?
+  errorMessage      String?
+  createdAt         DateTime              @default(now())
+
+  @@index([communicationJobId, createdAt])
+  @@index([providerMessageId])
+  @@index([status, createdAt])
+}
+
+model Survey {
+  id             String               @id @default(cuid())
+  organizationId String
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patientId      String?
+  patient        Patient?             @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  appointmentId  String?
+  appointment    Appointment?         @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  type           SurveyType           @default(SATISFACTION)
+  channel        CommunicationChannel @default(EMAIL)
+  title          String
+  token          String               @unique
+  status         SurveyStatus         @default(DRAFT)
+  scheduledAt    DateTime?
+  sentAt         DateTime?
+  completedAt    DateTime?
+  score          Int?
+  comment        String?
+  metadata       Json?
+  npsResponse    NpsResponse?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([organizationId, status, createdAt])
+  @@index([patientId, createdAt])
+  @@index([appointmentId])
+}
+
+model NpsResponse {
+  id          String   @id @default(cuid())
+  surveyId    String   @unique
+  survey      Survey   @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  score       Int
+  category    String
+  comment     String?
+  respondedAt DateTime @default(now())
+
+  @@index([category, respondedAt])
+}
+
+model ChatMessage {
+  id             String   @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patientId      String?
+  patient        Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  senderUserId   String
+  senderUser     User     @relation("ChatMessageSender", fields: [senderUserId], references: [id], onDelete: Restrict)
+  body           String
+  threadKey      String?
+  readAt         DateTime?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId, threadKey, createdAt])
+  @@index([patientId, createdAt])
+  @@index([senderUserId, createdAt])
+}
+
+model TelemedicineSession {
+  id             String                    @id @default(cuid())
+  organizationId String
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patientId      String
+  patient        Patient                   @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  appointmentId  String?
+  appointment    Appointment?              @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  professionalId String?
+  professional   Professional?             @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  provider       String                    @default("manual")
+  joinUrl        String?
+  status         TelemedicineSessionStatus @default(SCHEDULED)
+  startsAt       DateTime
+  startedAt      DateTime?
+  endedAt        DateTime?
+  notes          String?
+  metadata       Json?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  @@index([organizationId, status, startsAt])
+  @@index([patientId, startsAt])
+  @@index([appointmentId])
+  @@index([professionalId, startsAt])
+}
+
+model ImportJob {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdById    String
+  createdBy      User            @relation("ImportJobCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  type           ImportJobType
+  status         ImportJobStatus @default(PENDING)
+  fileName       String?
+  totalRows      Int             @default(0)
+  successRows    Int             @default(0)
+  errorRows      Int             @default(0)
+  summary        Json?
+  errors         Json?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([organizationId, type, status])
+  @@index([createdById, createdAt])
+}
+
+model DocumentRequirement {
+  id                 String                    @id @default(cuid())
+  organizationId     String
+  organization       Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patientId          String?
+  patient            Patient?                  @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  treatmentPlanId    String?
+  treatmentPlan      TreatmentPlan?            @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  procedureId        String?
+  procedure          Procedure?                @relation(fields: [procedureId], references: [id], onDelete: SetNull)
+  clinicalDocumentId String?
+  clinicalDocument   ClinicalDocument?         @relation(fields: [clinicalDocumentId], references: [id], onDelete: SetNull)
+  consentId          String?
+  consent            Consent?                  @relation(fields: [consentId], references: [id], onDelete: SetNull)
+  fileAttachmentId   String?
+  fileAttachment     FileAttachment?           @relation(fields: [fileAttachmentId], references: [id], onDelete: SetNull)
+  createdById        String
+  createdBy          User                      @relation("DocumentRequirementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  waivedById         String?
+  waivedBy           User?                     @relation("DocumentRequirementWaivedBy", fields: [waivedById], references: [id], onDelete: SetNull)
+  scope              DocumentRequirementScope  @default(PATIENT)
+  name               String
+  description        String?
+  requiredBefore     String?
+  status             DocumentRequirementStatus @default(PENDING)
+  dueAt              DateTime?
+  satisfiedAt        DateTime?
+  waivedAt           DateTime?
+  waiverReason       String?
+  metadata           Json?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+
+  @@index([organizationId, status, dueAt])
+  @@index([patientId, status])
+  @@index([treatmentPlanId, status])
+  @@index([procedureId, status])
+}
+
+model PaymentWebhookEvent {
+  id             String                    @id @default(cuid())
+  organizationId String?
+  organization   Organization?             @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  paymentLinkId  String?
+  paymentLink    PaymentLink?              @relation(fields: [paymentLinkId], references: [id], onDelete: SetNull)
+  paymentId      String?
+  payment        Payment?                  @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  provider       String
+  eventId        String
+  eventType      String
+  idempotencyKey String
+  status         PaymentWebhookEventStatus @default(RECEIVED)
+  payload        Json
+  errorMessage   String?
+  receivedAt     DateTime                  @default(now())
+  processedAt    DateTime?
+
+  @@unique([provider, idempotencyKey])
+  @@index([organizationId, status, receivedAt])
+  @@index([paymentLinkId])
+  @@index([paymentId])
+}
+
+model AiRequest {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patientId      String?
+  patient        Patient?        @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  requestedById  String
+  requestedBy    User            @relation("AiRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  useCase        AiUseCase
+  provider       String          @default("manual")
+  prompt         String?
+  input          Json?
+  status         AiRequestStatus @default(PENDING)
+  errorMessage   String?
+  result         AiResult?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([organizationId, useCase, status])
+  @@index([patientId, createdAt])
+  @@index([requestedById, createdAt])
+}
+
+model AiResult {
+  id             String      @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  aiRequestId    String      @unique
+  aiRequest      AiRequest   @relation(fields: [aiRequestId], references: [id], onDelete: Cascade)
+  output         Json
+  summary        String?
+  confidence     Decimal?    @db.Decimal(5, 2)
+  createdAt      DateTime    @default(now())
+
+  @@index([organizationId, createdAt])
 }
 
 model Session {

@@ -52,6 +52,8 @@ export function AppointmentDurationModal({
         durationMinutes: minutes
       });
       onClose();
+    } catch {
+      // The mutation hook surfaces the backend validation error and the modal stays open.
     } finally {
       setSubmitting(false);
     }

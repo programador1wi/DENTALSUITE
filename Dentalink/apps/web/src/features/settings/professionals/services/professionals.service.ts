@@ -72,8 +72,24 @@ export type BulkProfessionalContractPayload = {
   contractType: "performed_and_paid" | "performed";
   priceListId?: string;
   categoryRates?: { procedureCategoryId: string; rate: number }[];
+  fixedAmounts?: { procedureId: string; priceListId?: string; amount: number; currency?: "MXN" | "USD" | "EUR" }[];
   removeOtherBranches?: boolean;
   keepPrevious?: boolean;
+};
+
+export type BulkProfessionalContractPreview = {
+  professionals: number;
+  branches: number;
+  scopes: number;
+  contractsToCreate: number;
+  currentContractsToClose: number;
+  otherContractsToClose: number;
+  fixedAmounts: number;
+  categoryRates: number;
+  priceListId?: string | null;
+  priceListName?: string | null;
+  zoneCodes: string[];
+  warnings: string[];
 };
 
 export type BulkProfessionalContractResult = {
@@ -126,5 +142,10 @@ export async function transferProfessionalBranch(payload: ProfessionalBranchTran
 
 export async function bulkUpdateProfessionalContracts(payload: BulkProfessionalContractPayload) {
   const { data } = await http.post<BulkProfessionalContractResult>("/professionals/contracts/bulk", payload);
+  return data;
+}
+
+export async function previewBulkProfessionalContracts(payload: BulkProfessionalContractPayload) {
+  const { data } = await http.post<BulkProfessionalContractPreview>("/professionals/contracts/bulk/preview", payload);
   return data;
 }

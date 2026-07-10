@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useImperativeHandle } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useImperativeHandle } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Check, Search } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
@@ -202,7 +202,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
       maxHeight: 300
     });
 
-    useEffect(() => {
+    useLayoutEffect(() => {
       if (!open) return;
 
       const updateCoords = () => {
@@ -265,8 +265,11 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           type="button"
           onClick={() => !disabled && setOpen(!open)}
           className={cn(
-            "flex h-10 w-full items-center justify-between rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--text-sm)] text-[var(--text-primary)] shadow-sm outline-none transition-all duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:border-[var(--border-strong)] focus:border-[var(--border-brand)] focus:ring-2 focus:ring-[var(--focus-ring)]",
-            disabled && "cursor-not-allowed opacity-50 bg-[var(--bg-subtle)]",
+            "flex h-10 w-full items-center justify-between rounded-[var(--radius-md)] border px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--text-sm)] shadow-sm outline-none transition-all duration-[var(--duration-fast)] ease-[var(--ease-default)] cursor-pointer",
+            theme === "dark"
+              ? "border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.04)] text-[rgba(248,250,252,0.85)] hover:bg-[rgba(255,255,255,0.08)] hover:border-[rgba(255,255,255,0.15)] focus:border-[var(--border-brand)] focus:ring-[var(--focus-ring)]"
+              : "border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-strong)] focus:border-[var(--border-brand)] focus:ring-2 focus:ring-[var(--focus-ring)]",
+            disabled && (theme === "dark" ? "cursor-not-allowed opacity-40 bg-white/5" : "cursor-not-allowed opacity-50 bg-[var(--bg-subtle)]"),
             open && "border-[var(--border-brand)] ring-2 ring-[var(--focus-ring)]",
             className
           )}
@@ -275,7 +278,8 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           <span className="line-clamp-2 pr-4 font-medium text-left" title={displayLabel}>{displayLabel}</span>
           <ChevronDown
             className={cn(
-              "h-4 w-4 text-[var(--text-secondary)] transition-transform duration-[var(--duration-fast)]",
+              "h-4 w-4 transition-transform duration-[var(--duration-fast)]",
+              theme === "dark" ? "text-[rgba(248,250,252,0.5)]" : "text-[var(--text-secondary)]",
               open && "rotate-180 text-[var(--text-brand)]"
             )}
           />
@@ -286,24 +290,25 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           <div
             ref={dropdownRef}
             className={cn(
-              "fixed z-[2000] mt-0 flex flex-col overflow-hidden rounded-[var(--radius-lg)] border p-1 shadow-2xl animate-in fade-in-50 duration-[var(--duration-fast)]",
+              "fixed z-[2000] mt-0 flex flex-col overflow-hidden rounded-[var(--radius-lg)] border p-1.5 shadow-2xl animate-in fade-in-50 duration-[var(--duration-fast)]",
+              coords.top === 0 && coords.left === 0 && "opacity-0 pointer-events-none",
               coords.direction === "up" ? "slide-in-from-bottom-1 origin-bottom" : "slide-in-from-top-1 origin-top",
               theme === "dark"
-                ? "border-slate-850 bg-slate-950/95 backdrop-blur-xl text-white shadow-black/45"
+                ? "border-slate-800/80 bg-slate-950/90 backdrop-blur-xl text-white shadow-2xl shadow-black/50"
                 : "border-[var(--border-default)]/90 bg-white/95 backdrop-blur-md text-[var(--text-primary)] shadow-[0_12px_30px_rgba(4,44,83,0.12)]",
               dropdownClassName
             )}
             style={{
               top: coords.top,
               left: coords.left,
-              width: `${Math.max(220, coords.width)}px`,
+              width: `${Math.max(280, coords.width)}px`,
               transform: coords.direction === "up" ? "translateY(-100%)" : "none",
               maxHeight: `${coords.maxHeight}px`
             }}
           >
             {hasSearch && (
               <div className={cn(
-                "flex items-center gap-2 border-b px-2 py-1.5 mb-1",
+                "flex items-center gap-2 border-b px-2 py-1.5 mb-1.5",
                 theme === "dark" ? "border-slate-850/80" : "border-[var(--border-default)]/60"
               )}>
                 <Search className={cn("h-3.5 w-3.5 shrink-0", theme === "dark" ? "text-slate-400" : "text-[var(--text-secondary)]")} />
@@ -321,7 +326,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
               </div>
             )}
 
-            <div className="flex-1 min-h-0 overflow-y-auto pr-0.5 custom-scrollbar">
+            <div className="flex-1 min-h-0 overflow-y-auto pr-0.5 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-white/20">
               {filteredItems.length > 0 ? (
                 (() => {
                   let isUnderGroup = false;
@@ -358,16 +363,16 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
                       }
 
                       return (
-                        <div key={`group-${idx}`} className="mt-4 first:mt-1">
+                        <div key={`group-${idx}`} className="mt-2.5 first:mt-1">
                           {!isFirstGroup && (
                             <div className={cn(
-                              "h-px w-full mb-3",
+                              "h-px w-full mb-2",
                               theme === "dark" ? "bg-slate-800/80" : "bg-slate-250/60"
                             )} />
                           )}
-                          <div className="flex items-center gap-2 mb-2 px-1">
+                          <div className="flex items-center gap-2 mb-1.5 px-1">
                             <span className={cn(
-                              "px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-widest border flex items-center gap-1 shadow-sm",
+                              "px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase tracking-widest border flex items-center gap-1 shadow-sm",
                               badgeColors
                             )}>
                               <span className="h-1.5 w-1.5 rounded-full bg-current" />
@@ -403,16 +408,15 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
                         disabled={item.disabled}
                         onClick={() => handleSelect(item.value)}
                         className={cn(
-                          "relative flex w-full items-center justify-between rounded-[var(--radius-md)] py-2 text-left text-[var(--text-sm)] transition-all duration-[var(--duration-fast)]",
+                          "relative flex w-full items-center justify-between rounded-[var(--radius-md)] py-1.5 text-left text-[13px] transition-colors duration-[var(--duration-fast)]",
                           isUnderGroup ? "pl-7 pr-3" : "px-3",
                           theme === "dark"
                             ? isSelected
                               ? "bg-sky-500/15 font-semibold text-sky-400"
-                              : "text-slate-300 hover:bg-slate-800/50 hover:text-white hover:pl-8"
+                              : "text-slate-300 hover:bg-slate-800/40 hover:text-white"
                             : isSelected
                               ? "bg-[var(--bg-brand-light)] font-semibold text-[var(--text-brand)]"
-                              : "text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] hover:pl-4",
-                          isUnderGroup && !isSelected && "hover:pl-8",
+                              : "text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]/75",
                           item.disabled && "cursor-not-allowed opacity-40 hover:bg-transparent"
                         )}
                       >
@@ -422,7 +426,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
                         <span className="line-clamp-2" title={item.label}>{item.label}</span>
                         {isSelected && (
                           <Check className={cn(
-                            "h-4 w-4 shrink-0 ml-2",
+                            "h-3.5 w-3.5 shrink-0 ml-2",
                             theme === "dark" ? "text-sky-400" : "text-[var(--text-brand)]"
                           )} />
                         )}

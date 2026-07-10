@@ -15,6 +15,10 @@ export type Branch = {
   agendaSlotMinutes?: number | null;
   agendaStartHour?: number | null;
   agendaEndHour?: number | null;
+  dentalinkPlatformCode?: string | null;
+  dentalinkSucursalId?: number | null;
+  dentalinkSucursalName?: string | null;
+  isActive?: boolean;
   status: "ACTIVE" | "INACTIVE";
 };
 

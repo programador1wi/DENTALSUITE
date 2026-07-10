@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import {
+  AlertTriangle,
+  Building2,
   CalendarClock,
+  CheckCircle2,
   FilePenLine,
+  Mail,
+  ShieldCheck,
   Stethoscope,
   UserPen,
   UserRoundCheck,
@@ -9,6 +14,7 @@ import {
   UserRoundX
 } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils/cn";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
@@ -43,8 +49,12 @@ import { useAuthStore } from "@/stores/auth.store";
 import { useBranchStore } from "@/stores/branch.store";
 import { usePermissions } from "@/hooks/use-permissions";
 import { UsersModuleNav } from "../components/users-module-nav";
-import { useCreateUser, useDeactivateUser, useUpdateUser, useUsersQuery } from "../hooks/use-users";
+import { useCreateUser, useDeactivateUser, useReactivateUser, useUpdateUser, useUsersQuery } from "../hooks/use-users";
 import type { UserListItem } from "../services/users.service";
+import {
+  validateCollaboratorForm,
+  type CollaboratorFormErrorKey
+} from "../utils/collaborator-form-validation";
 
 type UserForm = {
   branchIds: string[];
@@ -61,6 +71,7 @@ type UserKind = "STAFF" | "CEYE" | "PROFESSIONAL" | "ADMIN";
 
 type CollaboratorProfessionalForm = {
   enabled: boolean;
+  branchId: string;
   licenseNumber: string;
   specialtyIds: string[];
   color: string;
@@ -92,6 +103,7 @@ const emptyUserForm: UserForm = {
 
 const emptyProfessionalForm: CollaboratorProfessionalForm = {
   enabled: false,
+  branchId: "",
   licenseNumber: "",
   specialtyIds: [],
   color: "#111827",
@@ -156,6 +168,15 @@ function formFromUser(user: UserListItem): UserForm {
   };
 }
 
+function defaultProfessionalBranchIdFromUser(user: UserListItem, preferredBranchId?: string | null) {
+  return (
+    user.branches.find((branch) => branch.id === preferredBranchId)?.id ??
+    user.branches.find((branch) => branch.isPrimary)?.id ??
+    user.branches[0]?.id ??
+    ""
+  );
+}
+
 function inferUserKind(roleName?: string | null): UserKind {
   const match = userKindOptions.find((option) => option.rolePattern.test(roleName ?? ""));
   return match?.value ?? "STAFF";
@@ -183,6 +204,10 @@ function numberOrUndefined(value: string) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function errorMessageFromUnknown(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
 export function UsersPage() {
   const actorId = useAuthStore((state) => state.user?.id);
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
@@ -195,6 +220,11 @@ export function UsersPage() {
   const [userKind, setUserKind] = useState<UserKind>("STAFF");
   const [professionalForm, setProfessionalForm] = useState<CollaboratorProfessionalForm>(emptyProfessionalForm);
   const [documentFiles, setDocumentFiles] = useState<Partial<Record<PersonnelDocumentCategory, File>>>({});
+  const [formErrors, setFormErrors] = useState<Partial<Record<CollaboratorFormErrorKey, string>>>({});
+  const [showValidationErrors, setShowValidationErrors] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [modalWarning, setModalWarning] = useState<string | null>(null);
+  const [partialUser, setPartialUser] = useState<UserListItem | null>(null);
   const [contractUser, setContractUser] = useState<UserListItem | null>(null);
   const [commissionRate, setCommissionRate] = useState("");
 
@@ -205,10 +235,11 @@ export function UsersPage() {
   const branches = useBranches(undefined, "ACTIVE");
   const specialties = useSpecialties(undefined, "true");
   const professionals = useProfessionals(undefined, undefined, { branchId: activeBranchId || undefined, pageSize: 100 });
-  const chairs = useChairs(undefined, "true", userForm.primaryBranchId || undefined);
+  const chairs = useChairs(undefined, "true", professionalForm.branchId || userForm.primaryBranchId || undefined);
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const deactivateUser = useDeactivateUser();
+  const reactivateUser = useReactivateUser();
   const createProfessional = useCreateProfessional();
   const updateProfessional = useUpdateProfessional();
   const updateAgendaConfig = useUpdateProfessionalAgendaConfig();
@@ -223,6 +254,7 @@ export function UsersPage() {
     createUser.isPending ||
     updateUser.isPending ||
     deactivateUser.isPending ||
+    reactivateUser.isPending ||
     createProfessional.isPending ||
     updateProfessional.isPending ||
     updateAgendaConfig.isPending;
@@ -235,7 +267,46 @@ export function UsersPage() {
   const currentProfessional = editing
     ? professionalsByUserId.get(editing.id) ?? (editing.professional ? professionals.data?.find((professional) => professional.id === editing.professional?.id) : undefined)
     : undefined;
-  const primaryBranchChairs = chairs.data ?? [];
+  const professionalEnabled = userKind === "PROFESSIONAL" || professionalForm.enabled;
+  const clinicalBranchChairs = chairs.data ?? [];
+  const selectedRole = roles.data?.find((role) => role.id === userForm.roleId);
+  const selectedPrimaryBranch = branches.data?.find((branch) => branch.id === userForm.primaryBranchId);
+  const selectedClinicalBranch = branches.data?.find((branch) => branch.id === professionalForm.branchId);
+  const liveValidation = useMemo(
+    () =>
+      validateCollaboratorForm({
+        editing: Boolean(editing || partialUser),
+        firstName: userForm.firstName,
+        lastName: userForm.lastName,
+        email: userForm.email,
+        password: userForm.password,
+        roleId: userForm.roleId,
+        branchIds: userForm.branchIds,
+        primaryBranchId: userForm.primaryBranchId,
+        professionalEnabled,
+        professionalBranchId: professionalForm.branchId,
+        specialtyIds: professionalForm.specialtyIds,
+        commissionRate: professionalForm.commissionRate,
+        applyWeeklySchedule: professionalForm.applyWeeklySchedule,
+        workDays: professionalForm.workDays,
+        startTime: professionalForm.startTime,
+        endTime: professionalForm.endTime,
+        breakStartTime: professionalForm.breakStartTime,
+        breakEndTime: professionalForm.breakEndTime
+      }),
+    [editing, partialUser, professionalEnabled, professionalForm, userForm]
+  );
+  const submitDisabledReason = userMutationPending
+    ? "Guardando cambios..."
+    : liveValidation.firstMessage;
+  const canSubmitUserForm = !submitDisabledReason;
+  const fieldErrors: Partial<Record<CollaboratorFormErrorKey, string | undefined>> = {
+    ...(showValidationErrors ? liveValidation.errors : formErrors),
+    ...(userForm.email.trim() ? { email: liveValidation.errors.email } : {}),
+    ...(userForm.password.trim() ? { password: liveValidation.errors.password } : {}),
+    ...(professionalForm.commissionRate.trim() ? { commissionRate: liveValidation.errors.commissionRate } : {})
+  };
+  const validationSummary = showValidationErrors && !liveValidation.valid ? liveValidation.firstMessage : null;
 
   const changeStatus = (nextStatus: string) => {
     setSearchParams(nextStatus ? { status: nextStatus } : {});
@@ -257,8 +328,18 @@ export function UsersPage() {
       branchIds: initialBranchIds,
       primaryBranchId: initialBranchIds[0] ?? ""
     });
-    setProfessionalForm({ ...emptyProfessionalForm, enabled: true, applyWeeklySchedule: true });
+    setProfessionalForm({
+      ...emptyProfessionalForm,
+      enabled: true,
+      branchId: initialBranchIds[0] ?? "",
+      applyWeeklySchedule: true
+    });
     setDocumentFiles({});
+    setFormErrors({});
+    setShowValidationErrors(false);
+    setModalError(null);
+    setModalWarning(null);
+    setPartialUser(null);
     setUserFormOpen(true);
     setSearchParams(
       (current) => {
@@ -275,8 +356,13 @@ export function UsersPage() {
     const initialBranchIds = activeBranchId ? [activeBranchId] : [];
     setEditing(null);
     setUserForm({ ...emptyUserForm, branchIds: initialBranchIds, primaryBranchId: initialBranchIds[0] ?? "" });
-    setProfessionalForm(emptyProfessionalForm);
+    setProfessionalForm({ ...emptyProfessionalForm, branchId: initialBranchIds[0] ?? "" });
     setDocumentFiles({});
+    setFormErrors({});
+    setShowValidationErrors(false);
+    setModalError(null);
+    setModalWarning(null);
+    setPartialUser(null);
     setUserKind("STAFF");
     setUserFormOpen(true);
   };
@@ -293,9 +379,15 @@ export function UsersPage() {
       color: professional?.color ?? "#111827",
       commissionRate: String(professional?.commissionRate ?? user.professional?.commissionRate ?? "0"),
       agendaSlotMinutes: String(professional?.branches[0]?.agendaSlotMinutes ?? "20"),
-      defaultAppointmentDurationMinutes: String(professional?.branches[0]?.defaultAppointmentDurationMinutes ?? "40")
+      defaultAppointmentDurationMinutes: String(professional?.branches[0]?.defaultAppointmentDurationMinutes ?? "40"),
+      branchId: professional?.branches[0]?.id ?? defaultProfessionalBranchIdFromUser(user, activeBranchId)
     });
     setDocumentFiles({});
+    setFormErrors({});
+    setShowValidationErrors(false);
+    setModalError(null);
+    setModalWarning(null);
+    setPartialUser(null);
     setUserKind(inferUserKind(user.role?.name));
     setUserFormOpen(true);
   };
@@ -305,6 +397,11 @@ export function UsersPage() {
     setUserForm(emptyUserForm);
     setProfessionalForm(emptyProfessionalForm);
     setDocumentFiles({});
+    setFormErrors({});
+    setShowValidationErrors(false);
+    setModalError(null);
+    setModalWarning(null);
+    setPartialUser(null);
     setUserKind("STAFF");
     setUserFormOpen(false);
   };
@@ -314,13 +411,20 @@ export function UsersPage() {
       const branchIds = current.branchIds.includes(branchId)
         ? current.branchIds.filter((selectedBranchId) => selectedBranchId !== branchId)
         : [...current.branchIds, branchId];
+      const primaryBranchId = branchIds.includes(current.primaryBranchId)
+        ? current.primaryBranchId
+        : (branchIds[0] ?? "");
+
+      setProfessionalForm((professional) => ({
+        ...professional,
+        branchId: branchIds.includes(professional.branchId) ? professional.branchId : primaryBranchId,
+        chairId: branchIds.includes(professional.branchId) ? professional.chairId : ""
+      }));
 
       return {
         ...current,
         branchIds,
-        primaryBranchId: branchIds.includes(current.primaryBranchId)
-          ? current.primaryBranchId
-          : (branchIds[0] ?? "")
+        primaryBranchId
       };
     });
   };
@@ -331,7 +435,11 @@ export function UsersPage() {
 
   const applyUserKind = (kind: UserKind) => {
     setUserKind(kind);
-    setProfessionalForm((current) => ({ ...current, enabled: kind === "PROFESSIONAL" || Boolean(editing?.professional) }));
+    setProfessionalForm((current) => ({
+      ...current,
+      enabled: kind === "PROFESSIONAL" || Boolean(editing?.professional),
+      branchId: current.branchId || userForm.primaryBranchId || userForm.branchIds[0] || ""
+    }));
     const option = userKindOptions.find((item) => item.value === kind);
     const matchedRole = roles.data?.find((role) => option?.rolePattern.test(`${role.name} ${role.code ?? ""}`));
     if (matchedRole) setRole(matchedRole.id);
@@ -340,57 +448,73 @@ export function UsersPage() {
   const submitUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (
-      !userForm.firstName.trim() ||
-      !userForm.lastName.trim() ||
-      !userForm.roleId ||
-      !userForm.branchIds.length ||
-      !userForm.primaryBranchId
-    ) {
+    setModalError(null);
+    setModalWarning(null);
+    setShowValidationErrors(true);
+    setFormErrors(liveValidation.errors);
+
+    if (!liveValidation.valid) {
       return;
     }
 
-    const shouldCreateProfessionalProfile = userKind === "PROFESSIONAL" || professionalForm.enabled;
-    if (shouldCreateProfessionalProfile && !professionalForm.specialtyIds.length) return;
-
-    let savedUser: UserListItem;
-    if (editing) {
-      savedUser = await updateUser.mutateAsync({
-        id: editing.id,
-        payload: {
-          branchIds: userForm.branchIds,
-          firstName: userForm.firstName.trim(),
-          lastName: userForm.lastName.trim(),
-          password: userForm.password.trim() || undefined,
-          phone: userForm.phone.trim() || undefined,
-          primaryBranchId: userForm.primaryBranchId,
-          roleId: userForm.roleId
-        }
-      });
-    } else {
-      if (!userForm.email.trim() || userForm.password.trim().length < 8) return;
-
-      savedUser = await createUser.mutateAsync({
+    try {
+      let savedUser: UserListItem;
+      const updatePayload = {
         branchIds: userForm.branchIds,
-        email: userForm.email.trim(),
         firstName: userForm.firstName.trim(),
         lastName: userForm.lastName.trim(),
-        password: userForm.password.trim(),
+        password: userForm.password.trim() || undefined,
         phone: userForm.phone.trim() || undefined,
         primaryBranchId: userForm.primaryBranchId,
         roleId: userForm.roleId
-      });
-    }
+      };
 
-    if (shouldCreateProfessionalProfile) {
-      await saveProfessionalProfile(savedUser);
-    }
+      if (editing) {
+        savedUser = await updateUser.mutateAsync({
+          id: editing.id,
+          payload: updatePayload
+        });
+      } else if (partialUser) {
+        savedUser = await updateUser.mutateAsync({
+          id: partialUser.id,
+          payload: updatePayload
+        });
+      } else {
+        savedUser = await createUser.mutateAsync({
+          ...updatePayload,
+          email: userForm.email.trim(),
+          password: userForm.password.trim()
+        });
+      }
 
-    closeUserForm();
+      if (professionalEnabled) {
+        try {
+          await saveProfessionalProfile(savedUser);
+          setPartialUser(null);
+        } catch (error) {
+          const apiMessage = errorMessageFromUnknown(error, "No se pudo completar el perfil clinico.");
+          const message = "El usuario fue creado, pero falta completar su perfil clinico.";
+          setPartialUser(savedUser);
+          setModalError(`${message} ${apiMessage}`);
+          void users.refetch();
+          void professionals.refetch();
+          toast.error(message);
+          return;
+        }
+      }
+
+      closeUserForm();
+      toast.success(editing ? "Colaborador actualizado." : "Colaborador creado.");
+    } catch (error) {
+      const message = errorMessageFromUnknown(error, "No se pudo guardar el colaborador.");
+      setModalError(message);
+      toast.error(message);
+    }
   };
 
   const saveProfessionalProfile = async (savedUser: UserListItem) => {
     const existingProfessional = professionalsByUserId.get(savedUser.id) ?? currentProfessional;
+    const professionalBranchId = professionalForm.branchId || userForm.primaryBranchId;
     const professionalPayload = {
       userId: savedUser.id,
       firstName: userForm.firstName.trim(),
@@ -401,7 +525,7 @@ export function UsersPage() {
       color: professionalForm.color,
       commissionRate: numberOrUndefined(professionalForm.commissionRate),
       specialtyIds: professionalForm.specialtyIds,
-      branchIds: userForm.branchIds
+      branchIds: [professionalBranchId]
     };
 
     const professional = existingProfessional
@@ -410,10 +534,10 @@ export function UsersPage() {
 
     const agendaSlotMinutes = numberOrUndefined(professionalForm.agendaSlotMinutes);
     const defaultAppointmentDurationMinutes = numberOrUndefined(professionalForm.defaultAppointmentDurationMinutes);
-    if (userForm.primaryBranchId && (agendaSlotMinutes || defaultAppointmentDurationMinutes)) {
+    if (professionalBranchId && (agendaSlotMinutes || defaultAppointmentDurationMinutes)) {
       await updateAgendaConfig.mutateAsync({
         professionalId: professional.id,
-        branchId: userForm.primaryBranchId,
+        branchId: professionalBranchId,
         payload: {
           agendaSlotMinutes,
           defaultAppointmentDurationMinutes
@@ -421,11 +545,17 @@ export function UsersPage() {
       });
     }
 
-    if (professionalForm.applyWeeklySchedule && userForm.primaryBranchId) {
-      await saveWeeklySchedule(professional.id, userForm.primaryBranchId);
+    if (professionalForm.applyWeeklySchedule && professionalBranchId) {
+      await saveWeeklySchedule(professional.id, professionalBranchId);
     }
 
-    await uploadPersonnelDocuments(savedUser.id, professional.id);
+    try {
+      await uploadPersonnelDocuments(savedUser.id, professional.id);
+    } catch (error) {
+      const message = errorMessageFromUnknown(error, "No se pudieron subir todos los documentos del colaborador.");
+      setModalWarning(message);
+      toast.warning(message);
+    }
   };
 
   const saveWeeklySchedule = async (professionalId: string, branchId: string) => {
@@ -475,10 +605,7 @@ export function UsersPage() {
       return;
     }
 
-    await updateUser.mutateAsync({
-      id: user.id,
-      payload: { status: "ACTIVE" }
-    });
+    await reactivateUser.mutateAsync(user.id);
   };
 
   const canToggleUserStatus = (user: UserListItem) => (user.status === "ACTIVE" ? canDeactivateUser : canUpdateUser);
@@ -560,6 +687,9 @@ export function UsersPage() {
             <DataTable
               rows={users.data}
               tableClassName="w-full table-fixed"
+              stickyFirstColumn={true}
+              stickyLastColumn={true}
+              responsiveCards={true}
               empty={
                 <EmptyState
                   title="Sin usuarios"
@@ -648,7 +778,7 @@ export function UsersPage() {
                       {!row.professional && row.status === "ACTIVE" && canCreateProfessional ? (
                         <ActionLink
                           title="Crear perfil profesional"
-                          to={`/settings/professionals?userId=${row.id}&branchIds=${row.branches.map((branch) => branch.id).join(",")}`}
+                          to={`/settings/professionals?userId=${row.id}${defaultProfessionalBranchIdFromUser(row, activeBranchId) ? `&branchIds=${defaultProfessionalBranchIdFromUser(row, activeBranchId)}` : ""}`}
                         >
                           <Stethoscope className="h-4 w-4" />
                         </ActionLink>
@@ -685,13 +815,40 @@ export function UsersPage() {
       <Modal
         open={userFormOpen}
         title={editing ? "Editar colaborador" : "Nuevo colaborador"}
-        size="xl"
+        size="2xl"
         onClose={closeUserForm}
       >
-        <form className="space-y-4" onSubmit={submitUser}>
+        <form className="space-y-5" onSubmit={submitUser}>
           {roles.isLoading || branches.isLoading ? (
             <LoadingState message="Cargando perfiles y sucursales..." />
           ) : null}
+
+          {validationSummary ? <FormNotice tone="warning" message={validationSummary} /> : null}
+          {modalError ? <FormNotice tone="danger" message={modalError} /> : null}
+          {modalWarning ? <FormNotice tone="warning" message={modalWarning} /> : null}
+
+          <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3 sm:grid-cols-2 lg:grid-cols-4">
+            <SummaryItem
+              icon={<Mail className="h-4 w-4" />}
+              label="Acceso"
+              value={userForm.email || (editing ? editing.email : "Correo requerido")}
+            />
+            <SummaryItem
+              icon={<Building2 className="h-4 w-4" />}
+              label="Sucursal principal"
+              value={selectedPrimaryBranch?.name ?? "Pendiente"}
+            />
+            <SummaryItem
+              icon={<ShieldCheck className="h-4 w-4" />}
+              label="Rol"
+              value={selectedRole?.name ?? "Pendiente"}
+            />
+            <SummaryItem
+              icon={professionalEnabled ? <CheckCircle2 className="h-4 w-4" /> : <Stethoscope className="h-4 w-4" />}
+              label="Perfil clinico"
+              value={professionalEnabled ? selectedClinicalBranch?.name ?? "Sucursal pendiente" : "Sin agenda clinica"}
+            />
+          </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1 text-sm text-slate-700">
@@ -703,6 +860,7 @@ export function UsersPage() {
                   setUserForm((current) => ({ ...current, firstName: event.target.value }))
                 }
               />
+              <FieldError message={fieldErrors.firstName} />
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
               Apellido
@@ -711,16 +869,18 @@ export function UsersPage() {
                 value={userForm.lastName}
                 onChange={(event) => setUserForm((current) => ({ ...current, lastName: event.target.value }))}
               />
+              <FieldError message={fieldErrors.lastName} />
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
               Correo
               <Input
-                required={!editing}
-                disabled={Boolean(editing)}
+                required={!editing && !partialUser}
+                disabled={Boolean(editing || partialUser)}
                 type="email"
                 value={userForm.email}
                 onChange={(event) => setUserForm((current) => ({ ...current, email: event.target.value }))}
               />
+              <FieldError message={fieldErrors.email} />
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
               Telefono
@@ -730,25 +890,36 @@ export function UsersPage() {
               />
             </label>
             <label className="grid gap-1 text-sm text-slate-700">
-              {editing ? "Nueva contrasena opcional" : "Contrasena"}
+              {editing || partialUser ? "Nueva contrasena opcional" : "Contrasena"}
               <Input
-                required={!editing}
+                required={!editing && !partialUser}
                 minLength={8}
                 type="password"
                 value={userForm.password}
                 onChange={(event) => setUserForm((current) => ({ ...current, password: event.target.value }))}
               />
+              <FieldError message={fieldErrors.password} />
             </label>
-            <label className="grid gap-1 text-sm text-slate-700">
+            <div className="grid gap-1 text-sm text-slate-700">
               Tipo de usuario
-              <Select value={userKind} onChange={(event) => applyUserKind(event.target.value as UserKind)}>
+              <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-white p-1">
                 {userKindOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => applyUserKind(option.value)}
+                    className={cn(
+                      "h-9 rounded-md px-2 text-xs font-semibold transition-colors",
+                      userKind === option.value
+                        ? "bg-[var(--bg-brand-light)] text-[var(--text-brand-strong)]"
+                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                    )}
+                  >
                     {option.label}
-                  </option>
+                  </button>
                 ))}
-              </Select>
-            </label>
+              </div>
+            </div>
             <label className="grid gap-1 text-sm text-slate-700">
               Rol / perfil
               <Select
@@ -756,8 +927,16 @@ export function UsersPage() {
                 value={userForm.roleId}
                 onChange={(event) => {
                   const roleId = event.target.value;
+                  const nextKind = inferUserKind(roles.data?.find((role) => role.id === roleId)?.name);
                   setRole(roleId);
-                  setUserKind(inferUserKind(roles.data?.find((role) => role.id === roleId)?.name));
+                  setUserKind(nextKind);
+                  if (nextKind === "PROFESSIONAL") {
+                    setProfessionalForm((current) => ({
+                      ...current,
+                      enabled: true,
+                      branchId: current.branchId || userForm.primaryBranchId || userForm.branchIds[0] || ""
+                    }));
+                  }
                 }}
               >
                 <option value="">Selecciona perfil</option>
@@ -770,11 +949,20 @@ export function UsersPage() {
               <span className="text-xs leading-relaxed text-slate-500">
                 Los permisos se administran desde Perfiles; este usuario hereda todo desde el rol seleccionado.
               </span>
+              <FieldError message={fieldErrors.roleId} />
             </label>
           </div>
 
           <section className="rounded-lg border border-slate-200 p-3">
-            <h4 className="text-sm font-semibold text-slate-900">Sucursales de acceso</h4>
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-900">Acceso del usuario</h4>
+                <p className="mt-1 text-xs text-slate-500">
+                  Puede entrar a varias sucursales; la sucursal clinica del profesional se define aparte.
+                </p>
+              </div>
+              <Badge value={`${userForm.branchIds.length} seleccionada${userForm.branchIds.length === 1 ? "" : "s"}`} tone="default" />
+            </div>
             <div className="mt-2 grid max-h-36 gap-2 overflow-auto pr-1 sm:grid-cols-2">
               {(branches.data ?? []).map((branch) => (
                 <label key={branch.id} className="flex items-center gap-2 text-sm text-slate-600">
@@ -787,14 +975,20 @@ export function UsersPage() {
                 </label>
               ))}
             </div>
+            <FieldError message={fieldErrors.branchIds} />
             <label className="mt-3 grid gap-1 text-sm text-slate-700">
               Sucursal principal
               <Select
                 required
                 value={userForm.primaryBranchId}
-                onChange={(event) =>
-                  setUserForm((current) => ({ ...current, primaryBranchId: event.target.value }))
-                }
+                onChange={(event) => {
+                  const branchId = event.target.value;
+                  setUserForm((current) => ({ ...current, primaryBranchId: branchId }));
+                  setProfessionalForm((current) => ({
+                    ...current,
+                    branchId: current.branchId || branchId
+                  }));
+                }}
               >
                 <option value="">Selecciona sucursal</option>
                 {(branches.data ?? [])
@@ -805,6 +999,7 @@ export function UsersPage() {
                     </option>
                   ))}
               </Select>
+              <FieldError message={fieldErrors.primaryBranchId} />
             </label>
           </section>
 
@@ -819,18 +1014,50 @@ export function UsersPage() {
               <label className="flex items-center gap-2 text-sm text-slate-700">
                 <input
                   type="checkbox"
-                  checked={professionalForm.enabled}
+                  checked={professionalEnabled}
                   onChange={(event) =>
-                    setProfessionalForm((current) => ({ ...current, enabled: event.target.checked }))
+                    setProfessionalForm((current) => ({
+                      ...current,
+                      enabled: event.target.checked,
+                      branchId: event.target.checked
+                        ? current.branchId || userForm.primaryBranchId || userForm.branchIds[0] || ""
+                        : current.branchId
+                    }))
                   }
                 />
                 Crear perfil clinico
               </label>
             </div>
 
-            {professionalForm.enabled ? (
+            {professionalEnabled ? (
               <div className="mt-3 space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <label className="grid gap-1 text-sm text-slate-700">
+                    Sucursal clinica / agenda
+                    <Select
+                      value={professionalForm.branchId}
+                      onChange={(event) =>
+                        setProfessionalForm((current) => ({
+                          ...current,
+                          branchId: event.target.value,
+                          chairId: ""
+                        }))
+                      }
+                    >
+                      <option value="">Selecciona sucursal clinica</option>
+                      {(branches.data ?? [])
+                        .filter((branch) => userForm.branchIds.includes(branch.id))
+                        .map((branch) => (
+                          <option key={branch.id} value={branch.id}>
+                            {branch.name}
+                          </option>
+                        ))}
+                    </Select>
+                    <span className="text-xs leading-relaxed text-slate-500">
+                      Regla operativa: un profesional solo queda activo en una sucursal clinica.
+                    </span>
+                    <FieldError message={fieldErrors.professionalBranchId} />
+                  </label>
                   <label className="grid gap-1 text-sm text-slate-700">
                     Cedula
                     <Input
@@ -863,6 +1090,7 @@ export function UsersPage() {
                         setProfessionalForm((current) => ({ ...current, commissionRate: event.target.value }))
                       }
                     />
+                    <FieldError message={fieldErrors.commissionRate} />
                   </label>
                   <label className="grid gap-1 text-sm text-slate-700">
                     Intervalo agenda
@@ -907,7 +1135,7 @@ export function UsersPage() {
                       }
                     >
                       <option value="">Sin box fijo</option>
-                      {primaryBranchChairs.map((chair) => (
+                      {clinicalBranchChairs.map((chair) => (
                         <option key={chair.id} value={chair.id}>
                           {chair.name}
                         </option>
@@ -938,6 +1166,7 @@ export function UsersPage() {
                   {!professionalForm.specialtyIds.length ? (
                     <p className="mt-2 text-xs text-amber-700">Selecciona al menos una especialidad.</p>
                   ) : null}
+                  <FieldError message={fieldErrors.specialtyIds} />
                 </div>
 
                 <div className="rounded-md border border-slate-100 p-3">
@@ -1021,6 +1250,8 @@ export function UsersPage() {
                       </label>
                     ))}
                   </div>
+                  <FieldError message={fieldErrors.workDays} />
+                  <FieldError message={fieldErrors.schedule} />
                 </div>
 
                 <div className="rounded-md border border-slate-100 p-3">
@@ -1046,23 +1277,29 @@ export function UsersPage() {
             ) : null}
           </section>
 
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={closeUserForm}>
-              Cancelar
-            </Button>
-            <Button
-              type="submit"
-              disabled={
-                userMutationPending ||
-                !userForm.roleId ||
-                !userForm.branchIds.length ||
-                !userForm.primaryBranchId ||
-                ((userKind === "PROFESSIONAL" || professionalForm.enabled) && !professionalForm.specialtyIds.length) ||
-                (!editing && userForm.password.trim().length < 8)
-              }
-            >
-              {editing ? "Actualizar colaborador" : "Crear colaborador"}
-            </Button>
+          <div className="flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-h-5 text-xs text-slate-500">
+              {submitDisabledReason && !userMutationPending ? (
+                <span className="inline-flex items-center gap-1 text-amber-700">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {submitDisabledReason}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={closeUserForm}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={!canSubmitUserForm}>
+                {userMutationPending
+                  ? "Guardando..."
+                  : partialUser && professionalEnabled
+                    ? "Reintentar perfil clinico"
+                    : editing
+                      ? "Actualizar colaborador"
+                      : "Crear colaborador"}
+              </Button>
+            </div>
           </div>
         </form>
       </Modal>
@@ -1102,6 +1339,40 @@ export function UsersPage() {
           </div>
         </form>
       </Modal>
+    </div>
+  );
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) return null;
+  return <p className="text-xs font-medium text-red-600">{message}</p>;
+}
+
+function FormNotice({ message, tone }: { message: string; tone: "danger" | "warning" }) {
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-2 rounded-lg border p-3 text-sm",
+        tone === "danger" && "border-red-200 bg-red-50 text-red-700",
+        tone === "warning" && "border-amber-200 bg-amber-50 text-amber-800"
+      )}
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      <p>{message}</p>
+    </div>
+  );
+}
+
+function SummaryItem({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-start gap-2">
+      <span className="mt-0.5 text-[var(--text-brand)]">{icon}</span>
+      <span className="min-w-0">
+        <span className="block text-[11px] font-semibold uppercase text-slate-500">{label}</span>
+        <span className="block truncate text-sm font-semibold text-slate-900" title={value}>
+          {value}
+        </span>
+      </span>
     </div>
   );
 }

@@ -458,7 +458,8 @@ export class PriceListsService {
     ];
     const zones = [
       { code: "NORTE", name: "Norte" },
-      { code: "SUR", name: "Sur" }
+      { code: "SUR", name: "Sur" },
+      { code: "DJWARNER", name: "DJWarner" }
     ];
 
     await Promise.all([

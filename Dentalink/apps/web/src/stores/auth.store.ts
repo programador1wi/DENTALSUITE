@@ -21,7 +21,10 @@ export const useAuthStore = create<AuthState>()(
       setSession: ({ user, accessToken, refreshToken }) => set({ user, accessToken, refreshToken }),
       setUser: (user) => set({ user }),
       clearSession: () => set({ user: null, accessToken: null, refreshToken: null }),
-      hasPermission: (permission) => Boolean(get().user?.permissions.includes(permission))
+      hasPermission: (permission) => {
+        const permissions = get().user?.permissions ?? [];
+        return permissions.includes("system.manage_all") || permissions.includes(permission);
+      }
     }),
     {
       name: "dentalwarner-auth",

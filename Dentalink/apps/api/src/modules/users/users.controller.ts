@@ -52,4 +52,10 @@ export class UsersController {
   deactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.usersService.deactivate(user, id);
   }
+
+  @Patch(":id/reactivate")
+  @RequirePermissions("users.update")
+  reactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.usersService.reactivate(user, id);
+  }
 }

@@ -1,41 +1,77 @@
-import { useEffect, useMemo, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Circle, Pencil } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  Check,
+  CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  ListChecks,
+  Pencil,
+  Tags,
+  X
+} from "lucide-react";
+import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+import type { Branch } from "@/features/settings/branches/services/branches.service";
 import { usePriceLists } from "@/features/settings/price-lists/hooks/use-price-lists";
-import { useProcedureCategories } from "@/features/settings/procedures/hooks/use-procedures";
-import { useBulkUpdateProfessionalContracts, useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
-import { useBranchStore } from "@/stores/branch.store";
+import type { PriceList, PriceListItem } from "@/features/settings/price-lists/services/price-lists.service";
+import {
+  useBulkProfessionalContractPreview,
+  useBulkUpdateProfessionalContracts,
+  useProfessionals
+} from "@/features/settings/professionals/hooks/use-professionals";
 import type {
   BulkProfessionalContractPayload,
+  BulkProfessionalContractPreview,
   BulkProfessionalContractResult,
   Professional
 } from "@/features/settings/professionals/services/professionals.service";
+import { buildTreatmentBudgetCatalog } from "@/features/patients/utils/treatment-budget-catalog";
+import { cn } from "@/lib/utils/cn";
+import { useBranchStore } from "@/stores/branch.store";
 import { UsersModuleNav } from "../components/users-module-nav";
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 type SelectionMap = Record<string, string[]>;
+type FixedAmountMap = Record<string, string>;
 
 type BulkContractForm = {
-  // Paso 2 — Configurar contrato
   commissionRate: string;
   commissionBase: BulkProfessionalContractPayload["commissionBase"];
   paymentDiscount: BulkProfessionalContractPayload["paymentDiscount"];
   paymentCondition: BulkProfessionalContractPayload["paymentCondition"];
   contractType: BulkProfessionalContractPayload["contractType"];
-  // Paso 3 — Montos fijos
   priceListId: string;
-  // Paso 4 — Porcentajes avanzados
   categoryRates: Record<string, string>;
+  fixedAmounts: FixedAmountMap;
 };
+
+const STEPS = [
+  { key: 1 as const, label: "Seleccion" },
+  { key: 2 as const, label: "Contrato" },
+  { key: 3 as const, label: "Montos fijos" },
+  { key: 4 as const, label: "Porcentajes" },
+  { key: 5 as const, label: "Resumen" }
+];
+
+type StepKey = (typeof STEPS)[number]["key"];
+
+const ZONE_LABELS: Record<string, string> = {
+  NORTE: "Norte",
+  SUR: "Sur",
+  DJWARNER: "DJWarner"
+};
+
+const OPERATIONAL_ZONES = ["NORTE", "SUR", "DJWARNER"] as const;
 
 const EMPTY_FORM: BulkContractForm = {
   commissionRate: "",
@@ -45,90 +81,113 @@ const EMPTY_FORM: BulkContractForm = {
   contractType: "performed_and_paid",
   priceListId: "",
   categoryRates: {},
+  fixedAmounts: {}
 };
 
-// ─── Step descriptor ────────────────────────────────────────────────────────
-
-const STEPS = [
-  { key: 1 as const, label: "Seleccionar\nprofesionales" },
-  { key: 2 as const, label: "Configurar\ncontrato" },
-  { key: 3 as const, label: "Montos\nfijos" },
-  { key: 4 as const, label: "Porcentajes\navanzados" },
-  { key: 5 as const, label: "Resumen" },
-];
-
-type StepKey = (typeof STEPS)[number]["key"];
-
-// ─── Option maps ────────────────────────────────────────────────────────────
-
-const COMMISSION_BASE_LABELS: Record<string, string> = {
-  clinical: "Acciones clínicas",
+const COMMISSION_BASE_LABELS: Record<BulkContractForm["commissionBase"], string> = {
+  clinical: "Acciones clinicas",
   lab: "Laboratorio",
-  all: "Todas las prestaciones",
+  all: "Todas las prestaciones"
 };
 
-const PAYMENT_DISCOUNT_LABELS: Record<string, string> = {
+const PAYMENT_DISCOUNT_LABELS: Record<BulkContractForm["paymentDiscount"], string> = {
   no: "No",
-  yes: "Sí",
-  fixed: "Valor fijo",
+  yes: "Si",
+  fixed: "Valor fijo"
 };
 
-const PAYMENT_CONDITION_LABELS: Record<string, string> = {
-  no_due_date: "Se le pagarán al Dr. sin importar la fecha de vencimiento",
-  on_due: "Se le paga al vencer el plazo",
-  thirty_days: "Se le paga a los 30 días",
+const PAYMENT_CONDITION_LABELS: Record<BulkContractForm["paymentCondition"], string> = {
+  no_due_date: "Sin importar fecha de vencimiento",
+  on_due: "Al vencer plazo",
+  thirty_days: "A los 30 dias"
 };
 
-const CONTRACT_TYPE_LABELS: Record<string, string> = {
-  performed_and_paid: "Por prestación realizada y pagada",
-  performed: "Por prestación realizada",
+const CONTRACT_TYPE_LABELS: Record<BulkContractForm["contractType"], string> = {
+  performed_and_paid: "Prestacion realizada y pagada",
+  performed: "Prestacion realizada"
 };
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function hasCategoryRates(categoryRates: Record<string, string>) {
-  return Object.values(categoryRates).some((v) => v !== "" && Number(v) > 0);
+function zoneCodeForBranch(branch: { name: string; zone?: { code: string } | null }) {
+  const code = branch.zone?.code?.toUpperCase();
+  if (code) return code;
+  return branch.name.toLowerCase().includes("j.warner") || branch.name.toLowerCase().includes("jwarner")
+    ? "DJWARNER"
+    : "SIN_ZONA";
 }
 
-// ─── Sub-components ─────────────────────────────────────────────────────────
+function branchIsOperable(branch: Pick<Branch, "status" | "isActive" | "dentalinkPlatformCode" | "dentalinkSucursalId" | "name">) {
+  if (branch.dentalinkPlatformCode === "DJWARNER" && branch.dentalinkSucursalId === 22 && branch.name.trim() === ".") {
+    return false;
+  }
+  return branch.status === "ACTIVE" && branch.isActive !== false;
+}
+
+function money(value: string | number, currency = "MXN") {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency,
+    maximumFractionDigits: 2
+  }).format(Number(value || 0));
+}
+
+function numberOrNull(value: string) {
+  if (value.trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function professionalGroup(professional: Professional) {
+  return professional.specialties.some((specialty) => specialty.name.toLowerCase().includes("ortodon"))
+    ? "Ortodoncia"
+    : "General";
+}
+
+function categoryRateRows(priceList: PriceList | null) {
+  if (!priceList) return [];
+  return priceList.categories
+    .filter((category) => category.isActive && category.procedureCategoryId)
+    .map((category) => ({
+      id: category.procedureCategoryId ?? "",
+      priceListCategoryId: category.id,
+      name: category.name,
+      itemCount: category.items.length
+    }));
+}
+
+function activeRateCount(categoryRates: Record<string, string>) {
+  return Object.values(categoryRates).filter((value) => {
+    const parsed = numberOrNull(value);
+    return parsed !== null && parsed > 0;
+  }).length;
+}
 
 function Stepper({ current }: { current: StepKey }) {
   return (
-    <ol className="flex w-full items-start border-b border-slate-200">
-      {STEPS.map((step, idx) => {
-        const done = current > step.key;
+    <ol className="grid gap-[var(--space-2)] border-b border-[var(--border-default)] pb-[var(--space-4)] md:grid-cols-5">
+      {STEPS.map((step) => {
         const active = current === step.key;
+        const done = current > step.key;
         return (
           <li
             key={step.key}
-            className={`relative flex flex-1 flex-col items-center gap-1.5 border-b-2 pb-3 pt-4 text-center transition-all ${
-              active
-                ? "border-[#0784d8] text-[#0679c8]"
-                : done
-                  ? "border-sky-300 text-slate-500"
-                  : "border-transparent text-slate-400"
-            }`}
-          >
-            {/* connector line between steps */}
-            {idx > 0 && (
-              <span
-                className={`absolute left-0 top-[28px] -translate-x-1/2 h-px w-full ${done ? "bg-sky-300" : "bg-slate-200"}`}
-              />
+            className={cn(
+              "flex items-center gap-[var(--space-2)] rounded-[var(--radius-md)] border px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)]",
+              active && "border-[var(--border-brand)] bg-[var(--bg-brand-light)] text-[var(--text-brand-strong)]",
+              done && "border-[var(--border-brand-light)] bg-[var(--bg-surface)] text-[var(--text-brand)]",
+              !active && !done && "border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-secondary)]"
             )}
+          >
             <span
-              className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 text-sm font-bold transition-all ${
-                active
-                  ? "border-[#0784d8] bg-[#0784d8] text-white"
-                  : done
-                    ? "border-sky-300 bg-sky-50 text-sky-600"
-                    : "border-slate-200 bg-white text-slate-400"
-              }`}
+              className={cn(
+                "flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--radius-full)] border text-[var(--text-xs)] font-semibold",
+                active && "border-[var(--border-brand)] bg-[var(--action-brand)] text-[var(--text-inverse)]",
+                done && "border-[var(--border-brand)] text-[var(--text-brand)]",
+                !active && !done && "border-[var(--border-default)] text-[var(--text-secondary)]"
+              )}
             >
-              {done ? <Check className="h-4 w-4" /> : step.key}
+              {done ? <Check className="h-3.5 w-3.5" /> : step.key}
             </span>
-            <span className="whitespace-pre-line text-[10px] font-semibold leading-tight">
-              {step.label}
-            </span>
+            <span className="truncate font-medium">{step.label}</span>
           </li>
         );
       })}
@@ -143,8 +202,7 @@ function StepFooter({
   onBack,
   onForward,
   onSave,
-  saving,
-  forwardLabel,
+  saving
 }: {
   step: StepKey;
   canGoBack: boolean;
@@ -153,138 +211,154 @@ function StepFooter({
   onForward: () => void;
   onSave?: () => void;
   saving?: boolean;
-  forwardLabel?: string;
 }) {
   return (
-    <div className="flex items-center justify-between pt-4 mt-2 border-t border-slate-100">
+    <div className="flex flex-wrap items-center justify-between gap-[var(--space-3)] border-t border-[var(--border-default)] pt-[var(--space-4)]">
       <Button variant="secondary" disabled={!canGoBack} onClick={onBack}>
-        <ChevronLeft className="mr-1 h-3.5 w-3.5" />
-        Volver al paso anterior
+        <ChevronLeft className="h-4 w-4" />
+        Volver
       </Button>
       {step < 5 ? (
         <Button disabled={!canGoForward} onClick={onForward}>
-          {forwardLabel ?? "Siguiente paso"}
-          <ChevronRight className="ml-1 h-3.5 w-3.5" />
+          Siguiente
+          <ChevronRight className="h-4 w-4" />
         </Button>
       ) : (
-        <Button
-          className="bg-emerald-600 hover:bg-emerald-700 border-emerald-700/20"
-          disabled={saving || !canGoForward}
-          onClick={onSave}
-        >
-          <Check className="mr-1.5 h-4 w-4" />
-          {saving ? "Guardando..." : "Guardar"}
+        <Button disabled={!canGoForward || saving} onClick={onSave}>
+          <Check className="h-4 w-4" />
+          {saving ? "Guardando..." : "Guardar contratos"}
         </Button>
       )}
     </div>
   );
 }
 
-function SectionTitle({ children }: { children: React.ReactNode }) {
+function SectionHeading({ title, description }: { title: string; description?: string }) {
   return (
-    <p className="text-[11px] font-bold uppercase tracking-widest text-[#0679c8] mb-4">
-      {children}
-    </p>
+    <div className="space-y-[var(--space-1)]">
+      <h2 className="text-[var(--text-lg)] font-semibold text-[var(--text-brand-strong)]">{title}</h2>
+      {description ? <p className="text-[var(--text-sm)] text-[var(--text-secondary)]">{description}</p> : null}
+    </div>
   );
 }
 
-// ─── Page ───────────────────────────────────────────────────────────────────
+function SummaryMetric({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] py-[var(--space-2)]">
+      <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">{label}</p>
+      <p className="text-[var(--text-lg)] font-semibold text-[var(--text-brand-strong)]">{value}</p>
+    </div>
+  );
+}
 
 export function UsersBulkContractsPage() {
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const [step, setStep] = useState<StepKey>(1);
+  const [selectedZone, setSelectedZone] = useState("");
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<SelectionMap>({});
   const [form, setForm] = useState<BulkContractForm>(EMPTY_FORM);
   const [removeOtherBranches, setRemoveOtherBranches] = useState(false);
   const [keepPrevious, setKeepPrevious] = useState(true);
-  const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState("");
   const [lastResult, setLastResult] = useState<BulkProfessionalContractResult | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const branches = useBranches(undefined, "ACTIVE");
-  const professionals = useProfessionals(search || undefined, "true", { branchId: activeBranchId || undefined, pageSize: 100 });
-  const priceLists = usePriceLists(undefined, "true", activeBranchId || undefined);
-  const categories = useProcedureCategories(undefined, "true");
+  const branches = useBranches();
+  const professionals = useProfessionals(search || undefined, "true", { pageSize: 500 });
+  const priceLists = usePriceLists(undefined, "true");
   const bulkContracts = useBulkUpdateProfessionalContracts();
+  const previewContracts = useBulkProfessionalContractPreview();
 
-  const rows = professionals.data ?? [];
-  const visibleBranches = useMemo(
-    () => (branches.data ?? []).filter((branch) => !activeBranchId || branch.id === activeBranchId),
-    [activeBranchId, branches.data]
-  );
-  const visibleBranchIds = useMemo(() => new Set(visibleBranches.map((branch) => branch.id)), [visibleBranches]);
+  const activeBranch = branches.data?.find((branch) => branch.id === activeBranchId);
+  const zoneOptions = useMemo(() => {
+    const byCode = new Map<string, { code: string; label: string; count: number; active: number; inactive: number }>();
+    for (const code of OPERATIONAL_ZONES) {
+      byCode.set(code, { code, label: ZONE_LABELS[code], count: 0, active: 0, inactive: 0 });
+    }
+    for (const branch of branches.data ?? []) {
+      const code = zoneCodeForBranch(branch);
+      const current = byCode.get(code) ?? { code, label: ZONE_LABELS[code] ?? code, count: 0, active: 0, inactive: 0 };
+      const active = branchIsOperable(branch);
+      byCode.set(code, {
+        ...current,
+        count: current.count + 1,
+        active: current.active + (active ? 1 : 0),
+        inactive: current.inactive + (active ? 0 : 1)
+      });
+    }
+    return [...byCode.values()].filter((zone) => zone.count > 0 || zone.code !== "SIN_ZONA");
+  }, [branches.data]);
 
   useEffect(() => {
-    setSelection((current) => {
-      let changed = false;
-      const next: SelectionMap = {};
+    if (selectedZone || !zoneOptions.length) return;
+    const activeZone = activeBranch ? zoneCodeForBranch(activeBranch) : "";
+    setSelectedZone(zoneOptions.some((zone) => zone.code === activeZone) ? activeZone : zoneOptions[0].code);
+  }, [activeBranch, selectedZone, zoneOptions]);
 
-      for (const [professionalId, branchIds] of Object.entries(current)) {
-        const filtered = branchIds.filter((branchId) => visibleBranchIds.has(branchId));
-        if (filtered.length !== branchIds.length) changed = true;
-        if (filtered.length) next[professionalId] = filtered;
-      }
+  const zoneSections = useMemo(
+    () =>
+      OPERATIONAL_ZONES.map((code) => {
+        const sectionBranches = (branches.data ?? []).filter((branch) => zoneCodeForBranch(branch) === code);
+        return {
+          code,
+          label: ZONE_LABELS[code],
+          branches: sectionBranches,
+          active: sectionBranches.filter(branchIsOperable).length,
+          inactive: sectionBranches.filter((branch) => !branchIsOperable(branch)).length
+        };
+      }),
+    [branches.data]
+  );
+  const visibleBranches = useMemo(
+    () => (branches.data ?? []).filter((branch) => zoneCodeForBranch(branch) === selectedZone && branchIsOperable(branch)),
+    [branches.data, selectedZone]
+  );
+  const selectedPriceList = useMemo(
+    () => priceLists.data?.find((priceList) => priceList.id === form.priceListId) ?? null,
+    [form.priceListId, priceLists.data]
+  );
+  const zonePriceLists = useMemo(
+    () =>
+      (priceLists.data ?? []).filter((priceList) => {
+        if (!selectedZone) return false;
+        if (!priceList.branchAssignments.length) return priceList.isDefault;
+        return priceList.branchAssignments.some((assignment) => assignment.branch?.zone?.code?.toUpperCase() === selectedZone);
+      }),
+    [priceLists.data, selectedZone]
+  );
+  const catalog = useMemo(() => buildTreatmentBudgetCatalog(selectedPriceList), [selectedPriceList]);
+  const catalogItems = useMemo(() => catalog.flatMap((category) => category.items), [catalog]);
+  const priceItemByProcedureId = useMemo(
+    () => new Map(catalogItems.map((item) => [item.procedureId, item])),
+    [catalogItems]
+  );
+  const rateRows = useMemo(() => categoryRateRows(selectedPriceList), [selectedPriceList]);
 
-      return changed ? next : current;
-    });
-  }, [visibleBranchIds]);
-
-  // ── Selection helpers ────────────────────────────────────────────────────
+  const allProfessionalRows = useMemo(() => professionals.data ?? [], [professionals.data]);
 
   const selectedTargets = useMemo(
     () =>
-      rows.flatMap((p) =>
-        (selection[p.id] ?? []).map((branchId) => ({ branchId, professional: p }))
+      allProfessionalRows.flatMap((professional) =>
+        (selection[professional.id] ?? []).map((branchId) => ({ branchId, professional }))
       ),
-    [rows, selection]
+    [allProfessionalRows, selection]
   );
-
   const selectedProfessionals = useMemo(() => {
     const byId = new Map<string, Professional>();
     selectedTargets.forEach(({ professional }) => byId.set(professional.id, professional));
     return [...byId.values()];
   }, [selectedTargets]);
 
-  const toggleTarget = (professional: Professional, branchId: string) => {
-    if (!professional.branches.some((b) => b.id === branchId)) return;
-    setSelection((cur) => {
-      const prev = cur[professional.id] ?? [];
-      const next = prev.includes(branchId)
-        ? prev.filter((id) => id !== branchId)
-        : [...prev, branchId];
-      const updated = { ...cur };
-      if (next.length) updated[professional.id] = next;
-      else delete updated[professional.id];
-      return updated;
-    });
-  };
+  useEffect(() => {
+    setForm((current) => ({ ...current, priceListId: "", categoryRates: {}, fixedAmounts: {} }));
+    setLastResult(null);
+  }, [selectedZone]);
 
-  const toggleProfessional = (professional: Professional) => {
-    const allIds = professional.branches.map((b) => b.id).filter((id) => visibleBranchIds.has(id));
-    const allSelected = allIds.every((id) => selection[professional.id]?.includes(id));
-    setSelection((cur) => {
-      const updated = { ...cur };
-      if (allSelected) delete updated[professional.id];
-      else updated[professional.id] = allIds;
-      return updated;
-    });
-  };
-
-  // ── Form field helper ────────────────────────────────────────────────────
-
-  const setField = <K extends keyof BulkContractForm>(key: K, value: BulkContractForm[K]) => {
-    setForm((cur) => ({ ...cur, [key]: value }));
-  };
-
-  const setCategoryRate = (categoryId: string, rate: string) => {
-    setForm((cur) => ({
-      ...cur,
-      categoryRates: { ...cur.categoryRates, [categoryId]: rate },
-    }));
-  };
-
-  // ── Validation ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    setForm((current) => ({ ...current, categoryRates: {}, fixedAmounts: {} }));
+    setLastResult(null);
+  }, [form.priceListId]);
 
   const normalizedRate = Number(form.commissionRate);
   const rateValid =
@@ -292,635 +366,658 @@ export function UsersBulkContractsPage() {
     Number.isFinite(normalizedRate) &&
     normalizedRate >= 0 &&
     normalizedRate <= 100;
+  const fixedAmountEntries = Object.entries(form.fixedAmounts)
+    .map(([procedureId, value]) => {
+      const amount = numberOrNull(value);
+      const item = priceItemByProcedureId.get(procedureId);
+      return amount !== null && amount >= 0 && item
+        ? { procedureId, amount, item }
+        : null;
+    })
+    .filter(Boolean) as { procedureId: string; amount: number; item: PriceListItem }[];
+  const selectedFixedAmountCount = fixedAmountEntries.length;
+  const selectedCategoryRateCount = activeRateCount(form.categoryRates);
+  const canSave = rateValid && selectedTargets.length > 0 && Boolean(selectedZone);
 
-  // ── Apply ────────────────────────────────────────────────────────────────
+  const buildPayload = (): BulkProfessionalContractPayload => ({
+    targets: selectedTargets.map(({ professional, branchId }) => ({
+      professionalId: professional.id,
+      branchIds: [branchId]
+    })),
+    commissionRate: normalizedRate,
+    commissionBase: form.commissionBase,
+    paymentDiscount: form.paymentDiscount,
+    paymentCondition: form.paymentCondition,
+    contractType: form.contractType,
+    priceListId: form.priceListId || undefined,
+    fixedAmounts: fixedAmountEntries.map(({ procedureId, amount, item }) => ({
+      procedureId,
+      priceListId: form.priceListId,
+      amount,
+      currency: item.currency
+    })),
+    categoryRates: Object.entries(form.categoryRates)
+      .map(([procedureCategoryId, value]) => ({ procedureCategoryId, rate: Number(value) }))
+      .filter((rate) => Number.isFinite(rate.rate) && rate.rate > 0),
+    removeOtherBranches,
+    keepPrevious
+  });
 
-  const applyContracts = async () => {
-    if (!rateValid || !selectedProfessionals.length) return;
-    setApplying(true);
-    setApplyError("");
-    setLastResult(null);
-    try {
-      const result = await bulkContracts.mutateAsync({
-        targets: selectedTargets.map(({ professional, branchId }) => ({
-          professionalId: professional.id,
-          branchIds: [branchId],
-        })),
-        commissionRate: normalizedRate,
-        commissionBase: form.commissionBase,
-        paymentDiscount: form.paymentDiscount,
-        paymentCondition: form.paymentCondition,
-        contractType: form.contractType,
-        priceListId: form.priceListId || undefined,
-        categoryRates: Object.entries(form.categoryRates)
-          .map(([procedureCategoryId, value]) => ({ procedureCategoryId, rate: Number(value) }))
-          .filter((rate) => Number.isFinite(rate.rate) && rate.rate > 0),
-        removeOtherBranches,
-        keepPrevious,
-      });
-      setLastResult(result);
-    } catch (err) {
-      setApplyError(
-        err instanceof Error ? err.message : "No se pudieron actualizar los contratos."
-      );
-    } finally {
-      setApplying(false);
+  useEffect(() => {
+    if (step !== 5 || !canSave) return;
+    void previewContracts.mutateAsync(buildPayload()).catch(() => undefined);
+  }, [step, selectedTargets.length, form, removeOtherBranches, keepPrevious, canSave]);
+
+  const toggleTarget = (professional: Professional, branch: Branch) => {
+    if (!branchIsOperable(branch)) return;
+    if (!professional.branches.some((item) => item.id === branch.id)) return;
+    const branchZone = zoneCodeForBranch(branch);
+    setSelection((current) => {
+      const base = selectedZone && selectedZone !== branchZone ? {} : current;
+      const previous = base[professional.id] ?? [];
+      const next = previous.includes(branch.id)
+        ? previous.filter((id) => id !== branch.id)
+        : [...previous, branch.id];
+      const updated = { ...base };
+      if (next.length) updated[professional.id] = next;
+      else delete updated[professional.id];
+      return updated;
+    });
+    if (selectedZone !== branchZone) {
+      setSelectedZone(branchZone);
+      setForm((current) => ({ ...current, priceListId: "", categoryRates: {}, fixedAmounts: {} }));
     }
   };
 
-  // ── Derived display values ───────────────────────────────────────────────
+  const toggleProfessional = (professional: Professional, sectionBranches = visibleBranches) => {
+    const branchIds = professional.branches
+      .map((branch) => branch.id)
+      .filter((id) => sectionBranches.some((branch) => branch.id === id && branchIsOperable(branch)));
+    const sectionZone = sectionBranches[0] ? zoneCodeForBranch(sectionBranches[0]) : selectedZone;
+    const allSelected = branchIds.every((branchId) => selection[professional.id]?.includes(branchId));
+    setSelection((current) => {
+      const base = selectedZone && selectedZone !== sectionZone ? {} : current;
+      const updated = { ...base };
+      if (allSelected) delete updated[professional.id];
+      else updated[professional.id] = branchIds;
+      return updated;
+    });
+    if (sectionZone && selectedZone !== sectionZone) {
+      setSelectedZone(sectionZone);
+      setForm((current) => ({ ...current, priceListId: "", categoryRates: {}, fixedAmounts: {} }));
+    }
+  };
 
-  const selectedPriceList = priceLists.data?.find((pl) => pl.id === form.priceListId);
-  const activeCategoryRates = Object.entries(form.categoryRates).filter(
-    ([, v]) => v !== "" && Number(v) > 0
-  );
+  const toggleFixedAmount = (item: PriceListItem) => {
+    setForm((current) => {
+      const next = { ...current.fixedAmounts };
+      if (next[item.procedureId] !== undefined) delete next[item.procedureId];
+      else next[item.procedureId] = String(item.price);
+      return { ...current, fixedAmounts: next };
+    });
+  };
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Render
-  // ─────────────────────────────────────────────────────────────────────────
+  const applyContracts = async () => {
+    if (!canSave) return;
+    setApplyError("");
+    setLastResult(null);
+    try {
+      const result = await bulkContracts.mutateAsync(buildPayload());
+      setLastResult(result);
+      setConfirmOpen(false);
+    } catch (error) {
+      setApplyError(error instanceof Error ? error.message : "No se pudieron actualizar los contratos.");
+    }
+  };
+
+  const preview = previewContracts.data as BulkProfessionalContractPreview | undefined;
+  const rowsForBranches = (sectionBranches: Branch[]) => {
+    const sectionBranchIds = new Set(sectionBranches.map((branch) => branch.id));
+    return allProfessionalRows.filter((professional) =>
+      professional.branches.some((branch) => sectionBranchIds.has(branch.id))
+    );
+  };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-[var(--space-4)]">
       <UsersModuleNav>
-        <div className="space-y-0">
-          {/* ── Header ── */}
-          <div className="pb-4">
-            <PageHeader
-              title="Edicion masiva de contratos"
-              description="Configura y aplica contratos a varios profesionales desde un mismo flujo de 5 pasos."
-            />
-          </div>
+        <div className="space-y-[var(--space-5)]">
+          <PageHeader
+            title="Edicion masiva de contratos"
+            description="Aplica reglas economicas por zona, profesional, sucursal y arancel."
+          />
 
-          {/* ── Stepper ── */}
-          <Stepper current={step} />
-
-          {/* ── Loading/Error states ── */}
-          {(branches.isLoading || professionals.isLoading) && step === 1 ? (
-            <div className="pt-6">
-              <LoadingState message="Cargando profesionales y sucursales..." />
+          <Card className="space-y-[var(--space-4)]">
+            <div className="grid gap-[var(--space-3)] lg:grid-cols-[1fr_220px]">
+              <div className="grid gap-[var(--space-2)] md:grid-cols-3">
+                {zoneOptions.map((zone) => (
+                  <button
+                    key={zone.code}
+                    type="button"
+                    onClick={() => {
+                      setSelectedZone(zone.code);
+                      setSelection({});
+                    }}
+                    className={cn(
+                      "rounded-[var(--radius-md)] border px-[var(--space-4)] py-[var(--space-3)] text-left transition-[background-color,border-color,color] duration-[var(--duration-fast)]",
+                      selectedZone === zone.code
+                        ? "border-[var(--border-brand)] bg-[var(--bg-brand-light)] text-[var(--text-brand-strong)]"
+                        : "border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-brand-light)]"
+                    )}
+                  >
+                    <span className="block text-[var(--text-sm)] font-semibold">{zone.label}</span>
+                    <span className="text-[var(--text-xs)] text-[var(--text-secondary)]">
+                      {zone.active} activas / {zone.inactive} inactivas
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-[var(--space-2)]">
+                <SummaryMetric label="Profesionales" value={selectedProfessionals.length} />
+                <SummaryMetric label="Cruces" value={selectedTargets.length} />
+              </div>
             </div>
+            <Stepper current={step} />
+          </Card>
+
+          {(branches.isLoading || professionals.isLoading) && step === 1 ? (
+            <LoadingState message="Cargando profesionales y sucursales..." />
           ) : null}
           {branches.isError ? <ErrorState message={branches.error.message} /> : null}
           {professionals.isError ? <ErrorState message={professionals.error.message} /> : null}
 
-          <div className="pt-5">
-            {/* ════════════════════════════════════════════════════════════
-                PASO 1 — Seleccionar profesionales
-            ════════════════════════════════════════════════════════════ */}
-            {step === 1 ? (
-              <section className="space-y-4">
-                <SectionTitle>Seleccionar profesionales</SectionTitle>
+          {step === 1 ? (
+            <section className="space-y-[var(--space-4)]">
+              <SectionHeading
+                title="Seleccionar profesionales y sucursales"
+                description="Cada celda seleccionada representa un contrato profesional-sucursal."
+              />
+              <div className="flex flex-wrap items-end justify-between gap-[var(--space-3)]">
+                <label className="grid min-w-[280px] gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+                  Buscar profesional
+                  <EntitySearchBox
+                    placeholder="Nombre, correo o cedula"
+                    value={search}
+                    onValueChange={setSearch}
+                    items={search.trim() ? allProfessionalRows : []}
+                    onSelect={(professional) => {
+                      setSearch(`${professional.firstName} ${professional.lastName}`.trim());
+                      toggleProfessional(professional);
+                    }}
+                    getItemKey={(professional) => professional.id}
+                    emptyMessage="Sin profesionales encontrados"
+                    renderItem={(professional) => (
+                      <div className="min-w-0">
+                        <p className="truncate text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">
+                          {professional.firstName} {professional.lastName}
+                        </p>
+                        <p className="truncate text-[var(--text-xs)] text-[var(--text-secondary)]">
+                          {[professional.email, professional.licenseNumber].filter(Boolean).join(" - ") || "Sin contacto"}
+                        </p>
+                      </div>
+                    )}
+                  />
+                </label>
+                <div className="flex flex-wrap gap-[var(--space-2)]">
+                  <Badge value={`${visibleBranches.length} sucursales`} tone="brand" />
+                  <Badge value={`${rowsForBranches(visibleBranches).length} profesionales visibles`} tone="default" />
+                </div>
+              </div>
 
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                  <label className="grid gap-1 text-sm text-slate-700">
-                    Buscar profesional
-                    <EntitySearchBox
-                      placeholder="Nombre, correo o cédula"
-                      value={search}
-                      onValueChange={setSearch}
-                      items={search.trim() ? rows : []}
-                      onSelect={(professional) => {
-                        setSearch(`${professional.firstName} ${professional.lastName}`.trim());
-                        toggleProfessional(professional);
-                      }}
-                      getItemKey={(professional) => professional.id}
-                      emptyMessage="Sin profesionales encontrados"
-                      renderItem={(professional) => (
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-slate-900">
-                            {professional.firstName} {professional.lastName}
-                          </p>
-                          <p className="mt-0.5 truncate text-xs text-slate-500">
-                            {[professional.email, professional.licenseNumber].filter(Boolean).join(" · ") || "Sin contacto"}
+              <div className="space-y-[var(--space-4)]">
+                {zoneSections.map((section) => {
+                  const sectionRows = rowsForBranches(section.branches);
+                  const groupedRows = {
+                    General: sectionRows.filter((professional) => professionalGroup(professional) === "General"),
+                    Ortodoncia: sectionRows.filter((professional) => professionalGroup(professional) === "Ortodoncia")
+                  };
+                  return (
+                    <Card key={section.code} className="overflow-hidden p-0 border border-[var(--border-default)] shadow-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-[var(--space-3)] border-b border-[var(--border-default)] bg-[var(--bg-subtle)] px-[var(--space-4)] py-[var(--space-3)]">
+                        <div>
+                          <h3 className="text-[var(--text-lg)] font-semibold text-[var(--text-brand-strong)]">{section.label}</h3>
+                          <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">
+                            Plataforma {section.code}: {section.active} activas, {section.inactive} inactivas
                           </p>
                         </div>
-                      )}
-                      className="sm:w-80"
-                    />
-                  </label>
-                  <p className="text-sm text-slate-500">
-                    <span className="font-semibold text-slate-700">
-                      {selectedProfessionals.length}
-                    </span>{" "}
-                    profesionales · {selectedTargets.length} alcances seleccionados
-                  </p>
-                </div>
+                        <div className="flex gap-[var(--space-2)]">
+                          <Badge value={`${section.branches.length} sucursales`} tone="default" />
+                          <Badge value={`${sectionRows.length} profesionales`} tone={selectedZone === section.code ? "brand" : "default"} />
+                        </div>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full min-w-[920px] border-collapse text-[var(--text-sm)]">
+                          <thead className="bg-[var(--bg-surface)] text-left text-[var(--text-xs)] font-semibold uppercase text-[var(--text-brand)]">
+                            <tr>
+                              <th className="sticky left-0 z-10 w-[280px] bg-[var(--bg-surface)] px-[var(--space-4)] py-[var(--space-3)] border-r border-[var(--border-default)]">
+                                Profesional
+                              </th>
+                              {section.branches.map((branch) => {
+                                const active = branchIsOperable(branch);
+                                return (
+                                  <th key={branch.id} className="w-24 min-w-[96px] px-[var(--space-2)] py-[var(--space-3)] text-center border-b border-[var(--border-default)]">
+                                    <span className={cn("inline-block max-w-24 whitespace-normal leading-tight font-bold text-[11px]", active ? "text-[var(--text-secondary)]" : "text-[var(--text-danger)]")}>
+                                      {branch.name}
+                                    </span>
+                                    <span className="mt-1 block text-[10px] font-medium normal-case text-[var(--text-secondary)]">
+                                      {active ? "Activa" : "Inactiva"}
+                                    </span>
+                                  </th>
+                                );
+                              })}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(["General", "Ortodoncia"] as const).map((group) => (
+                              <Fragment key={group}>
+                                <tr>
+                                  <td
+                                    colSpan={section.branches.length + 1}
+                                    className="border-t border-b border-[var(--border-default)] bg-[var(--bg-brand-light)] px-[var(--space-4)] py-[var(--space-2)] text-[var(--text-xs)] font-semibold uppercase text-[var(--text-brand-strong)]"
+                                  >
+                                    {group}
+                                  </td>
+                                </tr>
+                                {groupedRows[group].map((professional) => (
+                                  <tr key={professional.id} className="group border-t border-[var(--border-default)] transition-colors duration-150 hover:bg-[var(--bg-subtle)]">
+                                    <th className="sticky left-0 z-10 bg-[var(--bg-surface)] group-hover:bg-[var(--bg-subtle)] px-[var(--space-4)] py-[var(--space-2)] text-left border-r border-[var(--border-default)] transition-colors duration-150">
+                                      <button
+                                        type="button"
+                                        className="flex w-full items-center justify-between gap-[var(--space-2)] text-left text-[var(--text-primary)] hover:text-[var(--text-brand)]"
+                                        onClick={() => toggleProfessional(professional, section.branches)}
+                                      >
+                                        <span className="min-w-0 truncate font-semibold">
+                                          {professional.firstName} {professional.lastName}
+                                        </span>
+                                        <span className="rounded-[var(--radius-sm)] bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
+                                          Fila
+                                        </span>
+                                      </button>
+                                    </th>
+                                    {section.branches.map((branch) => {
+                                      const active = branchIsOperable(branch);
+                                      const available = active && professional.branches.some((item) => item.id === branch.id);
+                                      const selected = selection[professional.id]?.includes(branch.id) ?? false;
+                                      return (
+                                        <td
+                                          key={`${professional.id}-${branch.id}`}
+                                          className={cn(
+                                            "h-12 px-[var(--space-2)] text-center border-b border-[var(--border-default)] transition-colors duration-150",
+                                            selected && "bg-[var(--bg-brand-light)]"
+                                          )}
+                                        >
+                                          {available ? (
+                                            <button
+                                              type="button"
+                                              aria-label={`${selected ? "Quitar" : "Seleccionar"} ${professional.firstName} en ${branch.name}`}
+                                              className="inline-flex h-8 w-8 items-center justify-center rounded-[var(--radius-full)] text-[var(--text-brand)] hover:bg-[var(--bg-brand-light)] transition-all duration-150 active:scale-95"
+                                              onClick={() => toggleTarget(professional, branch)}
+                                            >
+                                              {selected ? <CheckCircle2 className="h-5 w-5" /> : <Circle className="h-4 w-4 text-[var(--text-secondary)]" />}
+                                            </button>
+                                          ) : (
+                                            <X className={cn("mx-auto h-4 w-4", active ? "text-[var(--text-secondary)] opacity-30" : "text-[var(--text-danger)] opacity-60")} />
+                                          )}
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ))}
+                              </Fragment>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+              <StepFooter
+                step={1}
+                canGoBack={false}
+                canGoForward={selectedTargets.length > 0}
+                onBack={() => undefined}
+                onForward={() => setStep(2)}
+              />
+            </section>
+          ) : null}
 
-                <Card className="overflow-hidden p-0">
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[860px] border-collapse text-sm">
-                      <thead className="bg-white text-xs font-semibold text-[#0679c8]">
-                        <tr>
-                          <th className="sticky left-0 z-10 w-[290px] border-b border-slate-200 bg-white px-4 py-3 text-left">
-                            Profesional
-                          </th>
-                          {visibleBranches.map((branch) => (
-                            <th
-                              key={branch.id}
-                              className="w-24 border-b border-slate-200 px-2 py-3 text-center align-bottom"
+          {step === 2 ? (
+            <section className="space-y-[var(--space-4)]">
+              <SectionHeading title="Configurar contrato base" description="Esta regla se aplicara cuando no exista monto fijo ni porcentaje avanzado." />
+              <Card className="grid gap-[var(--space-4)] md:grid-cols-2">
+                <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+                  Porcentaje acciones
+                  <div className="flex items-center gap-[var(--space-2)]">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.01"
+                      value={form.commissionRate}
+                      onChange={(event) => setForm((current) => ({ ...current, commissionRate: event.target.value }))}
+                    />
+                    <span className="text-[var(--text-sm)] text-[var(--text-secondary)]">%</span>
+                  </div>
+                  {form.commissionRate !== "" && !rateValid ? (
+                    <span className="text-[var(--text-xs)] text-[var(--text-danger)]">Debe estar entre 0 y 100.</span>
+                  ) : null}
+                </label>
+                <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+                  Porcentaje sobre
+                  <Select
+                    value={form.commissionBase}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, commissionBase: event.target.value as BulkContractForm["commissionBase"] }))
+                    }
+                  >
+                    <option value="clinical">Acciones clinicas</option>
+                    <option value="lab">Laboratorio</option>
+                    <option value="all">Todas las prestaciones</option>
+                  </Select>
+                </label>
+                <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+                  Descto. medio de pago
+                  <Select
+                    value={form.paymentDiscount}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, paymentDiscount: event.target.value as BulkContractForm["paymentDiscount"] }))
+                    }
+                  >
+                    <option value="no">No</option>
+                    <option value="yes">Si</option>
+                    <option value="fixed">Valor fijo</option>
+                  </Select>
+                </label>
+                <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+                  Condiciones de pago
+                  <Select
+                    value={form.paymentCondition}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, paymentCondition: event.target.value as BulkContractForm["paymentCondition"] }))
+                    }
+                  >
+                    <option value="no_due_date">Sin importar fecha de vencimiento</option>
+                    <option value="on_due">Se paga al vencer plazo</option>
+                    <option value="thirty_days">Se paga a los 30 dias</option>
+                  </Select>
+                </label>
+                <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)] md:col-span-2 md:max-w-md">
+                  Tipo de contrato
+                  <Select
+                    value={form.contractType}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, contractType: event.target.value as BulkContractForm["contractType"] }))
+                    }
+                  >
+                    <option value="performed_and_paid">Prestacion realizada y pagada</option>
+                    <option value="performed">Prestacion realizada</option>
+                  </Select>
+                </label>
+              </Card>
+              <StepFooter step={2} canGoBack canGoForward={rateValid} onBack={() => setStep(1)} onForward={() => setStep(3)} />
+            </section>
+          ) : null}
+
+          {step === 3 ? (
+            <section className="space-y-[var(--space-4)]">
+              <SectionHeading title="Montos fijos por arancel" description="Activa solo las prestaciones que tendran pago fijo para el profesional." />
+              {priceLists.isLoading ? <LoadingState message="Cargando aranceles..." /> : null}
+              {priceLists.isError ? <ErrorState message={priceLists.error.message} /> : null}
+              <Card className="space-y-[var(--space-4)]">
+                <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
+                  Arancel de la zona
+                  <Select
+                    value={form.priceListId}
+                    onChange={(event) => setForm((current) => ({ ...current, priceListId: event.target.value }))}
+                  >
+                    <option value="">Sin arancel</option>
+                    {zonePriceLists.map((priceList) => (
+                      <option key={priceList.id} value={priceList.id}>
+                        {priceList.name}
+                        {priceList.isDefault ? " (default)" : ""}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+                {selectedPriceList ? (
+                  <div className="grid gap-[var(--space-3)] md:grid-cols-3">
+                    <SummaryMetric label="Categorias" value={catalog.length} />
+                    <SummaryMetric label="Prestaciones" value={catalogItems.length} />
+                    <SummaryMetric label="Montos activos" value={selectedFixedAmountCount} />
+                  </div>
+                ) : (
+                  <p className="text-[var(--text-sm)] text-[var(--text-secondary)]">Selecciona un arancel para capturar montos fijos.</p>
+                )}
+              </Card>
+              {selectedPriceList ? (
+                <div className="grid gap-[var(--space-3)]">
+                  {catalog.map((category) => (
+                    <Card key={category.id} className="overflow-hidden p-0">
+                      <div className="flex items-center justify-between gap-[var(--space-3)] border-b border-[var(--border-default)] bg-[var(--bg-subtle)] px-[var(--space-4)] py-[var(--space-3)]">
+                        <div>
+                          <p className="font-semibold text-[var(--text-brand-strong)]">{category.name}</p>
+                          <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">{category.items.length} prestaciones</p>
+                        </div>
+                        <Tags className="h-4 w-4 text-[var(--text-brand)]" />
+                      </div>
+                      <div className="divide-y divide-[var(--border-default)]">
+                        {category.items.map((item) => {
+                          const active = form.fixedAmounts[item.procedureId] !== undefined;
+                          return (
+                            <div
+                              key={item.id}
+                              className="grid gap-[var(--space-3)] px-[var(--space-4)] py-[var(--space-3)] md:grid-cols-[1fr_160px_180px]"
                             >
-                              <span className="inline-block max-w-24 break-words leading-4">
-                                {branch.name}
-                              </span>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {rows.map((professional) => (
-                          <tr key={professional.id} className="border-t border-slate-100">
-                            <th className="sticky left-0 z-10 bg-white px-4 py-2 text-left font-medium text-slate-700">
                               <button
                                 type="button"
-                                className="flex w-full items-center justify-between gap-2 text-left hover:text-[#0679c8]"
-                                onClick={() => toggleProfessional(professional)}
+                                onClick={() => toggleFixedAmount(item)}
+                                className="flex min-w-0 items-center gap-[var(--space-2)] text-left"
                               >
-                                <span>
-                                  {professional.firstName} {professional.lastName}
+                                {active ? (
+                                  <CheckCircle2 className="h-5 w-5 shrink-0 text-[var(--text-brand)]" />
+                                ) : (
+                                  <Circle className="h-4 w-4 shrink-0 text-[var(--text-secondary)]" />
+                                )}
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium text-[var(--text-primary)]">
+                                    {item.procedure.code} - {item.procedure.name}
+                                  </span>
+                                  <span className="text-[var(--text-xs)] text-[var(--text-secondary)]">Precio arancel {money(item.price, item.currency)}</span>
                                 </span>
-                                <span className="text-xs text-slate-400">Todos</span>
                               </button>
-                            </th>
-                            {visibleBranches.map((branch) => {
-                              const available = professional.branches.some(
-                                (b) => b.id === branch.id
-                              );
-                              const selected =
-                                selection[professional.id]?.includes(branch.id) ?? false;
-                              return (
-                                <td
-                                  key={`${professional.id}-${branch.id}`}
-                                  className={`h-12 px-2 text-center transition-colors ${selected ? "bg-sky-50" : ""}`}
-                                >
-                                  {available ? (
-                                    <button
-                                      type="button"
-                                      aria-label={`${selected ? "Quitar" : "Seleccionar"} ${professional.firstName} en ${branch.name}`}
-                                      className="inline-flex h-8 w-8 items-center justify-center text-[#0679c8]"
-                                      onClick={() => toggleTarget(professional, branch.id)}
-                                    >
-                                      {selected ? (
-                                        <Check className="h-5 w-5" />
-                                      ) : (
-                                        <Circle className="h-4 w-4" />
-                                      )}
-                                    </button>
-                                  ) : (
-                                    <span className="text-slate-300">-</span>
-                                  )}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </Card>
-
-                <StepFooter
-                  step={1}
-                  canGoBack={false}
-                  canGoForward={selectedProfessionals.length > 0}
-                  onBack={() => {}}
-                  onForward={() => setStep(2)}
-                />
-              </section>
-            ) : null}
-
-            {/* ════════════════════════════════════════════════════════════
-                PASO 2 — Configurar contrato
-            ════════════════════════════════════════════════════════════ */}
-            {step === 2 ? (
-              <section className="space-y-4">
-                <SectionTitle>Detalles del contrato</SectionTitle>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {/* Porcentaje acciones */}
-                  <label className="grid gap-1 text-sm text-slate-700">
-                    Porcentaje acciones
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step="0.01"
-                        placeholder="0"
-                        value={form.commissionRate}
-                        onChange={(e) => setField("commissionRate", e.target.value)}
-                      />
-                      <span className="shrink-0 text-sm text-slate-500">%</span>
-                    </div>
-                    {form.commissionRate !== "" && !rateValid ? (
-                      <p className="text-xs text-red-600">Debe ser un valor entre 0 y 100.</p>
-                    ) : null}
-                  </label>
-
-                  {/* Descto. medio de pago */}
-                  <label className="grid gap-1 text-sm text-slate-700">
-                    Descto. medio de pago
-                    <Select
-                      value={form.paymentDiscount}
-                      onChange={(e) =>
-                        setField("paymentDiscount", e.target.value as BulkContractForm["paymentDiscount"])
-                      }
-                    >
-                      <option value="no">No</option>
-                      <option value="yes">Sí</option>
-                      <option value="fixed">Valor fijo</option>
-                    </Select>
-                  </label>
-
-                  {/* Porcentaje sobre */}
-                  <label className="grid gap-1 text-sm text-slate-700">
-                    Porcentaje sobre
-                    <Select
-                      value={form.commissionBase}
-                      onChange={(e) =>
-                        setField("commissionBase", e.target.value as BulkContractForm["commissionBase"])
-                      }
-                    >
-                      <option value="clinical">Acciones clínicas</option>
-                      <option value="lab">Laboratorio</option>
-                      <option value="all">Todas las prestaciones</option>
-                    </Select>
-                  </label>
-
-                  {/* Condiciones de pago */}
-                  <label className="grid gap-1 text-sm text-slate-700">
-                    Condiciones de pago
-                    <Select
-                      value={form.paymentCondition}
-                      onChange={(e) =>
-                        setField("paymentCondition", e.target.value as BulkContractForm["paymentCondition"])
-                      }
-                    >
-                      <option value="no_due_date">
-                        Se le pagarán al Dr. sin importar la fecha de vencimiento
-                      </option>
-                      <option value="on_due">Se le paga al vencer el plazo</option>
-                      <option value="thirty_days">Se le paga a los 30 días</option>
-                    </Select>
-                  </label>
-
-                  {/* Tipo de contrato */}
-                  <label className="grid gap-1 text-sm text-slate-700 sm:col-span-2 sm:max-w-sm">
-                    Tipo de contrato
-                    <Select
-                      value={form.contractType}
-                      onChange={(e) => setField("contractType", e.target.value as BulkContractForm["contractType"])}
-                    >
-                      <option value="performed_and_paid">
-                        Por prestación realizada y pagada
-                      </option>
-                      <option value="performed">Por prestación realizada</option>
-                    </Select>
-                  </label>
-                </div>
-
-                <StepFooter
-                  step={2}
-                  canGoBack={true}
-                  canGoForward={rateValid}
-                  onBack={() => setStep(1)}
-                  onForward={() => setStep(3)}
-                />
-              </section>
-            ) : null}
-
-            {/* ════════════════════════════════════════════════════════════
-                PASO 3 — Montos fijos
-            ════════════════════════════════════════════════════════════ */}
-            {step === 3 ? (
-              <section className="space-y-4">
-                <SectionTitle>Definir montos fijos</SectionTitle>
-
-                {priceLists.isLoading ? (
-                  <LoadingState message="Cargando aranceles..." />
-                ) : priceLists.isError ? (
-                  <ErrorState message={priceLists.error.message} />
-                ) : (
-                  <label className="grid gap-1 text-sm text-slate-700">
-                    Seleccione un arancel:
-                    <Select
-                      value={form.priceListId}
-                      onChange={(e) => setField("priceListId", e.target.value)}
-                      className="py-2.5"
-                    >
-                      <option value="">-- Sin arancel (no se aplican montos fijos) --</option>
-                      {priceLists.data?.map((pl) => (
-                        <option key={pl.id} value={pl.id}>
-                          {pl.name}
-                          {pl.isDefault ? " (default)" : ""}
-                        </option>
-                      ))}
-                    </Select>
-                  </label>
-                )}
-
-                {form.priceListId && selectedPriceList ? (
-                  <Card className="bg-sky-50/60 border-sky-200">
-                    <p className="text-xs font-semibold uppercase text-sky-700">
-                      Arancel seleccionado
-                    </p>
-                    <p className="mt-1 font-semibold text-slate-900">{selectedPriceList.name}</p>
-                    <p className="text-xs text-slate-500">
-                      {selectedPriceList.items.length} precios configurados
-                    </p>
-                  </Card>
-                ) : (
-                  <p className="text-sm text-slate-400 italic">
-                    No se han definido montos fijos.
-                  </p>
-                )}
-
-                <StepFooter
-                  step={3}
-                  canGoBack={true}
-                  canGoForward={true}
-                  onBack={() => setStep(2)}
-                  onForward={() => setStep(4)}
-                />
-              </section>
-            ) : null}
-
-            {/* ════════════════════════════════════════════════════════════
-                PASO 4 — Porcentajes avanzados
-            ════════════════════════════════════════════════════════════ */}
-            {step === 4 ? (
-              <section className="space-y-4">
-                <SectionTitle>Definir porcentajes avanzados por categoría</SectionTitle>
-
-                {categories.isLoading ? (
-                  <LoadingState message="Cargando categorías..." />
-                ) : categories.isError ? (
-                  <ErrorState message={categories.error.message} />
-                ) : (
-                  <Card className="overflow-hidden p-0">
-                    <div className="divide-y divide-slate-100">
-                      {(categories.data ?? []).map((cat) => (
-                        <div
-                          key={cat.id}
-                          className="flex items-center justify-between gap-4 px-5 py-3 transition-colors hover:bg-slate-50"
-                        >
-                          <span className="flex-1 text-sm font-medium text-slate-700">
-                            {cat.name}
-                          </span>
-                          <div className="flex w-32 shrink-0 items-center gap-1.5">
-                            <Input
-                              type="number"
-                              min={0}
-                              max={100}
-                              step="0.01"
-                              placeholder="00,00"
-                              value={form.categoryRates[cat.id] ?? ""}
-                              onChange={(e) => setCategoryRate(cat.id, e.target.value)}
-                              className="text-right"
-                            />
-                            <span className="text-xs text-slate-500">%</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Card>
-                )}
-
-                <StepFooter
-                  step={4}
-                  canGoBack={true}
-                  canGoForward={true}
-                  onBack={() => setStep(3)}
-                  onForward={() => setStep(5)}
-                />
-              </section>
-            ) : null}
-
-            {/* ════════════════════════════════════════════════════════════
-                PASO 5 — Resumen
-            ════════════════════════════════════════════════════════════ */}
-            {step === 5 ? (
-              <section className="space-y-4">
-                <SectionTitle>Resumen del contrato a modificar</SectionTitle>
-
-                {/* Configuración del contrato */}
-                <Card className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold text-slate-900">Configuración del contrato</p>
-                    <button
-                      type="button"
-                      onClick={() => setStep(2)}
-                      className="flex items-center gap-1 text-xs font-semibold text-[#0679c8] hover:underline"
-                    >
-                      <Pencil className="h-3 w-3" />
-                      Editar
-                    </button>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-3 border-t border-slate-100 pt-3">
-                    <div>
-                      <p className="text-xs text-slate-500">Porcentaje de acciones</p>
-                      <p className="font-semibold text-slate-900">{form.commissionRate || "0"}%</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Porcentaje sobre</p>
-                      <p className="font-semibold text-slate-900">
-                        {COMMISSION_BASE_LABELS[form.commissionBase]}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Descto. medio de pago</p>
-                      <p className="font-semibold text-slate-900">
-                        {PAYMENT_DISCOUNT_LABELS[form.paymentDiscount]}
-                      </p>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <p className="text-xs text-slate-500">Condiciones de pago</p>
-                      <p className="font-semibold text-slate-900">
-                        {PAYMENT_CONDITION_LABELS[form.paymentCondition]}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Tipo de contrato</p>
-                      <p className="font-semibold text-slate-900">
-                        {CONTRACT_TYPE_LABELS[form.contractType]}
-                      </p>
-                    </div>
-                  </div>
-                </Card>
-
-                {/* Profesionales + Montos fijos */}
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {/* Profesionales */}
-                  <Card className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-slate-900">Profesionales</p>
-                      <button
-                        type="button"
-                        onClick={() => setStep(1)}
-                        className="flex items-center gap-1 text-xs font-semibold text-[#0679c8] hover:underline"
-                      >
-                        <Pencil className="h-3 w-3" />
-                        Editar
-                      </button>
-                    </div>
-                    {selectedProfessionals.length ? (
-                      <ul className="space-y-1 border-t border-slate-100 pt-3">
-                        {selectedProfessionals.map((p) => (
-                          <li key={p.id} className="text-sm text-slate-700">
-                            <span className="font-medium">
-                              {p.firstName} {p.lastName}
-                            </span>
-                            <span className="text-xs text-slate-400 ml-2">
-                              {p.branches
-                                .filter((b) => selection[p.id]?.includes(b.id))
-                                .map((b) => b.name)
-                                .join(", ")}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-slate-400 italic">Sin profesionales seleccionados.</p>
-                    )}
-                  </Card>
-
-                  {/* Montos fijos */}
-                  <Card className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="font-semibold text-slate-900">Montos fijos</p>
-                      <button
-                        type="button"
-                        onClick={() => setStep(3)}
-                        className="flex items-center gap-1 text-xs font-semibold text-[#0679c8] hover:underline"
-                      >
-                        <Pencil className="h-3 w-3" />
-                        Editar
-                      </button>
-                    </div>
-                    <div className="border-t border-slate-100 pt-3">
-                      {selectedPriceList ? (
-                        <p className="text-sm font-semibold text-slate-900">
-                          {selectedPriceList.name}
-                        </p>
-                      ) : (
-                        <p className="text-sm text-slate-400 italic">
-                          No se han definido montos fijos.
-                        </p>
-                      )}
-                    </div>
-                  </Card>
-                </div>
-
-                {/* Porcentajes avanzados */}
-                <Card className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="font-semibold text-slate-900">Porcentajes avanzados</p>
-                    <button
-                      type="button"
-                      onClick={() => setStep(4)}
-                      className="flex items-center gap-1 text-xs font-semibold text-[#0679c8] hover:underline"
-                    >
-                      <Pencil className="h-3 w-3" />
-                      Editar
-                    </button>
-                  </div>
-                  <div className="border-t border-slate-100 pt-3">
-                    {hasCategoryRates(form.categoryRates) ? (
-                      <ul className="space-y-1">
-                        {activeCategoryRates.map(([catId, rate]) => {
-                          const cat = categories.data?.find((c) => c.id === catId);
-                          return (
-                            <li
-                              key={catId}
-                              className="flex items-center justify-between text-sm text-slate-700"
-                            >
-                              <span>{cat?.name ?? catId}</span>
-                              <span className="font-semibold">{Number(rate).toFixed(2)}%</span>
-                            </li>
+                              <div className="flex items-center text-[var(--text-sm)] text-[var(--text-secondary)]">
+                                {item.procedure.type}
+                              </div>
+                              <div className="flex items-center gap-[var(--space-2)]">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  disabled={!active}
+                                  value={form.fixedAmounts[item.procedureId] ?? ""}
+                                  onChange={(event) =>
+                                    setForm((current) => ({
+                                      ...current,
+                                      fixedAmounts: {
+                                        ...current.fixedAmounts,
+                                        [item.procedureId]: event.target.value
+                                      }
+                                    }))
+                                  }
+                                />
+                                <span className="text-[var(--text-xs)] text-[var(--text-secondary)]">{item.currency}</span>
+                              </div>
+                            </div>
                           );
                         })}
-                      </ul>
-                    ) : (
-                      <p className="text-sm text-slate-400 italic">
-                        No se han definido porcentajes avanzados.
-                      </p>
-                    )}
+                      </div>
+                    </Card>
+                  ))}
+                </div>
+              ) : null}
+              <StepFooter step={3} canGoBack canGoForward onBack={() => setStep(2)} onForward={() => setStep(4)} />
+            </section>
+          ) : null}
+
+          {step === 4 ? (
+            <section className="space-y-[var(--space-4)]">
+              <SectionHeading title="Porcentajes avanzados por categoria" description="Estas reglas reemplazan el porcentaje base cuando la prestacion pertenece a la categoria." />
+              {!selectedPriceList ? (
+                <Card>
+                  <p className="text-[var(--text-sm)] text-[var(--text-secondary)]">Selecciona un arancel en el paso anterior para configurar categorias.</p>
+                </Card>
+              ) : (
+                <Card className="overflow-hidden p-0">
+                  <div className="divide-y divide-[var(--border-default)]">
+                    {rateRows.map((category) => (
+                      <div
+                        key={category.priceListCategoryId}
+                        className="grid gap-[var(--space-3)] px-[var(--space-4)] py-[var(--space-3)] md:grid-cols-[1fr_160px]"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-[var(--text-primary)]">{category.name}</p>
+                          <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">{category.itemCount} prestaciones en este arancel</p>
+                        </div>
+                        <div className="flex items-center gap-[var(--space-2)]">
+                          <Input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            value={form.categoryRates[category.id] ?? ""}
+                            onChange={(event) =>
+                              setForm((current) => ({
+                                ...current,
+                                categoryRates: { ...current.categoryRates, [category.id]: event.target.value }
+                              }))
+                            }
+                          />
+                          <span className="text-[var(--text-xs)] text-[var(--text-secondary)]">%</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </Card>
+              )}
+              <StepFooter step={4} canGoBack canGoForward onBack={() => setStep(3)} onForward={() => setStep(5)} />
+            </section>
+          ) : null}
 
-                {/* Toggles */}
-                <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 px-5 py-4">
-                  <label className="flex cursor-pointer items-center justify-between gap-4">
-                    <span className="text-sm text-slate-700">
-                      Eliminar contratos anteriores de las sucursales no seleccionadas
-                    </span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={removeOtherBranches}
-                      onClick={() => setRemoveOtherBranches((v) => !v)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                        removeOtherBranches ? "bg-[#0784d8]" : "bg-slate-300"
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-md ring-0 transition-transform ${
-                          removeOtherBranches ? "translate-x-5" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </label>
-                  <label className="flex cursor-pointer items-center justify-between gap-4">
-                    <span className="text-sm text-slate-700">
-                      Mantener montos fijos y porcentajes avanzados anteriores
-                    </span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={keepPrevious}
-                      onClick={() => setKeepPrevious((v) => !v)}
-                      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                        keepPrevious ? "bg-[#0784d8]" : "bg-slate-300"
-                      }`}
-                    >
-                      <span
-                        className={`pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow-md ring-0 transition-transform ${
-                          keepPrevious ? "translate-x-5" : "translate-x-0"
-                        }`}
-                      />
-                    </button>
-                  </label>
+          {step === 5 ? (
+            <section className="space-y-[var(--space-4)]">
+              <SectionHeading title="Resumen y guardado" description="Revisa el alcance antes de escribir contratos masivos." />
+              <div className="grid gap-[var(--space-3)] md:grid-cols-4">
+                <SummaryMetric label="Zona" value={ZONE_LABELS[selectedZone] ?? selectedZone} />
+                <SummaryMetric label="Profesionales" value={selectedProfessionals.length} />
+                <SummaryMetric label="Sucursales" value={visibleBranches.filter((branch) => selectedTargets.some((target) => target.branchId === branch.id)).length} />
+                <SummaryMetric label="Cruces" value={selectedTargets.length} />
+              </div>
+              <div className="grid gap-[var(--space-4)] lg:grid-cols-2">
+                <Card className="space-y-[var(--space-3)]">
+                  <div className="flex items-center justify-between gap-[var(--space-2)]">
+                    <h3 className="font-semibold text-[var(--text-brand-strong)]">Contrato base</h3>
+                    <Button variant="ghost" size="sm" onClick={() => setStep(2)}>
+                      <Pencil className="h-4 w-4" />
+                      Editar
+                    </Button>
+                  </div>
+                  <div className="grid gap-[var(--space-2)] text-[var(--text-sm)]">
+                    <p><strong>{form.commissionRate || "0"}%</strong> sobre {COMMISSION_BASE_LABELS[form.commissionBase]}</p>
+                    <p>{CONTRACT_TYPE_LABELS[form.contractType]}</p>
+                    <p>{PAYMENT_DISCOUNT_LABELS[form.paymentDiscount]} descuento medio de pago</p>
+                    <p>{PAYMENT_CONDITION_LABELS[form.paymentCondition]}</p>
+                  </div>
+                </Card>
+                <Card className="space-y-[var(--space-3)]">
+                  <div className="flex items-center justify-between gap-[var(--space-2)]">
+                    <h3 className="font-semibold text-[var(--text-brand-strong)]">Arancel y excepciones</h3>
+                    <Button variant="ghost" size="sm" onClick={() => setStep(3)}>
+                      <Pencil className="h-4 w-4" />
+                      Editar
+                    </Button>
+                  </div>
+                  <div className="grid gap-[var(--space-2)] text-[var(--text-sm)] text-[var(--text-primary)]">
+                    <p>{selectedPriceList?.name ?? "Sin arancel seleccionado"}</p>
+                    <p>{selectedFixedAmountCount} montos fijos selectivos</p>
+                    <p>{selectedCategoryRateCount} porcentajes avanzados</p>
+                  </div>
+                </Card>
+              </div>
+              <Card className="space-y-[var(--space-3)]">
+                <div className="flex items-center gap-[var(--space-2)]">
+                  <ListChecks className="h-4 w-4 text-[var(--text-brand)]" />
+                  <h3 className="font-semibold text-[var(--text-brand-strong)]">Preview backend</h3>
                 </div>
-
-                {/* Feedback de guardado */}
-                {applyError ? <ErrorState message={applyError} /> : null}
-                {lastResult ? (
-                  <Card className="border-emerald-200 bg-emerald-50/60 text-sm text-emerald-800">
-                    <div className="flex items-center gap-2">
-                      <Check className="h-4 w-4 text-emerald-600" />
-                      Se actualizaron correctamente{" "}
-                      <span className="font-bold">{lastResult.updatedProfessionals}</span> contratos profesionales.
-                    </div>
-                    <p className="mt-2 text-xs text-emerald-700">
-                      {lastResult.updatedScopes} sucursales, {lastResult.fixedAmounts} montos fijos y{" "}
-                      {lastResult.categoryRates} porcentajes avanzados asociados.
-                    </p>
-                  </Card>
+                {previewContracts.isPending ? <LoadingState message="Calculando impacto..." /> : null}
+                {previewContracts.error ? <ErrorState message={previewContracts.error.message} /> : null}
+                {preview ? (
+                  <div className="grid gap-[var(--space-3)] md:grid-cols-4">
+                    <SummaryMetric label="Contratos nuevos" value={preview.contractsToCreate} />
+                    <SummaryMetric label="Contratos a cerrar" value={preview.currentContractsToClose + preview.otherContractsToClose} />
+                    <SummaryMetric label="Montos fijos" value={preview.fixedAmounts} />
+                    <SummaryMetric label="Porcentajes" value={preview.categoryRates} />
+                  </div>
                 ) : null}
-
-                <StepFooter
-                  step={5}
-                  canGoBack={true}
-                  canGoForward={rateValid && selectedProfessionals.length > 0}
-                  onBack={() => setStep(4)}
-                  onForward={() => {}}
-                  onSave={() => void applyContracts()}
-                  saving={applying}
-                />
-              </section>
-            ) : null}
-          </div>
+                {preview?.warnings.length ? (
+                  <div className="space-y-[var(--space-2)]">
+                    {preview.warnings.map((warning) => (
+                      <div key={warning} className="flex items-center gap-[var(--space-2)] rounded-[var(--radius-md)] bg-[var(--status-warning-bg)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--status-warning-text)]">
+                        <AlertTriangle className="h-4 w-4" />
+                        {warning}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </Card>
+              <Card className="space-y-[var(--space-3)] bg-[var(--bg-subtle)]">
+                <label className="flex items-center justify-between gap-[var(--space-3)] text-[var(--text-sm)] text-[var(--text-primary)]">
+                  <span>Eliminar contratos anteriores de sucursales no seleccionadas</span>
+                  <input
+                    type="checkbox"
+                    checked={removeOtherBranches}
+                    onChange={(event) => setRemoveOtherBranches(event.target.checked)}
+                    className="h-4 w-4"
+                  />
+                </label>
+                <label className="flex items-center justify-between gap-[var(--space-3)] text-[var(--text-sm)] text-[var(--text-primary)]">
+                  <span>Mantener montos fijos y porcentajes avanzados anteriores</span>
+                  <input
+                    type="checkbox"
+                    checked={keepPrevious}
+                    onChange={(event) => setKeepPrevious(event.target.checked)}
+                    className="h-4 w-4"
+                  />
+                </label>
+              </Card>
+              {applyError ? <ErrorState message={applyError} /> : null}
+              {lastResult ? (
+                <Card className="border-[var(--status-success-text)] bg-[var(--status-success-bg)] text-[var(--status-success-text)]">
+                  Se actualizaron {lastResult.updatedProfessionals} contratos, {lastResult.fixedAmounts} montos fijos y {lastResult.categoryRates} porcentajes.
+                </Card>
+              ) : null}
+              <StepFooter
+                step={5}
+                canGoBack
+                canGoForward={canSave}
+                onBack={() => setStep(4)}
+                onForward={() => undefined}
+                onSave={() => (removeOtherBranches ? setConfirmOpen(true) : void applyContracts())}
+                saving={bulkContracts.isPending}
+              />
+            </section>
+          ) : null}
         </div>
       </UsersModuleNav>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="Confirmar cierre de contratos"
+        description="Esta accion cerrara contratos activos fuera de las sucursales seleccionadas. Confirma solo si el alcance de zona y sucursales ya fue revisado."
+        confirmLabel={bulkContracts.isPending ? "Guardando..." : "Guardar"}
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={() => void applyContracts()}
+      />
     </div>
   );
 }

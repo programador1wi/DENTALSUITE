@@ -22,7 +22,7 @@ export class BranchesService {
     const where: Prisma.BranchWhereInput = {
       deletedAt: null,
       ...this.organizationScope(actor),
-      id: { in: actor.branchIds },
+      ...this.branchAccessScope(actor),
       ...(status ? { status: status as Prisma.EnumBranchStatusFilter["equals"] } : {}),
       ...(search
         ? {
@@ -165,6 +165,10 @@ export class BranchesService {
 
   private organizationScope(actor: AuthUser): Prisma.BranchWhereInput {
     return actor.permissions.includes("system.manage_all") ? {} : { organizationId: actor.organizationId };
+  }
+
+  private branchAccessScope(actor: AuthUser): Prisma.BranchWhereInput {
+    return actor.permissions.includes("system.manage_all") ? {} : { id: { in: actor.branchIds } };
   }
 
   private normalizeCode(code: string) {

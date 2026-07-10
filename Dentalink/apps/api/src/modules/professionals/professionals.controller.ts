@@ -73,6 +73,12 @@ export class ProfessionalsController {
     return this.professionalsService.bulkUpdateContracts(user, dto);
   }
 
+  @Post("contracts/bulk/preview")
+  @RequirePermissions("professionals.update")
+  previewBulkContracts(@CurrentUser() user: AuthUser, @Body() dto: BulkProfessionalContractDto) {
+    return this.professionalsService.previewBulkUpdateContracts(user, dto);
+  }
+
   @Patch(":id/deactivate")
   @RequirePermissions("professionals.deactivate")
   deactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {

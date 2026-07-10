@@ -108,11 +108,15 @@ export class UsersService {
       include: { branches: true }
     });
     if (!current) throw new NotFoundException("User not found");
+    if (actor.id === id && dto.status && dto.status !== "ACTIVE") {
+      throw new BadRequestException("Users cannot deactivate themselves");
+    }
 
     if (dto.roleId) await this.validateRole(actor, dto.roleId);
     if (dto.branchIds) await this.validateBranches(actor, dto.branchIds, dto.primaryBranchId);
 
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 12) : undefined;
+    const nextIsActive = dto.status === undefined ? undefined : dto.status === "ACTIVE";
 
     await this.prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -124,10 +128,18 @@ export class UsersService {
           roleId: dto.roleId,
           passwordHash,
           status: dto.status,
+          isActive: nextIsActive,
           permissionsOverride: false,
           updatedById: actor.id
         }
       });
+
+      if (dto.status && dto.status !== "ACTIVE") {
+        await tx.session.updateMany({
+          where: { userId: id, revokedAt: null },
+          data: { revokedAt: new Date() }
+        });
+      }
 
       if (dto.roleId) {
         await tx.userRole.deleteMany({ where: { userId: id } });
@@ -172,6 +184,10 @@ export class UsersService {
     return this.update(actor, id, { status: "INACTIVE" });
   }
 
+  async reactivate(actor: AuthUser, id: string) {
+    return this.update(actor, id, { status: "ACTIVE" });
+  }
+
   async lockAccess(actor: AuthUser) {
     const updated = await this.prisma.$transaction(async (tx) => {
       const result = await tx.user.updateMany({
@@ -183,6 +199,7 @@ export class UsersService {
         },
         data: {
           status: "LOCKED",
+          isActive: false,
           updatedById: actor.id
         }
       });
@@ -301,6 +318,7 @@ export class UsersService {
       firstName: user.firstName,
       lastName: user.lastName,
       phone: user.phone,
+      isActive: user.isActive,
       status: user.status,
       permissionsOverride: false,
       permissions: selectedPermissions.map((permission) => ({

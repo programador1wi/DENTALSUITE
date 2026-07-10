@@ -350,6 +350,9 @@ export function PaymentsPage() {
 
       <DataTable
         rows={payments.data ?? []}
+        stickyFirstColumn={true}
+        stickyLastColumn={true}
+        responsiveCards={true}
         empty={<EmptyState title="Sin pagos" description="No existen pagos para los filtros actuales." />}
         columns={[
           {

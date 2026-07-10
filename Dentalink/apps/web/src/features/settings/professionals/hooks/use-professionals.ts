@@ -4,6 +4,7 @@ import {
   createProfessional,
   deactivateProfessional,
   listProfessionals,
+  previewBulkProfessionalContracts,
   transferProfessionalBranch,
   updateProfessional,
   type BulkProfessionalContractPayload,
@@ -69,5 +70,11 @@ export function useBulkUpdateProfessionalContracts() {
       queryClient.invalidateQueries({ queryKey: ["settings", "professionals"] });
       queryClient.invalidateQueries({ queryKey: ["settings", "payroll"] });
     }
+  });
+}
+
+export function useBulkProfessionalContractPreview() {
+  return useMutation({
+    mutationFn: (payload: BulkProfessionalContractPayload) => previewBulkProfessionalContracts(payload)
   });
 }

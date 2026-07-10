@@ -13,6 +13,7 @@ import {
   Clock3,
   FilePlus2,
   FolderX,
+  Loader2,
   Mail,
   MapPin,
   Phone,
@@ -80,6 +81,10 @@ type NewPatientState = {
 type SelectedSlot = {
   startAt: string;
   endAt: string;
+};
+
+export type AppointmentSubmitOptions = {
+  notifyByEmail?: boolean;
 };
 
 type DayAvailability = {
@@ -179,7 +184,7 @@ export function AppointmentModal({
   chairs: Chair[];
   patients: PatientListItem[];
   onClose: () => void;
-  onSubmit: (payloads: AppointmentPayload[]) => Promise<void>;
+  onSubmit: (payloads: AppointmentPayload[], options?: AppointmentSubmitOptions) => Promise<void>;
   onCreatePatient: (payload: PatientPayload) => Promise<PatientDetail>;
   onCreateTreatmentPlan: (payload: CreateTreatmentPlanPayload) => Promise<{ id: string }>;
   multipleMode?: boolean;
@@ -197,6 +202,7 @@ export function AppointmentModal({
   const [treatmentPlanChoice, setTreatmentPlanChoice] = useState<TreatmentPlanChoice>("new");
   const [selectedTreatmentPlanId, setSelectedTreatmentPlanId] = useState("");
   const [lockedScheduleContext, setLockedScheduleContext] = useState(false);
+  const [notifyByEmail, setNotifyByEmail] = useState(false);
 
   const { hasPermission } = usePermissions();
   const canReadTreatmentPlans =
@@ -229,6 +235,7 @@ export function AppointmentModal({
     );
     setSelectedTreatmentPlanId(appointment?.treatmentPlanId ?? initialValues?.treatmentPlanId ?? "");
     setTreatmentPlanChoice(appointment?.treatmentPlanId ?? initialValues?.treatmentPlanId ? "existing" : "new");
+    setNotifyByEmail(false);
   }, [appointment, defaultDate, initialValues, open]);
 
   useEffect(() => {
@@ -251,6 +258,13 @@ export function AppointmentModal({
     () => patients.find((patient) => patient.id === form.patientId),
     [patients, form.patientId]
   );
+  const notificationEmail = (
+    patientMode === "new" ? newPatient.email : selectedPatient?.email ?? ""
+  ).trim();
+  const canNotifyByEmail = requiresClinicalPatient(form.status) && Boolean(notificationEmail);
+  useEffect(() => {
+    if (!canNotifyByEmail && notifyByEmail) setNotifyByEmail(false);
+  }, [canNotifyByEmail, notifyByEmail]);
   const selectedSpecialty = useMemo(
     () =>
       (specialties.data ?? []).find((specialty) => specialty.id === form.specialtyId) ??
@@ -357,7 +371,8 @@ export function AppointmentModal({
       form.professionalId,
       form.chairId,
       selectedDuration,
-      weekStart
+      weekStart,
+      appointment?.id
     ],
     queryFn: async () => {
       const rows = await Promise.all(
@@ -384,7 +399,8 @@ export function AppointmentModal({
                   professionalId: form.professionalId,
                   chairId: form.chairId || undefined,
                   date: day.date,
-                  durationMinutes: String(selectedDuration)
+                  durationMinutes: String(selectedDuration),
+                  excludeAppointmentId: appointment?.id
                 })
               ).slots
             };
@@ -646,12 +662,16 @@ export function AppointmentModal({
         treatmentPlanId
       }));
 
-      try {
-        await onSubmit(payloads);
-        onClose();
-      } catch (error: any) {
-        toast.error(error.message || "Error al agendar la cita.");
+      await onSubmit(payloads, { notifyByEmail: notifyByEmail && canNotifyByEmail });
+      if (notifyByEmail && canNotifyByEmail) {
+        toast.success(`Se agendó y se envió el correo a ${patientName || "paciente"}`);
+      } else {
+        toast.success(appointment ? "Cita actualizada correctamente" : "Cita agendada correctamente");
       }
+      onClose();
+    } catch (error) {
+      setBookingProblems([error instanceof Error ? error.message : "No se pudo guardar la cita."]);
+      console.error("Error al agendar:", error);
     } finally {
       setSubmitting(false);
     }
@@ -891,6 +911,9 @@ export function AppointmentModal({
                 historicalTreatmentPlans={historicalTreatmentPlans}
                 otherProfessionalTreatmentPlans={otherProfessionalTreatmentPlans}
                 selectedTreatmentPlanId={selectedTreatmentPlanId}
+                canNotifyByEmail={canNotifyByEmail}
+                notificationEmail={notificationEmail}
+                notifyByEmail={notifyByEmail}
                 submitting={submitting}
                 treatmentPlanChoice={treatmentPlanChoice}
                 treatmentPlansLoading={treatmentPlans.isLoading}
@@ -898,6 +921,7 @@ export function AppointmentModal({
                 onFormChange={setForm}
                 onModeChange={setPatientMode}
                 onNewPatientChange={setNewPatient}
+                onNotifyByEmailChange={setNotifyByEmail}
                 onPatientSearchChange={setPatientSearch}
                 onTreatmentPlanChoiceChange={(choice) => {
                   setTreatmentPlanChoice(choice);
@@ -1330,6 +1354,9 @@ function PatientStep({
   historicalTreatmentPlans,
   otherProfessionalTreatmentPlans,
   selectedTreatmentPlanId,
+  canNotifyByEmail,
+  notificationEmail,
+  notifyByEmail,
   submitting,
   treatmentPlanChoice,
   treatmentPlansLoading,
@@ -1337,6 +1364,7 @@ function PatientStep({
   onFormChange,
   onModeChange,
   onNewPatientChange,
+  onNotifyByEmailChange,
   onPatientSearchChange,
   onTreatmentPlanChoiceChange,
   onTreatmentPlanSelect,
@@ -1361,6 +1389,9 @@ function PatientStep({
   historicalTreatmentPlans: TreatmentPlan[];
   otherProfessionalTreatmentPlans: TreatmentPlan[];
   selectedTreatmentPlanId: string;
+  canNotifyByEmail: boolean;
+  notificationEmail: string;
+  notifyByEmail: boolean;
   submitting: boolean;
   treatmentPlanChoice: TreatmentPlanChoice;
   treatmentPlansLoading: boolean;
@@ -1368,6 +1399,7 @@ function PatientStep({
   onFormChange: React.Dispatch<React.SetStateAction<FormState>>;
   onModeChange: (mode: PatientMode) => void;
   onNewPatientChange: React.Dispatch<React.SetStateAction<NewPatientState>>;
+  onNotifyByEmailChange: (checked: boolean) => void;
   onPatientSearchChange: (value: string) => void;
   onTreatmentPlanChoiceChange: (choice: TreatmentPlanChoice) => void;
   onTreatmentPlanSelect: (planId: string) => void;
@@ -1389,6 +1421,29 @@ function PatientStep({
               : ""}
             {selectedBranchName ? ` en ${selectedBranchName}` : ""}
           </p>
+        </div>
+        <div className="mt-3 flex flex-col gap-2 rounded-md border border-emerald-200 bg-white/70 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+          <label
+            className={`inline-flex items-center gap-2 text-xs font-semibold ${
+              canNotifyByEmail ? "text-emerald-950" : "text-slate-400"
+            }`}
+          >
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-emerald-300 text-emerald-700 focus:ring-emerald-600 disabled:cursor-not-allowed"
+              checked={notifyByEmail}
+              disabled={!canNotifyByEmail || submitting}
+              onChange={(event) => onNotifyByEmailChange(event.target.checked)}
+            />
+            <span>Notificar por correo</span>
+          </label>
+          {!canNotifyByEmail && requiresPatient ? (
+            <span className="text-xs font-medium text-amber-700">
+              Agrega un e-mail del paciente para enviar la confirmacion.
+            </span>
+          ) : notificationEmail ? (
+            <span className="text-xs font-medium text-emerald-800">Se enviara a {notificationEmail}</span>
+          ) : null}
         </div>
         <p className="mt-1 text-emerald-800 font-semibold">Motivo: {form.reason}</p>
       </div>
@@ -1615,7 +1670,16 @@ function PatientStep({
             Regresar
           </Button>
           <Button onClick={onSubmit} disabled={!canSubmit || submitting} type="button">
-            {submitting ? "Guardando..." : "Guardar cita"}
+            {submitting && notifyByEmail && canNotifyByEmail ? (
+              <span className="inline-flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Enviando correo...
+              </span>
+            ) : submitting ? (
+              "Guardando..."
+            ) : (
+              "Guardar cita"
+            )}
           </Button>
         </div>
       </div>

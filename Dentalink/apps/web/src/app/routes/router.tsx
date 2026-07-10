@@ -22,6 +22,7 @@ import { InventoryPage } from "@/features/labs-inventory/pages/inventory-page";
 import { LabOrdersPage } from "@/features/labs-inventory/pages/lab-orders-page";
 import { LabProceduresPage } from "@/features/labs-inventory/pages/lab-procedures-page";
 import { LabsPage } from "@/features/labs-inventory/pages/labs-page";
+import { IntegrationsPage } from "@/features/integrations/pages/integrations-page";
 import { ReportsAppointmentsPage } from "@/features/reports/pages/reports-appointments-page";
 import { ReportsFinancialPage } from "@/features/reports/pages/reports-financial-page";
 import { ReportsPage } from "@/features/reports/pages/reports-page";
@@ -79,6 +80,7 @@ import { CancelledPendingPaymentsPage } from "@/features/payments/pages/cancelle
 import { BudgetsPage } from "@/features/treatments/pages/budgets-page";
 import { TreatmentPlansPage } from "@/features/treatments/pages/treatment-plans-page";
 import { PublicBookingPage } from "@/features/public-booking/pages/public-booking-page";
+import { ConfirmAppointmentPage } from "@/features/public-booking/pages/confirm-appointment-page";
 
 function PublicShell() {
   return (
@@ -127,7 +129,8 @@ export const router = createBrowserRouter([
   {
     element: <PublicShell />,
     children: [
-      { path: "/book/:slug", element: <PublicBookingPage /> }
+      { path: "/book/:slug", element: <PublicBookingPage /> },
+      { path: "/confirm-appointment", element: <ConfirmAppointmentPage /> }
     ]
   },
   {
@@ -358,6 +361,10 @@ export const router = createBrowserRouter([
               { path: "/reports/financial", element: <ReportsFinancialPage /> },
               { path: "/reports/professionals", element: <ReportsProfessionalsPage /> }
             ]
+          },
+          {
+            element: <RequirePermissions required={["integrations.communications.read"]} />,
+            children: [{ path: "/integrations", element: <IntegrationsPage /> }]
           },
 
           {

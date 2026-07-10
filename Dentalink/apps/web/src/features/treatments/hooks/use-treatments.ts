@@ -10,6 +10,7 @@ import {
   createBudget,
   createOrthodonticMonthlyItems,
   createTreatmentPlan,
+  deactivateTreatmentPlan,
   deleteTreatmentPlanItem,
   getBudget,
   getTreatmentPlan,
@@ -18,6 +19,7 @@ import {
   pauseTreatmentPlan,
   printBudget,
   rejectBudget,
+  reactivateTreatmentPlan,
   resumeTreatmentPlan,
   sendBudget,
   updateOrthodonticDiagnosis,
@@ -252,6 +254,18 @@ export function useTreatmentMutations() {
       onError
     }),
     printBudget: useMutation({ mutationFn: (id: string) => printBudget(id), onError }),
+    deactivateTreatmentPlan: useMutation({
+      mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+        deactivateTreatmentPlan(id, { reason }),
+      onSuccess: invalidate,
+      onError
+    }),
+    reactivateTreatmentPlan: useMutation({
+      mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+        reactivateTreatmentPlan(id, { reason }),
+      onSuccess: invalidate,
+      onError
+    }),
     pauseTreatment: useMutation({
       mutationFn: ({ id, reason }: { id: string; reason?: string }) => pauseTreatmentPlan(id, { reason }),
       onSuccess: invalidate,

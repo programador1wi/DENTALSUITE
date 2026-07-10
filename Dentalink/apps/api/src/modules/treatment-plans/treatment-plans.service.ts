@@ -30,6 +30,7 @@ import {
   UpdateTreatmentPlanItemDto,
   UpdateTreatmentPlanItemStatusDto,
   ReactivateTreatmentPlanDto,
+  DeactivateTreatmentPlanDto,
   DuplicateTreatmentPlanDto,
   ReferTreatmentPlanDto
 } from "./dto/treatment-plan.dto";
@@ -71,6 +72,11 @@ type ProfessionalPlanSpecialty = {
   name: string;
   kind: TreatmentPlanKind;
 };
+
+const CLOSED_TREATMENT_PLAN_STATUSES = new Set<TreatmentPlanStatus>([
+  TreatmentPlanStatus.CANCELLED,
+  TreatmentPlanStatus.REJECTED
+]);
 
 @Injectable()
 export class TreatmentPlansService {
@@ -296,6 +302,10 @@ export class TreatmentPlansService {
 
   async updateTreatmentPlan(actor: AuthUser, id: string, dto: UpdateTreatmentPlanDto) {
     const current = await this.ensureTreatmentPlan(actor, id);
+    this.ensureTreatmentPlanCanMutate(current);
+    if (dto.status && CLOSED_TREATMENT_PLAN_STATUSES.has(dto.status)) {
+      throw new BadRequestException("Use the treatment plan deactivation endpoint to close a plan");
+    }
     if (dto.branchId) await this.validateBranch(actor, dto.branchId);
     let planSpecialty: ProfessionalPlanSpecialty | null = null;
     if (dto.branchId || dto.professionalId) {
@@ -341,6 +351,7 @@ export class TreatmentPlansService {
 
   async updateOrthodonticProfile(actor: AuthUser, id: string, dto: UpdateOrthodonticProfileDto) {
     const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    this.ensureTreatmentPlanCanMutate(plan, "update orthodontic data for");
     const payload = {
       startDate: this.optionalDate(dto.startDate),
       estimatedMonths: dto.estimatedMonths === undefined ? undefined : dto.estimatedMonths,
@@ -378,6 +389,7 @@ export class TreatmentPlansService {
 
   async updateOrthodonticDiagnosis(actor: AuthUser, id: string, dto: UpdateOrthodonticDiagnosisDto) {
     const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    this.ensureTreatmentPlanCanMutate(plan, "update orthodontic diagnosis for");
     const saved = await this.prisma.orthodonticTreatmentProfile.upsert({
       where: { treatmentPlanId: plan.id },
       create: {
@@ -397,6 +409,7 @@ export class TreatmentPlansService {
 
   async createOrthodonticMonthlyItems(actor: AuthUser, id: string, dto: CreateOrthodonticMonthlyItemsDto) {
     const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    this.ensureTreatmentPlanCanMutate(plan, "create monthly items for");
     await this.validateProcedure(actor, dto.procedureId);
     const agreement = plan.patient.agreement;
     const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
@@ -461,6 +474,7 @@ export class TreatmentPlansService {
 
   async changeBranch(actor: AuthUser, id: string, dto: ChangeTreatmentPlanBranchDto) {
     const current = await this.ensureTreatmentPlan(actor, id);
+    this.ensureTreatmentPlanCanMutate(current, "change branch for");
     await this.validateBranch(actor, dto.branchId);
     const planSpecialty = await this.validateProfessionalPlanSpecialty(
       actor,
@@ -543,7 +557,8 @@ export class TreatmentPlansService {
   }
 
   async addSection(actor: AuthUser, treatmentPlanId: string, dto: TreatmentPlanSectionInputDto) {
-    await this.ensureTreatmentPlan(actor, treatmentPlanId);
+    const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
+    this.ensureTreatmentPlanCanMutate(plan, "add sections to");
     const nextSortOrder =
       dto.sortOrder ??
       ((
@@ -574,6 +589,7 @@ export class TreatmentPlansService {
 
   async createAlternative(actor: AuthUser, parentId: string, dto: CreateAlternativeDto) {
     const parent = await this.ensureTreatmentPlan(actor, parentId);
+    this.ensureTreatmentPlanCanMutate(parent, "create alternatives for");
     const created = await this.createTreatmentPlan(actor, {
       ...dto,
       branchId: dto.branchId ?? parent.branchId,
@@ -603,6 +619,8 @@ export class TreatmentPlansService {
       throw new BadRequestException(
         "The selected plan is not registered as an alternative of the parent plan"
       );
+    this.ensureTreatmentPlanCanMutate(parent, "activate alternatives for");
+    this.ensureTreatmentPlanCanMutate(alternative, "activate");
     if (parent.patientId !== alternative.patientId)
       throw new BadRequestException("Alternative and parent plan must belong to the same patient");
 
@@ -642,6 +660,7 @@ export class TreatmentPlansService {
 
   async addItem(actor: AuthUser, treatmentPlanId: string, dto: UpdateTreatmentPlanItemDto) {
     const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
+    this.ensureTreatmentPlanCanMutate(plan, "add items to");
     if (!dto.procedureId) throw new BadRequestException("procedureId is required");
 
     await this.validateProcedure(actor, dto.procedureId);
@@ -677,6 +696,7 @@ export class TreatmentPlansService {
     dto: UpdateTreatmentPlanItemDto
   ) {
     const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
+    this.ensureTreatmentPlanCanMutate(plan, "update items in");
     const current = await this.prisma.treatmentPlanItem.findFirst({
       where: { id: itemId, treatmentPlanId }
     });
@@ -812,6 +832,7 @@ export class TreatmentPlansService {
     dto: UpdateTreatmentPlanItemStatusDto
   ) {
     const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
+    this.ensureTreatmentPlanCanMutate(plan, "update item statuses in");
     const current = await this.prisma.treatmentPlanItem.findFirst({
       where: { id: itemId, treatmentPlanId }
     });
@@ -849,7 +870,8 @@ export class TreatmentPlansService {
   }
 
   async deleteItem(actor: AuthUser, treatmentPlanId: string, itemId: string) {
-    await this.ensureTreatmentPlan(actor, treatmentPlanId);
+    const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
+    this.ensureTreatmentPlanCanMutate(plan, "delete items from");
     const current = await this.prisma.treatmentPlanItem.findFirst({
       where: { id: itemId, treatmentPlanId },
       include: { budgetItems: { include: { budget: true } } }
@@ -894,6 +916,7 @@ export class TreatmentPlansService {
 
   async createBudget(actor: AuthUser, treatmentPlanId: string, dto: CreateBudgetDto) {
     const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
+    this.ensureTreatmentPlanCanMutate(plan, "create budgets for");
     const items = await this.prisma.treatmentPlanItem.findMany({
       where: { treatmentPlanId, status: { not: TreatmentPlanItemStatus.CANCELLED } },
       include: { procedure: true }
@@ -1006,6 +1029,7 @@ export class TreatmentPlansService {
 
   async sendBudget(actor: AuthUser, id: string) {
     const current = await this.getBudget(actor, id);
+    this.ensureTreatmentPlanCanMutate(current.treatmentPlan, "send budgets for");
     if (current.status !== BudgetStatus.DRAFT)
       throw new BadRequestException("Only DRAFT budgets can be sent");
     const updated = await this.prisma.budget.update({
@@ -1025,6 +1049,7 @@ export class TreatmentPlansService {
 
   async acceptBudget(actor: AuthUser, id: string) {
     const current = await this.getBudget(actor, id);
+    this.ensureTreatmentPlanCanMutate(current.treatmentPlan, "accept budgets for");
     if (current.treatmentPlan.isAlternative) {
       throw new BadRequestException(
         "Alternative treatment plans cannot be accepted for payments until converted to principal"
@@ -1531,6 +1556,12 @@ export class TreatmentPlansService {
     });
   }
 
+  private ensureTreatmentPlanCanMutate(plan: { status: TreatmentPlanStatus }, action = "modify") {
+    if (CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status)) {
+      throw new BadRequestException(`Cannot ${action} a cancelled or rejected treatment plan`);
+    }
+  }
+
   private async ensureTreatmentPlan(actor: AuthUser, treatmentPlanId: string) {
     const row = await this.prisma.treatmentPlan.findFirst({
       where: { id: treatmentPlanId, organizationId: actor.organizationId, branchId: branchScope(actor) },
@@ -1826,7 +1857,7 @@ export class TreatmentPlansService {
       throw new BadRequestException("Only cancelled or rejected plans can be reactivated");
     }
 
-    return this.prisma.treatmentPlan.update({
+    const updated = await this.prisma.treatmentPlan.update({
       where: { id },
       data: {
         status: "DRAFT",
@@ -1835,6 +1866,46 @@ export class TreatmentPlansService {
           : plan.description
       }
     });
+
+    await this.audit(
+      actor,
+      "TreatmentPlan",
+      id,
+      "reactivate",
+      { status: plan.status } as Prisma.InputJsonValue,
+      { status: updated.status } as Prisma.InputJsonValue
+    );
+    return this.getTreatmentPlan(actor, id);
+  }
+
+  async deactivateTreatmentPlan(actor: AuthUser, id: string, dto: DeactivateTreatmentPlanDto) {
+    const plan = await this.getTreatmentPlan(actor, id);
+    if (plan.status === TreatmentPlanStatus.COMPLETED) {
+      throw new BadRequestException("Completed treatment plans cannot be deactivated");
+    }
+    if (plan.status === TreatmentPlanStatus.CANCELLED) {
+      return plan;
+    }
+
+    const updated = await this.prisma.treatmentPlan.update({
+      where: { id },
+      data: {
+        status: TreatmentPlanStatus.CANCELLED,
+        description: dto.reason
+          ? `${plan.description || ""}\nDeactivated: ${dto.reason}`.trim()
+          : plan.description
+      }
+    });
+
+    await this.audit(
+      actor,
+      "TreatmentPlan",
+      id,
+      "deactivate",
+      { status: plan.status } as Prisma.InputJsonValue,
+      { status: updated.status } as Prisma.InputJsonValue
+    );
+    return this.getTreatmentPlan(actor, id);
   }
 
   async duplicateTreatmentPlan(actor: AuthUser, id: string, dto: DuplicateTreatmentPlanDto) {
@@ -2029,6 +2100,7 @@ export class TreatmentPlansService {
 
   async pauseTreatment(actor: AuthUser, id: string, dto: { reason?: string }) {
     const plan = await this.ensureTreatmentPlan(actor, id);
+    this.ensureTreatmentPlanCanMutate(plan, "pause");
 
     // Check if already paused
     const activePause = await this.prisma.treatmentPlanPause.findFirst({
@@ -2051,6 +2123,7 @@ export class TreatmentPlansService {
 
   async resumeTreatment(actor: AuthUser, id: string) {
     const plan = await this.ensureTreatmentPlan(actor, id);
+    this.ensureTreatmentPlanCanMutate(plan, "resume");
 
     // Find active pause
     const activePause = await this.prisma.treatmentPlanPause.findFirst({

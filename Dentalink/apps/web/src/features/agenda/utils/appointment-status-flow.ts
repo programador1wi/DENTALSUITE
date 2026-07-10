@@ -36,11 +36,11 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
   SCHEDULED: [
     { action: "markPendingConfirmation", label: "Marcar por confirmar", nextStatus: "PENDING_CONFIRMATION", tone: "warning" },
     { action: "notifyWhatsApp", label: "Notificar por WhatsApp", nextStatus: "NOTIFIED_BY_WHATSAPP", tone: "warning" },
-    { action: "notifyEmail", label: "Notificar por email", nextStatus: "NOTIFIED_BY_EMAIL", tone: "warning" },
+    { action: "notifyEmail", label: "Enviar confirmación por email", nextStatus: "NOTIFIED_BY_EMAIL", tone: "warning" },
     { action: "confirm", label: "Confirmar cita", nextStatus: "CONFIRMED", tone: "success" },
     { action: "confirmWhatsApp", label: "Confirmar por WhatsApp", nextStatus: "CONFIRMED_BY_WHATSAPP", tone: "success" },
     { action: "confirmPhone", label: "Confirmar por teléfono", nextStatus: "CONFIRMED_BY_PHONE", tone: "success" },
-    { action: "confirmEmail", label: "Confirmar por email", nextStatus: "CONFIRMED_BY_EMAIL", tone: "success" },
+    { action: "confirmEmail", label: "Marcar confirmado por email", nextStatus: "CONFIRMED_BY_EMAIL", tone: "success" },
     { action: "arrive", label: "Llegó a clínica", nextStatus: "ARRIVED", tone: "brand" },
     { action: "noShow", label: "No asistió", nextStatus: "NO_SHOW", tone: "danger" },
     { action: "reschedule", label: "Reagendar" },
@@ -53,11 +53,11 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
   PENDING_CONFIRMATION: [
     { action: "markScheduled", label: "Volver a agendada", nextStatus: "SCHEDULED" },
     { action: "notifyWhatsApp", label: "Notificar por WhatsApp", nextStatus: "NOTIFIED_BY_WHATSAPP", tone: "warning" },
-    { action: "notifyEmail", label: "Notificar por email", nextStatus: "NOTIFIED_BY_EMAIL", tone: "warning" },
+    { action: "notifyEmail", label: "Enviar confirmación por email", nextStatus: "NOTIFIED_BY_EMAIL", tone: "warning" },
     { action: "confirm", label: "Confirmar cita", nextStatus: "CONFIRMED", tone: "success" },
     { action: "confirmWhatsApp", label: "Confirmar por WhatsApp", nextStatus: "CONFIRMED_BY_WHATSAPP", tone: "success" },
     { action: "confirmPhone", label: "Confirmar por teléfono", nextStatus: "CONFIRMED_BY_PHONE", tone: "success" },
-    { action: "confirmEmail", label: "Confirmar por email", nextStatus: "CONFIRMED_BY_EMAIL", tone: "success" },
+    { action: "confirmEmail", label: "Marcar confirmado por email", nextStatus: "CONFIRMED_BY_EMAIL", tone: "success" },
     { action: "arrive", label: "Llegó a clínica", nextStatus: "ARRIVED", tone: "brand" },
     { action: "noShow", label: "No asistió", nextStatus: "NO_SHOW", tone: "danger" },
     { action: "reschedule", label: "Reagendar" },
@@ -73,7 +73,7 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "confirm", label: "Confirmar cita", nextStatus: "CONFIRMED", tone: "success" },
     { action: "confirmWhatsApp", label: "Confirmar por WhatsApp", nextStatus: "CONFIRMED_BY_WHATSAPP", tone: "success" },
     { action: "confirmPhone", label: "Confirmar por teléfono", nextStatus: "CONFIRMED_BY_PHONE", tone: "success" },
-    { action: "confirmEmail", label: "Confirmar por email", nextStatus: "CONFIRMED_BY_EMAIL", tone: "success" },
+    { action: "confirmEmail", label: "Marcar confirmado por email", nextStatus: "CONFIRMED_BY_EMAIL", tone: "success" },
     { action: "arrive", label: "Llegó a clínica", nextStatus: "ARRIVED", tone: "brand" },
     { action: "noShow", label: "No asistió", nextStatus: "NO_SHOW", tone: "danger" },
     { action: "reschedule", label: "Reagendar" },
@@ -89,7 +89,7 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "confirm", label: "Confirmar cita", nextStatus: "CONFIRMED", tone: "success" },
     { action: "confirmWhatsApp", label: "Confirmar por WhatsApp", nextStatus: "CONFIRMED_BY_WHATSAPP", tone: "success" },
     { action: "confirmPhone", label: "Confirmar por teléfono", nextStatus: "CONFIRMED_BY_PHONE", tone: "success" },
-    { action: "confirmEmail", label: "Confirmar por email", nextStatus: "CONFIRMED_BY_EMAIL", tone: "success" },
+    { action: "confirmEmail", label: "Marcar confirmado por email", nextStatus: "CONFIRMED_BY_EMAIL", tone: "success" },
     { action: "arrive", label: "Llegó a clínica", nextStatus: "ARRIVED", tone: "brand" },
     { action: "noShow", label: "No asistió", nextStatus: "NO_SHOW", tone: "danger" },
     { action: "reschedule", label: "Reagendar" },
@@ -179,11 +179,11 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "markScheduled", label: "Volver a agendada", nextStatus: "SCHEDULED" },
     { action: "markPendingConfirmation", label: "Marcar por confirmar", nextStatus: "PENDING_CONFIRMATION", tone: "warning" },
     { action: "notifyWhatsApp", label: "Notificar por WhatsApp", nextStatus: "NOTIFIED_BY_WHATSAPP", tone: "warning" },
-    { action: "notifyEmail", label: "Notificar por email", nextStatus: "NOTIFIED_BY_EMAIL", tone: "warning" },
+    { action: "notifyEmail", label: "Enviar confirmación por email", nextStatus: "NOTIFIED_BY_EMAIL", tone: "warning" },
     { action: "confirm", label: "Confirmar cita", nextStatus: "CONFIRMED", tone: "success" },
     { action: "confirmWhatsApp", label: "Confirmar por WhatsApp", nextStatus: "CONFIRMED_BY_WHATSAPP", tone: "success" },
     { action: "confirmPhone", label: "Confirmar por teléfono", nextStatus: "CONFIRMED_BY_PHONE", tone: "success" },
-    { action: "confirmEmail", label: "Confirmar por email", nextStatus: "CONFIRMED_BY_EMAIL", tone: "success" },
+    { action: "confirmEmail", label: "Marcar confirmado por email", nextStatus: "CONFIRMED_BY_EMAIL", tone: "success" },
     { action: "arrive", label: "Llegó a clínica", nextStatus: "ARRIVED", tone: "brand" },
     { action: "noShow", label: "No asistió", nextStatus: "NO_SHOW", tone: "danger" },
     { action: "reschedule", label: "Reagendar" },
@@ -203,6 +203,10 @@ export function getAppointmentStatusMenuItems(status: AppointmentStatus) {
 export function getDirectAppointmentStatusOptions(status: AppointmentStatus) {
   return getAppointmentStatusMenuItems(status).filter(
     (item): item is DirectAppointmentStatusMenuItem =>
-      Boolean(item.nextStatus) && item.action !== "cancelPatient" && item.action !== "cancelClinic"
+      Boolean(item.nextStatus) &&
+      item.action !== "cancelPatient" &&
+      item.action !== "cancelClinic" &&
+      item.action !== "cancelConflict" &&
+      item.action !== "cancelRescheduled"
   );
 }

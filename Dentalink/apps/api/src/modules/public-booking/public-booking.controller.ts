@@ -28,4 +28,28 @@ export class PublicBookingController {
   ) {
     return this.publicBookingService.trackEvent(slug, dto.eventType, dto.campaignCode);
   }
+
+  @Get('appointments/:id/confirm')
+  async getAppointmentDetailsForConfirmation(
+    @Param('id') id: string,
+    @Query('token') token: string
+  ) {
+    return this.publicBookingService.getAppointmentDetailsForConfirmation(id, token);
+  }
+
+  @Post('appointments/:id/confirm')
+  async confirmAppointment(
+    @Param('id') id: string,
+    @Query('token') token: string
+  ) {
+    return this.publicBookingService.confirmEmail(id, token);
+  }
+
+  @Post('appointments/:id/cancel')
+  async cancelAppointment(
+    @Param('id') id: string,
+    @Query('token') token: string
+  ) {
+    return this.publicBookingService.cancelEmail(id, token);
+  }
 }

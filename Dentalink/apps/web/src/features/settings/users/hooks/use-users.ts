@@ -4,6 +4,7 @@ import {
   deactivateUser,
   listUsers,
   lockAllUserAccess,
+  reactivateUser,
   updateUser,
   type CreateUserPayload,
   type UpdateUserPayload,
@@ -49,6 +50,15 @@ export function useDeactivateUser() {
 
   return useMutation({
     mutationFn: (id: string) => deactivateUser(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings", "users"] })
+  });
+}
+
+export function useReactivateUser() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => reactivateUser(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings", "users"] })
   });
 }

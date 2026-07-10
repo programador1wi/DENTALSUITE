@@ -10,6 +10,7 @@ import { AppointmentStatusMenu } from "./appointment-status-menu";
 type AppointmentCardProps = {
   appointment: Appointment;
   compact?: boolean;
+  pendingStatus?: AppointmentStatus;
   onEdit: (appointment: Appointment) => void;
   onCancel?: (appointment: Appointment, cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled") => void;
   onReschedule?: (appointment: Appointment) => void;
@@ -26,6 +27,7 @@ type AppointmentCardProps = {
 export function AppointmentCard({
   appointment,
   compact = false,
+  pendingStatus,
   onEdit,
   onCancel,
   onReschedule,
@@ -236,6 +238,7 @@ export function AppointmentCard({
           <AppointmentStatusMenu
             appointment={appointment}
             variant="card"
+            pendingStatus={pendingStatus}
             onChangeStatus={onChangeStatus}
             onConfirm={onConfirm}
             onArrive={onArrive}

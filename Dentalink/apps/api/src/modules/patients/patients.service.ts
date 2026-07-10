@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   AppointmentStatus,
   BudgetStatus,
@@ -42,6 +42,9 @@ type AnalysisFilters = {
   branchIds: string[];
   months: AnalysisMonth[];
 };
+
+const EXACT_PATIENT_DUPLICATE_MESSAGE =
+  "Ya existe un paciente con el mismo nombre, apellidos, teléfono y correo. Selecciona el paciente existente.";
 
 @Injectable()
 export class PatientsService {
@@ -579,6 +582,13 @@ export class PatientsService {
   async create(actor: AuthUser, dto: CreatePatientDto) {
     await this.validateBranch(actor, dto.branchId);
 
+    await this.ensureNoExactPatientDuplicate(actor, {
+      firstName: dto.firstName,
+      lastName: dto.lastName,
+      phone: dto.phone,
+      email: dto.email
+    });
+
     const potentialDuplicates = await this.findPotentialDuplicates(actor, {
       phone: dto.phone,
       email: dto.email,
@@ -590,14 +600,14 @@ export class PatientsService {
         data: {
           organizationId: actor.organizationId,
           branchId: dto.branchId,
-          firstName: dto.firstName.trim(),
-          lastName: dto.lastName.trim(),
+          firstName: this.normalizeDisplayName(dto.firstName),
+          lastName: this.normalizeDisplayName(dto.lastName),
           birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
           gender: dto.gender?.trim(),
           documentType: dto.documentType?.trim(),
           documentNumber: dto.documentNumber?.trim(),
-          email: dto.email?.toLowerCase().trim(),
-          phone: dto.phone?.trim(),
+          email: this.normalizeEmail(dto.email) || undefined,
+          phone: this.normalizePhoneForStorage(dto.phone) || undefined,
           alternatePhone: dto.alternatePhone?.trim(),
           occupation: dto.occupation?.trim(),
           referredBy: dto.referredBy?.trim(),
@@ -680,6 +690,17 @@ export class PatientsService {
     if (dto.branchId) await this.validateBranch(actor, dto.branchId);
     if (dto.agreementId) await this.validateAgreement(actor, dto.agreementId);
 
+    await this.ensureNoExactPatientDuplicate(
+      actor,
+      {
+        firstName: dto.firstName ?? current.firstName,
+        lastName: dto.lastName ?? current.lastName,
+        phone: dto.phone ?? current.phone ?? undefined,
+        email: dto.email ?? current.email ?? undefined
+      },
+      id
+    );
+
     const potentialDuplicates = await this.findPotentialDuplicates(
       actor,
       {
@@ -696,14 +717,14 @@ export class PatientsService {
         data: {
           branchId: dto.branchId,
           agreementId: dto.agreementId === undefined ? undefined : dto.agreementId || null,
-          firstName: dto.firstName?.trim(),
-          lastName: dto.lastName?.trim(),
+          firstName: dto.firstName === undefined ? undefined : this.normalizeDisplayName(dto.firstName),
+          lastName: dto.lastName === undefined ? undefined : this.normalizeDisplayName(dto.lastName),
           birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
           gender: dto.gender?.trim(),
           documentType: dto.documentType?.trim(),
           documentNumber: dto.documentNumber?.trim(),
-          email: dto.email?.toLowerCase().trim(),
-          phone: dto.phone?.trim(),
+          email: dto.email === undefined ? undefined : this.normalizeEmail(dto.email) || null,
+          phone: dto.phone === undefined ? undefined : this.normalizePhoneForStorage(dto.phone) || null,
           alternatePhone: dto.alternatePhone?.trim(),
           occupation: dto.occupation?.trim(),
           referredBy: dto.referredBy?.trim(),
@@ -1462,6 +1483,88 @@ export class PatientsService {
       take: 10,
       orderBy: { createdAt: "desc" }
     });
+  }
+
+  private async ensureNoExactPatientDuplicate(
+    actor: AuthUser,
+    fields: { firstName?: string; lastName?: string; phone?: string | null; email?: string | null },
+    excludeId?: string
+  ) {
+    const identity = this.normalizeExactPatientIdentity(fields);
+    if (!identity) return;
+
+    const candidates = await this.prisma.patient.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        branchId: { in: actor.branchIds },
+        deletedAt: null,
+        status: { not: "INACTIVE" },
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        OR: [{ phone: identity.phone }, { email: identity.email }]
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        phone: true,
+        email: true
+      },
+      take: 25,
+      orderBy: { createdAt: "desc" }
+    });
+
+    const duplicate = candidates.find((candidate) => {
+      const candidateIdentity = this.normalizeExactPatientIdentity(candidate);
+      if (!candidateIdentity) return false;
+      return (
+        candidateIdentity.firstName === identity.firstName &&
+        candidateIdentity.lastName === identity.lastName &&
+        candidateIdentity.phone === identity.phone &&
+        candidateIdentity.email === identity.email
+      );
+    });
+
+    if (duplicate) {
+      throw new ConflictException({
+        message: EXACT_PATIENT_DUPLICATE_MESSAGE,
+        duplicatePatientId: duplicate.id
+      });
+    }
+  }
+
+  private normalizeExactPatientIdentity(fields: {
+    firstName?: string | null;
+    lastName?: string | null;
+    phone?: string | null;
+    email?: string | null;
+  }) {
+    const firstName = this.normalizeIdentityText(fields.firstName);
+    const lastName = this.normalizeIdentityText(fields.lastName);
+    const phone = this.normalizePhoneForStorage(fields.phone);
+    const email = this.normalizeEmail(fields.email);
+
+    if (!firstName || !lastName || !phone || !email) return null;
+
+    return { firstName, lastName, phone, email };
+  }
+
+  private normalizeDisplayName(value?: string | null) {
+    return (value ?? "").trim().replace(/\s+/g, " ");
+  }
+
+  private normalizeIdentityText(value?: string | null) {
+    return this.normalizeDisplayName(value)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  }
+
+  private normalizeEmail(value?: string | null) {
+    return (value ?? "").trim().toLowerCase();
+  }
+
+  private normalizePhoneForStorage(value?: string | null) {
+    return (value ?? "").replace(/\D/g, "");
   }
 
   private async resolveAnalysisFilters(

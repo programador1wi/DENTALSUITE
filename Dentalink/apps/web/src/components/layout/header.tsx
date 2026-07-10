@@ -4,6 +4,7 @@ import { Megaphone, Menu, X } from "lucide-react";
 import { useAuthStore } from "@/stores/auth.store";
 import { PatientSearchBox } from "@/features/patients/components/patient-search-box";
 import { itemMatchesPath, visibleNavigation } from "@/components/layout/navigation";
+import { useOrganizationSettings } from "@/features/settings/organization/hooks/use-organization";
 import { cn } from "@/lib/utils/cn";
 
 function currentSection(pathname: string, permissions: string[]) {
@@ -22,6 +23,7 @@ export function Header({
   mobileOpen?: boolean;
 }) {
   const user = useAuthStore((state) => state.user);
+  const { data: organization } = useOrganizationSettings();
   const navigate = useNavigate();
   const location = useLocation();
   const [globalSearch, setGlobalSearch] = useState("");
@@ -49,9 +51,17 @@ export function Header({
           {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
 
-        <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Modulo activo</p>
-          <h1 className="truncate text-[var(--text-xl)] font-semibold leading-tight text-[var(--text-brand-strong)]">{section}</h1>
+        <div className="flex items-center gap-[var(--space-4)] min-w-0">
+          {organization?.logoUrl ? (
+            <div className="hidden h-9 w-auto shrink-0 items-center sm:flex">
+              <img src={organization.logoUrl} alt="Logotipo de la clínica" className="h-full object-contain" />
+              <div className="mx-[var(--space-3)] h-6 w-px bg-[var(--border-default)]" />
+            </div>
+          ) : null}
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">Modulo activo</p>
+            <h1 className="truncate text-[var(--text-xl)] font-semibold leading-tight text-[var(--text-brand-strong)]">{section}</h1>
+          </div>
         </div>
 
         <div className="relative ml-auto hidden w-full max-w-[420px] md:block">

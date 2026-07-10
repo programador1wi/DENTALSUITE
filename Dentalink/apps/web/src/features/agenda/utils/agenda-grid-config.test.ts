@@ -1,4 +1,5 @@
 import {
+  buildProfessionalDayColumnModel,
   buildTimelineMarkersFromRange,
   buildTimeSlotsFromRange,
   getProfessionalBranchAgendaConfig,
@@ -120,5 +121,87 @@ describe("agenda grid config", () => {
 
     expect(markers.map((marker) => marker.time)).toEqual(["10:00", "10:20", "10:40"]);
     expect(markers.map((marker) => marker.top)).toEqual([0, 38, 76]);
+  });
+
+  it("builds each professional day column with its own interval", () => {
+    const professionalA = {
+      id: "professional-a",
+      branches: [{ id: "branch-1", agendaSlotMinutes: 10, defaultAppointmentDurationMinutes: 20 }]
+    };
+    const professionalB = {
+      id: "professional-b",
+      branches: [{ id: "branch-1", agendaSlotMinutes: 30, defaultAppointmentDurationMinutes: 30 }]
+    };
+    const commonInput = {
+      branchId: "branch-1",
+      date: "2026-07-07",
+      schedules: [
+        { id: "schedule-a", professionalId: "professional-a", branchId: "branch-1", dayOfWeek: 2, startTime: "08:00", endTime: "09:00", isActive: true },
+        { id: "schedule-b", professionalId: "professional-b", branchId: "branch-1", dayOfWeek: 2, startTime: "08:00", endTime: "09:30", isActive: true }
+      ],
+      appointments: [],
+      fallbackSlotMinutes: 20,
+      fallbackStartHour: 8,
+      fallbackEndHour: 19
+    };
+
+    const columnA = buildProfessionalDayColumnModel({ ...commonInput, professional: professionalA });
+    const columnB = buildProfessionalDayColumnModel({ ...commonInput, professional: professionalB });
+
+    expect(columnA.slotMinutes).toBe(10);
+    expect(columnA.timeSlots).toEqual(["08:00", "08:10", "08:20", "08:30", "08:40", "08:50"]);
+    expect(columnA.availableSlots.map((slot) => slot.time)).toEqual(["08:00", "08:10", "08:20", "08:30", "08:40"]);
+    expect(columnB.slotMinutes).toBe(30);
+    expect(columnB.timeSlots).toEqual(["08:00", "08:30", "09:00"]);
+    expect(columnB.availableSlots.map((slot) => slot.time)).toEqual(["08:00", "08:30", "09:00"]);
+  });
+
+  it("keeps historical appointments outside schedule visible in a compact bucket", () => {
+    const column = buildProfessionalDayColumnModel({
+      professional: {
+        id: "professional-1",
+        branches: [{ id: "branch-1", agendaSlotMinutes: 20, defaultAppointmentDurationMinutes: 20 }]
+      },
+      branchId: "branch-1",
+      date: "2026-07-07",
+      schedules: [
+        { id: "schedule-1", professionalId: "professional-1", branchId: "branch-1", dayOfWeek: 2, startTime: "08:00", endTime: "09:00", isActive: true }
+      ],
+      appointments: [
+        { id: "before-hours", professionalId: "professional-1", startAt: "2026-07-07T07:30:00", endAt: "2026-07-07T07:50:00", status: "SCHEDULED" },
+        { id: "inside-hours", professionalId: "professional-1", startAt: "2026-07-07T08:20:00", endAt: "2026-07-07T08:40:00", status: "SCHEDULED" }
+      ],
+      fallbackSlotMinutes: 20,
+      fallbackStartHour: 8,
+      fallbackEndHour: 19
+    });
+
+    expect(column.visibleAppointments.map((appointment) => appointment.id)).toEqual(["inside-hours"]);
+    expect(column.outOfScheduleAppointments.map((appointment) => appointment.id)).toEqual(["before-hours"]);
+  });
+
+  it("uses special schedules as extra openings for the exact date", () => {
+    const column = buildProfessionalDayColumnModel({
+      professional: {
+        id: "professional-1",
+        branches: [{ id: "branch-1", agendaSlotMinutes: 20, defaultAppointmentDurationMinutes: 20 }]
+      },
+      branchId: "branch-1",
+      date: "2026-07-07",
+      schedules: [],
+      specialSchedules: [
+        { id: "special-1", professionalId: "professional-1", branchId: "branch-1", date: "2026-07-07", startTime: "15:00", endTime: "16:00", isActive: true },
+        { id: "special-2", professionalId: "professional-1", branchId: "branch-1", date: "2026-07-08", startTime: "17:00", endTime: "18:00", isActive: true }
+      ],
+      appointments: [],
+      fallbackSlotMinutes: 30,
+      fallbackStartHour: 8,
+      fallbackEndHour: 19
+    });
+
+    expect(column.startMinutes).toBe(900);
+    expect(column.endMinutes).toBe(960);
+    expect(column.timeSlots).toEqual(["15:00", "15:20", "15:40"]);
+    expect(column.availableSlots.map((slot) => slot.time)).toEqual(["15:00", "15:20", "15:40"]);
   });
 });

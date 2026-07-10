@@ -1,6 +1,6 @@
 import { ConfigService } from "@nestjs/config";
 import { NestFactory } from "@nestjs/core";
-import { NextFunction, Request, Response } from "express";
+import { NextFunction, Request, Response, json, urlencoded } from "express";
 import helmet from "helmet";
 import { appConfig } from "./config/app.config";
 import { GlobalExceptionFilter } from "./common/filters/global-exception.filter";
@@ -16,12 +16,18 @@ import { AppModule } from "./app.module";
 import { PrismaService } from "./database/prisma.service";
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    bodyParser: false
+  });
   const config = app.get(ConfigService);
   const logger = app.get(AppLogger);
   const conf = appConfig(config);
 
   app.useLogger(logger);
+
+  app.use(json({ limit: "15mb" }));
+  app.use(urlencoded({ limit: "15mb", extended: true }));
 
   const requestIdMiddleware = new RequestIdMiddleware();
   const rateLimitMiddleware = new RateLimitMiddleware();

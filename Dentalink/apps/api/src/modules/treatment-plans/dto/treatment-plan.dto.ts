@@ -403,6 +403,13 @@ export class ReactivateTreatmentPlanDto {
   @IsString()
   reason?: string;
 }
+
+export class DeactivateTreatmentPlanDto {
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
+
 export class PauseTreatmentPlanDto {
   @IsString()
   @IsOptional()

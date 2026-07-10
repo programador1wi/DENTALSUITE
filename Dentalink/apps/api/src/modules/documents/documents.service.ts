@@ -939,6 +939,7 @@ export class DocumentsService {
         entityId: payload.entityId,
         action: payload.action,
         before: payload.before,
+        after: payload.after
       }
     });
   }

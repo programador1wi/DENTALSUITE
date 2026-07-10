@@ -254,6 +254,9 @@ export function InstallmentsPage() {
 
       <DataTable
         rows={installments.data ?? []}
+        stickyFirstColumn={true}
+        stickyLastColumn={true}
+        responsiveCards={true}
         empty={<EmptyState title="Sin cuotas" description="No hay cuotas para los filtros actuales." />}
         columns={[
           {

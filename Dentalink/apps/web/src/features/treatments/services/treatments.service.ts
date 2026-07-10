@@ -391,6 +391,11 @@ export async function reactivateTreatmentPlan(id: string, payload: { reason?: st
   return data;
 }
 
+export async function deactivateTreatmentPlan(id: string, payload: { reason?: string }) {
+  const { data } = await http.post(`/treatment-plans/${id}/deactivate`, payload);
+  return data;
+}
+
 export async function duplicateTreatmentPlan(
   id: string,
   payload: { newBranchId?: string; newProfessionalId?: string; reason?: string }

@@ -40,6 +40,23 @@ const MIN_BRANCH_STAFFING = [
   { specialtyName: ORTHODONTICS_SPECIALTY_NAME, minimum: 1 }
 ] as const;
 
+type NormalizedContractTarget = {
+  professionalId: string;
+  branchIds: string[];
+};
+
+type NormalizedContractCategoryRate = {
+  procedureCategoryId: string;
+  rate: number;
+};
+
+type NormalizedContractFixedAmount = {
+  procedureId: string;
+  priceListId: string | null;
+  amount: Prisma.Decimal;
+  currency: string;
+};
+
 @Injectable()
 export class ProfessionalsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -612,95 +629,15 @@ export class ProfessionalsService {
   }
 
   async bulkUpdateContracts(actor: AuthUser, dto: BulkProfessionalContractDto) {
-    const targets = this.normalizeContractTargets(dto.targets);
-    if (!targets.length) throw new BadRequestException("At least one professional and branch is required");
-
-    const professionalIds = [...new Set(targets.map((target) => target.professionalId))];
-    const branchIds = [...new Set(targets.flatMap((target) => target.branchIds))];
-    branchIds.forEach((branchId) => assertBranchAccess(actor, branchId));
-
-    const [branchCount, professionals, priceList] = await Promise.all([
-      this.prisma.branch.count({
-        where: {
-          id: { in: branchIds },
-          organizationId: actor.organizationId,
-          status: "ACTIVE",
-          deletedAt: null
-        }
-      }),
-      this.prisma.professional.findMany({
-        where: {
-          id: { in: professionalIds },
-          organizationId: actor.organizationId,
-          isActive: true
-        },
-        include: {
-          branches: {
-            where: { status: ProfessionalBranchStatus.ACTIVE },
-            select: { branchId: true }
-          }
-        }
-      }),
-      dto.priceListId
-        ? this.prisma.priceList.findFirst({
-            where: {
-              id: dto.priceListId,
-              organizationId: actor.organizationId,
-              isActive: true
-            },
-            include: {
-              items: {
-                select: {
-                  procedureId: true,
-                  price: true,
-                  currency: true
-                }
-              }
-            }
-          })
-        : Promise.resolve(null)
-    ]);
-
-    if (branchCount !== branchIds.length) throw new BadRequestException("One or more branches are invalid");
-    if (professionals.length !== professionalIds.length) throw new BadRequestException("One or more professionals are invalid");
-    if (dto.priceListId && !priceList) throw new BadRequestException("Invalid priceListId");
-
-    const professionalsById = new Map(professionals.map((professional) => [professional.id, professional]));
-    for (const target of targets) {
-      const professional = professionalsById.get(target.professionalId);
-      const assignedBranchIds = new Set(professional?.branches.map((branch) => branch.branchId) ?? []);
-      const invalidBranch = target.branchIds.find((branchId) => !assignedBranchIds.has(branchId));
-      if (invalidBranch) {
-        throw new BadRequestException("Professional is not assigned to one or more selected branches");
-      }
-    }
-
-    const categoryRates = this.normalizeContractCategoryRates(dto.categoryRates ?? []);
-    if (categoryRates.length) {
-      const categoryCount = await this.prisma.procedureCategory.count({
-        where: {
-          id: { in: categoryRates.map((rate) => rate.procedureCategoryId) },
-          organizationId: actor.organizationId,
-          isActive: true
-        }
-      });
-      if (categoryCount !== categoryRates.length) {
-        throw new BadRequestException("One or more procedure categories are invalid");
-      }
-    }
+    const context = await this.prepareBulkContractContext(actor, dto);
+    const { targets, priceList, categoryRates, fixedAmounts } = context;
 
     const now = new Date();
     const contractType = this.toContractType(dto.contractType);
     const commissionBase = this.toCommissionBase(dto.commissionBase);
     const paymentDiscount = this.toPaymentDiscount(dto.paymentDiscount);
     const paymentCondition = this.toPaymentCondition(dto.paymentCondition);
-    const fixedAmounts =
-      priceList?.items.map((item) => ({
-        procedureId: item.procedureId,
-        priceListId: priceList.id,
-        amount: item.price,
-        currency: item.currency
-      })) ?? [];
+    const batchId = `bulk-contract-${now.getTime()}-${actor.id}`;
 
     const createdContracts = await this.prisma.$transaction(async (tx) => {
       const created: Prisma.ProfessionalContractGetPayload<{
@@ -708,6 +645,45 @@ export class ProfessionalsService {
       }>[] = [];
 
       for (const target of targets) {
+        const previousContract = await tx.professionalContract.findFirst({
+          where: {
+            organizationId: actor.organizationId,
+            professionalId: target.professionalId,
+            isActive: true,
+            branches: { some: { branchId: { in: target.branchIds } } }
+          },
+          include: {
+            branches: true,
+            categoryRates: true,
+            fixedAmounts: true
+          },
+          orderBy: [{ startsAt: "desc" }, { createdAt: "desc" }]
+        });
+        const previousForMerge = dto.keepPrevious ? previousContract : null;
+        const contractCategoryRates = dto.keepPrevious
+          ? this.mergeContractCategoryRates(previousForMerge?.categoryRates, categoryRates)
+          : categoryRates;
+        const contractFixedAmounts = dto.keepPrevious
+          ? this.mergeContractFixedAmounts(previousForMerge?.fixedAmounts, fixedAmounts)
+          : fixedAmounts;
+
+        const otherBranchesBeforeRemoval = dto.removeOtherBranches
+          ? await tx.professionalContract.findFirst({
+              where: {
+                organizationId: actor.organizationId,
+                professionalId: target.professionalId,
+                isActive: true,
+                branches: { some: { branchId: { notIn: target.branchIds } } }
+              },
+              include: {
+                branches: true,
+                categoryRates: true,
+                fixedAmounts: true
+              },
+              orderBy: [{ startsAt: "desc" }, { createdAt: "desc" }]
+            })
+          : null;
+
         if (!dto.keepPrevious) {
           await tx.professionalContract.updateMany({
             where: {
@@ -731,28 +707,6 @@ export class ProfessionalsService {
             data: { isActive: false, endsAt: now }
           });
         }
-
-        const previousContract = dto.keepPrevious
-          ? await tx.professionalContract.findFirst({
-              where: {
-                organizationId: actor.organizationId,
-                professionalId: target.professionalId,
-                isActive: true,
-                branches: { some: { branchId: { in: target.branchIds } } }
-              },
-              include: {
-                categoryRates: true,
-                fixedAmounts: true
-              },
-              orderBy: [{ startsAt: "desc" }, { createdAt: "desc" }]
-            })
-          : null;
-        const contractCategoryRates = dto.keepPrevious
-          ? this.mergeContractCategoryRates(previousContract?.categoryRates, categoryRates)
-          : categoryRates;
-        const contractFixedAmounts = dto.keepPrevious
-          ? this.mergeContractFixedAmounts(previousContract?.fixedAmounts, fixedAmounts)
-          : fixedAmounts;
 
         await tx.professional.update({
           where: { id: target.professionalId },
@@ -808,10 +762,28 @@ export class ProfessionalsService {
               paymentDiscount,
               paymentCondition,
               priceListId: priceList?.id ?? null,
-              categoryRates: contractCategoryRates.length,
-              fixedAmounts: contractFixedAmounts.length,
+              categoryRates: contractCategoryRates.map((rate) => ({
+                procedureCategoryId: rate.procedureCategoryId,
+                rate: Number(rate.rate)
+              })),
+              fixedAmounts: contractFixedAmounts.map((amount) => ({
+                procedureId: amount.procedureId,
+                priceListId: amount.priceListId,
+                amount: Number(amount.amount),
+                currency: amount.currency
+              })),
               keepPrevious: dto.keepPrevious ?? false,
-              removeOtherBranches: dto.removeOtherBranches ?? false
+              removeOtherBranches: dto.removeOtherBranches ?? false,
+              batchId,
+              zoneCodes: context.zoneCodes,
+              before: {
+                selectedContractId: previousContract?.id ?? null,
+                selectedBranchIds: previousContract?.branches.map((branch) => branch.branchId) ?? [],
+                selectedCategoryRates: previousContract?.categoryRates.length ?? 0,
+                selectedFixedAmounts: previousContract?.fixedAmounts.length ?? 0,
+                otherContractId: otherBranchesBeforeRemoval?.id ?? null,
+                otherBranchIds: otherBranchesBeforeRemoval?.branches.map((branch) => branch.branchId) ?? []
+              }
             } as Prisma.InputJsonValue
           }
         });
@@ -840,6 +812,48 @@ export class ProfessionalsService {
     };
   }
 
+  async previewBulkUpdateContracts(actor: AuthUser, dto: BulkProfessionalContractDto) {
+    const context = await this.prepareBulkContractContext(actor, dto);
+    const impactedCurrentContracts = await this.prisma.professionalContract.count({
+      where: {
+        organizationId: actor.organizationId,
+        professionalId: { in: context.professionalIds },
+        isActive: true,
+        branches: { some: { branchId: { in: context.branchIds } } }
+      }
+    });
+    const removedOtherContracts = dto.removeOtherBranches
+      ? await this.prisma.professionalContract.count({
+          where: {
+            organizationId: actor.organizationId,
+            professionalId: { in: context.professionalIds },
+            isActive: true,
+            branches: { some: { branchId: { notIn: context.branchIds } } }
+          }
+        })
+      : 0;
+    const totalScopes = context.targets.reduce((sum, target) => sum + target.branchIds.length, 0);
+    const warnings: string[] = [];
+    if (dto.commissionRate === 0 && totalScopes > 1) warnings.push("Se aplicara 0% a multiples alcances.");
+    if (dto.removeOtherBranches) warnings.push("Se cerraran contratos activos fuera de las sucursales seleccionadas.");
+    if (!dto.keepPrevious) warnings.push("No se conservaran montos fijos ni porcentajes avanzados anteriores.");
+
+    return {
+      professionals: context.professionalIds.length,
+      branches: context.branchIds.length,
+      scopes: totalScopes,
+      contractsToCreate: context.targets.length,
+      currentContractsToClose: dto.keepPrevious ? 0 : impactedCurrentContracts,
+      otherContractsToClose: removedOtherContracts,
+      fixedAmounts: context.fixedAmounts.length,
+      categoryRates: context.categoryRates.length,
+      priceListId: context.priceList?.id ?? null,
+      priceListName: context.priceList?.name ?? null,
+      zoneCodes: context.zoneCodes,
+      warnings
+    };
+  }
+
   private transferableStatuses(moveFutureAppointments: boolean, moveFutureBlocks: boolean) {
     const statuses: AppointmentStatus[] = [];
     if (moveFutureAppointments) {
@@ -856,7 +870,116 @@ export class ProfessionalsService {
     return statuses;
   }
 
-  private normalizeContractTargets(targets: BulkProfessionalContractDto["targets"]) {
+  private async prepareBulkContractContext(actor: AuthUser, dto: BulkProfessionalContractDto) {
+    const targets = this.normalizeContractTargets(dto.targets);
+    if (!targets.length) throw new BadRequestException("At least one professional and branch is required");
+
+    const professionalIds = [...new Set(targets.map((target) => target.professionalId))];
+    const branchIds = [...new Set(targets.flatMap((target) => target.branchIds))];
+    branchIds.forEach((branchId) => assertBranchAccess(actor, branchId));
+
+    const [branches, professionals, priceList] = await Promise.all([
+      this.prisma.branch.findMany({
+        where: {
+          id: { in: branchIds },
+          organizationId: actor.organizationId,
+          status: "ACTIVE",
+          deletedAt: null
+        },
+        include: { zone: true }
+      }),
+      this.prisma.professional.findMany({
+        where: {
+          id: { in: professionalIds },
+          organizationId: actor.organizationId,
+          isActive: true
+        },
+        include: {
+          branches: {
+            where: { status: ProfessionalBranchStatus.ACTIVE },
+            select: { branchId: true }
+          }
+        }
+      }),
+      dto.priceListId
+        ? this.prisma.priceList.findFirst({
+            where: {
+              id: dto.priceListId,
+              organizationId: actor.organizationId,
+              isActive: true
+            },
+            include: {
+              categories: {
+                where: { isActive: true },
+                select: {
+                  procedureCategoryId: true
+                }
+              },
+              items: {
+                select: {
+                  procedureId: true,
+                  price: true,
+                  currency: true
+                }
+              }
+            }
+          })
+        : Promise.resolve(null)
+    ]);
+
+    if (branches.length !== branchIds.length) throw new BadRequestException("One or more branches are invalid");
+    if (professionals.length !== professionalIds.length) throw new BadRequestException("One or more professionals are invalid");
+    if (dto.priceListId && !priceList) throw new BadRequestException("Invalid priceListId");
+
+    const professionalsById = new Map(professionals.map((professional) => [professional.id, professional]));
+    for (const target of targets) {
+      const professional = professionalsById.get(target.professionalId);
+      const assignedBranchIds = new Set(professional?.branches.map((branch) => branch.branchId) ?? []);
+      const invalidBranch = target.branchIds.find((branchId) => !assignedBranchIds.has(branchId));
+      if (invalidBranch) {
+        throw new BadRequestException("Professional is not assigned to one or more selected branches");
+      }
+    }
+
+    const categoryRates = this.normalizeContractCategoryRates(dto.categoryRates ?? []);
+    if (categoryRates.length) {
+      if (priceList) {
+        const allowedCategoryIds = new Set(
+          priceList.categories.flatMap((category) =>
+            category.procedureCategoryId ? [category.procedureCategoryId] : []
+          )
+        );
+        const invalidRate = categoryRates.find((rate) => !allowedCategoryIds.has(rate.procedureCategoryId));
+        if (invalidRate) throw new BadRequestException("One or more procedure categories are outside the selected price list");
+      } else {
+        const categoryCount = await this.prisma.procedureCategory.count({
+          where: {
+            id: { in: categoryRates.map((rate) => rate.procedureCategoryId) },
+            organizationId: actor.organizationId,
+            isActive: true
+          }
+        });
+        if (categoryCount !== categoryRates.length) {
+          throw new BadRequestException("One or more procedure categories are invalid");
+        }
+      }
+    }
+
+    const fixedAmounts = this.normalizeContractFixedAmounts(dto, priceList);
+    const zoneCodes = [...new Set(branches.map((branch) => branch.zone?.code ?? "SIN_ZONA"))];
+
+    return {
+      targets,
+      professionalIds,
+      branchIds,
+      zoneCodes,
+      priceList,
+      categoryRates,
+      fixedAmounts
+    };
+  }
+
+  private normalizeContractTargets(targets: BulkProfessionalContractDto["targets"]): NormalizedContractTarget[] {
     const byProfessional = new Map<string, Set<string>>();
     for (const target of targets ?? []) {
       const professionalId = target.professionalId?.trim();
@@ -874,7 +997,9 @@ export class ProfessionalsService {
     }));
   }
 
-  private normalizeContractCategoryRates(rates: NonNullable<BulkProfessionalContractDto["categoryRates"]>) {
+  private normalizeContractCategoryRates(
+    rates: NonNullable<BulkProfessionalContractDto["categoryRates"]>
+  ): NormalizedContractCategoryRate[] {
     const byCategory = new Map<string, number>();
     for (const rate of rates) {
       const procedureCategoryId = rate.procedureCategoryId?.trim();
@@ -882,6 +1007,55 @@ export class ProfessionalsService {
       byCategory.set(procedureCategoryId, rate.rate);
     }
     return [...byCategory.entries()].map(([procedureCategoryId, rate]) => ({ procedureCategoryId, rate }));
+  }
+
+  private normalizeContractFixedAmounts(
+    dto: BulkProfessionalContractDto,
+    priceList:
+      | {
+          id: string;
+          items: { procedureId: string; price: Prisma.Decimal; currency: string }[];
+        }
+      | null
+  ): NormalizedContractFixedAmount[] {
+    if (dto.fixedAmounts === undefined) {
+      return (
+        priceList?.items.map((item) => ({
+          procedureId: item.procedureId,
+          priceListId: priceList.id,
+          amount: item.price,
+          currency: item.currency
+        })) ?? []
+      );
+    }
+
+    if (!dto.fixedAmounts.length) return [];
+    if (!priceList) throw new BadRequestException("A price list is required when fixed amounts are provided");
+
+    const priceListItems = new Map(priceList.items.map((item) => [item.procedureId, item]));
+    const byProcedure = new Map<string, NormalizedContractFixedAmount>();
+    for (const amount of dto.fixedAmounts) {
+      const procedureId = amount.procedureId?.trim();
+      if (!procedureId) continue;
+      const priceListItem = priceListItems.get(procedureId);
+      if (!priceListItem) {
+        throw new BadRequestException("One or more fixed amount procedures are outside the selected price list");
+      }
+      if (amount.priceListId && amount.priceListId !== priceList.id) {
+        throw new BadRequestException("One or more fixed amounts reference another price list");
+      }
+      if (!Number.isFinite(amount.amount) || amount.amount < 0) {
+        throw new BadRequestException("Fixed amounts must be greater than or equal to zero");
+      }
+      byProcedure.set(procedureId, {
+        procedureId,
+        priceListId: priceList.id,
+        amount: new Prisma.Decimal(amount.amount),
+        currency: amount.currency ?? priceListItem.currency
+      });
+    }
+
+    return [...byProcedure.values()];
   }
 
   private mergeContractCategoryRates(
@@ -913,7 +1087,7 @@ export class ProfessionalsService {
           currency: string;
         }[]
       | undefined,
-    next: { procedureId: string; priceListId: string; amount: Prisma.Decimal; currency: string }[]
+    next: NormalizedContractFixedAmount[]
   ) {
     const byProcedure = new Map<
       string,
@@ -987,7 +1161,7 @@ export class ProfessionalsService {
     if (branchIds) {
       if (!branchIds.length) throw new BadRequestException("At least one branch is required");
       if (new Set(branchIds).size !== 1) {
-        throw new BadRequestException("Professional can only be assigned to one active branch");
+        throw new BadRequestException("Un profesional solo puede tener una sucursal activa. Selecciona una sucursal clinica.");
       }
       const count = await this.prisma.branch.count({
         where: {

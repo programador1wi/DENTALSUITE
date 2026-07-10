@@ -30,4 +30,24 @@ describe("authStore", () => {
     expect(authStoreApi.getState().accessToken).toBeNull();
     expect(authStoreApi.getState().hasPermission("patients.read")).toBe(false);
   });
+
+  it("allows system administrators through permission gates", () => {
+    authStoreApi.getState().setSession({
+      user: {
+        id: "u1",
+        organizationId: "o1",
+        email: "admin@clinic.com",
+        firstName: "Admin",
+        lastName: "User",
+        roleIds: ["r1"],
+        roleNames: ["SUPER_ADMIN"],
+        permissions: ["system.manage_all"],
+        branchIds: ["b1"]
+      },
+      accessToken: "access",
+      refreshToken: "refresh"
+    });
+
+    expect(authStoreApi.getState().hasPermission("integrations.communications.read")).toBe(true);
+  });
 });

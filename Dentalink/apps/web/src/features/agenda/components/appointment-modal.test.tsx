@@ -1,7 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { AppointmentModal, SAME_DAY_APPOINTMENT_MESSAGE } from "./appointment-modal";
+import { AppointmentModal, SAME_DAY_APPOINTMENT_MESSAGE, type AppointmentSubmitOptions } from "./appointment-modal";
+import type { PatientDetail, PatientPayload } from "@/features/patients/services/patients.service";
 import type { CreateTreatmentPlanPayload } from "@/features/treatments/services/treatments.service";
 import type { AppointmentPayload } from "../services/appointments.service";
+
+type AppointmentModalSubmit = (payloads: AppointmentPayload[], options?: AppointmentSubmitOptions) => Promise<void>;
 
 const treatmentPlansByPatient = vi.hoisted(() => new Map<string, unknown[]>());
 const patientDayAppointmentsByPatient = vi.hoisted(() => new Map<string, unknown[]>());
@@ -153,7 +156,13 @@ function renderAppointmentModal({
   onCreateTreatmentPlan = vi
     .fn<(payload: CreateTreatmentPlanPayload) => Promise<{ id: string }>>()
     .mockResolvedValue({ id: "created-plan" }),
-  onSubmit = vi.fn<(payloads: AppointmentPayload[]) => Promise<void>>().mockResolvedValue(undefined),
+  onCreatePatient = vi.fn<(payload: PatientPayload) => Promise<PatientDetail>>().mockResolvedValue({
+    id: "patient-new",
+    firstName: "Nuevo",
+    lastName: "Paciente"
+  } as PatientDetail),
+  onSubmit = vi.fn<AppointmentModalSubmit>().mockResolvedValue(undefined),
+  onClose = vi.fn(),
   patients = [],
   initialValues = {
     branchId: "branch-1",
@@ -185,7 +194,9 @@ function renderAppointmentModal({
   multipleMode = true
 }: {
   onCreateTreatmentPlan?: (payload: CreateTreatmentPlanPayload) => Promise<{ id: string }>;
-  onSubmit?: (payloads: AppointmentPayload[]) => Promise<void>;
+  onCreatePatient?: (payload: PatientPayload) => Promise<PatientDetail>;
+  onSubmit?: AppointmentModalSubmit;
+  onClose?: () => void;
   patients?: never[];
   initialValues?: Partial<AppointmentPayload>;
   branches?: never[];
@@ -201,9 +212,9 @@ function renderAppointmentModal({
       professionals={professionals}
       chairs={[{ id: "chair-1", branchId: "branch-1", name: "Sillon 1", isActive: true } as never]}
       patients={patients}
-      onClose={vi.fn()}
+      onClose={onClose}
       onSubmit={onSubmit}
-      onCreatePatient={vi.fn()}
+      onCreatePatient={onCreatePatient}
       onCreateTreatmentPlan={onCreateTreatmentPlan}
       multipleMode={multipleMode}
     />
@@ -273,7 +284,7 @@ describe("AppointmentModal multiple booking", () => {
   });
 
   it("merges contiguous same-day slots into one appointment block", async () => {
-    const onSubmit = vi.fn<(payloads: AppointmentPayload[]) => Promise<void>>().mockResolvedValue(undefined);
+    const onSubmit = vi.fn<AppointmentModalSubmit>().mockResolvedValue(undefined);
     renderAppointmentModal({ onSubmit, patients: [patientAna] });
     await openScheduleStep();
 
@@ -294,7 +305,7 @@ describe("AppointmentModal multiple booking", () => {
   });
 
   it("uses a slot opened from the global day agenda as resolved schedule context", async () => {
-    const onSubmit = vi.fn<(payloads: AppointmentPayload[]) => Promise<void>>().mockResolvedValue(undefined);
+    const onSubmit = vi.fn<AppointmentModalSubmit>().mockResolvedValue(undefined);
     renderAppointmentModal({
       onSubmit,
       patients: [patientAna],
@@ -395,8 +406,33 @@ describe("AppointmentModal multiple booking", () => {
     expect(onSubmit.mock.calls[0][0][0]).toEqual(expect.objectContaining({ treatmentPlanId: "plan-current" }));
   });
 
+  it("sends the notify by email option and shows sending state while saving", async () => {
+    let resolveSubmit: (() => void) | undefined;
+    const onSubmit = vi.fn<AppointmentModalSubmit>().mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSubmit = resolve;
+        })
+    );
+    const onClose = vi.fn();
+    renderAppointmentModal({ onSubmit, onClose, patients: [patientAna] });
+    await openPatientStep();
+
+    selectExistingPatient("Ana", /ANA LOPEZ/i);
+    fireEvent.click(screen.getByRole("checkbox", { name: /Notificar por correo/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cita" }));
+
+    await waitFor(() =>
+      expect(onSubmit).toHaveBeenCalledWith(expect.any(Array), { notifyByEmail: true })
+    );
+    expect(screen.getByRole("button", { name: /Enviando correo/i })).toBeDisabled();
+
+    resolveSubmit?.();
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
   it("blocks submit before calling the API when the patient already has an active appointment that day", async () => {
-    const onSubmit = vi.fn<(payloads: AppointmentPayload[]) => Promise<void>>().mockResolvedValue(undefined);
+    const onSubmit = vi.fn<AppointmentModalSubmit>().mockResolvedValue(undefined);
     patientDayAppointmentsByPatient.set("patient-1", [
       {
         id: "existing-appt",
@@ -469,5 +505,35 @@ describe("AppointmentModal multiple booking", () => {
     fireEvent.click(screen.getByRole("button", { name: "Paciente nuevo" }));
 
     expect(screen.queryByText("Selecciona el plan que quedara asociado a esta cita.")).not.toBeInTheDocument();
+  });
+
+  it("keeps the modal open and shows backend duplicate errors when creating a new patient", async () => {
+    const duplicateMessage = "Ya existe un paciente con el mismo nombre, apellidos, teléfono y correo. Selecciona el paciente existente.";
+    const onCreatePatient = vi.fn().mockRejectedValue(new Error(duplicateMessage));
+    const onSubmit = vi.fn<AppointmentModalSubmit>().mockResolvedValue(undefined);
+    const onClose = vi.fn();
+    renderAppointmentModal({ onCreatePatient, onSubmit, onClose, patients: [patientAna] });
+    await openPatientStep();
+
+    fireEvent.click(screen.getByRole("button", { name: "Paciente nuevo" }));
+    fireEvent.change(screen.getByLabelText("Nombre legal"), { target: { value: "CHANONA" } });
+    fireEvent.change(screen.getByLabelText("Apellidos"), { target: { value: "ARREOLA" } });
+    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "programador1.wi@gmail.com" } });
+    fireEvent.change(screen.getByLabelText("Telefono movil"), { target: { value: "9613184040" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar cita" }));
+
+    await waitFor(() =>
+      expect(onCreatePatient).toHaveBeenCalledWith(
+        expect.objectContaining({
+          firstName: "CHANONA",
+          lastName: "ARREOLA",
+          email: "programador1.wi@gmail.com",
+          phone: "9613184040"
+        })
+      )
+    );
+    expect(await screen.findByText(duplicateMessage)).toBeInTheDocument();
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

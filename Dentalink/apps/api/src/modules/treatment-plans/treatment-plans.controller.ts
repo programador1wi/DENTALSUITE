@@ -31,6 +31,7 @@ import {
   UpdateTreatmentPlanItemDto,
   UpdateTreatmentPlanItemStatusDto,
   ReactivateTreatmentPlanDto,
+  DeactivateTreatmentPlanDto,
   DuplicateTreatmentPlanDto,
   ReferTreatmentPlanDto
 } from "./dto/treatment-plan.dto";
@@ -184,6 +185,12 @@ export class TreatmentPlansController {
   @RequirePermissions("treatment_plans.status.update")
   reactivateTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: ReactivateTreatmentPlanDto) {
     return this.service.reactivateTreatmentPlan(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/deactivate")
+  @RequirePermissions("treatment_plans.status.update")
+  deactivateTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: DeactivateTreatmentPlanDto) {
+    return this.service.deactivateTreatmentPlan(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/duplicate")

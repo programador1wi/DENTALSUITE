@@ -182,7 +182,8 @@ export function SchedulesSettingsPage() {
   const futureBlocks = useFutureScheduleBlocks({
     professionalId: selectedProfessionalId || undefined,
     branchId: selectedBranchId || undefined,
-    start: startOfTodayIso()
+    start: startOfTodayIso(),
+    end: endOfFutureIso()
   });
   const createSchedule = useCreateSchedule();
   const updateSchedule = useUpdateSchedule();
@@ -487,7 +488,12 @@ export function SchedulesSettingsPage() {
                   <span>Lunes a viernes 10:00 a 19:00. Sabado 10:00 a 15:00.</span>
                   <span className="hidden sm:inline">•</span>
                   <div className="flex items-center gap-1.5">
-                    <span>Intervalo: <strong className="text-[var(--text-primary)]">{selectedBranch?.agendaSlotMinutes ?? 30} minutos</strong></span>
+                    <span>
+                      Intervalo:{" "}
+                      <strong className="text-[var(--text-primary)]">
+                        {selectedProfessionalBranch?.agendaSlotMinutes ?? selectedBranch?.agendaSlotMinutes ?? 30} minutos
+                      </strong>
+                    </span>
                     <button
                       type="button"
                       onClick={() => setIntervalOpen(true)}
@@ -1155,6 +1161,13 @@ function startOfTodayIso() {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return today.toISOString();
+}
+
+function endOfFutureIso() {
+  const future = new Date();
+  future.setFullYear(future.getFullYear() + 2);
+  future.setHours(0, 0, 0, 0);
+  return future.toISOString();
 }
 
 function toDateInputValue(date: Date) {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import { getAppointmentStatusMenuItems, type AppointmentStatusMenuItem } from "../utils/appointment-status-flow";
@@ -9,6 +9,7 @@ import { appointmentColorPalette, appointmentStatusLabel } from "./appointment-s
 type AppointmentStatusMenuProps = {
   appointment: Appointment;
   variant?: "list" | "card";
+  pendingStatus?: AppointmentStatus;
   onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
   onConfirm?: (id: string) => void;
   onArrive?: (id: string) => void;
@@ -24,6 +25,7 @@ type AppointmentStatusMenuProps = {
 export function AppointmentStatusMenu({
   appointment,
   variant = "card",
+  pendingStatus,
   onChangeStatus,
   onConfirm,
   onArrive,
@@ -42,6 +44,8 @@ export function AppointmentStatusMenu({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const palette = appointmentColorPalette[appointment.status] ?? appointmentColorPalette.SCHEDULED;
+  const isPending = Boolean(pendingStatus);
+  const pendingLabel = pendingStatus === "NOTIFIED_BY_EMAIL" ? "Enviando correo..." : "Actualizando...";
   const menuItems = useMemo(
     () => getAppointmentStatusMenuItems(appointment.status).filter((item) => canRunStatusAction(item, {
       onChangeStatus,
@@ -57,7 +61,7 @@ export function AppointmentStatusMenu({
     })),
     [appointment.status, onArrive, onCancel, onChangeStatus, onComplete, onConfirm, onHistory, onNoShow, onReschedule, onStart, onWaitingRoom]
   );
-  const canOpen = menuItems.length > 0;
+  const canOpen = !isPending && menuItems.length > 0;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -162,7 +166,7 @@ export function AppointmentStatusMenu({
       <button
         ref={buttonRef}
         type="button"
-        disabled={!canOpen}
+        disabled={!canOpen || isPending}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggleMenu}
@@ -172,8 +176,12 @@ export function AppointmentStatusMenu({
           variant === "list" ? "px-2.5 py-1 text-[10px]" : "px-2 py-0.5 text-[10px]"
         )}
       >
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", palette.dotClass)} />
-        <span className="truncate">{appointmentStatusLabel(appointment.status)}</span>
+        {isPending ? (
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+        ) : (
+          <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", palette.dotClass)} />
+        )}
+        <span className="truncate">{isPending ? pendingLabel : appointmentStatusLabel(appointment.status)}</span>
         {canOpen ? <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-180")} /> : null}
       </button>
 

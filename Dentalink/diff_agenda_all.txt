@@ -1,0 +1,1361 @@
+﻿diff --git a/Dentalink/apps/web/src/features/agenda/components/agenda-daily-list.tsx b/Dentalink/apps/web/src/features/agenda/components/agenda-daily-list.tsx
+index 14bc4a2..74834bf 100644
+--- a/Dentalink/apps/web/src/features/agenda/components/agenda-daily-list.tsx
++++ b/Dentalink/apps/web/src/features/agenda/components/agenda-daily-list.tsx
+@@ -256,7 +256,7 @@ export function AgendaDailyList({
+           ) : (
+             <table className="w-full text-xs border-collapse">
+               <thead className="sticky top-0 z-10">
+-                <tr className="bg-zinc-50/95 backdrop-blur-sm border-b border-zinc-200/60">
++                <tr className="bg-zinc-50 border-b border-zinc-200/60">
+                   <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-[88px]">Hora</th>
+                   <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400">Paciente</th>
+                   <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-40">Doctor</th>
+diff --git a/Dentalink/apps/web/src/features/agenda/components/appointment-action-modals.test.tsx b/Dentalink/apps/web/src/features/agenda/components/appointment-action-modals.test.tsx
+index 947f4bd..7ee48e0 100644
+--- a/Dentalink/apps/web/src/features/agenda/components/appointment-action-modals.test.tsx
++++ b/Dentalink/apps/web/src/features/agenda/components/appointment-action-modals.test.tsx
+@@ -1,5 +1,5 @@
+ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+-import { AppointmentCommentModal } from "./appointment-action-modals";
++import { AppointmentCommentModal, AppointmentDurationModal } from "./appointment-action-modals";
+ import type { Appointment } from "../services/appointments.service";
+ 
+ const { refetchComments } = vi.hoisted(() => ({
+@@ -94,3 +94,51 @@ describe("AppointmentCommentModal", () => {
+     expect(onClose).not.toHaveBeenCalled();
+   });
+ });
++
++describe("AppointmentDurationModal", () => {
++  it("updates duration without sending implicit overbooking intent", async () => {
++    const onClose = vi.fn();
++    const onConfirm = vi.fn().mockResolvedValue(undefined);
++
++    render(
++      <AppointmentDurationModal
++        appointment={buildAppointment()}
++        onClose={onClose}
++        onConfirm={onConfirm}
++      />
++    );
++
++    fireEvent.change(screen.getByPlaceholderText("Minutos"), { target: { value: "40" } });
++    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
++
++    await waitFor(() =>
++      expect(onConfirm).toHaveBeenCalledWith("appointment-1", {
++        startAt: "2026-06-06T15:00:00.000Z",
++        endAt: "2026-06-06T15:40:00.000Z",
++        durationMinutes: 40
++      })
++    );
++    expect(onConfirm.mock.calls[0]?.[1]).not.toHaveProperty("allowOverbooking");
++    expect(onClose).toHaveBeenCalled();
++  });
++
++  it("keeps the duration modal open when backend rejects an overlap", async () => {
++    const onClose = vi.fn();
++    const onConfirm = vi.fn().mockRejectedValue(new Error("No se puede modificar la cita porque se empalma con otra cita del doctor o sill├│n."));
++
++    render(
++      <AppointmentDurationModal
++        appointment={buildAppointment()}
++        onClose={onClose}
++        onConfirm={onConfirm}
++      />
++    );
++
++    fireEvent.change(screen.getByPlaceholderText("Minutos"), { target: { value: "40" } });
++    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
++
++    await waitFor(() => expect(onConfirm).toHaveBeenCalled());
++    expect(onClose).not.toHaveBeenCalled();
++    expect(screen.getByPlaceholderText("Minutos")).toBeInTheDocument();
++  });
++});
+diff --git a/Dentalink/apps/web/src/features/agenda/components/appointment-action-modals.tsx b/Dentalink/apps/web/src/features/agenda/components/appointment-action-modals.tsx
+index 4ed7d06..c8c604a 100644
+--- a/Dentalink/apps/web/src/features/agenda/components/appointment-action-modals.tsx
++++ b/Dentalink/apps/web/src/features/agenda/components/appointment-action-modals.tsx
+@@ -52,6 +52,8 @@ export function AppointmentDurationModal({
+         durationMinutes: minutes
+       });
+       onClose();
++    } catch {
++      // The mutation hook surfaces the backend validation error and the modal stays open.
+     } finally {
+       setSubmitting(false);
+     }
+diff --git a/Dentalink/apps/web/src/features/agenda/components/appointment-modal.test.tsx b/Dentalink/apps/web/src/features/agenda/components/appointment-modal.test.tsx
+index 8b65b12..35423e6 100644
+--- a/Dentalink/apps/web/src/features/agenda/components/appointment-modal.test.tsx
++++ b/Dentalink/apps/web/src/features/agenda/components/appointment-modal.test.tsx
+@@ -153,7 +153,13 @@ function renderAppointmentModal({
+   onCreateTreatmentPlan = vi
+     .fn<(payload: CreateTreatmentPlanPayload) => Promise<{ id: string }>>()
+     .mockResolvedValue({ id: "created-plan" }),
++  onCreatePatient = vi.fn().mockResolvedValue({
++    id: "patient-new",
++    firstName: "Nuevo",
++    lastName: "Paciente"
++  }),
+   onSubmit = vi.fn<(payloads: AppointmentPayload[]) => Promise<void>>().mockResolvedValue(undefined),
++  onClose = vi.fn(),
+   patients = [],
+   initialValues = {
+     branchId: "branch-1",
+@@ -185,7 +191,9 @@ function renderAppointmentModal({
+   multipleMode = true
+ }: {
+   onCreateTreatmentPlan?: (payload: CreateTreatmentPlanPayload) => Promise<{ id: string }>;
++  onCreatePatient?: (payload: never) => Promise<never>;
+   onSubmit?: (payloads: AppointmentPayload[]) => Promise<void>;
++  onClose?: () => void;
+   patients?: never[];
+   initialValues?: Partial<AppointmentPayload>;
+   branches?: never[];
+@@ -201,9 +209,9 @@ function renderAppointmentModal({
+       professionals={professionals}
+       chairs={[{ id: "chair-1", branchId: "branch-1", name: "Sillon 1", isActive: true } as never]}
+       patients={patients}
+-      onClose={vi.fn()}
++      onClose={onClose}
+       onSubmit={onSubmit}
+-      onCreatePatient={vi.fn()}
++      onCreatePatient={onCreatePatient}
+       onCreateTreatmentPlan={onCreateTreatmentPlan}
+       multipleMode={multipleMode}
+     />
+@@ -470,4 +478,34 @@ describe("AppointmentModal multiple booking", () => {
+ 
+     expect(screen.queryByText("Selecciona el plan que quedara asociado a esta cita.")).not.toBeInTheDocument();
+   });
++
++  it("keeps the modal open and shows backend duplicate errors when creating a new patient", async () => {
++    const duplicateMessage = "Ya existe un paciente con el mismo nombre, apellidos, tel├®fono y correo. Selecciona el paciente existente.";
++    const onCreatePatient = vi.fn().mockRejectedValue(new Error(duplicateMessage));
++    const onSubmit = vi.fn<(payloads: AppointmentPayload[]) => Promise<void>>().mockResolvedValue(undefined);
++    const onClose = vi.fn();
++    renderAppointmentModal({ onCreatePatient, onSubmit, onClose, patients: [patientAna] });
++    await openPatientStep();
++
++    fireEvent.click(screen.getByRole("button", { name: "Paciente nuevo" }));
++    fireEvent.change(screen.getByLabelText("Nombre legal"), { target: { value: "CHANONA" } });
++    fireEvent.change(screen.getByLabelText("Apellidos"), { target: { value: "ARREOLA" } });
++    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "programador1.wi@gmail.com" } });
++    fireEvent.change(screen.getByLabelText("Telefono movil"), { target: { value: "9613184040" } });
++    fireEvent.click(screen.getByRole("button", { name: "Guardar cita" }));
++
++    await waitFor(() =>
++      expect(onCreatePatient).toHaveBeenCalledWith(
++        expect.objectContaining({
++          firstName: "CHANONA",
++          lastName: "ARREOLA",
++          email: "programador1.wi@gmail.com",
++          phone: "9613184040"
++        })
++      )
++    );
++    expect(await screen.findByText(duplicateMessage)).toBeInTheDocument();
++    expect(onSubmit).not.toHaveBeenCalled();
++    expect(onClose).not.toHaveBeenCalled();
++  });
+ });
+diff --git a/Dentalink/apps/web/src/features/agenda/components/appointment-modal.tsx b/Dentalink/apps/web/src/features/agenda/components/appointment-modal.tsx
+index ef923b6..305a59b 100644
+--- a/Dentalink/apps/web/src/features/agenda/components/appointment-modal.tsx
++++ b/Dentalink/apps/web/src/features/agenda/components/appointment-modal.tsx
+@@ -357,7 +357,8 @@ export function AppointmentModal({
+       form.professionalId,
+       form.chairId,
+       selectedDuration,
+-      weekStart
++      weekStart,
++      appointment?.id
+     ],
+     queryFn: async () => {
+       const rows = await Promise.all(
+@@ -384,7 +385,8 @@ export function AppointmentModal({
+                   professionalId: form.professionalId,
+                   chairId: form.chairId || undefined,
+                   date: day.date,
+-                  durationMinutes: String(selectedDuration)
++                  durationMinutes: String(selectedDuration),
++                  excludeAppointmentId: appointment?.id
+                 })
+               ).slots
+             };
+@@ -646,12 +648,11 @@ export function AppointmentModal({
+         treatmentPlanId
+       }));
+ 
+-      try {
+-        await onSubmit(payloads);
+-        onClose();
+-      } catch (error: any) {
+-        toast.error(error.message || "Error al agendar la cita.");
+-      }
++      await onSubmit(payloads);
++      onClose();
++    } catch (error) {
++      setBookingProblems([error instanceof Error ? error.message : "No se pudo guardar la cita."]);
++      console.error("Error al agendar:", error);
+     } finally {
+       setSubmitting(false);
+     }
+diff --git a/Dentalink/apps/web/src/features/agenda/components/calendar-view.tsx b/Dentalink/apps/web/src/features/agenda/components/calendar-view.tsx
+index 2240703..8a21385 100644
+--- a/Dentalink/apps/web/src/features/agenda/components/calendar-view.tsx
++++ b/Dentalink/apps/web/src/features/agenda/components/calendar-view.tsx
+@@ -47,6 +47,7 @@ export function CalendarView({
+   dayStartHour = DEFAULT_DAY_START_HOUR,
+   dayEndHour = DEFAULT_DAY_END_HOUR,
+   schedules = [],
++  density = "comfortable",
+   onSelectProfessional,
+   onCreateClick,
+   onCreateSlotClick,
+@@ -72,6 +73,7 @@ export function CalendarView({
+   dayStartHour?: number;
+   dayEndHour?: number;
+   schedules?: Schedule[];
++  density?: "comfortable" | "compact";
+   onSelectProfessional?: (professionalId: string) => void;
+   onCreateClick?: () => void;
+   onCreateSlotClick?: (slot: { professionalId: string; branchId?: string; startAt: string; endAt: string }) => void;
+@@ -91,7 +93,10 @@ export function CalendarView({
+   const normalizedDayStartHour = clampInt(dayStartHour, 0, 23, DEFAULT_DAY_START_HOUR);
+   const normalizedDayEndHour = clampInt(dayEndHour, 0, 23, DEFAULT_DAY_END_HOUR);
+   const dayTimeSlots = buildTimeSlots(normalizedDayStartHour, normalizedDayEndHour, normalizedDaySlotMinutes, { endExclusive: true });
+-  const daySlotHeight = getAgendaSlotHeight(normalizedDaySlotMinutes);
++  const standardSlotHeight = getAgendaSlotHeight(normalizedDaySlotMinutes);
++  const daySlotHeight = density === "compact"
++    ? Math.max(20, Math.round(standardSlotHeight * 0.75))
++    : standardSlotHeight;
+   const fallbackTimelineStartMinutes = normalizedDayStartHour * 60;
+   const fallbackTimelineEndMinutes = normalizedDayEndHour * 60;
+ 
+@@ -111,79 +116,15 @@ export function CalendarView({
+     const appointmentsInWeek = appointments.filter((appointment) => dayKeys.has(dayKey(appointment.startAt)));
+ 
+     if (!selectedProfessionalId) {
+-      const appointmentCounts = appointmentsInWeek.reduce<Record<string, number>>((acc, appointment) => {
+-        acc[appointment.professionalId] = (acc[appointment.professionalId] ?? 0) + 1;
+-        return acc;
+-      }, {});
+-      const displayProfessionals = professionals.length > 0
+-        ? professionals
+-        : Array.from(new Set(appointmentsInWeek.map((appointment) => appointment.professionalId))).map((id) => {
+-            const appointment = appointmentsInWeek.find((item) => item.professionalId === id);
+-            return {
+-              id,
+-              firstName: appointment?.professional?.firstName || "Doctor",
+-              lastName: appointment?.professional?.lastName || "",
+-              color: appointment?.professional?.color,
+-              specialties: [],
+-              branches: []
+-            };
+-          });
+-
+-      if (displayProfessionals.length === 0) {
+-        return <EmptyState title="Sin doctores para agendar" description="No hay doctores activos registrados para esta sucursal." />;
+-      }
+-
+       return (
+-        <div className="rounded-xl border border-zinc-200/70 bg-white shadow-sm">
+-          <div className="flex flex-col gap-1 border-b border-zinc-100 px-4 py-3 md:flex-row md:items-end md:justify-between">
+-            <div>
+-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">Semana</p>
+-              <h3 className="text-sm font-semibold text-zinc-900">{formatWeekRange(weekStart)}</h3>
+-            </div>
+-            <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-subtle)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)]">
+-              <UserRound className="h-3.5 w-3.5" />
+-              {displayProfessionals.length} doctores
+-            </div>
+-          </div>
+-
+-          <div className="grid gap-2.5 p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+-            {displayProfessionals.map((professional) => {
+-              const count = appointmentCounts[professional.id] ?? 0;
+-              const accentColor = professional.color || "var(--text-primary)";
+-
+-              return (
+-                <button
+-                  key={professional.id}
+-                  type="button"
+-                  onClick={() => onSelectProfessional?.(professional.id)}
+-                  className="group flex min-h-24 items-center gap-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 text-left transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
+-                >
+-                  <span
+-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm"
+-                    style={{ backgroundColor: accentColor }}
+-                  >
+-                    {professional.firstName.charAt(0)}{professional.lastName.charAt(0)}
+-                  </span>
+-                  <span className="min-w-0 flex-1">
+-                    <span className="block truncate text-sm font-semibold text-zinc-900">
+-                      {professional.firstName} {professional.lastName}
+-                    </span>
+-                    <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-zinc-500">
+-                      <span className="inline-flex items-center gap-1 rounded-full bg-zinc-50 px-2 py-0.5 ring-1 ring-zinc-200">
+-                        <CalendarDays className="h-3 w-3" />
+-                        {count} {count === 1 ? "cita" : "citas"}
+-                      </span>
+-                      {professional.specialties?.[0]?.name && (
+-                        <span className="truncate rounded-full bg-zinc-50 px-2 py-0.5 ring-1 ring-zinc-200">
+-                          {professional.specialties[0].name}
+-                        </span>
+-                      )}
+-                    </span>
+-                  </span>
+-                </button>
+-              );
+-            })}
++        <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] p-12 text-center flex flex-col items-center justify-center">
++          <div className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-[var(--bg-subtle)] text-[var(--text-secondary)]">
++            <UserRound className="h-6 w-6" />
+           </div>
++          <h4 className="mt-4 text-[15px] font-semibold text-[var(--text-primary)]">Selecciona un profesional</h4>
++          <p className="mt-2 text-[13px] text-[var(--text-secondary)] max-w-sm">
++            Por favor, selecciona un doctor en el filtro superior para visualizar su agenda semanal.
++          </p>
+         </div>
+       );
+     }
+@@ -205,53 +146,31 @@ export function CalendarView({
+     const totalTimelineHeight = dayTimeSlots.length * daySlotHeight;
+ 
+     return (
+-      <div className="w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-sm">
+-        <div className="flex flex-col gap-3 border-b border-[var(--border-default)]/50 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+-          <div className="flex min-w-0 items-center gap-3">
+-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--text-brand-strong)] text-[var(--text-inverse)] font-semibold text-xs">
+-              {selectedProfessional.firstName.charAt(0)}{selectedProfessional.lastName.charAt(0)}
+-            </div>
+-            <div className="min-w-0">
+-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">{formatWeekRange(weekStart)}</p>
+-              <h3 className="truncate text-base font-semibold text-[var(--text-primary)]">
+-                {selectedProfessional.firstName} {selectedProfessional.lastName}
+-              </h3>
+-            </div>
+-          </div>
+-          <div className="flex flex-wrap items-center gap-2">
+-            <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-subtle)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)]">
+-              <Clock className="h-3.5 w-3.5" />
+-              {selectedAppointments.length} {selectedAppointments.length === 1 ? "cita" : "citas"}
+-            </span>
+-            {onSelectProfessional && (
+-              <button
+-                type="button"
+-                onClick={() => onSelectProfessional("")}
+-                className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-subtle)]"
+-              >
+-                Cambiar doctor
+-              </button>
+-            )}
+-          </div>
+-        </div>
+-
++      <div className="w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-sm overflow-hidden">
+         <div className="overflow-x-auto">
+           <div className="min-w-[980px]">
+             <div
+-              className="grid border-b border-[var(--border-default)] bg-[var(--bg-subtle)]/70"
++              className="grid border-b border-[var(--border-default)]/60 bg-[var(--bg-subtle)]/40"
+               style={{ gridTemplateColumns: "72px repeat(7, minmax(128px, 1fr))" }}
+             >
+-              <div className="sticky left-0 z-30 flex h-14 items-center justify-center border-r border-[var(--border-default)] bg-[var(--bg-subtle)] text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
++              <div className="sticky left-0 z-30 flex h-20 items-center justify-center border-r border-[var(--border-default)] bg-[var(--bg-subtle)] text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+                 Hora
+               </div>
+               {days.map((day) => {
+                 const dayCount = appointmentsByDay[day.key]?.length ?? 0;
++                const cleanShortLabel = day.shortLabel.replace(".", "").toUpperCase();
+ 
+                 return (
+-                  <div key={day.key} className="flex h-14 flex-col justify-center border-r border-[var(--border-default)] px-3 last:border-r-0">
+-                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">{day.shortLabel}</span>
+-                    <span className="text-xs font-semibold text-[var(--text-primary)]">{day.label}</span>
+-                    <span className="text-[10px] font-medium text-[var(--text-secondary)]">{dayCount} {dayCount === 1 ? "cita" : "citas"}</span>
++                  <div key={day.key} className="flex h-20 flex-col items-center justify-center border-r border-[var(--border-default)]/60 py-2 text-center last:border-r-0">
++                    <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-secondary)]">
++                      {cleanShortLabel}
++                    </span>
++                    <span className="text-xl font-black text-[var(--text-primary)] mt-0.5 leading-none">
++                      {day.date.getDate()}
++                    </span>
++                    <span className="inline-flex items-center rounded-full bg-zinc-100/80 px-2 py-0.5 text-[9px] font-bold text-zinc-500 mt-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
++                      {dayCount} {dayCount === 1 ? "cita" : "citas"}
++                    </span>
+                   </div>
+                 );
+               })}
+@@ -334,7 +253,7 @@ export function CalendarView({
+                           }}
+                         >
+                           {appointment.status === "BLOCKED" ? (
+-                            <BlockedAppointmentBlock appointment={appointment} compact={true} onEdit={onEdit} />
++                            <BlockedAppointmentBlock appointment={appointment} compact={true} onCancel={onCancel} />
+                           ) : (
+                             <AppointmentCard
+                               appointment={appointment}
+@@ -521,28 +440,6 @@ export function CalendarView({
+ 
+                       {/* Timeline Slots under this doctor */}
+                       <div className="relative shrink-0 overflow-hidden bg-[var(--bg-subtle)]/5" style={{ height: dayTimelineHeight }}>
+-                        {professionalSchedules.map((schedule) => {
+-                          const placement = getTimeRangePlacement(schedule.startTime, schedule.endTime, {
+-                            startMinutes: dayTimelineRange.startMinutes,
+-                            endMinutes: dayTimelineRange.endMinutes,
+-                            slotMinutes: normalizedDaySlotMinutes,
+-                            slotHeight: daySlotHeight
+-                          });
+-                          if (!placement) return null;
+-
+-                          return (
+-                            <HelpTooltip
+-                              key={`working-${schedule.id}`}
+-                              content={`Horario laboral ${schedule.startTime} - ${schedule.endTime}`}
+-                              position="right"
+-                              triggerClassName="absolute left-1 right-1 z-0 block"
+-                              triggerStyle={{ top: placement.top, height: placement.height }}
+-                            >
+-                              <div className="h-full w-full rounded-lg border border-[var(--border-default)] bg-[var(--status-success-bg)]/80 shadow-[inset_3px_0_0_var(--status-success-text)]" />
+-                            </HelpTooltip>
+-                          );
+-                        })}
+-
+                         {professionalVisualMarkers.map((marker) => {
+                           return (
+                             <div
+@@ -553,128 +450,152 @@ export function CalendarView({
+                           );
+                         })}
+ 
+-                        {professionalTimeSlots.map((time) => {
+-                          const slotStartMinutes = timeToMinutes(time);
+-                          const slotEndMinutes =
+-                            slotStartMinutes === null ? null : slotStartMinutes + professionalAgenda.defaultAppointmentDurationMinutes;
+-                          const isInsideSchedule =
+-                            slotStartMinutes !== null &&
+-                            slotEndMinutes !== null &&
+-                            scheduleStartMinutes !== null &&
+-                            scheduleEndMinutes !== null &&
+-                            slotStartMinutes >= scheduleStartMinutes &&
+-                            slotEndMinutes <= scheduleEndMinutes;
+-                          const overlapsBreak =
+-                            slotStartMinutes !== null &&
+-                            slotEndMinutes !== null &&
+-                            profBreaks.some((schedule) =>
+-                              rangeOverlapsTimeRange(slotStartMinutes, slotEndMinutes, schedule.breakStartTime, schedule.breakEndTime)
+-                            );
+-                          const overlapsBusyAppointment =
+-                            slotStartMinutes !== null &&
+-                            slotEndMinutes !== null &&
+-                            busyAppointments.some((appointment) =>
+-                              rangeOverlapsMinutes(slotStartMinutes, slotEndMinutes, appointmentToDayMinutes(appointment))
++                        <div className="absolute top-0 bottom-0 left-[40px] right-0">
++                          {professionalSchedules.map((schedule) => {
++                            const placement = getTimeRangePlacement(schedule.startTime, schedule.endTime, {
++                              startMinutes: dayTimelineRange.startMinutes,
++                              endMinutes: dayTimelineRange.endMinutes,
++                              slotMinutes: normalizedDaySlotMinutes,
++                              slotHeight: daySlotHeight
++                            });
++                            if (!placement) return null;
++
++                            return (
++                              <HelpTooltip
++                                key={`working-${schedule.id}`}
++                                content={`Horario laboral ${schedule.startTime} - ${schedule.endTime}`}
++                                position="right"
++                                triggerClassName="absolute left-1 right-1 z-0 block"
++                                triggerStyle={{ top: placement.top, height: placement.height }}
++                              >
++                                <div className="h-full w-full rounded-lg border border-[var(--border-default)] bg-[var(--status-success-bg)]/80 shadow-[inset_3px_0_0_var(--status-success-text)]" />
++                              </HelpTooltip>
+                             );
+-                          const placement =
+-                            slotStartMinutes === null
+-                              ? null
+-                              : getSlotButtonPlacement(slotStartMinutes, professionalAgenda.slotMinutes, {
+-                                  startMinutes: dayTimelineRange.startMinutes,
+-                                  endMinutes: dayTimelineRange.endMinutes,
+-                                  slotMinutes: normalizedDaySlotMinutes,
+-                                  slotHeight: daySlotHeight
+-                                });
+-
+-                          if (!isInsideSchedule || overlapsBreak || overlapsBusyAppointment || !placement) return null;
+-
+-                          return (
+-                            <button
+-                              key={time}
+-                              type="button"
+-                              onClick={() => {
+-                                if (onCreateSlotClick) {
+-                                  onCreateSlotClick({
+-                                    professionalId: prof.id,
+-                                    branchId: selectedBranchId || undefined,
+-                                    ...slotRange(date, time, professionalAgenda.defaultAppointmentDurationMinutes)
++                          })}
++
++                          {professionalTimeSlots.map((time) => {
++                            const slotStartMinutes = timeToMinutes(time);
++                            const slotEndMinutes =
++                              slotStartMinutes === null ? null : slotStartMinutes + professionalAgenda.defaultAppointmentDurationMinutes;
++                            const isInsideSchedule =
++                              slotStartMinutes !== null &&
++                              slotEndMinutes !== null &&
++                              scheduleStartMinutes !== null &&
++                              scheduleEndMinutes !== null &&
++                              slotStartMinutes >= scheduleStartMinutes &&
++                              slotEndMinutes <= scheduleEndMinutes;
++                            const overlapsBreak =
++                              slotStartMinutes !== null &&
++                              slotEndMinutes !== null &&
++                              profBreaks.some((schedule) =>
++                                rangeOverlapsTimeRange(slotStartMinutes, slotEndMinutes, schedule.breakStartTime, schedule.breakEndTime)
++                              );
++                            const overlapsBusyAppointment =
++                              slotStartMinutes !== null &&
++                              slotEndMinutes !== null &&
++                              busyAppointments.some((appointment) =>
++                                rangeOverlapsMinutes(slotStartMinutes, slotEndMinutes, appointmentToDayMinutes(appointment))
++                              );
++                            const placement =
++                              slotStartMinutes === null
++                                ? null
++                                : getSlotButtonPlacement(slotStartMinutes, professionalAgenda.slotMinutes, {
++                                    startMinutes: dayTimelineRange.startMinutes,
++                                    endMinutes: dayTimelineRange.endMinutes,
++                                    slotMinutes: normalizedDaySlotMinutes,
++                                    slotHeight: daySlotHeight
+                                   });
+-                                  return;
+-                                }
+-                                onCreateClick?.();
+-                              }}
+-                              className="group/slot absolute left-0 right-0 z-[3] border-b border-[var(--status-success-bg)]/60 p-1 transition-colors duration-150 hover:bg-[var(--status-success-bg)]/70"
+-                              style={{ top: placement.top, height: placement.height }}
+-                            >
+-                              <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)]/55 text-[10px] font-medium text-[var(--status-success-text)] opacity-0 shadow-sm transition-opacity duration-150 group-hover/slot:opacity-100">
+-                                <Plus className="h-3.5 w-3.5" />
+-                                <span>Disponible</span>
+-                              </span>
+-                            </button>
+-                          );
+-                        })}
+-
+-                        {profApps.map((app) => {
+-                          const placement = getAppointmentPlacement(app, {
+-                            startMinutes: dayTimelineRange.startMinutes,
+-                            endMinutes: dayTimelineRange.endMinutes,
+-                            slotMinutes: normalizedDaySlotMinutes,
+-                            slotHeight: daySlotHeight
+-                          });
+-                          if (!placement) return null;
+-
+-                          return (
+-                            <div
+-                              key={app.id}
+-                              className="absolute z-10 px-1 py-0.5 transition-all has-[.menu-open]:z-[50] has-[.tooltip-open]:z-[40]"
+-                              style={{
+-                                top: placement.top,
+-                                height: placement.height,
+-                                left: 0,
+-                                right: 0
+-                              }}
+-                            >
+-                              {app.status === "BLOCKED" ? (
+-                                <BlockedAppointmentBlock appointment={app} compact={true} onEdit={onEdit} />
+-                              ) : (
+-                                <AppointmentCard
+-                                  appointment={app}
+-                                  compact={true}
+-                                  onEdit={onEdit}
+-                                  onCancel={onCancel}
+-                                  onReschedule={onReschedule}
+-                                  onChangeStatus={onChangeStatus}
+-                                  onConfirm={onConfirm}
+-                                  onArrive={onArrive}
+-                                  onWaitingRoom={onWaitingRoom}
+-                                  onStart={onStart}
+-                                  onComplete={onComplete}
+-                                  onNoShow={onNoShow}
+-                                  onMenuAction={onMenuAction}
+-                                />
+-                              )}
+-                            </div>
+-                          );
+-                        })}
+ 
+-                        {profBreaks.map((schedule) => {
+-                          const placement = getTimeRangePlacement(schedule.breakStartTime!, schedule.breakEndTime!, {
+-                            startMinutes: dayTimelineRange.startMinutes,
+-                            endMinutes: dayTimelineRange.endMinutes,
+-                            slotMinutes: normalizedDaySlotMinutes,
+-                            slotHeight: daySlotHeight
+-                          });
+-                          if (!placement) return null;
+-
+-                          return (
+-                            <BreakBlock
+-                              key={schedule.id}
+-                              top={placement.top}
+-                              height={placement.height}
+-                              range={`${schedule.breakStartTime} - ${schedule.breakEndTime}`}
+-                            />
+-                          );
+-                        })}
++                            if (!isInsideSchedule || overlapsBreak || overlapsBusyAppointment || !placement) return null;
++
++                            return (
++                              <button
++                                key={time}
++                                type="button"
++                                onClick={() => {
++                                  if (onCreateSlotClick) {
++                                    onCreateSlotClick({
++                                      professionalId: prof.id,
++                                      branchId: selectedBranchId || undefined,
++                                      ...slotRange(date, time, professionalAgenda.defaultAppointmentDurationMinutes)
++                                    });
++                                    return;
++                                  }
++                                  onCreateClick?.();
++                                }}
++                                className="group/slot absolute left-0 right-0 z-[3] border-b border-[var(--status-success-bg)]/60 p-1 transition-colors duration-150 hover:bg-[var(--status-success-bg)]/70"
++                                style={{ top: placement.top, height: placement.height }}
++                              >
++                                <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)]/55 text-[10px] font-medium text-[var(--status-success-text)] opacity-0 shadow-sm transition-opacity duration-150 group-hover/slot:opacity-100">
++                                  <Plus className="h-3.5 w-3.5" />
++                                  <span>Disponible</span>
++                                </span>
++                              </button>
++                            );
++                          })}
++
++                          {profApps.map((app) => {
++                            const placement = getAppointmentPlacement(app, {
++                              startMinutes: dayTimelineRange.startMinutes,
++                              endMinutes: dayTimelineRange.endMinutes,
++                              slotMinutes: normalizedDaySlotMinutes,
++                              slotHeight: daySlotHeight
++                            });
++                            if (!placement) return null;
++
++                            return (
++                              <div
++                                key={app.id}
++                                className="absolute z-10 px-1 py-0.5 transition-all has-[.menu-open]:z-[50] has-[.tooltip-open]:z-[40]"
++                                style={{
++                                  top: placement.top,
++                                  height: placement.height,
++                                  left: 0,
++                                  right: 0
++                                }}
++                              >
++                                {app.status === "BLOCKED" ? (
++                                  <BlockedAppointmentBlock appointment={app} compact={true} onCancel={onCancel} />
++                                ) : (
++                                  <AppointmentCard
++                                    appointment={app}
++                                    compact={true}
++                                    onEdit={onEdit}
++                                    onCancel={onCancel}
++                                    onReschedule={onReschedule}
++                                    onChangeStatus={onChangeStatus}
++                                    onConfirm={onConfirm}
++                                    onArrive={onArrive}
++                                    onWaitingRoom={onWaitingRoom}
++                                    onStart={onStart}
++                                    onComplete={onComplete}
++                                    onNoShow={onNoShow}
++                                    onMenuAction={onMenuAction}
++                                  />
++                                )}
++                              </div>
++                            );
++                          })}
++
++                          {profBreaks.map((schedule) => {
++                            const placement = getTimeRangePlacement(schedule.breakStartTime!, schedule.breakEndTime!, {
++                              startMinutes: dayTimelineRange.startMinutes,
++                              endMinutes: dayTimelineRange.endMinutes,
++                              slotMinutes: normalizedDaySlotMinutes,
++                              slotHeight: daySlotHeight
++                            });
++                            if (!placement) return null;
++
++                            return (
++                              <BreakBlock
++                                key={schedule.id}
++                                top={placement.top}
++                                height={placement.height}
++                                range={`${schedule.breakStartTime} - ${schedule.breakEndTime}`}
++                              />
++                            );
++                          })}
++                        </div>
+                       </div>
+                     </div>
+                   );
+@@ -731,11 +652,11 @@ export function CalendarView({
+ function BlockedAppointmentBlock({
+   appointment,
+   compact,
+-  onEdit
++  onCancel
+ }: {
+   appointment: Appointment;
+   compact?: boolean;
+-  onEdit: (appointment: Appointment) => void;
++  onCancel: (appointment: Appointment) => void;
+ }) {
+   const range = `${formatDisplayTime(appointment.startAt)} - ${formatDisplayTime(appointment.endAt)}`;
+   
+@@ -748,7 +669,7 @@ function BlockedAppointmentBlock({
+       <HelpTooltip content={`${appointment.title || "Bloqueo"} ${range}`} position="top" triggerClassName="h-full w-full">
+         <button
+           type="button"
+-          onClick={() => onEdit(appointment)}
++          onClick={() => onCancel(appointment)}
+           className="flex h-full w-full items-center overflow-hidden rounded-[var(--radius-sm)] border border-slate-350 bg-slate-50 bg-[repeating-linear-gradient(-45deg,transparent,transparent_6px,rgba(100,116,139,0.12)_6px,rgba(100,116,139,0.12)_12px)] px-2 text-left text-slate-700 shadow-sm transition-[border-color,box-shadow] hover:border-slate-400 hover:shadow-[var(--shadow-card-hover)]"
+         >
+           <div className="flex items-center gap-1.5 text-[9.5px] font-medium w-full overflow-hidden select-none">
+@@ -767,7 +688,7 @@ function BlockedAppointmentBlock({
+     <HelpTooltip content={`${appointment.title} ${range}`} position="top" triggerClassName="h-full w-full">
+       <button
+         type="button"
+-        onClick={() => onEdit(appointment)}
++        onClick={() => onCancel(appointment)}
+         className="flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden rounded-[var(--radius-sm)] border border-slate-350 bg-slate-50 bg-[repeating-linear-gradient(-45deg,transparent,transparent_6px,rgba(100,116,139,0.12)_6px,rgba(100,116,139,0.12)_12px)] px-2 py-1 text-left text-slate-700 shadow-sm transition-[border-color,box-shadow] hover:border-slate-400 hover:shadow-[var(--shadow-card-hover)]"
+       >
+         <span className="truncate text-[8px] font-bold uppercase tracking-wider text-slate-500 leading-none">{compact ? "Bloqueo" : "Horario bloqueado"}</span>
+diff --git a/Dentalink/apps/web/src/features/agenda/components/cancel-appointment-modal.tsx b/Dentalink/apps/web/src/features/agenda/components/cancel-appointment-modal.tsx
+index ae76ffd..049da70 100644
+--- a/Dentalink/apps/web/src/features/agenda/components/cancel-appointment-modal.tsx
++++ b/Dentalink/apps/web/src/features/agenda/components/cancel-appointment-modal.tsx
+@@ -31,6 +31,7 @@ export function CancelAppointmentModal({
+   };
+ 
+   const getTitle = () => {
++    if (appointment?.status === "BLOCKED") return "Eliminar bloqueo de agenda";
+     switch (cancelledBy) {
+       case "patient": return "Cancelar por paciente";
+       case "conflict": return "Cancelar por conflicto";
+@@ -42,11 +43,20 @@ export function CancelAppointmentModal({
+   return (
+     <Modal open={Boolean(appointment)} title={getTitle()} onClose={onClose}>
+       <div className="space-y-3">
+-        <Textarea rows={3} placeholder="Motivo de cancelaci├│n" value={reason} onChange={(event) => setReason(event.target.value)} />
++        <Textarea 
++          rows={3} 
++          placeholder={appointment?.status === "BLOCKED" ? "Motivo de eliminaci├│n (opcional)" : "Motivo de cancelaci├│n"} 
++          value={reason} 
++          onChange={(event) => setReason(event.target.value)} 
++        />
+         <div className="flex justify-end gap-2">
+           <Button variant="secondary" onClick={onClose}>Cerrar</Button>
+-          <Button variant="danger" disabled={!reason.trim() || submitting} onClick={() => void confirm()}>
+-            {submitting ? "Cancelando..." : "Cancelar cita"}
++          <Button 
++            variant="danger" 
++            disabled={(appointment?.status !== "BLOCKED" && !reason.trim()) || submitting} 
++            onClick={() => void confirm()}
++          >
++            {submitting ? "Eliminando..." : appointment?.status === "BLOCKED" ? "Eliminar bloqueo" : "Cancelar cita"}
+           </Button>
+         </div>
+       </div>
+diff --git a/Dentalink/apps/web/src/features/agenda/components/reschedule-modal.tsx b/Dentalink/apps/web/src/features/agenda/components/reschedule-modal.tsx
+index 9765843..f477db1 100644
+--- a/Dentalink/apps/web/src/features/agenda/components/reschedule-modal.tsx
++++ b/Dentalink/apps/web/src/features/agenda/components/reschedule-modal.tsx
+@@ -118,7 +118,8 @@ export function RescheduleModal({
+             professionalId: form.professionalId,
+             chairId: form.chairId || undefined,
+             date: day.date,
+-            durationMinutes: form.durationMinutes || String(defaultDuration)
++            durationMinutes: form.durationMinutes || String(defaultDuration),
++            excludeAppointmentId: appointment?.id
+           });
+           return {
+             day,
+diff --git a/Dentalink/apps/web/src/features/agenda/hooks/use-appointments.ts b/Dentalink/apps/web/src/features/agenda/hooks/use-appointments.ts
+index 30df440..4882b3d 100644
+--- a/Dentalink/apps/web/src/features/agenda/hooks/use-appointments.ts
++++ b/Dentalink/apps/web/src/features/agenda/hooks/use-appointments.ts
+@@ -55,6 +55,7 @@ export function useAvailability(params: {
+   chairId?: string;
+   date: string;
+   durationMinutes?: string;
++  excludeAppointmentId?: string;
+ }) {
+   return useQuery({
+     queryKey: ["appointments", "availability", params],
+diff --git a/Dentalink/apps/web/src/features/agenda/pages/agenda-view-page.tsx b/Dentalink/apps/web/src/features/agenda/pages/agenda-view-page.tsx
+index c0e9a95..0e2214d 100644
+--- a/Dentalink/apps/web/src/features/agenda/pages/agenda-view-page.tsx
++++ b/Dentalink/apps/web/src/features/agenda/pages/agenda-view-page.tsx
+@@ -11,7 +11,7 @@ import type { PatientListItem } from "@/features/patients/services/patients.serv
+ import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+ import { useChairs } from "@/features/settings/chairs/hooks/use-chairs";
+ import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
+-import { useSchedules } from "@/features/settings/schedules/hooks/use-schedules";
++import { useSchedules, useSpecialSchedules } from "@/features/settings/schedules/hooks/use-schedules";
+ import { useBranchStore } from "@/stores/branch.store";
+ import { useAuthStore } from "@/stores/auth.store";
+ import { HelpTooltip } from "@/components/ui/help-tooltip";
+@@ -86,6 +86,29 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
+     localStorage.setItem("dentalink_agenda_status_filters", JSON.stringify(selectedStatuses));
+   }, [selectedStatuses]);
+ 
++  const [density, setDensity] = useState<"comfortable" | "compact">(() => {
++    try {
++      const stored = localStorage.getItem("dentalink_agenda_density");
++      return (stored as "comfortable" | "compact") || "comfortable";
++    } catch {
++      return "comfortable";
++    }
++  });
++
++  useEffect(() => {
++    localStorage.setItem("dentalink_agenda_density", density);
++  }, [density]);
++
++  const [showAvailability, setShowAvailability] = useState(false);
++
++  useEffect(() => {
++    if (!professionalId) {
++      setShowAvailability(false);
++    } else {
++      setShowAvailability(true);
++    }
++  }, [professionalId]);
++
+   const [blockingSlot, setBlockingSlot] = useState<{
+     professionalId: string;
+     branchId?: string;
+@@ -165,7 +188,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
+       ),
+     [activeBranchId, date, professionals.data]
+   );
+-  const { agendaSlotMinutes, defaultAppointmentDurationMinutes, agendaStartHour, agendaEndHour } = useMemo(
++  const { agendaSlotMinutes, defaultAppointmentDurationMinutes, branchSlotMinutes, agendaStartHour, agendaEndHour } = useMemo(
+     () =>
+       resolveAgendaViewConfig({
+         activeBranch,
+@@ -188,6 +211,16 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
+     dayOfWeek: view === "day" ? String(getDayOfWeek(date)) : undefined,
+     active: "true"
+   });
++  const specialSchedules = useSpecialSchedules(
++    {
++      branchId: activeBranchId || undefined,
++      professionalId: professionalId || undefined,
++      date: view === "day" ? date : undefined,
++      active: "true",
++      pageSize: 100
++    },
++    view === "day"
++  );
+ 
+   const showSidebar = view !== "day" && view !== "week";
+ 
+@@ -430,9 +463,10 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
+     }
+   };
+ 
+-  if (appointments.isLoading || (view !== "list" && schedules.isLoading)) return <LoadingState message="Cargando agenda..." />;
++  if (appointments.isLoading || (view !== "list" && schedules.isLoading) || (view === "day" && specialSchedules.isLoading)) return <LoadingState message="Cargando agenda..." />;
+   if (appointments.isError) return <ErrorState message={appointments.error.message} />;
+   if (schedules.isError) return <ErrorState message={schedules.error.message} />;
++  if (specialSchedules.isError) return <ErrorState message={specialSchedules.error.message} />;
+ 
+   return (
+     <div className="space-y-4">
+@@ -508,6 +542,44 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
+         </div>
+       </Card>
+ 
++      {view === "day" && (
++        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between bg-zinc-50 border border-zinc-200/80 rounded-2xl px-4 py-2.5 text-xs text-zinc-600 gap-3 shadow-sm">
++          <div className="flex flex-col gap-0.5">
++            <span className="font-semibold text-zinc-700">Controles de visualizaci├│n</span>
++            <span className="text-[10px] text-zinc-400">Personaliza la densidad y el tama├▒o de las columnas en pantalla.</span>
++          </div>
++          <div className="flex items-center gap-3 w-full sm:w-auto">
++            {/* Selector de Densidad */}
++            <div className="flex items-center gap-1 bg-white border border-zinc-200 p-0.5 rounded-lg shadow-sm w-full sm:w-auto">
++              <button
++                type="button"
++                onClick={() => setDensity("comfortable")}
++                className={`flex-1 sm:flex-none px-3 py-1 rounded-md font-medium transition-all ${density === "comfortable" ? "bg-brand-500 text-white shadow-sm font-semibold" : "text-zinc-500 hover:text-zinc-800"}`}
++              >
++                C├│moda
++              </button>
++              <button
++                type="button"
++                onClick={() => setDensity("compact")}
++                className={`flex-1 sm:flex-none px-3 py-1 rounded-md font-medium transition-all ${density === "compact" ? "bg-brand-500 text-white shadow-sm font-semibold" : "text-zinc-500 hover:text-zinc-800"}`}
++              >
++                Compacta
++              </button>
++            </div>
++
++            {/* Toggle de Disponibilidad */}
++            <button
++              type="button"
++              onClick={() => setShowAvailability(prev => !prev)}
++              className={`flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg border font-medium transition-all shadow-sm w-full sm:w-auto ${showAvailability ? "bg-cyan-50 border-cyan-200 text-cyan-700 font-semibold" : "bg-white border-zinc-200 text-zinc-600 hover:text-zinc-800 hover:bg-zinc-50"}`}
++            >
++              <Layers className="w-3.5 h-3.5" />
++              <span>Buscador de Disponibilidad</span>
++            </button>
++          </div>
++        </div>
++      )}
++
+       <div className={showSidebar ? "grid gap-4 xl:grid-cols-[240px_1fr]" : "w-full"}>
+         {showSidebar && (
+           <SidebarStatusFilters
+@@ -538,7 +610,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
+               onMenuAction={handleAppointmentMenuAction}
+             />
+           ) : view === "day" ? (
+-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
++            <div className={`grid gap-4 transition-all duration-300 ${showAvailability ? "xl:grid-cols-[minmax(0,1fr)_360px]" : "grid-cols-1"}`}>
+               <CalendarView
+                 appointments={filteredAppointments}
+                 date={date}
+@@ -550,6 +622,10 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
+                 dayStartHour={agendaStartHour}
+                 dayEndHour={agendaEndHour}
+                 schedules={schedules.data ?? []}
++                specialSchedules={specialSchedules.data ?? []}
++                branchSlotMinutes={branchSlotMinutes}
++                density={density}
++                showAvailability={showAvailability}
+                 onSelectProfessional={setProfessionalId}
+                 onCreateClick={() => openCreate()}
+                 onCreateSlotClick={(slot) => {
+@@ -582,22 +658,26 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
+                 onNoShow={(id) => void actions.noShow.mutate(id)}
+                 onMenuAction={handleAppointmentMenuAction}
+               />
+-              <AvailabilityPicker
+-                branchId={activeBranchId}
+-                professionalId={professionalId}
+-                chairId={chairId || undefined}
+-                date={date}
+-                durationMinutes={String(defaultAppointmentDurationMinutes)}
+-                onSelectSlot={(slot) =>
+-                  openCreate({
+-                    branchId: activeBranchId,
+-                    professionalId,
+-                    chairId: chairId || undefined,
+-                    startAt: slot.startAt,
+-                    endAt: slot.endAt
+-                  })
+-                }
+-              />
++              {showAvailability && (
++                <div className="w-full shrink-0 xl:w-[360px] animate-in slide-in-from-right duration-200">
++                  <AvailabilityPicker
++                    branchId={activeBranchId}
++                    professionalId={professionalId}
++                    chairId={chairId || undefined}
++                    date={date}
++                    durationMinutes={String(defaultAppointmentDurationMinutes)}
++                    onSelectSlot={(slot) =>
++                      openCreate({
++                        branchId: activeBranchId,
++                        professionalId,
++                        chairId: chairId || undefined,
++                        startAt: slot.startAt,
++                        endAt: slot.endAt
++                      })
++                    }
++                  />
++                </div>
++              )}
+             </div>
+           ) : (
+             <CalendarView
+@@ -611,6 +691,10 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
+               dayStartHour={agendaStartHour}
+               dayEndHour={agendaEndHour}
+               schedules={schedules.data ?? []}
++              specialSchedules={specialSchedules.data ?? []}
++              branchSlotMinutes={branchSlotMinutes}
++              density={density}
++              showAvailability={showAvailability}
+               onSelectProfessional={setProfessionalId}
+               onCreateClick={() => openCreate()}
+               onCreateSlotClick={(slot) => openCreate(slot)}
+diff --git a/Dentalink/apps/web/src/features/agenda/services/appointments.service.ts b/Dentalink/apps/web/src/features/agenda/services/appointments.service.ts
+index 2bbfbe1..bce2a7b 100644
+--- a/Dentalink/apps/web/src/features/agenda/services/appointments.service.ts
++++ b/Dentalink/apps/web/src/features/agenda/services/appointments.service.ts
+@@ -129,6 +129,7 @@ export type RescheduleAppointmentPayload = {
+   endAt: string;
+   durationMinutes?: number;
+   reason?: string;
++  allowOverbooking?: boolean;
+ };
+ 
+ export type AppointmentPayload = {
+@@ -145,6 +146,7 @@ export type AppointmentPayload = {
+   endAt: string;
+   durationMinutes?: number;
+   notes?: string;
++  allowOverbooking?: boolean;
+ };
+ 
+ export type CreateAppointmentsBatchPayload = {
+@@ -277,6 +279,7 @@ export async function getAvailability(params: {
+   chairId?: string;
+   date: string;
+   durationMinutes?: string;
++  excludeAppointmentId?: string;
+ }) {
+   const { data } = await http.get<{ slots: AvailabilitySlot[] }>("/appointments/availability", { params });
+   return data;
+diff --git a/Dentalink/apps/web/src/features/agenda/utils/agenda-grid-config.test.ts b/Dentalink/apps/web/src/features/agenda/utils/agenda-grid-config.test.ts
+index 99f2634..840f2ca 100644
+--- a/Dentalink/apps/web/src/features/agenda/utils/agenda-grid-config.test.ts
++++ b/Dentalink/apps/web/src/features/agenda/utils/agenda-grid-config.test.ts
+@@ -1,4 +1,5 @@
+ import {
++  buildProfessionalDayColumnModel,
+   buildTimelineMarkersFromRange,
+   buildTimeSlotsFromRange,
+   getProfessionalBranchAgendaConfig,
+@@ -121,4 +122,86 @@ describe("agenda grid config", () => {
+     expect(markers.map((marker) => marker.time)).toEqual(["10:00", "10:20", "10:40"]);
+     expect(markers.map((marker) => marker.top)).toEqual([0, 38, 76]);
+   });
++
++  it("builds each professional day column with its own interval", () => {
++    const professionalA = {
++      id: "professional-a",
++      branches: [{ id: "branch-1", agendaSlotMinutes: 10, defaultAppointmentDurationMinutes: 20 }]
++    };
++    const professionalB = {
++      id: "professional-b",
++      branches: [{ id: "branch-1", agendaSlotMinutes: 30, defaultAppointmentDurationMinutes: 30 }]
++    };
++    const commonInput = {
++      branchId: "branch-1",
++      date: "2026-07-07",
++      schedules: [
++        { id: "schedule-a", professionalId: "professional-a", branchId: "branch-1", dayOfWeek: 2, startTime: "08:00", endTime: "09:00", isActive: true },
++        { id: "schedule-b", professionalId: "professional-b", branchId: "branch-1", dayOfWeek: 2, startTime: "08:00", endTime: "09:30", isActive: true }
++      ],
++      appointments: [],
++      fallbackSlotMinutes: 20,
++      fallbackStartHour: 8,
++      fallbackEndHour: 19
++    };
++
++    const columnA = buildProfessionalDayColumnModel({ ...commonInput, professional: professionalA });
++    const columnB = buildProfessionalDayColumnModel({ ...commonInput, professional: professionalB });
++
++    expect(columnA.slotMinutes).toBe(10);
++    expect(columnA.timeSlots).toEqual(["08:00", "08:10", "08:20", "08:30", "08:40", "08:50"]);
++    expect(columnA.availableSlots.map((slot) => slot.time)).toEqual(["08:00", "08:10", "08:20", "08:30", "08:40"]);
++    expect(columnB.slotMinutes).toBe(30);
++    expect(columnB.timeSlots).toEqual(["08:00", "08:30", "09:00"]);
++    expect(columnB.availableSlots.map((slot) => slot.time)).toEqual(["08:00", "08:30", "09:00"]);
++  });
++
++  it("keeps historical appointments outside schedule visible in a compact bucket", () => {
++    const column = buildProfessionalDayColumnModel({
++      professional: {
++        id: "professional-1",
++        branches: [{ id: "branch-1", agendaSlotMinutes: 20, defaultAppointmentDurationMinutes: 20 }]
++      },
++      branchId: "branch-1",
++      date: "2026-07-07",
++      schedules: [
++        { id: "schedule-1", professionalId: "professional-1", branchId: "branch-1", dayOfWeek: 2, startTime: "08:00", endTime: "09:00", isActive: true }
++      ],
++      appointments: [
++        { id: "before-hours", professionalId: "professional-1", startAt: "2026-07-07T07:30:00", endAt: "2026-07-07T07:50:00", status: "SCHEDULED" },
++        { id: "inside-hours", professionalId: "professional-1", startAt: "2026-07-07T08:20:00", endAt: "2026-07-07T08:40:00", status: "SCHEDULED" }
++      ],
++      fallbackSlotMinutes: 20,
++      fallbackStartHour: 8,
++      fallbackEndHour: 19
++    });
++
++    expect(column.visibleAppointments.map((appointment) => appointment.id)).toEqual(["inside-hours"]);
++    expect(column.outOfScheduleAppointments.map((appointment) => appointment.id)).toEqual(["before-hours"]);
++  });
++
++  it("uses special schedules as extra openings for the exact date", () => {
++    const column = buildProfessionalDayColumnModel({
++      professional: {
++        id: "professional-1",
++        branches: [{ id: "branch-1", agendaSlotMinutes: 20, defaultAppointmentDurationMinutes: 20 }]
++      },
++      branchId: "branch-1",
++      date: "2026-07-07",
++      schedules: [],
++      specialSchedules: [
++        { id: "special-1", professionalId: "professional-1", branchId: "branch-1", date: "2026-07-07", startTime: "15:00", endTime: "16:00", isActive: true },
++        { id: "special-2", professionalId: "professional-1", branchId: "branch-1", date: "2026-07-08", startTime: "17:00", endTime: "18:00", isActive: true }
++      ],
++      appointments: [],
++      fallbackSlotMinutes: 30,
++      fallbackStartHour: 8,
++      fallbackEndHour: 19
++    });
++
++    expect(column.startMinutes).toBe(900);
++    expect(column.endMinutes).toBe(960);
++    expect(column.timeSlots).toEqual(["15:00", "15:20", "15:40"]);
++    expect(column.availableSlots.map((slot) => slot.time)).toEqual(["15:00", "15:20", "15:40"]);
++  });
+ });
+diff --git a/Dentalink/apps/web/src/features/agenda/utils/agenda-grid-config.ts b/Dentalink/apps/web/src/features/agenda/utils/agenda-grid-config.ts
+index 48dbef3..6b7d78f 100644
+--- a/Dentalink/apps/web/src/features/agenda/utils/agenda-grid-config.ts
++++ b/Dentalink/apps/web/src/features/agenda/utils/agenda-grid-config.ts
+@@ -17,12 +17,48 @@ type AgendaProfessionalConfig = {
+ };
+ 
+ type AgendaScheduleConfig = {
++  id?: string;
+   professionalId: string;
++  branchId?: string;
++  dayOfWeek?: number;
++  date?: string;
+   startTime: string;
+   endTime: string;
++  breakStartTime?: string | null;
++  breakEndTime?: string | null;
+   isActive?: boolean;
+ };
+ 
++type AgendaAppointmentConfig = {
++  id: string;
++  professionalId: string;
++  startAt: string;
++  endAt: string;
++  status?: string;
++};
++
++type DayColumnModelInput<TProfessional extends AgendaProfessionalConfig & { id: string }, TAppointment extends AgendaAppointmentConfig> = {
++  professional: TProfessional;
++  branchId?: string;
++  date: string;
++  schedules: AgendaScheduleConfig[];
++  specialSchedules?: AgendaScheduleConfig[];
++  appointments: TAppointment[];
++  fallbackSlotMinutes: number;
++  fallbackStartHour: number;
++  fallbackEndHour: number;
++  freeStatuses?: readonly string[];
++};
++
++const DEFAULT_FREE_STATUSES = [
++  "CANCELLED_BY_PATIENT",
++  "CANCELLED_BY_CLINIC",
++  "CANCELLED_CONFLICT",
++  "CANCELLED_RESCHEDULED",
++  "NO_SHOW",
++  "RESCHEDULED"
++];
++
+ export function resolveAgendaViewConfig({
+   activeBranch,
+   activeBranchId,
+@@ -51,6 +87,7 @@ export function resolveAgendaViewConfig({
+   return {
+     agendaSlotMinutes,
+     defaultAppointmentDurationMinutes,
++    branchSlotMinutes,
+     agendaStartHour,
+     agendaEndHour
+   };
+@@ -80,6 +117,98 @@ export function isTimeAlignedToSlot(time: string, startTime: string, slotMinutes
+   return (minutes - startMinutes) % slotMinutes === 0;
+ }
+ 
++export function buildProfessionalDayColumnModel<
++  TProfessional extends AgendaProfessionalConfig & { id: string },
++  TAppointment extends AgendaAppointmentConfig
++>({
++  professional,
++  branchId,
++  date,
++  schedules,
++  specialSchedules = [],
++  appointments,
++  fallbackSlotMinutes,
++  fallbackStartHour,
++  fallbackEndHour,
++  freeStatuses = DEFAULT_FREE_STATUSES
++}: DayColumnModelInput<TProfessional, TAppointment>) {
++  const agendaConfig = getProfessionalBranchAgendaConfig(professional, branchId, fallbackSlotMinutes);
++  const targetDate = parseDateInput(date);
++  const targetDay = targetDate.getDay();
++  const freeStatusSet = new Set(freeStatuses);
++  const fallbackStartMinutes = fallbackStartHour * 60;
++  const fallbackEndMinutes = fallbackEndHour * 60;
++  const effectiveSchedules = [...schedules, ...specialSchedules]
++    .filter((schedule) => {
++      if (schedule.professionalId !== professional.id) return false;
++      if (schedule.isActive === false) return false;
++      if (branchId && schedule.branchId && schedule.branchId !== branchId) return false;
++      if (schedule.date) return schedule.date === date;
++      if (schedule.dayOfWeek !== undefined) return schedule.dayOfWeek === targetDay;
++      return true;
++    })
++    .flatMap((schedule) => {
++      const rawStartMinutes = timeToMinutes(schedule.startTime);
++      const rawEndMinutes = timeToMinutes(schedule.endTime);
++      if (rawStartMinutes === null || rawEndMinutes === null) return [];
++
++      const startMinutes = Math.max(fallbackStartMinutes, rawStartMinutes);
++      const endMinutes = Math.min(fallbackEndMinutes, rawEndMinutes);
++      if (endMinutes <= startMinutes) return [];
++
++      return [{ ...schedule, startMinutes, endMinutes }];
++    })
++    .sort((left, right) => left.startMinutes - right.startMinutes || left.endMinutes - right.endMinutes);
++
++  const startMinutes = effectiveSchedules.length
++    ? Math.min(...effectiveSchedules.map((schedule) => schedule.startMinutes))
++    : fallbackStartMinutes;
++  const endMinutes = effectiveSchedules.length
++    ? Math.max(...effectiveSchedules.map((schedule) => schedule.endMinutes))
++    : fallbackEndMinutes;
++  const dayAppointments = appointments
++    .filter((appointment) => appointment.professionalId === professional.id && appointmentDayKey(appointment.startAt) === date)
++    .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime());
++  const visibleAppointments = dayAppointments.filter((appointment) =>
++    appointmentInsideAnySchedule(appointment, effectiveSchedules)
++  );
++  const outOfScheduleAppointments = dayAppointments.filter((appointment) => !visibleAppointments.includes(appointment));
++  const busyAppointments = dayAppointments.filter((appointment) => !freeStatusSet.has(appointment.status ?? ""));
++  const availableSlots = uniqueSlots(
++    effectiveSchedules.flatMap((schedule) =>
++      buildTimeSlotsFromRange(schedule.startMinutes, schedule.endMinutes, agendaConfig.slotMinutes, { endExclusive: true }).flatMap((time) => {
++        const slotStartMinutes = timeToMinutes(time);
++        if (slotStartMinutes === null) return [];
++
++        const slotEndMinutes = slotStartMinutes + agendaConfig.defaultAppointmentDurationMinutes;
++        if (slotEndMinutes > schedule.endMinutes) return [];
++        if (rangeOverlapsTimeRange(slotStartMinutes, slotEndMinutes, schedule.breakStartTime, schedule.breakEndTime)) return [];
++
++        const overlapsBusy = busyAppointments.some((appointment) =>
++          rangeOverlapsMinutes(slotStartMinutes, slotEndMinutes, appointmentToDayMinutes(appointment))
++        );
++        if (overlapsBusy) return [];
++
++        return [{ time, startMinutes: slotStartMinutes, endMinutes: slotEndMinutes }];
++      })
++    )
++  );
++
++  return {
++    professionalId: professional.id,
++    slotMinutes: agendaConfig.slotMinutes,
++    defaultAppointmentDurationMinutes: agendaConfig.defaultAppointmentDurationMinutes,
++    startMinutes,
++    endMinutes,
++    schedules: effectiveSchedules,
++    timeSlots: buildTimeSlotsFromRange(startMinutes, endMinutes, agendaConfig.slotMinutes, { endExclusive: true }),
++    availableSlots,
++    visibleAppointments,
++    outOfScheduleAppointments,
++    appointments: dayAppointments
++  };
++}
++
+ export function resolveAgendaTimelineRange({
+   fallbackStartHour,
+   fallbackEndHour
+@@ -140,6 +269,78 @@ export function timeToMinutes(value: string) {
+   return hours * 60 + minutes;
+ }
+ 
++function parseDateInput(value: string) {
++  const [year, month, day] = value.split("-").map(Number);
++  return new Date(year, month - 1, day, 0, 0, 0, 0);
++}
++
++function appointmentDayKey(value: string) {
++  const date = new Date(value);
++  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
++}
++
++function appointmentInsideAnySchedule(
++  appointment: AgendaAppointmentConfig,
++  schedules: Array<AgendaScheduleConfig & { startMinutes: number; endMinutes: number }>
++) {
++  const appointmentMinutes = appointmentToDayMinutes(appointment);
++  if (!appointmentMinutes) return false;
++  return schedules.some(
++    (schedule) =>
++      appointmentMinutes.startMinutes >= schedule.startMinutes &&
++      appointmentMinutes.endMinutes <= schedule.endMinutes &&
++      !rangeOverlapsTimeRange(
++        appointmentMinutes.startMinutes,
++        appointmentMinutes.endMinutes,
++        schedule.breakStartTime,
++        schedule.breakEndTime
++      )
++  );
++}
++
++function appointmentToDayMinutes(appointment: AgendaAppointmentConfig) {
++  const start = new Date(appointment.startAt);
++  const end = new Date(appointment.endAt);
++  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
++  return {
++    startMinutes: start.getHours() * 60 + start.getMinutes(),
++    endMinutes: end.getHours() * 60 + end.getMinutes()
++  };
++}
++
++function rangeOverlapsTimeRange(
++  startMinutes: number,
++  endMinutes: number,
++  rangeStartTime?: string | null,
++  rangeEndTime?: string | null
++) {
++  if (!rangeStartTime || !rangeEndTime) return false;
++  const rangeStartMinutes = timeToMinutes(rangeStartTime);
++  const rangeEndMinutes = timeToMinutes(rangeEndTime);
++  if (rangeStartMinutes === null || rangeEndMinutes === null) return false;
++
++  return startMinutes < rangeEndMinutes && endMinutes > rangeStartMinutes;
++}
++
++function rangeOverlapsMinutes(
++  startMinutes: number,
++  endMinutes: number,
++  range: { startMinutes: number; endMinutes: number } | null
++) {
++  if (!range) return false;
++  return startMinutes < range.endMinutes && endMinutes > range.startMinutes;
++}
++
++function uniqueSlots(slots: Array<{ time: string; startMinutes: number; endMinutes: number }>) {
++  const seen = new Set<string>();
++  return slots.filter((slot) => {
++    const key = `${slot.startMinutes}-${slot.endMinutes}`;
++    if (seen.has(key)) return false;
++    seen.add(key);
++    return true;
++  });
++}
++
+ function resolveGlobalProfessionalSlotMinutes({
+   activeBranchId,
+   branchSlotMinutes,

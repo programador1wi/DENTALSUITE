@@ -16,6 +16,7 @@ import { CreateAppointmentNoteDto } from "./dto/appointment-note.dto";
 import { CreateAppointmentReminderDto, UpdateAppointmentReminderDto } from "./dto/appointment-reminder.dto";
 import { AppointmentsService } from "./appointments.service";
 import { CreateAppointmentDto, CreateAppointmentsBatchDto } from "./dto/create-appointment.dto";
+import { UpdateAppointmentStatusDto } from "./dto/update-appointment-status.dto";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
 
 @ApiTags("Appointments")
@@ -100,6 +101,12 @@ export class AppointmentsController {
   @RequirePermissions("appointments.update")
   update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateAppointmentDto) {
     return this.appointmentsService.update(user, id, dto);
+  }
+
+  @Patch(":id/status")
+  @RequirePermissions("appointments.status.update")
+  updateStatus(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateAppointmentStatusDto) {
+    return this.appointmentsService.changeAppointmentStatus(user, id, dto.status, dto.reason);
   }
 
   @Delete(":id")

@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, Query } from '@nestjs/common';
 import { PublicBookingService } from './public-booking.service';
-import { PublicAvailabilityQueryDto, PublicCreateAppointmentDto } from './dto/public-booking.dto';
+import { PublicAvailabilityQueryDto, PublicCreateAppointmentDto, UpdatePublicPatientProfileDto } from './dto/public-booking.dto';
 
 @Controller('public/booking')
 export class PublicBookingController {
@@ -50,6 +50,24 @@ export class PublicBookingController {
     @Param('id') id: string,
     @Query('token') token: string
   ) {
+
     return this.publicBookingService.cancelEmail(id, token);
+  }
+
+  @Get('appointments/:id/patient-profile')
+  async getPatientProfile(
+    @Param('id') id: string,
+    @Query('token') token: string
+  ) {
+    return this.publicBookingService.getPatientProfile(id, token);
+  }
+
+  @Patch('appointments/:id/patient-profile')
+  async updatePatientProfile(
+    @Param('id') id: string,
+    @Query('token') token: string,
+    @Body() dto: UpdatePublicPatientProfileDto
+  ) {
+    return this.publicBookingService.updatePatientProfile(id, token, dto);
   }
 }

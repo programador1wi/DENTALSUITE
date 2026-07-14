@@ -219,4 +219,97 @@ describe("PublicBookingService - email confirmation actor", () => {
 
     await expect(service.cancelEmail("appt-1", "valid-token")).rejects.toThrow(BadRequestException);
   });
+
+  describe("Patient Profile Public Updating", () => {
+    it("throws error if token is missing", async () => {
+      const { service } = buildService();
+      await expect(service.getPatientProfile("appt-1", "")).rejects.toThrow("Token is required");
+    });
+
+    it("throws error if token is invalid", async () => {
+      const { service } = buildService({
+        jwtVerify: jest.fn().mockImplementation(() => {
+          throw new Error("Invalid signature");
+        })
+      });
+      await expect(service.getPatientProfile("appt-1", "bad-token")).rejects.toThrow(UnauthorizedException);
+    });
+
+    it("throws error if purpose does not match", async () => {
+      const { service } = buildService({
+        jwtVerify: jest.fn().mockReturnValue({ sub: "appt-1", purpose: "WRONG_PURPOSE" })
+      });
+      await expect(service.getPatientProfile("appt-1", "token")).rejects.toThrow("Invalid token purpose");
+    });
+
+    it("throws error if appointment is cancelled", async () => {
+      const { service } = buildService({
+        jwtVerify: jest.fn().mockReturnValue({ sub: "appt-cancelled", purpose: "PATIENT_PROFILE_UPDATE" }),
+        appointment: {
+          id: "appt-cancelled",
+          status: "CANCELLED_BY_PATIENT",
+          patient: { id: "patient-1", firstName: "John" },
+          branch: { organizationId: "org-1" }
+        }
+      });
+      await expect(service.getPatientProfile("appt-cancelled", "token")).rejects.toThrow("Cannot update profile for a cancelled appointment");
+    });
+
+    it("returns profile data for valid token", async () => {
+      const { service } = buildService({
+        jwtVerify: jest.fn().mockReturnValue({ sub: "appt-valid", purpose: "PATIENT_PROFILE_UPDATE" }),
+        appointment: {
+          id: "appt-valid",
+          status: "SCHEDULED",
+          patient: { id: "patient-1", firstName: "John", lastName: "Doe", email: "john@example.com" },
+          branch: { organizationId: "org-1" }
+        }
+      });
+      const profile = await service.getPatientProfile("appt-valid", "token");
+      expect(profile).toEqual({
+        firstName: "John",
+        lastName: "Doe",
+        email: "john@example.com",
+        phone: undefined,
+        documentType: undefined,
+        documentNumber: undefined,
+        birthDate: null,
+        gender: undefined,
+        alternatePhone: undefined,
+        address: null
+      });
+    });
+
+    it("updates profile and creates audit log when privacy notice is accepted", async () => {
+      const { service, prisma } = buildService({
+        jwtVerify: jest.fn().mockReturnValue({ sub: "appt-valid", purpose: "PATIENT_PROFILE_UPDATE" }),
+        appointment: {
+          id: "appt-valid",
+          status: "SCHEDULED",
+          organizationId: "org-1",
+          createdById: "user-1",
+          patient: { id: "patient-1", firstName: "John" }
+        }
+      });
+      
+      const txOperations: any[] = [];
+      const txMock = {
+        patient: { update: jest.fn().mockImplementation((args) => txOperations.push({ type: "patient.update", args })) },
+        auditLog: { create: jest.fn().mockImplementation((args) => txOperations.push({ type: "auditLog.create", args })) }
+      };
+      (prisma as any)["$transaction"] = jest.fn().mockImplementation(async (cb) => cb(txMock));
+
+      await service.updatePatientProfile("appt-valid", "token", {
+        firstName: "Johnny",
+        lastName: "Doe",
+        privacyNoticeAccepted: true
+      });
+
+      expect(txOperations.length).toBe(2);
+      expect(txOperations[0].type).toBe("patient.update");
+      expect(txOperations[0].args.data.firstName).toBe("Johnny");
+      expect(txOperations[1].type).toBe("auditLog.create");
+      expect(txOperations[1].args.data.reason).toBe("PUBLIC_PATIENT_PROFILE");
+    });
+  });
 });

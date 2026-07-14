@@ -17,7 +17,7 @@ const actor: AuthUser = {
 
 describe("ClinicalService professional branch validation", () => {
   it("rejects clinical records with a professional outside the patient branch", async () => {
-    const prisma = {
+    const prisma: any = {
       patient: {
         findFirst: jest.fn().mockResolvedValue({ id: "patient-1", branchId: "branch-1" })
       },
@@ -60,7 +60,7 @@ describe("ClinicalService professional branch validation", () => {
       materials: [],
       addenda: []
     };
-    const prisma = {
+    const prisma: any = {
       patient: {
         findFirst: jest.fn().mockResolvedValue({ id: "patient-1", branchId: "branch-1" })
       },
@@ -74,6 +74,7 @@ describe("ClinicalService professional branch validation", () => {
         create: jest.fn().mockResolvedValue({})
       }
     };
+    prisma.$transaction = jest.fn(async (callback: (tx: typeof prisma) => unknown) => callback(prisma));
     const service = new ClinicalService(prisma as never);
 
     await expect(
@@ -153,7 +154,7 @@ describe("ClinicalService odontogram surfaces", () => {
         create: jest.fn().mockResolvedValue({ id: "condition-1", toothNumber: "18", surface: "D" })
       }
     };
-    const prisma = {
+    const prisma: any = {
       patient: { findFirst: jest.fn().mockResolvedValue({ id: "patient-1", branchId: "branch-1" }) },
       professional: { findFirst: jest.fn().mockResolvedValue({ id: "professional-1" }) },
       $transaction: jest.fn((callback: (transactionClient: typeof tx) => unknown) => callback(tx)),

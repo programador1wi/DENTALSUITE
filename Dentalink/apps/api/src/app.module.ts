@@ -11,6 +11,7 @@ import { CollectionsModule } from "./modules/collections/collections.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { PrismaModule } from "./database/prisma.module";
 import { HealthModule } from "./modules/health/health.module";
+import { HealthCenterModule } from "./modules/health-center/health-center.module";
 import { LabsInventoryModule } from "./modules/labs-inventory/labs-inventory.module";
 import { PermissionsModule } from "./modules/permissions/permissions.module";
 import { PriceListsModule } from "./modules/price-lists/price-lists.module";
@@ -67,6 +68,7 @@ import { IntegrationsModule } from "./modules/integrations/integrations.module";
     PriceListsModule,
     TreatmentPlansModule,
     HealthModule,
+    HealthCenterModule,
     OnlineSchedulingModule,
     PublicBookingModule,
     IntegrationsModule

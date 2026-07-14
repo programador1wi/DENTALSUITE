@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
+import type { ReadStream } from 'node:fs';
 
 export interface AppointmentEmailData {
   patientName: string;
@@ -9,8 +10,29 @@ export interface AppointmentEmailData {
   timeStr: string;
   address: string;
   clinicPhone: string;
+  brandName?: string;
+  logoUrl?: string;
+  primaryColor?: string;
+  replyToEmail?: string;
   confirmUrl?: string; // Solo para el de confirmación
+  completeProfileUrl?: string; // Enlace público para completar datos
 }
+
+export type PatientEmailAttachment = {
+  filename: string;
+  content: ReadStream;
+  contentType?: string;
+};
+
+export type SendPatientEmailInput = {
+  to: string;
+  cc?: string;
+  replyTo?: string;
+  subject: string;
+  html: string;
+  text: string;
+  attachments?: PatientEmailAttachment[];
+};
 
 @Injectable()
 export class EmailService {
@@ -38,7 +60,48 @@ export class EmailService {
     }
   }
 
-  private getBaseTemplate(title: string, content: string, clinicPhone: string): string {
+  getDefaultSender() {
+    return {
+      fromAddress: this.fromAddress,
+      fromName: this.fromName,
+      provider: this.configService.get<string>('MAIL_PROVIDER')?.trim() || 'smtp'
+    };
+  }
+
+  async sendPatientEmail(input: SendPatientEmailInput): Promise<{ providerMessageId?: string }> {
+    if (!this.isEnabled) {
+      throw new ServiceUnavailableException('El servicio de correo no esta configurado para esta organizacion');
+    }
+
+    try {
+      const result = await this.transporter.sendMail({
+        from: `"${this.fromName}" <${this.fromAddress}>`,
+        to: input.to,
+        cc: input.cc,
+        replyTo: input.replyTo,
+        subject: input.subject,
+        html: input.html,
+        text: input.text,
+        attachments: input.attachments
+      });
+
+      this.logger.log(`Patient email sent to ${input.to}`);
+      return { providerMessageId: result.messageId };
+    } catch (error) {
+      this.logger.error(`Failed to send patient email to ${input.to}`, error);
+      throw new ServiceUnavailableException('No fue posible enviar el correo. Intenta nuevamente.');
+    }
+  }
+
+  private getBaseTemplate(title: string, content: string, clinicPhone: string, data?: AppointmentEmailData): string {
+    const brandName = this.escapeHtml(data?.brandName || 'Dental+');
+    const primaryColor = /^#[0-9a-f]{6}$/i.test(data?.primaryColor || '') ? data?.primaryColor : '#2563eb';
+    const safeClinicPhone = this.escapeHtml(clinicPhone);
+    const safeLogoUrl = data?.logoUrl && /^https:\/\//i.test(data.logoUrl) ? this.escapeHtmlAttribute(data.logoUrl) : undefined;
+    const logo =
+      safeLogoUrl
+        ? `<img src="${safeLogoUrl}" alt="${brandName}" style="display:block;max-width:160px;max-height:72px;height:auto;border:0;">`
+        : `<div class="logo">${brandName}</div>`;
     return `
 <!DOCTYPE html>
 <html lang="es">
@@ -50,7 +113,7 @@ export class EmailService {
     body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; margin: 0; padding: 40px 20px; color: #1f2937; }
     .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06); }
     .header { padding: 30px 40px 10px; }
-    .logo { color: #ef4444; font-size: 24px; font-weight: 800; text-decoration: none; display: flex; align-items: center; }
+    .logo { color: ${primaryColor}; font-size: 24px; font-weight: 800; text-decoration: none; display: flex; align-items: center; }
     .logo span { color: #1f2937; }
     .content { padding: 20px 40px 40px; }
     .title { font-size: 24px; font-weight: 700; margin: 0 0 24px; color: #111827; }
@@ -65,19 +128,19 @@ export class EmailService {
     .details-table td:last-child { width: 70%; font-weight: 500; font-size: 14px; }
     .footer { text-align: center; margin-top: 30px; font-size: 13px; color: #6b7280; }
     .footer a { color: #3b82f6; text-decoration: none; }
-    .btn { display: inline-block; background-color: #2563eb; color: #ffffff !important; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; font-size: 14px; margin-top: 20px; text-align: center; }
+    .btn { display: inline-block; background-color: ${primaryColor}; color: #ffffff !important; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: 600; font-size: 14px; margin-top: 20px; text-align: center; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <div class="logo">Dental<span>+</span></div>
+      ${logo}
     </div>
     <div class="content">
       ${content}
       
       <div class="footer">
-        Si no puedes asistir o necesitas reagendar tu cita, ponte en contacto con DENTAL+ llamando al <a href="tel:${clinicPhone}">${clinicPhone}</a>
+        Si no puedes asistir o necesitas reagendar tu cita, ponte en contacto con ${brandName} llamando al <a href="tel:${safeClinicPhone}">${safeClinicPhone}</a>
       </div>
     </div>
   </div>
@@ -89,7 +152,9 @@ export class EmailService {
   private generateAppointmentContent(title: string, data: AppointmentEmailData, withConfirmBtn: boolean = false): string {
     const btnHtml = withConfirmBtn && data.confirmUrl 
       ? `<a href="${data.confirmUrl}" class="btn">Confirma o anula tu cita aquí</a>` 
-      : `<a href="#" class="btn" style="background-color: #3b82f6;">Completa tus datos</a>`;
+      : data.completeProfileUrl
+      ? `<a href="${data.completeProfileUrl}" class="btn" style="background-color: #3b82f6;">Completa tus datos</a>`
+      : ``;
 
     return `
       <div style="font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 8px;">${data.patientName}</div>
@@ -138,12 +203,13 @@ export class EmailService {
     }
 
     const content = this.generateAppointmentContent('Cita agendada', data, false);
-    const html = this.getBaseTemplate('Cita agendada', content, data.clinicPhone);
+    const html = this.getBaseTemplate('Cita agendada', content, data.clinicPhone, data);
 
     try {
       await this.transporter.sendMail({
         from: `"${this.fromName}" <${this.fromAddress}>`,
         to,
+        replyTo: data.replyToEmail,
         subject: 'Tu cita ha sido agendada',
         html,
       });
@@ -164,12 +230,13 @@ export class EmailService {
     }
 
     const content = this.generateAppointmentContent('Confirma tu cita', data, true);
-    const html = this.getBaseTemplate('Confirma tu cita', content, data.clinicPhone);
+    const html = this.getBaseTemplate('Confirma tu cita', content, data.clinicPhone, data);
 
     try {
       await this.transporter.sendMail({
         from: `"${this.fromName}" <${this.fromAddress}>`,
         to,
+        replyTo: data.replyToEmail,
         subject: 'Acción requerida: Confirma tu cita',
         html,
       });
@@ -178,5 +245,18 @@ export class EmailService {
       this.logger.error(`Failed to send 'Confirmation Required' email to ${to}`, error);
       throw new ServiceUnavailableException('No se pudo enviar el correo de confirmacion');
     }
+  }
+
+  private escapeHtml(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  private escapeHtmlAttribute(value: string): string {
+    return this.escapeHtml(value).replace(/`/g, '&#096;');
   }
 }

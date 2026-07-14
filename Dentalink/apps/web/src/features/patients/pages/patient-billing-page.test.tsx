@@ -52,7 +52,8 @@ vi.mock("@/features/payments/services/payments.service", async () => {
   );
   return {
     ...actual,
-    getPaymentReceipt: vi.fn()
+    getPaymentReceipt: vi.fn(),
+    downloadPaymentReceiptPdf: vi.fn().mockResolvedValue({ blob: new Blob(["pdf"]), fileName: "receipt.pdf" })
   };
 });
 
@@ -67,7 +68,7 @@ vi.mock("@/features/payments/hooks/use-payments", () => ({
       payments: [
         {
           id: "payment-1",
-          paymentNumber: "PAY-0001",
+          paymentNumber: "206329",
           ticketId: "TICKET-1",
           branchId: "branch-1",
           patientId: "patient-1",
@@ -141,7 +142,7 @@ describe("PatientBillingPage", () => {
     expect(screen.getByText("TICKET-1")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Ver desglose" }));
-    expect(screen.getByText("Desglose de pago #PAY-0001")).toBeInTheDocument();
+    expect(screen.getByText("Desglose de pago #206329")).toBeInTheDocument();
     expect(screen.getByText("Limpieza dental")).toBeInTheDocument();
     expect(screen.getByText("Saldo")).toBeInTheDocument();
 

@@ -17,6 +17,7 @@ import { ClinicalPrescriptionsPage } from "@/features/clinical/pages/clinical-pr
 import { CollectionDetailPage } from "@/features/collections/pages/collection-detail-page";
 import { CollectionsPage } from "@/features/collections/pages/collections-page";
 import { DashboardPage } from "@/features/dashboard/pages/dashboard-page";
+import { HealthCenterPage } from "@/features/health-center/pages/health-center-page";
 import { InventoryMovementsPage } from "@/features/labs-inventory/pages/inventory-movements-page";
 import { InventoryPage } from "@/features/labs-inventory/pages/inventory-page";
 import { LabOrdersPage } from "@/features/labs-inventory/pages/lab-orders-page";
@@ -24,9 +25,12 @@ import { LabProceduresPage } from "@/features/labs-inventory/pages/lab-procedure
 import { LabsPage } from "@/features/labs-inventory/pages/labs-page";
 import { IntegrationsPage } from "@/features/integrations/pages/integrations-page";
 import { ReportsAppointmentsPage } from "@/features/reports/pages/reports-appointments-page";
+import { ReportsChartsPage } from "@/features/reports/pages/reports-charts-page";
+import { ReportsExcelPage } from "@/features/reports/pages/reports-excel-page";
 import { ReportsFinancialPage } from "@/features/reports/pages/reports-financial-page";
 import { ReportsPage } from "@/features/reports/pages/reports-page";
 import { ReportsPatientsPage } from "@/features/reports/pages/reports-patients-page";
+import { ReportsPerformancePage } from "@/features/reports/pages/reports-performance-page";
 import { ReportsProfessionalsPage } from "@/features/reports/pages/reports-professionals-page";
 import { ReportsTreatmentsPage } from "@/features/reports/pages/reports-treatments-page";
 import { ConsentTemplatesSettingsPage } from "@/features/settings/consent-templates/pages/consent-templates-settings-page";
@@ -77,10 +81,12 @@ import { InstallmentsPage } from "@/features/payments/pages/installments-page";
 import { PaymentsPage } from "@/features/payments/pages/payments-page";
 import { PaymentLinksPage } from "@/features/payments/pages/payment-links-page";
 import { CancelledPendingPaymentsPage } from "@/features/payments/pages/cancelled-pending-payments-page";
+import { PaymentReceiptPage } from "@/features/payments/pages/payment-receipt-page";
 import { BudgetsPage } from "@/features/treatments/pages/budgets-page";
 import { TreatmentPlansPage } from "@/features/treatments/pages/treatment-plans-page";
 import { PublicBookingPage } from "@/features/public-booking/pages/public-booking-page";
 import { ConfirmAppointmentPage } from "@/features/public-booking/pages/confirm-appointment-page";
+import { CompletePatientProfilePage } from "@/features/public-booking/pages/complete-patient-profile-page";
 
 function PublicShell() {
   return (
@@ -130,7 +136,8 @@ export const router = createBrowserRouter([
     element: <PublicShell />,
     children: [
       { path: "/book/:slug", element: <PublicBookingPage /> },
-      { path: "/confirm-appointment", element: <ConfirmAppointmentPage /> }
+      { path: "/confirm-appointment", element: <ConfirmAppointmentPage /> },
+      { path: "/complete-patient-profile", element: <CompletePatientProfilePage /> }
     ]
   },
   {
@@ -142,6 +149,10 @@ export const router = createBrowserRouter([
           { path: "/", element: <Navigate to="/agenda/list" replace /> },
           { path: "/dashboard", element: <DashboardPage /> },
           { path: "/settings/profile", element: <ProfilePage /> },
+          {
+            element: <RequirePermissions required={["health_center.view"]} />,
+            children: [{ path: "/health-center", element: <HealthCenterPage /> }]
+          },
 
           {
             element: <RequirePermissions required={["settings.read"]} />,
@@ -298,6 +309,7 @@ export const router = createBrowserRouter([
             element: <RequirePermissions required={["payments.read"]} />,
             children: [
               { path: "/payments", element: <PaymentsPage /> },
+              { path: "/payments/:paymentNumber/receipt", element: <PaymentReceiptPage /> },
               { path: "/payments/tpv", element: <PaymentLinksPage /> },
               { path: "/payments/cancelled-pending", element: <CancelledPendingPaymentsPage /> }
             ]
@@ -355,6 +367,9 @@ export const router = createBrowserRouter([
             element: <RequirePermissions required={["reports.read"]} />,
             children: [
               { path: "/reports", element: <ReportsPage /> },
+              { path: "/reports/performance", element: <ReportsPerformancePage /> },
+              { path: "/reports/excel", element: <ReportsExcelPage /> },
+              { path: "/reports/charts", element: <ReportsChartsPage /> },
               { path: "/reports/appointments", element: <ReportsAppointmentsPage /> },
               { path: "/reports/patients", element: <ReportsPatientsPage /> },
               { path: "/reports/treatments", element: <ReportsTreatmentsPage /> },

@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsNumber, IsOptional, IsString, ValidateNested } from "class-validator";
+import { IsArray, IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, ValidateNested } from "class-validator";
 import { Type } from "class-transformer";
 
 export class EvolutionFieldDto {
@@ -36,6 +36,15 @@ export class CreateClinicalEvolutionDto {
   @IsOptional()
   @IsString()
   treatmentPlanItemId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @IsIn([0, 25, 50, 75, 100])
+  completionPercentage?: number;
+
+  @IsOptional()
+  @IsInt()
+  expectedVersion?: number;
 
   @IsOptional()
   @IsString()

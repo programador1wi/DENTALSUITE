@@ -5,6 +5,7 @@ import {
   activateAlternative,
   addTreatmentPlanItem,
   addTreatmentPlanSection,
+  applyBulkDiscountToTreatmentPlanItems,
   changeTreatmentPlanBranch,
   createAlternative,
   createBudget,
@@ -12,16 +13,22 @@ import {
   createTreatmentPlan,
   deactivateTreatmentPlan,
   deleteTreatmentPlanItem,
+  duplicateTreatmentPlan,
   getBudget,
+  getOrthodonticSummary,
   getTreatmentPlan,
+  getTreatmentPlanProcedures,
+  listOrthodonticEvolutions,
   listBudgets,
   listTreatmentPlans,
   pauseTreatmentPlan,
   printBudget,
+  printTreatmentPlanDocument,
   rejectBudget,
   reactivateTreatmentPlan,
   resumeTreatmentPlan,
   sendBudget,
+  startOrthodonticTreatment,
   updateOrthodonticDiagnosis,
   updateOrthodonticProfile,
   updateTreatmentPlan,
@@ -30,6 +37,7 @@ import {
   type BudgetStatus,
   type CreateTreatmentPlanPayload,
   type OrthodonticProfilePayload,
+  type TreatmentPlanPrintDocumentType,
   type TreatmentPlanKind,
   type TreatmentPlanItemPayload,
   type TreatmentPlanStatus,
@@ -58,6 +66,42 @@ export function useTreatmentPlan(id: string) {
     queryKey: ["treatment-plan", id],
     queryFn: () => getTreatmentPlan(id),
     enabled: Boolean(id)
+  });
+}
+
+export function useTreatmentPlanProcedures(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ["treatment-plan-procedures", id],
+    queryFn: () => getTreatmentPlanProcedures(id),
+    enabled: Boolean(id) && enabled
+  });
+}
+
+export function useOrthodonticSummary(id: string, enabled = true) {
+  return useQuery({
+    queryKey: ["orthodontic-summary", id],
+    queryFn: () => getOrthodonticSummary(id),
+    enabled: Boolean(id) && enabled
+  });
+}
+
+export function useOrthodonticEvolutions(
+  id: string,
+  params?: {
+    page?: number;
+    pageSize?: number;
+    dateFrom?: string;
+    dateTo?: string;
+    professionalId?: string;
+    hasHygiene?: boolean;
+    search?: string;
+  },
+  enabled = true
+) {
+  return useQuery({
+    queryKey: ["orthodontic-evolutions", id, params],
+    queryFn: () => listOrthodonticEvolutions(id, params),
+    enabled: Boolean(id) && enabled
   });
 }
 
@@ -91,6 +135,9 @@ export function useTreatmentMutations() {
     queryClient.invalidateQueries({ queryKey: ["patient"] });
     queryClient.invalidateQueries({ queryKey: ["clinical"] });
     queryClient.invalidateQueries({ queryKey: ["patient-payments"] });
+    queryClient.invalidateQueries({ queryKey: ["treatment-plan-procedures"] });
+    queryClient.invalidateQueries({ queryKey: ["orthodontic-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["orthodontic-evolutions"] });
   };
 
   const onError = (error: Error) => toast.error(error.message);
@@ -121,6 +168,12 @@ export function useTreatmentMutations() {
     updateOrthodonticDiagnosis: useMutation({
       mutationFn: ({ id, diagnosis }: { id: string; diagnosis: Record<string, unknown> }) =>
         updateOrthodonticDiagnosis(id, { diagnosis }),
+      onSuccess: invalidate,
+      onError
+    }),
+    startOrthodonticTreatment: useMutation({
+      mutationFn: ({ id, startDate }: { id: string; startDate?: string }) =>
+        startOrthodonticTreatment(id, { startDate }),
       onSuccess: invalidate,
       onError
     }),
@@ -200,6 +253,12 @@ export function useTreatmentMutations() {
       onSuccess: invalidate,
       onError
     }),
+    duplicateTreatmentPlan: useMutation({
+      mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
+        duplicateTreatmentPlan(id, { reason }),
+      onSuccess: invalidate,
+      onError
+    }),
     createAlternative: useMutation({
       mutationFn: ({ parentId, payload }: { parentId: string; payload: CreateTreatmentPlanPayload }) =>
         createAlternative(parentId, payload),
@@ -217,13 +276,32 @@ export function useTreatmentMutations() {
         treatmentPlanId,
         itemId,
         status,
+        completionPercentage,
+        expectedVersion,
         notes
       }: {
         treatmentPlanId: string;
         itemId: string;
         status: TreatmentPlanItemStatus;
+        completionPercentage?: number;
+        expectedVersion?: number;
         notes?: string;
-      }) => updateTreatmentPlanItemStatus(treatmentPlanId, itemId, { status, notes }),
+      }) => updateTreatmentPlanItemStatus(treatmentPlanId, itemId, { status, notes, completionPercentage, expectedVersion }),
+      onSuccess: invalidate,
+      onError
+    }),
+    applyBulkDiscount: useMutation({
+      mutationFn: ({
+        treatmentPlanId,
+        itemIds,
+        discountType,
+        value
+      }: {
+        treatmentPlanId: string;
+        itemIds: string[];
+        discountType: "PERCENTAGE" | "AMOUNT";
+        value: number;
+      }) => applyBulkDiscountToTreatmentPlanItems(treatmentPlanId, { itemIds, discountType, value }),
       onSuccess: invalidate,
       onError
     }),
@@ -254,6 +332,18 @@ export function useTreatmentMutations() {
       onError
     }),
     printBudget: useMutation({ mutationFn: (id: string) => printBudget(id), onError }),
+    printTreatmentPlanDocument: useMutation({
+      mutationFn: ({
+        treatmentPlanId,
+        type,
+        budgetId
+      }: {
+        treatmentPlanId: string;
+        type: TreatmentPlanPrintDocumentType;
+        budgetId?: string;
+      }) => printTreatmentPlanDocument(treatmentPlanId, { type, budgetId }),
+      onError
+    }),
     deactivateTreatmentPlan: useMutation({
       mutationFn: ({ id, reason }: { id: string; reason?: string }) =>
         deactivateTreatmentPlan(id, { reason }),

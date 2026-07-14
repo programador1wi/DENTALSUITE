@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
 import { CheckCircle2, Info, Plus, Printer, Stethoscope, X } from "lucide-react";
-import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { DataTable } from "@/components/ui/data-table";
 import { cn } from "@/lib/utils/cn";
 import { useOdontogramStore, type OdontogramContextMenu, type OdontogramTool } from "@/stores/odontogram.store";
@@ -27,8 +26,8 @@ const FACE_PATHS = {
   4: "M6.86424548,6.86424548 L15.4174091,15.4174091 C13.3652727,17.4695455 12.096,20.3045455 12.096,23.436 C12.096,26.5669527 13.3648659,29.4015459 15.4164226,31.4536042 L6.86424548,40.0077545 C2.62316365,35.7666727 0,29.9076727 0,23.436 C0,16.9643273 2.62316365,11.1053273 6.86424548,6.86424548 Z"
 } as const;
 
-type SurfaceTone = "diagnosis" | "procedure";
-type SurfaceStateMap = Record<string, SurfaceTone>;
+type SurfaceVisualState = "lesion" | "todo" | "done";
+type SurfaceStateMap = Record<string, SurfaceVisualState>;
 
 type WarnerSuiteSymbolSource = {
   toothNumber: string;
@@ -155,11 +154,30 @@ function surfaceStateKey(toothNumber: string, surface: string) {
   return `${toothNumber}:${surface}`;
 }
 
-function applySurfaceState(states: SurfaceStateMap, toothNumber: string, surface: string | null | undefined, tone: SurfaceTone) {
-  for (const faceIndex of faceIndexesForSurface(toothNumber, surface)) {
+function surfaceVisualPriority(state: SurfaceVisualState) {
+  if (state === "done") return 3;
+  if (state === "todo") return 2;
+  return 1;
+}
+
+export function resolveDentalSurfaceVisualState(source: {
+  status?: string | null;
+  condition?: string | null;
+}): SurfaceVisualState {
+  const isProcedureRecord = source.condition === "TOOTH_PROCEDURE" || source.condition === "TOOTH_PROCEDURE_STATUS";
+  if (isProcedureRecord || (!source.condition && source.status)) {
+    return source.status === "COMPLETED" ? "done" : "todo";
+  }
+  return "lesion";
+}
+
+function applySurfaceState(states: SurfaceStateMap, toothNumber: string, surface: string | null | undefined, state: SurfaceVisualState) {
+  const targetSurface = surface?.trim() ? surface : "ALL";
+  for (const faceIndex of faceIndexesForSurface(toothNumber, targetSurface)) {
     const surfaceCode = surfaceForFaceIndex(toothNumber, faceIndex);
     const key = surfaceStateKey(toothNumber, surfaceCode);
-    if (states[key] !== "diagnosis") states[key] = tone;
+    const current = states[key];
+    if (!current || surfaceVisualPriority(state) >= surfaceVisualPriority(current)) states[key] = state;
   }
 }
 
@@ -176,17 +194,16 @@ function surfaceStatesFromSources({
 
   for (const record of records) {
     if (record.status === "CANCELLED") continue;
-    const tone = record.condition === "TOOTH_PROCEDURE" || record.condition === "TOOTH_PROCEDURE_STATUS" ? "procedure" : "diagnosis";
-    applySurfaceState(states, record.toothNumber, record.surface, tone);
+    applySurfaceState(states, record.toothNumber, record.surface, resolveDentalSurfaceVisualState(record));
   }
 
   for (const procedure of procedures) {
     if (procedure.status === "CANCELLED") continue;
-    applySurfaceState(states, procedure.toothNumber, procedure.surface, "procedure");
+    applySurfaceState(states, procedure.toothNumber, procedure.surface, resolveDentalSurfaceVisualState(procedure));
   }
 
   for (const condition of conditions) {
-    applySurfaceState(states, condition.toothNumber, condition.surface, "diagnosis");
+    applySurfaceState(states, condition.toothNumber, condition.surface, "lesion");
   }
 
   return states;
@@ -200,17 +217,24 @@ function faceRowY(dentition: "permanent" | "temporal", row: "upper" | "lower") {
   return row === "upper" ? UPPER_FACE_Y[dentition] : LOWER_FACE_Y[dentition];
 }
 
-function surfaceFaceClass(tone?: SurfaceTone, selected?: boolean) {
+function surfaceFaceClass(state?: SurfaceVisualState, selected?: boolean) {
   return cn(
     "cursor-pointer transition-[fill,fill-opacity,stroke,stroke-width] duration-150 outline-none",
-    tone === "procedure" ? "fill-[#ff0000] stroke-black" : selected ? "fill-[#008aca] stroke-[#008aca]" : tone === "diagnosis" ? "fill-black stroke-black" : "fill-white stroke-transparent"
+    state === "done"
+      ? "fill-[#1f7ae0] stroke-[#1f7ae0]"
+      : state === "todo"
+        ? "fill-[#ff0000] stroke-black"
+        : selected
+          ? "fill-[#008aca] stroke-[#008aca]"
+          : state === "lesion"
+            ? "fill-black stroke-black"
+            : "fill-white stroke-transparent"
   );
 }
 
-function surfaceFaceOpacity(tone?: SurfaceTone, selected?: boolean) {
-  if (tone === "procedure") return 0.82;
+function surfaceFaceOpacity(state?: SurfaceVisualState, selected?: boolean) {
+  if (state === "done" || state === "todo" || state === "lesion") return 0.82;
   if (selected) return 0.32;
-  if (tone === "diagnosis") return 0.22;
   return 0.001;
 }
 
@@ -244,7 +268,7 @@ function SurfaceFaceOverlay({
           <g key={`surface-hit-${row}-${tooth}`} transform={transform}>
             {faceIndexes.map((faceIndex) => {
               const surface = surfaceForFaceIndex(tooth, faceIndex);
-              const tone = surfaceStates[surfaceStateKey(tooth, surface)];
+              const visualState = surfaceStates[surfaceStateKey(tooth, surface)];
               const selected = Boolean(selectedSurface && selectedTeeth.includes(tooth) && surfaceCodes(selectedSurface).includes(surface));
               const commonProps = {
                 role: "button",
@@ -252,10 +276,10 @@ function SurfaceFaceOverlay({
                 "aria-label": `Cara ${surfaceLabel(surface).toLowerCase()} de pieza ${fdiLabel(tooth)}`,
                 "aria-pressed": selected,
                 "data-testid": `surface-face-${tooth}-${surface}`,
-                className: surfaceFaceClass(tone, selected),
-                fillOpacity: surfaceFaceOpacity(tone, selected),
-                strokeOpacity: selected || tone ? 1 : 0,
-                strokeWidth: tone === "procedure" ? 1.9 : selected ? 2.1 : 1.5,
+                className: surfaceFaceClass(visualState, selected),
+                fillOpacity: surfaceFaceOpacity(visualState, selected),
+                strokeOpacity: selected || visualState ? 1 : 0,
+                strokeWidth: visualState ? 1.9 : selected ? 2.1 : 1.5,
                 style: { pointerEvents: "all" as const },
                 onClick: (event: MouseEvent<SVGElement>) => {
                   event.preventDefault();
@@ -427,7 +451,7 @@ function ClinicalSvg({
   }, [assetPath]);
 
   return (
-    <div className="relative mx-auto h-auto w-full max-w-[980px]">
+    <div className="relative mx-auto h-auto w-full max-w-[1120px]">
       {activationCss ? <style>{activationCss}</style> : null}
       {svgMarkup ? (
         <div
@@ -900,22 +924,25 @@ export function OdontogramView({
             onOpenContextMenu={handleOpenContextMenu}
             onOpenSurfaceContextMenu={handleOpenSurfaceContextMenu}
           />
-          <div className="mx-auto mt-3 flex w-full max-w-[980px] justify-center">
+          <div className="mx-auto mt-3 flex w-full max-w-[1120px] justify-center">
             <SextantsMandibleSvg />
           </div>
         </div>
 
         <div className="mt-2 flex items-center justify-between gap-3">
-          <div className="flex gap-2">
-            <HelpTooltip content="Diagnostico" position="top">
+          <div className="flex flex-wrap gap-3 text-xs font-medium text-slate-600">
+            <span className="inline-flex items-center gap-1.5">
               <span className="h-3 w-3 rounded bg-black" />
-            </HelpTooltip>
-            <HelpTooltip content="Anulado o ausente" position="top">
-              <span className="h-3 w-3 rounded bg-[#d2182a]" />
-            </HelpTooltip>
-            <HelpTooltip content="Planificado" position="top">
+              Lesion
+            </span>
+            <span className="inline-flex items-center gap-1.5">
               <span className="h-3 w-3 rounded bg-[#ff0000]" />
-            </HelpTooltip>
+              Por hacer
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded bg-[#1f7ae0]" />
+              Hecho
+            </span>
           </div>
           <button type="button" className="text-sm text-[#0879d5]">
             Arcadas y Sextantes v

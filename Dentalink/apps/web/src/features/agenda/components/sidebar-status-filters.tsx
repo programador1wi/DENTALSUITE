@@ -74,7 +74,7 @@ export function SidebarStatusFilters({ appointments, selectedStatuses, onChange 
   };
 
   return (
-    <div className="flex flex-col h-full bg-white border border-[var(--border-default)] rounded-[var(--radius-lg)] p-4 space-y-5 select-none shadow-sm overflow-y-auto">
+    <div className="flex flex-col h-fit bg-white border border-[var(--border-default)] rounded-[var(--radius-lg)] p-4 space-y-5 select-none shadow-sm">
       <div className="flex items-center justify-between pb-2 border-b border-[var(--border-default)]">
         <span className="text-sm font-semibold text-zinc-700">Estados de citas</span>
         <button

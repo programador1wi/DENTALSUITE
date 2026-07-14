@@ -1,5 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma, ProfessionalBranchStatus, ToothProcedureStatus } from "@prisma/client";
+import {
+  Prisma,
+  ProfessionalBranchStatus,
+  ToothProcedureStatus,
+  TreatmentPlanItemStatus,
+  TreatmentPlanStatus
+} from "@prisma/client";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
@@ -32,6 +38,10 @@ import {
   ListOdontogramQueryDto,
   UpdateToothProcedureStatusDto
 } from "./dto/odontogram.dto";
+import {
+  calculateTreatmentPlanClinicalProgress,
+  resolveTreatmentPlanStatusFromClinicalProgress
+} from "../treatment-plans/treatment-plan-progress";
 
 @Injectable()
 export class ClinicalService {
@@ -141,40 +151,64 @@ export class ClinicalService {
     const patient = await this.ensurePatient(actor, patientId);
     await this.validateProfessional(actor, dto.professionalId, patient.branchId);
     if (dto.appointmentId) await this.validateAppointment(actor, patientId, dto.appointmentId);
+    this.validateOrthodonticEvolutionFields(dto.fields);
 
-    const evolution = await this.prisma.clinicalEvolution.create({
-      data: {
-        patientId,
-        branchId: patient.branchId,
-        createdById: actor.id,
-        professionalId: dto.professionalId,
-        appointmentId: dto.appointmentId,
-        treatmentPlanId: dto.treatmentPlanId,
-        treatmentPlanItemId: dto.treatmentPlanItemId,
-        subjective: dto.subjective?.trim(),
-        objective: dto.objective?.trim(),
-        assessment: dto.assessment?.trim(),
-        plan: dto.plan?.trim(),
-        notes: dto.notes?.trim(),
-        isPrivate: dto.isPrivate ?? false,
-        fields: {
-          create: (dto.fields || []).map((f, i) => ({
-            label: f.label.trim(),
-            value: f.value.trim(),
-            group: f.group?.trim(),
-            sortOrder: i
-          }))
+    const progress = this.normalizeCompletionPercentage(dto.completionPercentage);
+
+    const evolution = await this.prisma.$transaction(async (tx) => {
+      const progressSnapshot =
+        dto.treatmentPlanItemId && progress !== undefined
+          ? await this.applyTreatmentPlanItemProgress(tx, actor, patientId, dto.treatmentPlanItemId, progress, {
+              expectedVersion: dto.expectedVersion
+            })
+          : null;
+      const effectiveTreatmentPlanId = dto.treatmentPlanId ?? progressSnapshot?.treatmentPlanId;
+
+      const created = await tx.clinicalEvolution.create({
+        data: {
+          patientId,
+          branchId: patient.branchId,
+          createdById: actor.id,
+          professionalId: dto.professionalId,
+          appointmentId: dto.appointmentId,
+          treatmentPlanId: effectiveTreatmentPlanId,
+          treatmentPlanItemId: dto.treatmentPlanItemId,
+          completionPercentage: progress,
+          performedAmountSnapshot: progressSnapshot?.performedAmount,
+          subjective: dto.subjective?.trim(),
+          objective: dto.objective?.trim(),
+          assessment: dto.assessment?.trim(),
+          plan: dto.plan?.trim(),
+          notes: dto.notes?.trim(),
+          isPrivate: dto.isPrivate ?? false,
+          fields: {
+            create: (dto.fields || []).map((f, i) => ({
+              label: f.label.trim(),
+              value: f.value.trim(),
+              group: f.group?.trim(),
+              sortOrder: i
+            }))
+          },
+          materials: {
+            create: (dto.materials || []).map((m) => ({
+              inventoryItemId: m.inventoryItemId,
+              quantity: m.quantity,
+              unitSnapshot: "", // Will be populated when signed if needed, or we can fetch it now. Let's just store empty and fill on sign.
+              nameSnapshot: ""
+            }))
+          }
         },
-        materials: {
-          create: (dto.materials || []).map((m) => ({
-            inventoryItemId: m.inventoryItemId,
-            quantity: m.quantity,
-            unitSnapshot: "", // Will be populated when signed if needed, or we can fetch it now. Let's just store empty and fill on sign.
-            nameSnapshot: ""
-          }))
-        }
-      },
-      include: this.clinicalEvolutionInclude()
+        include: this.clinicalEvolutionInclude()
+      });
+
+      if (progressSnapshot && progress === 100) {
+        await tx.treatmentPlanItem.update({
+          where: { id: dto.treatmentPlanItemId },
+          data: { completedByEvolutionId: created.id }
+        });
+      }
+
+      return created;
     });
     await this.audit(actor, patientId, "create_evolution", evolution as any);
     return evolution;
@@ -189,7 +223,9 @@ export class ClinicalService {
 
     if (dto.professionalId) await this.validateProfessional(actor, dto.professionalId, patient.branchId);
     if (dto.appointmentId) await this.validateAppointment(actor, patientId, dto.appointmentId);
+    this.validateOrthodonticEvolutionFields(dto.fields);
 
+    const progress = this.normalizeCompletionPercentage(dto.completionPercentage);
     const updated = await this.prisma.$transaction(async (tx) => {
       // Recreate fields and materials
       if (dto.fields) {
@@ -199,13 +235,23 @@ export class ClinicalService {
         await tx.clinicalEvolutionMaterial.deleteMany({ where: { evolutionId } });
       }
 
-      return tx.clinicalEvolution.update({
+      const progressSnapshot =
+        dto.treatmentPlanItemId && progress !== undefined
+          ? await this.applyTreatmentPlanItemProgress(tx, actor, patientId, dto.treatmentPlanItemId, progress, {
+              expectedVersion: dto.expectedVersion
+            })
+          : null;
+      const effectiveTreatmentPlanId = dto.treatmentPlanId ?? progressSnapshot?.treatmentPlanId;
+
+      const row = await tx.clinicalEvolution.update({
         where: { id: evolutionId },
         data: {
           professionalId: dto.professionalId,
           appointmentId: dto.appointmentId,
-          treatmentPlanId: dto.treatmentPlanId,
+          treatmentPlanId: effectiveTreatmentPlanId,
           treatmentPlanItemId: dto.treatmentPlanItemId,
+          completionPercentage: progress ?? current.completionPercentage,
+          performedAmountSnapshot: progressSnapshot?.performedAmount ?? current.performedAmountSnapshot,
           subjective: dto.subjective?.trim(),
           objective: dto.objective?.trim(),
           assessment: dto.assessment?.trim(),
@@ -239,6 +285,15 @@ export class ClinicalService {
         },
         include: { fields: true, materials: true }
       });
+
+      if (progressSnapshot && progress === 100) {
+        await tx.treatmentPlanItem.update({
+          where: { id: dto.treatmentPlanItemId },
+          data: { completedByEvolutionId: evolutionId }
+        });
+      }
+
+      return row;
     });
 
     await this.audit(actor, patientId, "update_evolution", updated as any);
@@ -340,14 +395,18 @@ export class ClinicalService {
       let actionSnapshot = "";
       if (current.treatmentPlanItemId && current.treatmentPlanItem) {
         actionSnapshot = current.treatmentPlanItem.procedure.name;
-        if (current.treatmentPlanItem.status !== "COMPLETED") {
+        if (current.completionPercentage == null) {
+          const snapshot = await this.applyTreatmentPlanItemProgress(tx, actor, patientId, current.treatmentPlanItemId, 100);
+          if (snapshot.completionPercentage === 100) {
+            await tx.treatmentPlanItem.update({
+              where: { id: current.treatmentPlanItemId },
+              data: { completedByEvolutionId: current.id }
+            });
+          }
+        } else if (current.completionPercentage === 100 && current.treatmentPlanItem.completedByEvolutionId !== current.id) {
           await tx.treatmentPlanItem.update({
             where: { id: current.treatmentPlanItemId },
-            data: { 
-              status: "COMPLETED", 
-              completedAt: new Date(),
-              completedByEvolutionId: current.id
-            }
+            data: { completedByEvolutionId: current.id }
           });
         }
       }
@@ -426,14 +485,30 @@ export class ClinicalService {
       }
 
       // 2. Revertir estado del item del plan (solo si esta evolución lo completó)
-      if (current.treatmentPlanItemId && current.treatmentPlanItem?.completedByEvolutionId === current.id) {
+      if (current.treatmentPlanItemId && current.completionPercentage != null) {
+        const previousProgressEvolution = await tx.clinicalEvolution.findFirst({
+          where: {
+            patientId,
+            treatmentPlanItemId: current.treatmentPlanItemId,
+            annulledAt: null,
+            completionPercentage: { not: null },
+            NOT: { id: current.id }
+          },
+          orderBy: { createdAt: "desc" }
+        });
+        const restoredProgress = previousProgressEvolution?.completionPercentage ?? 0;
+        await this.applyTreatmentPlanItemProgress(tx, actor, patientId, current.treatmentPlanItemId, restoredProgress);
         await tx.treatmentPlanItem.update({
           where: { id: current.treatmentPlanItemId },
-          data: { 
-            status: "PLANNED", 
-            completedAt: null,
-            completedByEvolutionId: null
+          data: {
+            completedByEvolutionId: restoredProgress === 100 ? previousProgressEvolution?.id ?? null : null
           }
+        });
+      } else if (current.treatmentPlanItemId && current.treatmentPlanItem?.completedByEvolutionId === current.id) {
+        await this.applyTreatmentPlanItemProgress(tx, actor, patientId, current.treatmentPlanItemId, 0);
+        await tx.treatmentPlanItem.update({
+          where: { id: current.treatmentPlanItemId },
+          data: { completedByEvolutionId: null }
         });
       }
 
@@ -853,6 +928,15 @@ export class ClinicalService {
     if (!current) throw new NotFoundException("Tooth procedure not found");
 
     const createClinicalEvolution = dto.createClinicalEvolution ?? true;
+    const progress =
+      this.normalizeCompletionPercentage(dto.completionPercentage) ??
+      (dto.status === ToothProcedureStatus.COMPLETED
+        ? 100
+        : dto.status === ToothProcedureStatus.IN_PROGRESS
+          ? 25
+          : dto.status === ToothProcedureStatus.PLANNED || dto.status === ToothProcedureStatus.ACCEPTED
+            ? 0
+            : undefined);
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.toothProcedure.update({
         where: { id: toothProcedureId },
@@ -869,6 +953,12 @@ export class ClinicalService {
           professional: { select: { id: true, firstName: true, lastName: true } }
         }
       });
+
+      if (row.treatmentPlanItemId && progress !== undefined) {
+        await this.applyTreatmentPlanItemProgress(tx, actor, patientId, row.treatmentPlanItemId, progress, {
+          expectedVersion: dto.expectedVersion
+        });
+      }
 
       if (dto.status === ToothProcedureStatus.COMPLETED && createClinicalEvolution && !row.clinicalEvolutionId) {
         const clinicalEvolutionId = await this.createEvolutionFromCompletedProcedure(tx, row, dto.notes);
@@ -910,6 +1000,7 @@ export class ClinicalService {
         toothProcedureId,
         previousStatus: current.status,
         newStatus: dto.status,
+        completionPercentage: progress,
         createClinicalEvolution
       } as Prisma.InputJsonValue
     );
@@ -1096,6 +1187,160 @@ export class ClinicalService {
     return parts.join(",");
   }
 
+  private normalizeCompletionPercentage(value?: number | null) {
+    if (value === undefined || value === null) return undefined;
+    if (![0, 25, 50, 75, 100].includes(value)) {
+      throw new BadRequestException("completionPercentage must be one of 0, 25, 50, 75 or 100");
+    }
+    return value;
+  }
+
+  private validateOrthodonticEvolutionFields(fields?: Array<{ label: string; value: string; group?: string }>) {
+    if (!fields?.length) return;
+
+    for (const field of fields) {
+      const label = this.normalizeClinicalFieldLabel(field.label);
+      const group = this.normalizeClinicalFieldLabel(field.group ?? "");
+      if (label !== "higiene" || (group && group !== "orthodontics")) continue;
+
+      const score = Number(field.value);
+      if (!Number.isInteger(score) || score < 1 || score > 7) {
+        throw new BadRequestException("Orthodontic hygiene score must be an integer from 1 to 7");
+      }
+    }
+  }
+
+  private normalizeClinicalFieldLabel(value: string) {
+    return value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, " ")
+      .toLowerCase()
+      .trim();
+  }
+
+  private treatmentStatusForProgress(percentage: number) {
+    if (percentage === 100) return TreatmentPlanItemStatus.COMPLETED;
+    if (percentage > 0) return TreatmentPlanItemStatus.IN_PROGRESS;
+    return TreatmentPlanItemStatus.PLANNED;
+  }
+
+  private toothStatusForProgress(percentage: number) {
+    if (percentage === 100) return ToothProcedureStatus.COMPLETED;
+    if (percentage > 0) return ToothProcedureStatus.IN_PROGRESS;
+    return ToothProcedureStatus.ACCEPTED;
+  }
+
+  private performedAmountForProgress(total: Prisma.Decimal | number | string, percentage: number) {
+    return new Prisma.Decimal(total).mul(percentage).div(100).toDecimalPlaces(2);
+  }
+
+  private async applyTreatmentPlanItemProgress(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    patientId: string,
+    itemId: string,
+    completionPercentage: number,
+    options: { expectedVersion?: number } = {}
+  ) {
+    const item = await tx.treatmentPlanItem.findFirst({
+      where: {
+        id: itemId,
+        treatmentPlan: {
+          organizationId: actor.organizationId,
+          patientId,
+          branchId: branchScope(actor)
+        }
+      },
+      include: { treatmentPlan: true, toothProcedure: true }
+    });
+    if (!item) throw new NotFoundException("Treatment plan item not found for patient");
+    if (item.status === TreatmentPlanItemStatus.CANCELLED) {
+      throw new BadRequestException("Cancelled treatment plan items cannot be evolved");
+    }
+    if (options.expectedVersion !== undefined && item.version !== options.expectedVersion) {
+      throw new BadRequestException("Treatment plan item was updated by another operation. Reload and try again.");
+    }
+
+    const performedAmount = this.performedAmountForProgress(item.total, completionPercentage);
+    const status = this.treatmentStatusForProgress(completionPercentage);
+    const completedAt = completionPercentage === 100 ? item.completedAt ?? new Date() : null;
+
+    await tx.treatmentPlanItem.update({
+      where: { id: item.id },
+      data: {
+        completionPercentage,
+        performedAmount,
+        status,
+        completedAt,
+        ...(completionPercentage < 100 ? { completedByEvolutionId: null } : {}),
+        version: { increment: 1 }
+      }
+    });
+
+    await this.syncTreatmentItemProcedureProgress(tx, item.id, completionPercentage);
+    await this.syncTreatmentPlanStatusFromItems(tx, item.treatmentPlanId);
+
+    return {
+      treatmentPlanId: item.treatmentPlanId,
+      completionPercentage,
+      performedAmount
+    };
+  }
+
+  private async syncTreatmentItemProcedureProgress(
+    tx: Prisma.TransactionClient,
+    itemId: string,
+    completionPercentage: number
+  ) {
+    const status = this.toothStatusForProgress(completionPercentage);
+    const current = await tx.toothProcedure.findUnique({
+      where: { treatmentPlanItemId: itemId },
+      select: { id: true, odontogramRecordId: true, completedAt: true }
+    });
+    if (!current) return;
+
+    const completedAt = status === ToothProcedureStatus.COMPLETED ? current.completedAt ?? new Date() : null;
+    await tx.toothProcedure.update({
+      where: { id: current.id },
+      data: { status, completedAt }
+    });
+    if (current.odontogramRecordId) {
+      await tx.odontogramRecord.update({
+        where: { id: current.odontogramRecordId },
+        data: { status }
+      });
+    }
+  }
+
+  private async syncTreatmentPlanStatusFromItems(tx: Prisma.TransactionClient, treatmentPlanId: string) {
+    const plan = await tx.treatmentPlan.findUnique({
+      where: { id: treatmentPlanId },
+      select: { status: true }
+    });
+    if (!plan) return;
+    if (
+      plan.status === TreatmentPlanStatus.CANCELLED ||
+      plan.status === TreatmentPlanStatus.REJECTED ||
+      plan.status === TreatmentPlanStatus.COMPLETED
+    ) {
+      return;
+    }
+
+    const items = await tx.treatmentPlanItem.findMany({
+      where: { treatmentPlanId },
+      select: { status: true, completionPercentage: true }
+    });
+    const progress = calculateTreatmentPlanClinicalProgress(items);
+    const nextStatus = resolveTreatmentPlanStatusFromClinicalProgress(plan.status, progress);
+    if (nextStatus !== plan.status) {
+      await tx.treatmentPlan.update({
+        where: { id: treatmentPlanId },
+        data: { status: nextStatus }
+      });
+    }
+  }
+
   private async createEvolutionFromCompletedProcedure(
     tx: Prisma.TransactionClient,
     toothProcedure: {
@@ -1108,18 +1353,25 @@ export class ClinicalService {
       surface: string | null;
       diagnosis: string | null;
       procedure: { name: string } | null;
+      treatmentPlanItemId?: string | null;
     },
     notes?: string
   ) {
     const position = toothProcedure.surface ? `${toothProcedure.toothNumber}-${toothProcedure.surface}` : toothProcedure.toothNumber;
     const procedureName = toothProcedure.procedure?.name ?? "Procedimiento odontologico";
 
+    const treatmentItem = toothProcedure.treatmentPlanItemId
+      ? await tx.treatmentPlanItem.findUnique({ where: { id: toothProcedure.treatmentPlanItemId } })
+      : null;
     const evolution = await tx.clinicalEvolution.create({
       data: {
         patientId: toothProcedure.patientId,
         appointmentId: toothProcedure.appointmentId,
         professionalId: toothProcedure.professionalId,
         treatmentPlanId: toothProcedure.treatmentPlanId,
+        treatmentPlanItemId: toothProcedure.treatmentPlanItemId,
+        completionPercentage: 100,
+        performedAmountSnapshot: treatmentItem ? this.performedAmountForProgress(treatmentItem.total, 100) : undefined,
         objective: `Procedimiento completado en pieza ${position}`,
         assessment: toothProcedure.diagnosis ?? undefined,
         plan: "Seguimiento clinico posterior al procedimiento",

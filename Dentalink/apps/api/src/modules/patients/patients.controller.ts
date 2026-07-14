@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
@@ -10,6 +10,7 @@ import { AddPatientNoteDto } from "./dto/add-patient-note.dto";
 import { CreatePatientDto } from "./dto/create-patient.dto";
 import { MergePatientsDto } from "./dto/merge-patients.dto";
 import { PatientAnalysisQueryDto } from "./dto/patient-analysis-query.dto";
+import { ListPatientEmailsQueryDto, SendPatientEmailDto } from "./dto/patient-email.dto";
 import { PatientQueryDto } from "./dto/patient-query.dto";
 import { CreatePatientTaskDto, ListPatientTasksQueryDto, UpdatePatientTaskDto } from "./dto/patient-task.dto";
 import { UpdatePatientDto } from "./dto/update-patient.dto";
@@ -62,6 +63,29 @@ export class PatientsController {
   @RequirePermissions("patients.read")
   findOne(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.patientsService.findOne(user, id);
+  }
+
+  @Get(":id/emails")
+  @RequirePermissions("integrations.communications.read")
+  listEmails(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query() query: ListPatientEmailsQueryDto) {
+    return this.patientsService.listEmails(user, id, query);
+  }
+
+  @Get(":id/emails/:emailId")
+  @RequirePermissions("integrations.communications.read")
+  getEmail(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("emailId") emailId: string) {
+    return this.patientsService.getEmail(user, id, emailId);
+  }
+
+  @Post(":id/emails")
+  @RequirePermissions("integrations.communications.send")
+  sendEmail(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: SendPatientEmailDto,
+    @Headers("idempotency-key") idempotencyKey?: string
+  ) {
+    return this.patientsService.sendEmail(user, id, dto, idempotencyKey);
   }
 
   @Patch(":id")

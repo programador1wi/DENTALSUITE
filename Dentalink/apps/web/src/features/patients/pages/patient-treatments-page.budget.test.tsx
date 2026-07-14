@@ -188,8 +188,14 @@ vi.mock("../hooks/use-patients", () => ({
 vi.mock("@/features/treatments/hooks/use-treatments", () => ({
   useBudgets: () => ({ data: mockState.currentPlan?.budgets ?? [], isLoading: false, isError: false }),
   useTreatmentPlan: () => ({ data: mockState.currentPlan, isLoading: false, isError: false }),
+  useTreatmentPlanProcedures: () => ({ data: null, isLoading: false, isError: false }),
   useTreatmentPlans: () => ({
     data: mockState.currentPlan ? [mockState.currentPlan] : [],
+    isLoading: false,
+    isError: false
+  }),
+  useOrthodonticSummary: () => ({
+    data: null,
     isLoading: false,
     isError: false
   }),
@@ -197,15 +203,18 @@ vi.mock("@/features/treatments/hooks/use-treatments", () => ({
     acceptBudget: { mutate: vi.fn(), isPending: false },
     addItem: { mutateAsync: mockState.addItemMutateAsync, isPending: false },
     addSection: { mutateAsync: mockState.addSectionMutateAsync, isPending: false },
+    applyBulkDiscount: { mutateAsync: vi.fn(), isPending: false },
     changeBranch: { mutateAsync: vi.fn(), isPending: false },
     createBudget: { mutateAsync: mockState.createBudgetMutateAsync, isPending: false },
     createOrthodonticMonthlyItems: { mutateAsync: vi.fn(), isPending: false },
     createTreatmentPlan: { mutateAsync: vi.fn(), isPending: false },
     deleteItem: { mutate: vi.fn(), isPending: false },
+    duplicateTreatmentPlan: { mutateAsync: vi.fn(), isPending: false },
     pauseTreatment: { mutateAsync: vi.fn(), isPending: false },
     printBudget: { mutateAsync: vi.fn(), isPending: false },
     resumeTreatment: { mutateAsync: vi.fn(), isPending: false },
     sendBudget: { mutate: vi.fn(), isPending: false },
+    startOrthodonticTreatment: { mutateAsync: vi.fn(), isPending: false },
     updateOrthodonticDiagnosis: { mutateAsync: vi.fn(), isPending: false },
     updateOrthodonticProfile: {
       mutateAsync: mockState.updateOrthodonticProfileMutateAsync,
@@ -408,25 +417,11 @@ describe("PatientTreatmentsPage budget agreement flow", () => {
     expect(mockState.toastSuccess).toHaveBeenCalledWith("Prestaciones agregadas al plan.");
   });
 
-  it("blocks a surface-required product when no surface is selected", () => {
+  it("sends ALL for a surface-required product when a whole tooth is selected", async () => {
     mockState.patientAgreement = agreementFixture();
     mockState.currentPriceList = priceListFixture({ requiresTooth: true, requiresSurface: true });
     mockState.selectedTooth = "11";
     mockState.selectedTeeth = ["11"];
-
-    render(<PatientTreatmentsPage />);
-
-    fireEvent.click(screen.getByRole("button", { name: /Generar presupuesto/i }));
-    fireEvent.click(screen.getByText("Operatoria"));
-    fireEvent.click(screen.getByRole("button", { name: /Cargar/i }));
-
-    expect(mockState.toastError).toHaveBeenCalledWith("Selecciona una superficie para esta prestación.");
-    expect(mockState.addItemMutateAsync).not.toHaveBeenCalled();
-  });
-
-  it("loads a surface-required product without tooth as an unassigned item", async () => {
-    mockState.patientAgreement = agreementFixture();
-    mockState.currentPriceList = priceListFixture({ requiresTooth: true, requiresSurface: true });
 
     render(<PatientTreatmentsPage />);
 
@@ -439,11 +434,28 @@ describe("PatientTreatmentsPage budget agreement flow", () => {
       treatmentPlanId: "plan-1",
       payload: expect.objectContaining({
         procedureId: "procedure-1",
-        toothNumber: undefined,
-        surface: undefined,
-        syncOdontogram: false
+        toothNumber: "11",
+        surface: "ALL",
+        quantity: 1,
+        syncOdontogram: true
       })
     });
+  });
+
+  it("blocks a tooth/surface-required product when no tooth is selected", () => {
+    mockState.patientAgreement = agreementFixture();
+    mockState.currentPriceList = priceListFixture({ requiresTooth: true, requiresSurface: true });
+
+    render(<PatientTreatmentsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Generar presupuesto/i }));
+    fireEvent.click(screen.getByText("Operatoria"));
+    fireEvent.click(screen.getByRole("button", { name: /Cargar/i }));
+
+    expect(mockState.toastError).toHaveBeenCalledWith(
+      "Selecciona una pieza dental, una cara o una region para continuar."
+    );
+    expect(mockState.addItemMutateAsync).not.toHaveBeenCalled();
   });
 
   it("sends ALL as the surface when a tooth-required product does not require a specific surface", async () => {

@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { toDecimal, sumDecimals, isDecimalEqual } from "./utils/monetary.util";
+import { createHash, randomInt } from "crypto";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   CashMovementType,
   CashRegisterStatus,
@@ -10,6 +12,7 @@ import {
   RefundStatus,
   TreatmentPlanItemStatus
 } from "@prisma/client";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
@@ -41,11 +44,51 @@ export class PaymentsService {
 
   private paymentDetailInclude() {
     return {
-      patient: { select: { id: true, firstName: true, lastName: true, documentNumber: true } },
-      branch: { select: { id: true, name: true } },
+      organization: { select: { id: true, name: true, legalName: true, phone: true, email: true, address: true, logoUrl: true } },
+      patient: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          documentNumber: true,
+          birthDate: true,
+          agreement: { select: { id: true, name: true } }
+        }
+      },
+      branch: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          address: true,
+          city: true,
+          state: true,
+          brand: {
+            select: {
+              id: true,
+              name: true,
+              legalName: true,
+              shortName: true,
+              logoUrl: true,
+              phone: true,
+              senderEmail: true,
+              replyToEmail: true,
+              website: true,
+              privacyNoticeUrl: true
+            }
+          }
+        }
+      },
       paymentMethod: { select: { id: true, name: true, type: true } },
       financialInstitution: { select: { id: true, name: true } },
       receivedBy: { select: { id: true, firstName: true, lastName: true } },
+      splits: {
+        include: {
+          paymentMethod: { select: { id: true, name: true, type: true } },
+          financialInstitution: { select: { id: true, name: true } }
+        }
+      },
       allocations: {
         include: {
           treatmentPlanItem: {
@@ -56,7 +99,17 @@ export class PaymentsService {
               surface: true,
               total: true,
               status: true,
-              treatmentPlan: { select: { id: true, name: true } },
+              completedAt: true,
+              treatmentPlan: {
+                select: {
+                  id: true,
+                  name: true,
+                  specialtySnapshotName: true,
+                  professional: { select: { firstName: true, lastName: true } },
+                  specialty: { select: { name: true } },
+                  branch: { select: { name: true } }
+                }
+              },
               procedure: { select: { id: true, code: true, name: true } },
               paymentAllocations: {
                 select: {
@@ -108,6 +161,7 @@ export class PaymentsService {
 
   async listPayments(actor: AuthUser, query: ListPaymentsQueryDto) {
     const { skip, take } = resolvePagination(query);
+    const searchPaymentNumber = query.search?.trim() && /^\d{6}$/.test(query.search.trim()) ? Number(query.search.trim()) : null;
     const payments = await this.prisma.payment.findMany({
       where: {
         organizationId: actor.organizationId,
@@ -121,7 +175,8 @@ export class PaymentsService {
                 { reference: { contains: query.search, mode: "insensitive" } },
                 { notes: { contains: query.search, mode: "insensitive" } },
                 { patient: { firstName: { contains: query.search, mode: "insensitive" } } },
-                { patient: { lastName: { contains: query.search, mode: "insensitive" } } }
+                { patient: { lastName: { contains: query.search, mode: "insensitive" } } },
+                ...(searchPaymentNumber !== null ? [{ paymentNumber: searchPaymentNumber }] : [])
               ]
             }
           : {})
@@ -285,11 +340,11 @@ export class PaymentsService {
 
       return {
         ...payment,
-        paymentNumber: this.shortCode(payment.reference || payment.id),
+        paymentNumber: this.publicPaymentNumber(payment),
         voidedBy: payment.voidedById ? voidedByUserById.get(payment.voidedById) ?? null : null,
         treatments: Array.from(treatmentMap.values()).map((treatment) => ({
           ...treatment,
-          number: this.shortCode(treatment.id)
+          number: this.publicPlanNumber(treatment.id)
         }))
       };
     });
@@ -329,61 +384,151 @@ export class PaymentsService {
 
   async createPayment(actor: AuthUser, dto: CreatePaymentDto) {
     await this.ensureBranch(actor, dto.branchId);
-    await this.ensurePatient(actor, dto.patientId);
-    await this.ensurePaymentMethod(actor, dto.paymentMethodId);
-    if (dto.financialInstitutionId) await this.ensureFinancialInstitution(actor, dto.financialInstitutionId);
+    const patient = await this.ensurePatient(actor, dto.patientId);
+    if (patient.branchId !== dto.branchId) {
+      throw new BadRequestException("Patient does not belong to the selected branch");
+    }
+
+    const splits = this.normalizePaymentSplits(dto.splits);
+    const splitTotal = sumDecimals(splits.map((split) => split.amount));
+    const amount = dto.amount !== undefined ? toDecimal(dto.amount) : splitTotal;
+    if (amount.lte(0)) throw new BadRequestException("Payment amount must be greater than zero");
+
+    if (splits.length) {
+      if (!isDecimalEqual(splitTotal, amount)) {
+        throw new BadRequestException("Payment method splits must match the payment amount");
+      }
+      for (const split of splits) {
+        await this.ensurePaymentMethod(actor, split.paymentMethodId);
+        if (split.financialInstitutionId) await this.ensureFinancialInstitution(actor, split.financialInstitutionId);
+      }
+    }
+
+    const primaryPaymentMethodId = dto.paymentMethodId ?? splits[0]?.paymentMethodId;
+    const primaryFinancialInstitutionId = dto.financialInstitutionId ?? splits.find((split) => split.financialInstitutionId)?.financialInstitutionId;
+    if (primaryPaymentMethodId) await this.ensurePaymentMethod(actor, primaryPaymentMethodId);
+    if (primaryFinancialInstitutionId) await this.ensureFinancialInstitution(actor, primaryFinancialInstitutionId);
+    if (!primaryPaymentMethodId) throw new BadRequestException("Payment method is required");
 
     const openRegister = await this.ensureOpenCashRegister(actor, dto.branchId);
+    const idempotencyKey = dto.idempotencyKey?.trim();
+    const requestHash = idempotencyKey ? this.hashPaymentRequest(dto, amount, splits) : null;
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      const payment = await tx.payment.create({
-        data: {
-          organizationId: actor.organizationId,
-          branchId: dto.branchId,
-          patientId: dto.patientId,
-          receivedById: actor.id,
-          amount: this.toDecimal(dto.amount),
-          currency: dto.currency ?? "MXN",
-          paymentMethodId: dto.paymentMethodId,
-          financialInstitutionId: dto.financialInstitutionId,
-          status: PaymentStatus.RECEIVED,
-          reference: dto.reference?.trim(),
-          notes: dto.notes?.trim(),
-          paidAt: dto.paidAt ? new Date(dto.paidAt) : new Date()
-        }
+    if (idempotencyKey && requestHash) {
+      const existing = await this.prisma.paymentIdempotency.findUnique({
+        where: { organizationId_idempotencyKey: { organizationId: actor.organizationId, idempotencyKey } }
       });
+      if (existing) {
+        if (existing.requestHash !== requestHash) {
+          throw new ConflictException("Idempotency key was already used with a different payment request");
+        }
+        if (existing.paymentId) return this.getPayment(actor, existing.paymentId);
+        throw new ConflictException("Payment request is already being processed");
+      }
+    }
 
-      if (openRegister) {
-        await tx.cashMovement.create({
+    const created = await this.createPaymentWithPublicNumberRetry(async (paymentNumber) =>
+      this.prisma.$transaction(async (tx) => {
+        let idempotencyRecordId: string | null = null;
+        if (idempotencyKey && requestHash) {
+          const record = await tx.paymentIdempotency.create({
+            data: {
+              organizationId: actor.organizationId,
+              idempotencyKey,
+              requestHash,
+              status: "PROCESSING",
+              expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000)
+            }
+          });
+          idempotencyRecordId = record.id;
+        }
+
+        const payment = await tx.payment.create({
           data: {
-            cashRegisterId: openRegister.id,
-            type: CashMovementType.INCOME,
-            amount: this.toDecimal(dto.amount),
-            paymentId: payment.id,
-            description: `Ingreso por pago ${payment.id}`,
-            createdById: actor.id
+            organizationId: actor.organizationId,
+            branchId: dto.branchId,
+            patientId: dto.patientId,
+            receivedById: actor.id,
+            paymentNumber,
+            amount,
+            currency: dto.currency ?? "MXN",
+            paymentMethodId: primaryPaymentMethodId,
+            financialInstitutionId: primaryFinancialInstitutionId,
+            status: PaymentStatus.RECEIVED,
+            reference: dto.reference?.trim(),
+            notes: dto.notes?.trim(),
+            paidAt: dto.paidAt ? new Date(dto.paidAt) : new Date(),
+            idempotencyKey
           }
         });
-      }
 
-      if (dto.allocations?.length) {
-        await this.applyAllocations(tx, actor, payment.id, dto.allocations);
-      }
-
-      await this.audit(tx, actor, {
-        entity: "Payment",
-        entityId: payment.id,
-        action: "create",
-        after: {
-          patientId: payment.patientId,
-          amount: dto.amount,
-          currency: payment.currency,
-          paidAt: payment.paidAt
+        for (const split of splits) {
+          await tx.paymentMethodSplit.create({
+            data: {
+              paymentId: payment.id,
+              paymentMethodId: split.paymentMethodId,
+              amount: split.amount,
+              financialInstitutionId: split.financialInstitutionId,
+              reference: split.reference
+            }
+          });
         }
-      });
 
-      return payment.id;
-    });
+        if (openRegister && splits.length) {
+          for (const split of splits) {
+            await tx.cashMovement.create({
+              data: {
+                cashRegisterId: openRegister.id,
+                type: CashMovementType.INCOME,
+                amount: split.amount,
+                paymentId: payment.id,
+                description: `Ingreso por pago #${paymentNumber}`,
+                createdById: actor.id
+              }
+            });
+          }
+        } else if (openRegister) {
+          await tx.cashMovement.create({
+            data: {
+              cashRegisterId: openRegister.id,
+              type: CashMovementType.INCOME,
+              amount,
+              paymentId: payment.id,
+              description: `Ingreso por pago #${paymentNumber}`,
+              createdById: actor.id
+            }
+          });
+        }
+
+        if (dto.allocations?.length) {
+          await this.applyAllocations(tx, actor, payment.id, dto.allocations);
+        }
+
+        if (idempotencyRecordId) {
+          await tx.paymentIdempotency.update({
+            where: { id: idempotencyRecordId },
+            data: { paymentId: payment.id, status: "COMPLETED" }
+          });
+        }
+
+        await this.audit(tx, actor, {
+          entity: "Payment",
+          entityId: payment.id,
+          action: "create",
+          after: {
+            paymentNumber,
+            patientId: payment.patientId,
+            amount: amount.toString(),
+            currency: payment.currency,
+            paidAt: payment.paidAt,
+            splits: splits.length,
+            allocations: dto.allocations?.length ?? 0
+          }
+        });
+
+        return payment.id;
+      })
+    );
 
     return this.getPayment(actor, created);
   }
@@ -401,7 +546,7 @@ export class PaymentsService {
       throw new BadRequestException("Voided or refunded payments cannot be edited");
     }
 
-    if (dto.paymentMethodId) await this.ensurePaymentMethod(actor, dto.paymentMethodId);
+    if (dto.paymentMethodId) if (dto.paymentMethodId) await this.ensurePaymentMethod(actor, dto.paymentMethodId);
     if (dto.financialInstitutionId) await this.ensureFinancialInstitution(actor, dto.financialInstitutionId);
 
     await this.prisma.$transaction(async (tx) => {
@@ -423,7 +568,7 @@ export class PaymentsService {
         entityId: payment.id,
         action: "update",
         before: {
-          paymentMethodId: payment.paymentMethodId,
+          paymentMethodId: payment.paymentMethodId || '',
           financialInstitutionId: payment.financialInstitutionId,
           reference: payment.reference,
           notes: payment.notes,
@@ -452,6 +597,68 @@ export class PaymentsService {
     return {
       payment,
       printableText: this.buildReceiptText(payment)
+    };
+  }
+
+  async getPaymentReceiptPdf(actor: AuthUser, paymentId: string) {
+    const { payment } = await this.getPaymentReceipt(actor, paymentId);
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([595.28, 841.89]);
+    const regular = await pdf.embedFont(StandardFonts.Helvetica);
+    const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const margin = 42;
+    let y = 790;
+    const drawText = (text: string, x: number, size = 10, font = regular, color = rgb(0.1, 0.15, 0.25)) => {
+      page.drawText(text.slice(0, 115), { x, y, size, font, color });
+      y -= size + 7;
+    };
+    const drawRule = () => {
+      page.drawLine({ start: { x: margin, y }, end: { x: 553, y }, thickness: 0.7, color: rgb(0.72, 0.76, 0.82) });
+      y -= 18;
+    };
+
+    const patientName = `${payment.patient?.firstName ?? ""} ${payment.patient?.lastName ?? ""}`.trim();
+    const brandName = payment.branch?.brand?.shortName || payment.branch?.brand?.name || payment.organization?.name || "Clinica";
+    page.drawText(brandName, { x: margin, y, size: 18, font: bold, color: rgb(0.02, 0.25, 0.45) });
+    page.drawText(`Pago #${payment.paymentNumber}`, { x: 430, y, size: 12, font: bold, color: rgb(0.02, 0.25, 0.45) });
+    y -= 34;
+    page.drawText("Comprobante de pago", { x: 210, y, size: 17, font: bold, color: rgb(0, 0, 0) });
+    y -= 34;
+
+    drawText(`Paciente: ${patientName || "-"}`, margin, 10, bold);
+    drawText(`Documento: ${payment.patient?.documentNumber ?? "-"}`, margin);
+    drawText(`Fecha transaccion: ${new Date(payment.paidAt).toLocaleString("es-MX")}`, margin);
+    drawText(`Sucursal: ${payment.branch?.name ?? "-"}`, margin);
+    drawRule();
+
+    drawText("Tratamientos pagados", margin, 12, bold);
+    for (const treatment of payment.treatmentRefs ?? []) {
+      drawText(`#${treatment.number} - ${treatment.name}`, margin, 10, bold);
+      for (const procedure of treatment.procedures ?? []) drawText(`  ${procedure}`, margin + 14, 9);
+    }
+    if (!payment.treatmentRefs?.length) drawText("Pago recibido sin aplicaciones a tratamiento.", margin);
+    drawRule();
+
+    drawText("Prestaciones", margin, 12, bold);
+    for (const row of payment.breakdown ?? []) {
+      drawText(`${row.detail} | Plan #${row.treatmentNumber} | Precio ${this.formatCurrency(row.baseAmount)} | Pagado ${this.formatCurrency(row.paidAmount)}`, margin, 8);
+      if (y < 120) break;
+    }
+    drawRule();
+
+    drawText("Transaccion", margin, 12, bold);
+    for (const split of this.publicPaymentMethods(payment)) {
+      drawText(`#${payment.paymentNumber} | ${split.name} | Ref. ${split.reference ?? "-"} | ${this.formatCurrency(split.amount)}`, margin);
+    }
+    drawText(`Total: ${this.formatCurrency(payment.amount)} ${payment.currency ?? ""}`, margin, 11, bold);
+
+    y = 70;
+    drawText([payment.branch?.address, payment.branch?.city, payment.branch?.state].filter(Boolean).join(", ") || payment.organization?.address || "-", margin, 8);
+    drawText([payment.branch?.phone || payment.branch?.brand?.phone || payment.organization?.phone, payment.branch?.email || payment.branch?.brand?.senderEmail || payment.organization?.email].filter(Boolean).join(" · ") || "-", margin, 8);
+    const bytes = await pdf.save();
+    return {
+      bytes,
+      fileName: `Comprobante_Pago_${payment.paymentNumber}_${patientName.replace(/[^a-zA-Z0-9]+/g, "_") || "Paciente"}.pdf`
     };
   }
 
@@ -719,7 +926,7 @@ export class PaymentsService {
         organizationId: actor.organizationId,
         patientId: dto.patientId,
         treatmentPlanId: dto.treatmentPlanId,
-        amount: this.toDecimal(dto.amount),
+        amount: this.toDecimal(dto.amount || 0),
         url: "pending",
         expiresAt: dto.expiresAt ? new Date(dto.expiresAt) : null
       }
@@ -879,17 +1086,19 @@ export class PaymentsService {
     if (dto.amount > remaining) throw new BadRequestException("Payment amount exceeds remaining installment balance");
 
     await this.ensureBranch(actor, dto.branchId);
-    await this.ensurePaymentMethod(actor, dto.paymentMethodId);
+    if (dto.paymentMethodId) await this.ensurePaymentMethod(actor, dto.paymentMethodId);
     const openRegister = await this.ensureOpenCashRegister(actor, dto.branchId);
 
-    const paymentId = await this.prisma.$transaction(async (tx) => {
+    const paymentId = await this.createPaymentWithPublicNumberRetry(async (paymentNumber) =>
+      this.prisma.$transaction(async (tx) => {
       const payment = await tx.payment.create({
         data: {
           organizationId: actor.organizationId,
           branchId: dto.branchId,
           patientId: installment.patientId,
           receivedById: actor.id,
-          amount: this.toDecimal(dto.amount),
+          paymentNumber,
+          amount: this.toDecimal(dto.amount || 0),
           currency: "MXN",
           paymentMethodId: dto.paymentMethodId,
           status: PaymentStatus.ALLOCATED,
@@ -904,9 +1113,9 @@ export class PaymentsService {
           data: {
             cashRegisterId: openRegister.id,
             type: CashMovementType.INCOME,
-            amount: this.toDecimal(dto.amount),
+            amount: this.toDecimal(dto.amount || 0),
             paymentId: payment.id,
-            description: `Pago de cuota ${installment.number}`,
+            description: `Pago #${paymentNumber} de cuota ${installment.number}`,
             createdById: actor.id
           }
         });
@@ -916,7 +1125,7 @@ export class PaymentsService {
         data: {
           paymentId: payment.id,
           installmentId: installment.id,
-          amount: this.toDecimal(dto.amount)
+          amount: this.toDecimal(dto.amount || 0)
         }
       });
 
@@ -978,12 +1187,14 @@ export class PaymentsService {
         action: "installment_pay",
         after: {
           paymentId: payment.id,
+          paymentNumber,
           amount: dto.amount
         }
       });
 
       return payment.id;
-    });
+      })
+    );
 
     return this.getPayment(actor, paymentId);
   }
@@ -1193,7 +1404,7 @@ export class PaymentsService {
       data: {
         cashRegisterId: register.id,
         type: dto.type,
-        amount: this.toDecimal(dto.amount),
+        amount: this.toDecimal(dto.amount || 0),
         paymentId: dto.paymentId,
         expenseId: dto.expenseId,
         description: dto.description?.trim(),
@@ -1227,6 +1438,12 @@ export class PaymentsService {
           isAlternative: false
         },
         include: {
+          branch: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
           professional: {
             select: {
               id: true,
@@ -1415,7 +1632,7 @@ export class PaymentsService {
           branchId: payment.branchId,
           paymentId: payment.id,
           patientId: payment.patientId,
-          amount: this.toDecimal(dto.amount),
+          amount: this.toDecimal(dto.amount || 0),
           reason: dto.reason?.trim(),
           status: RefundStatus.PROCESSED,
           processedById: actor.id,
@@ -1428,7 +1645,7 @@ export class PaymentsService {
           data: {
             cashRegisterId: openRegister.id,
             type: CashMovementType.REFUND,
-            amount: this.toDecimal(dto.amount),
+            amount: this.toDecimal(dto.amount || 0),
             paymentId: payment.id,
             description: `Devolucion ${refund.id}`,
             createdById: actor.id
@@ -1460,7 +1677,7 @@ export class PaymentsService {
     return this.prisma.refund.findUnique({
       where: { id: created },
       include: {
-        payment: { select: { id: true, amount: true, status: true } },
+        payment: { select: { id: true, paymentNumber: true, amount: true, status: true } },
         patient: { select: { id: true, firstName: true, lastName: true } },
         processedBy: { select: { id: true, firstName: true, lastName: true } }
       }
@@ -1494,6 +1711,7 @@ export class PaymentsService {
         payment: {
           select: {
             id: true,
+            paymentNumber: true,
             amount: true,
             status: true,
             allocations: {
@@ -1520,11 +1738,15 @@ export class PaymentsService {
   }
 
   private async getPayment(actor: AuthUser, paymentId: string) {
+    const paymentNumber = this.parsePaymentNumber(paymentId);
     const payment = await this.prisma.payment.findFirst({
       where: {
-        id: paymentId,
         organizationId: actor.organizationId,
-        branchId: branchScope(actor)
+        branchId: branchScope(actor),
+        OR: [
+          { id: paymentId },
+          ...(paymentNumber !== null ? [{ paymentNumber }] : [])
+        ]
       },
       include: this.paymentDetailInclude()
     });
@@ -1559,7 +1781,7 @@ export class PaymentsService {
       const procedureName = item.procedure?.name ?? item.procedure?.code ?? "Prestacion";
       const current = treatmentMap.get(plan.id) ?? {
         id: plan.id,
-        number: this.shortCode(plan.id),
+        number: this.publicPlanNumber(plan.id),
         name: plan.name,
         procedures: [] as string[]
       };
@@ -1577,7 +1799,7 @@ export class PaymentsService {
         id: allocation.id,
         kind: "TREATMENT",
         treatmentPlanId: plan.id,
-        treatmentNumber: this.shortCode(plan.id),
+        treatmentNumber: this.publicPlanNumber(plan.id),
         treatmentName: plan.name,
         detail: [procedureName, item.toothNumber ? `Pieza ${item.toothNumber}` : null, item.surface ? `Cara ${item.surface}` : null]
           .filter(Boolean)
@@ -1596,7 +1818,7 @@ export class PaymentsService {
       if (planId) {
         const current = treatmentMap.get(planId) ?? {
           id: planId,
-          number: this.shortCode(planId),
+          number: this.publicPlanNumber(planId),
           name: plan?.name ?? "Financiamiento",
           procedures: [] as string[]
         };
@@ -1608,7 +1830,7 @@ export class PaymentsService {
         id: allocation.id,
         kind: "INSTALLMENT",
         treatmentPlanId: planId,
-        treatmentNumber: planId ? this.shortCode(planId) : "-",
+        treatmentNumber: planId ? this.publicPlanNumber(planId) : "-",
         treatmentName: plan?.name ?? "Financiamiento",
         detail: `Cuota ${installment?.number ?? "-"}`,
         baseAmount,
@@ -1626,10 +1848,12 @@ export class PaymentsService {
     );
     const dueDates = breakdown.map((row) => row.dueDate).filter((date): date is Date => Boolean(date));
     const firstMovement = payment.cashMovements?.[0] ?? null;
+    const publicPaymentNumber = this.publicPaymentNumber(payment);
     const cashRegister = firstMovement?.cashRegister
       ? {
           id: firstMovement.cashRegister.id,
           movementId: firstMovement.id,
+          displayName: this.cashRegisterDisplayName(firstMovement.cashRegister),
           branch: firstMovement.cashRegister.branch,
           openedBy: firstMovement.cashRegister.openedBy,
           status: firstMovement.cashRegister.status,
@@ -1640,15 +1864,96 @@ export class PaymentsService {
 
     return {
       ...payment,
-      paymentNumber: this.shortCode(payment.id),
-      ticketId: payment.reference ?? firstMovement?.id ?? this.shortCode(payment.id),
+      paymentNumber: publicPaymentNumber,
+      ticketId: payment.reference ?? null,
       cashRegister,
+      paymentMethods: this.publicPaymentMethods(payment),
       treatmentRefs: Array.from(treatmentMap.values()),
       breakdown,
       dueDate: dueDates.length ? dueDates.sort((a, b) => a.getTime() - b.getTime())[0] : null,
       allocatedAmount,
-      unallocatedAmount: this.roundMoney(Math.max(Number(payment.amount ?? 0) - allocatedAmount, 0))
+      unallocatedAmount: this.roundMoney(Math.max(Number(payment.amount ?? 0) - allocatedAmount, 0)),
+      remainingPlanBalance: this.roundMoney(breakdown.reduce((sum, row) => sum + row.remainingAmount, 0)),
+      receipt: {
+        available: publicPaymentNumber !== "SIN-NUMERO",
+        previewUrl: `/payments/${publicPaymentNumber}/receipt`,
+        pdfUrl: `/payments/${publicPaymentNumber}/receipt.pdf`
+      }
     };
+  }
+
+  private parsePaymentNumber(value: string) {
+    if (!/^\d{6}$/.test(value.trim())) return null;
+    return Number(value);
+  }
+
+  private publicPaymentNumber(payment: { paymentNumber?: number | null; reference?: string | null }) {
+    if (payment.paymentNumber) return String(payment.paymentNumber).padStart(6, "0");
+    const reference = payment.reference?.trim();
+    if (reference && /^\d{6}$/.test(reference)) return reference;
+    return "SIN-NUMERO";
+  }
+
+  private publicPlanNumber(planId: string) {
+    let hash = 0;
+    for (let index = 0; index < planId.length; index += 1) {
+      hash = planId.charCodeAt(index) + ((hash << 5) - hash);
+    }
+    return Math.abs(hash % 1000000).toString().padStart(6, "0");
+  }
+
+  private generatePaymentNumber() {
+    return randomInt(100000, 1000000);
+  }
+
+  private async createPaymentWithPublicNumberRetry(create: (paymentNumber: number) => Promise<string>) {
+    const maxAttempts = 20;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        return await create(this.generatePaymentNumber());
+      } catch (error) {
+        if (this.isPaymentNumberCollision(error)) continue;
+        throw error;
+      }
+    }
+    throw new ConflictException("Could not generate a unique payment number. Try again.");
+  }
+
+  private isPaymentNumberCollision(error: unknown) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false;
+    if (error.code !== "P2002") return false;
+    const target = (error.meta?.target as string[] | string | undefined) ?? "";
+    return Array.isArray(target) ? target.includes("paymentNumber") : String(target).includes("paymentNumber");
+  }
+
+  private cashRegisterDisplayName(register?: {
+    openedAt?: Date | string | null;
+    branch?: { name?: string | null } | null;
+    openedBy?: { firstName?: string | null; lastName?: string | null } | null;
+  } | null) {
+    if (!register) return null;
+    const owner = `${register.openedBy?.firstName ?? ""} ${register.openedBy?.lastName ?? ""}`.trim();
+    const date = register.openedAt ? new Date(register.openedAt).toLocaleDateString("es-MX") : "";
+    return ["Caja", register.branch?.name, owner ? `abierta por ${owner}` : null, date].filter(Boolean).join(" · ");
+  }
+
+  private publicPaymentMethods(payment: any) {
+    if (payment.splits?.length) {
+      return payment.splits.map((split: any) => ({
+        name: split.paymentMethod?.name ?? "Medio no informado",
+        amount: Number(split.amount ?? 0),
+        reference: split.reference ?? split.authorizationCode ?? split.externalTransactionId ?? null,
+        financialInstitution: split.financialInstitution?.name ?? null
+      }));
+    }
+    return [
+      {
+        name: payment.paymentMethod?.name ?? "Medio no informado",
+        amount: Number(payment.amount ?? 0),
+        reference: payment.reference ?? null,
+        financialInstitution: payment.financialInstitution?.name ?? null
+      }
+    ];
   }
 
   private buildReceiptText(payment: any) {
@@ -1661,9 +1966,9 @@ export class PaymentsService {
       `Sucursal: ${payment.branch?.name ?? "-"}`,
       `Recibido por: ${receiverName || "-"}`,
       `Fecha recepcion: ${payment.paidAt ? new Date(payment.paidAt).toLocaleString("es-MX") : "-"}`,
-      `Metodo: ${payment.paymentMethod?.name ?? "-"}`,
+      payment.splits?.length ? `Metodos: ${payment.splits.map((s: any) => `${s.paymentMethod?.name} (${this.formatCurrency(s.amount)})`).join(', ')}` : `Metodo: ${payment.paymentMethod?.name ?? "-"}`,
       `Referencia: ${payment.reference ?? payment.ticketId ?? "-"}`,
-      `Caja: ${payment.cashRegister?.id ? this.shortCode(payment.cashRegister.id) : "-"}`,
+      `Caja: ${payment.cashRegister?.displayName ?? "-"}`,
       `Monto: ${this.formatCurrency(payment.amount)} ${payment.currency ?? ""}`.trim(),
       "",
       "Desglose"
@@ -1704,9 +2009,11 @@ export class PaymentsService {
       name: string;
       status: string;
       createdAt: Date;
+      branch: { id: string; name: string };
       professional: { id: string; firstName: string; lastName: string };
       items: Array<{
         id: string;
+        version: number;
         toothNumber: string | null;
         surface: string | null;
         quantity: Prisma.Decimal;
@@ -1732,7 +2039,9 @@ export class PaymentsService {
     ]);
     const payableItems: Array<{
       id: string;
+      version: number;
       treatmentPlanId: string;
+      treatmentPlanNumber: string;
       treatmentPlanName: string;
       treatmentPlanStatus: string;
       procedure: { id: string; code: string; name: string };
@@ -1763,7 +2072,9 @@ export class PaymentsService {
           const outstandingAmount = this.roundMoney(Math.max(total - paidAmount, 0));
           const summary = {
             id: item.id,
+            version: item.version,
             treatmentPlanId: plan.id,
+            treatmentPlanNumber: this.publicPlanNumber(plan.id),
             treatmentPlanName: plan.name,
             treatmentPlanStatus: plan.status,
             procedure: item.procedure,
@@ -1796,8 +2107,10 @@ export class PaymentsService {
 
         return {
           id: plan.id,
+          number: this.publicPlanNumber(plan.id),
           name: plan.name,
           status: plan.status,
+          branch: plan.branch,
           professional: plan.professional,
           createdAt: plan.createdAt,
           totalBudget,
@@ -1932,6 +2245,50 @@ export class PaymentsService {
     throw new BadRequestException("No open cash register found for this user and branch");
   }
 
+  private normalizePaymentSplits(splits?: CreatePaymentDto["splits"]) {
+    return (splits ?? []).map((split) => ({
+      paymentMethodId: split.paymentMethodId,
+      amount: toDecimal(split.amount),
+      financialInstitutionId: split.financialInstitutionId?.trim() || null,
+      reference: split.reference?.trim() || null
+    }));
+  }
+
+  private hashPaymentRequest(
+    dto: CreatePaymentDto,
+    amount: Prisma.Decimal,
+    splits: ReturnType<PaymentsService["normalizePaymentSplits"]>
+  ) {
+    const normalized = {
+      branchId: dto.branchId,
+      patientId: dto.patientId,
+      amount: amount.toFixed(2),
+      currency: dto.currency ?? "MXN",
+      paidAt: dto.paidAt ?? null,
+      paymentMethodId: dto.paymentMethodId ?? null,
+      financialInstitutionId: dto.financialInstitutionId ?? null,
+      reference: dto.reference?.trim() ?? null,
+      notes: dto.notes?.trim() ?? null,
+      allocations: (dto.allocations ?? [])
+        .map((allocation) => ({
+          treatmentPlanItemId: allocation.treatmentPlanItemId,
+          amount: toDecimal(allocation.amount).toFixed(2),
+          expectedVersion: allocation.expectedVersion ?? null
+        }))
+        .sort((a, b) => a.treatmentPlanItemId.localeCompare(b.treatmentPlanItemId)),
+      splits: splits
+        .map((split) => ({
+          paymentMethodId: split.paymentMethodId,
+          amount: split.amount.toFixed(2),
+          financialInstitutionId: split.financialInstitutionId,
+          reference: split.reference
+        }))
+        .sort((a, b) => `${a.paymentMethodId}:${a.amount}:${a.reference ?? ""}`.localeCompare(`${b.paymentMethodId}:${b.amount}:${b.reference ?? ""}`))
+    };
+
+    return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+  }
+
   private async applyAllocations(
     tx: Prisma.TransactionClient,
     actor: AuthUser,
@@ -1949,10 +2306,11 @@ export class PaymentsService {
       throw new BadRequestException("Voided or refunded payments cannot receive allocations");
     }
 
-    const existingAllocated = payment.allocations.reduce((sum, allocation) => sum + Number(allocation.amount), 0);
-    const requested = allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
-    if (requested <= 0) throw new BadRequestException("Allocation amount must be greater than zero");
-    if (this.roundMoney(existingAllocated + requested) > Number(payment.amount)) {
+    const existingAllocated = sumDecimals(payment.allocations.map(a => a.amount));
+    const requested = sumDecimals(allocations.map(a => a.amount));
+    if (requested.lte(0)) throw new BadRequestException("Allocation amount must be greater than zero");
+    
+    if (existingAllocated.add(requested).gt(payment.amount)) {
       throw new BadRequestException("Allocations exceed payment amount");
     }
 
@@ -1972,6 +2330,12 @@ export class PaymentsService {
       throw new BadRequestException("One or more treatment plan items are invalid");
     }
 
+    const expectedVersions = new Map(
+      allocations
+        .filter((allocation) => allocation.expectedVersion !== undefined)
+        .map((allocation) => [allocation.treatmentPlanItemId, allocation.expectedVersion as number])
+    );
+
     for (const item of items) {
       if (item.treatmentPlan.isAlternative) {
         throw new BadRequestException("Alternative treatment plan items cannot receive payments");
@@ -1979,14 +2343,18 @@ export class PaymentsService {
       if (item.status === TreatmentPlanItemStatus.CANCELLED) {
         throw new BadRequestException("Cancelled treatment plan items cannot receive payments");
       }
+      const expectedVersion = expectedVersions.get(item.id);
+      if (expectedVersion !== undefined && item.version !== expectedVersion) {
+        throw new ConflictException("El saldo cambió mientras realizabas el cobro. Revisa la información actualizada antes de continuar.");
+      }
     }
 
-    const requestedByItem = allocations.reduce<Record<string, number>>((totals, allocation) => {
-      totals[allocation.treatmentPlanItemId] = this.roundMoney(
-        (totals[allocation.treatmentPlanItemId] ?? 0) + allocation.amount
-      );
+    const requestedByItem = allocations.reduce<Record<string, Prisma.Decimal>>((totals, allocation) => {
+      const current = totals[allocation.treatmentPlanItemId] ?? new Prisma.Decimal(0);
+      totals[allocation.treatmentPlanItemId] = current.add(toDecimal(allocation.amount));
       return totals;
     }, {});
+    
     const existingByItem = await tx.paymentAllocation.groupBy({
       by: ["treatmentPlanItemId"],
       _sum: { amount: true },
@@ -1995,20 +2363,21 @@ export class PaymentsService {
         payment: { status: { in: [PaymentStatus.RECEIVED, PaymentStatus.PARTIALLY_ALLOCATED, PaymentStatus.ALLOCATED] } }
       }
     });
+    
     const existingByItemId = new Map(
-      existingByItem.map((row) => [row.treatmentPlanItemId, Number(row._sum.amount ?? 0)])
+      existingByItem.map((row) => [row.treatmentPlanItemId, toDecimal(row._sum.amount ?? 0)])
     );
 
     for (const item of items) {
-      const allocated = existingByItemId.get(item.id) ?? 0;
-      const requestedForItem = requestedByItem[item.id] ?? 0;
-      if (this.roundMoney(allocated + requestedForItem) > Number(item.total)) {
+      const allocated = existingByItemId.get(item.id) ?? new Prisma.Decimal(0);
+      const requestedForItem = requestedByItem[item.id] ?? new Prisma.Decimal(0);
+      if (allocated.add(requestedForItem).gt(item.total)) {
         throw new BadRequestException("Allocations exceed treatment plan item balance");
       }
     }
 
     for (const allocation of allocations) {
-      if (allocation.amount <= 0) throw new BadRequestException("Allocation amount must be greater than zero");
+      if (toDecimal(allocation.amount).lte(0)) throw new BadRequestException("Allocation amount must be greater than zero");
       const current = await tx.paymentAllocation.findFirst({
         where: { paymentId, treatmentPlanItemId: allocation.treatmentPlanItemId }
       });
@@ -2016,14 +2385,14 @@ export class PaymentsService {
       if (current) {
         await tx.paymentAllocation.update({
           where: { id: current.id },
-          data: { amount: this.toDecimal(this.roundMoney(Number(current.amount) + allocation.amount)) }
+          data: { amount: current.amount.add(toDecimal(allocation.amount)) }
         });
       } else {
         await tx.paymentAllocation.create({
           data: {
             paymentId,
             treatmentPlanItemId: allocation.treatmentPlanItemId,
-            amount: this.toDecimal(allocation.amount)
+            amount: toDecimal(allocation.amount)
           }
         });
       }
@@ -2034,11 +2403,11 @@ export class PaymentsService {
       where: { paymentId }
     });
 
-    const allocatedAfter = Number(allocationsAfter._sum.amount ?? 0);
+    const allocatedAfter = toDecimal(allocationsAfter._sum.amount ?? 0);
     await tx.payment.update({
       where: { id: paymentId },
       data: {
-        status: allocatedAfter >= Number(payment.amount) ? PaymentStatus.ALLOCATED : PaymentStatus.PARTIALLY_ALLOCATED
+        status: allocatedAfter.gte(payment.amount) ? PaymentStatus.ALLOCATED : PaymentStatus.PARTIALLY_ALLOCATED
       }
     });
 
@@ -2052,15 +2421,21 @@ export class PaymentsService {
           payment: { status: { in: [PaymentStatus.RECEIVED, PaymentStatus.PARTIALLY_ALLOCATED, PaymentStatus.ALLOCATED] } }
         }
       });
-      const allocatedTotal = Number(allocatedOnItem._sum.amount ?? 0);
-      if (
-        allocatedTotal >= Number(item.total) &&
-        (item.status === TreatmentPlanItemStatus.PLANNED || item.status === TreatmentPlanItemStatus.ACCEPTED)
-      ) {
-        await tx.treatmentPlanItem.update({
-          where: { id: item.id },
-          data: { status: TreatmentPlanItemStatus.PAID }
-        });
+      const allocatedTotal = toDecimal(allocatedOnItem._sum.amount ?? 0);
+      
+      const shouldMarkPaid =
+        allocatedTotal.gte(item.total) &&
+        (item.status === TreatmentPlanItemStatus.PLANNED || item.status === TreatmentPlanItemStatus.ACCEPTED);
+      const updated = await tx.treatmentPlanItem.updateMany({
+        where: { id: item.id, version: item.version },
+        data: {
+          ...(shouldMarkPaid ? { status: TreatmentPlanItemStatus.PAID } : {}),
+          version: { increment: 1 }
+        }
+      });
+
+      if (updated.count === 0) {
+        throw new ConflictException("El saldo cambió mientras realizabas el cobro. Revisa la información actualizada antes de continuar.");
       }
     }
   }
@@ -2148,12 +2523,14 @@ export class PaymentsService {
     return permissions.some((permission) => actor.permissions.includes(permission));
   }
 
-  private toDecimal(value: number) {
-    return new Prisma.Decimal(this.roundMoney(value));
+  private toDecimal(value: number | string | Prisma.Decimal) {
+    if (value instanceof Prisma.Decimal) return value;
+    return new Prisma.Decimal(value).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
   }
 
-  private roundMoney(value: number) {
-    return Math.round(value * 100) / 100;
+  private roundMoney(value: number | Prisma.Decimal) {
+    if (value instanceof Prisma.Decimal) return value.toNumber();
+    return new Prisma.Decimal(value).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP).toNumber();
   }
 
   private formatCurrency(value: number | string | Prisma.Decimal) {
@@ -2254,8 +2631,8 @@ export class PaymentsService {
     let total = 0;
 
     for (const p of payments) {
-      const key = p.paymentMethod.name;
-      const current = methodMap.get(key) ?? { type: "Pagos", method: p.paymentMethod.name, count: 0, amount: 0 };
+      const key = p.paymentMethod?.name || 'Unknown';
+      const current = methodMap.get(key) ?? { type: "Pagos", method: key, count: 0, amount: 0 };
       current.count += 1;
       current.amount = this.roundMoney(current.amount + Number(p.amount));
       methodMap.set(key, current);
@@ -2311,7 +2688,7 @@ export class PaymentsService {
       responsible: p.cashMovements[0]?.cashRegister?.branch?.name ?? `${p.receivedBy.firstName} ${p.receivedBy.lastName}`.trim(),
       documentNumber: p.patient.documentNumber ?? "0",
       paymentType: "Pago",
-      paymentMethod: p.paymentMethod.name,
+      paymentMethod: p.paymentMethod?.name || '',
       total: this.roundMoney(Number(p.amount))
     }));
 
@@ -2372,7 +2749,7 @@ export class PaymentsService {
       return {
         number: index + 1,
         treatmentNumber: p.allocations[0]?.treatmentPlanItem?.treatmentPlan?.id?.slice(-6).toUpperCase() ?? "-",
-        paymentMethod: p.paymentMethod.name,
+        paymentMethod: p.paymentMethod?.name || '',
         patientName: `${p.patient.firstName} ${p.patient.lastName}`.trim(),
         reception: `${p.receivedBy.firstName} ${p.receivedBy.lastName}`.trim(),
         amount: this.roundMoney(Number(p.amount))

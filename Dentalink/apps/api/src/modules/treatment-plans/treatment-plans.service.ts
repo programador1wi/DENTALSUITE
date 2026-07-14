@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import {
   AppointmentStatus,
   BudgetStatus,
+  PaymentStatus,
   Prisma,
   ProfessionalBranchStatus,
   TreatmentPriceSource,
@@ -16,6 +17,7 @@ import { resolveAllowedSpecialtyName } from "../../common/utils/specialty-policy
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
+  BulkDiscountTreatmentPlanItemsDto,
   ChangeTreatmentPlanBranchDto,
   CreateAlternativeDto,
   CreateBudgetDto,
@@ -23,6 +25,8 @@ import {
   CreateTreatmentPlanDto,
   ListBudgetsQueryDto,
   ListTreatmentPlansQueryDto,
+  OrthodonticEvolutionsQueryDto,
+  PrintTreatmentPlanDocumentDto,
   TreatmentPlanSectionInputDto,
   UpdateOrthodonticDiagnosisDto,
   UpdateOrthodonticProfileDto,
@@ -32,8 +36,19 @@ import {
   ReactivateTreatmentPlanDto,
   DeactivateTreatmentPlanDto,
   DuplicateTreatmentPlanDto,
-  ReferTreatmentPlanDto
+  ReferTreatmentPlanDto,
+  StartOrthodonticTreatmentDto
 } from "./dto/treatment-plan.dto";
+import {
+  buildTreatmentPlanDocumentPdf,
+  type TreatmentPlanDocumentInput,
+  type TreatmentPlanDocumentItem
+} from "./treatment-plan-documents";
+import {
+  calculateTreatmentPlanClinicalProgress,
+  resolveTreatmentPlanClinicalStatus,
+  resolveTreatmentPlanStatusFromClinicalProgress
+} from "./treatment-plan-progress";
 
 type TreatmentAgreementSnapshot = {
   id?: string | null;
@@ -129,11 +144,9 @@ export class TreatmentPlansService {
       orderBy: { createdAt: "desc" }
     });
 
-    return rows.map((row) => ({
-      ...row,
+    return rows.map((row) => this.withTreatmentPlanDerivedState(row, {
       itemsCount: row.items.length,
-      budgetCount: row.budgets.length,
-      orthodonticSummary: this.buildOrthodonticSummary(row)
+      budgetCount: row.budgets.length
     }));
   }
 
@@ -294,10 +307,7 @@ export class TreatmentPlansService {
     });
 
     if (!plan) throw new NotFoundException("Treatment plan not found");
-    return {
-      ...plan,
-      orthodonticSummary: this.buildOrthodonticSummary(plan)
-    };
+    return this.withTreatmentPlanDerivedState(plan);
   }
 
   async updateTreatmentPlan(actor: AuthUser, id: string, dto: UpdateTreatmentPlanDto) {
@@ -405,6 +415,132 @@ export class TreatmentPlansService {
       treatmentPlanId: plan.id
     } as Prisma.InputJsonValue);
     return this.getTreatmentPlan(actor, id);
+  }
+
+  async startOrthodonticTreatment(actor: AuthUser, id: string, dto: StartOrthodonticTreatmentDto) {
+    const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    this.ensureTreatmentPlanCanMutate(plan, "start");
+    const existingProfile = await this.prisma.orthodonticTreatmentProfile.findUnique({
+      where: { treatmentPlanId: plan.id }
+    });
+    if (existingProfile?.startDate) {
+      throw new BadRequestException("Orthodontic treatment has already been started");
+    }
+
+    const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
+    if (Number.isNaN(startDate.getTime())) throw new BadRequestException("Invalid startDate");
+
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const profile = await tx.orthodonticTreatmentProfile.upsert({
+        where: { treatmentPlanId: plan.id },
+        create: { treatmentPlanId: plan.id, startDate },
+        update: { startDate }
+      });
+      await tx.treatmentPlan.update({
+        where: { id: plan.id },
+        data: {
+          status:
+            plan.status === TreatmentPlanStatus.DRAFT || plan.status === TreatmentPlanStatus.ACCEPTED
+              ? TreatmentPlanStatus.IN_PROGRESS
+              : plan.status
+        }
+      });
+      return profile;
+    });
+
+    await this.audit(actor, "OrthodonticTreatmentProfile", saved.id, "start", {}, {
+      treatmentPlanId: plan.id,
+      startDate
+    } as Prisma.InputJsonValue);
+    return this.getOrthodonticSummary(actor, id);
+  }
+
+  async getOrthodonticSummary(actor: AuthUser, id: string) {
+    const canViewPrivate = this.canViewPrivateEvolutions(actor);
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { id, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      include: {
+        patient: { select: { id: true, firstName: true, lastName: true } },
+        professional: { select: { id: true, firstName: true, lastName: true } },
+        branch: { select: { id: true, name: true } },
+        orthodonticProfile: true,
+        pauses: { orderBy: { startDate: "desc" } },
+        clinicalEvolutions: {
+          where: {
+            annulledAt: null,
+            ...(canViewPrivate ? {} : { OR: [{ isPrivate: false }, { createdById: actor.id }] })
+          },
+          include: this.orthodonticEvolutionInclude(),
+          orderBy: { createdAt: "desc" },
+          take: 200
+        }
+      }
+    });
+    if (!plan) throw new NotFoundException("Treatment plan not found");
+    if (plan.kind !== TreatmentPlanKind.ORTHODONTICS) {
+      throw new BadRequestException("Orthodontic summary is only available for orthodontic treatment plans");
+    }
+
+    return this.mapOrthodonticSummary(plan, canViewPrivate);
+  }
+
+  async listOrthodonticEvolutions(actor: AuthUser, id: string, query: OrthodonticEvolutionsQueryDto) {
+    const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    const { page, pageSize, skip, take } = resolvePagination(query);
+    const canViewPrivate = this.canViewPrivateEvolutions(actor);
+    const where: Prisma.ClinicalEvolutionWhereInput = {
+      treatmentPlanId: plan.id,
+      addendumOfId: null,
+      annulledAt: null,
+      ...(canViewPrivate ? {} : { OR: [{ isPrivate: false }, { createdById: actor.id }] }),
+      ...(query.professionalId ? { professionalId: query.professionalId } : {}),
+      ...(query.dateFrom || query.dateTo
+        ? {
+            createdAt: {
+              ...(query.dateFrom ? { gte: new Date(query.dateFrom) } : {}),
+              ...(query.dateTo ? { lte: new Date(query.dateTo) } : {})
+            }
+          }
+        : {})
+    };
+
+    if (query.hasHygiene !== undefined) {
+      where.fields = query.hasHygiene
+        ? { some: { group: "ORTHODONTICS", label: { contains: "Higiene", mode: "insensitive" } } }
+        : { none: { group: "ORTHODONTICS", label: { contains: "Higiene", mode: "insensitive" } } };
+    }
+    if (query.search?.trim()) {
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : []),
+        {
+          OR: [
+            { notes: { contains: query.search.trim(), mode: "insensitive" } },
+            { fields: { some: { value: { contains: query.search.trim(), mode: "insensitive" } } } }
+          ]
+        }
+      ];
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.clinicalEvolution.findMany({
+        where,
+        include: this.orthodonticEvolutionInclude(),
+        orderBy: { createdAt: "desc" },
+        skip,
+        take
+      }),
+      this.prisma.clinicalEvolution.count({ where })
+    ]);
+
+    return {
+      items: items.map((evolution) => this.mapOrthodonticEvolution(evolution)),
+      pagination: {
+        page,
+        pageSize,
+        total,
+        totalPages: Math.ceil(total / pageSize)
+      }
+    };
   }
 
   async createOrthodonticMonthlyItems(actor: AuthUser, id: string, dto: CreateOrthodonticMonthlyItemsDto) {
@@ -689,6 +825,182 @@ export class TreatmentPlansService {
     return this.getTreatmentPlan(actor, plan.id);
   }
 
+  async getProcedures(actor: AuthUser, treatmentPlanId: string) {
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { id: treatmentPlanId, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      include: {
+        professional: { select: { id: true, firstName: true, lastName: true } },
+        sections: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
+        items: {
+          include: {
+            procedure: true,
+            section: true,
+            paymentAllocations: {
+              include: { payment: { select: { id: true, status: true } } }
+            },
+            budgetItems: { include: { budget: { select: { id: true, status: true } } } }
+          },
+          orderBy: [{ section: { sortOrder: "asc" } }, { createdAt: "asc" }]
+        }
+      }
+    });
+    if (!plan) throw new NotFoundException("Treatment plan not found");
+
+    const activeItems = plan.items.filter((item) => item.status !== TreatmentPlanItemStatus.CANCELLED);
+    const clinicalProgress = calculateTreatmentPlanClinicalProgress(activeItems);
+    const sections = plan.sections.map((section) => ({
+      id: section.id,
+      name: section.name,
+      description: null,
+      position: section.sortOrder,
+      procedures: activeItems
+        .filter((item) => item.sectionId === section.id)
+        .map((item) => this.mapProcedureListItem(plan, item))
+    }));
+    const unsectionedProcedures = activeItems
+      .filter((item) => !item.sectionId)
+      .map((item) => this.mapProcedureListItem(plan, item));
+
+    return {
+      planId: plan.id,
+      summary: {
+        sectionsCount: plan.sections.length,
+        proceduresCount: activeItems.length,
+        clinicalProgress,
+        clinicalStatus: resolveTreatmentPlanClinicalStatus(plan.status, clinicalProgress),
+        pendingCount: activeItems.filter(
+          (item) => item.status === TreatmentPlanItemStatus.PLANNED || item.status === TreatmentPlanItemStatus.ACCEPTED
+        ).length,
+        inProgressCount: activeItems.filter((item) => item.status === TreatmentPlanItemStatus.IN_PROGRESS).length,
+        completedCount: activeItems.filter((item) => item.status === TreatmentPlanItemStatus.COMPLETED).length,
+        paidCount: activeItems.filter((item) => this.resolveProcedurePayment(item).status === "PAID").length,
+        withDebtCount: activeItems.filter((item) => this.resolveProcedurePayment(item).balance.gt(0)).length
+      },
+      sections,
+      unsectionedProcedures,
+      capabilities: {
+        canAddSection: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status),
+        canAddProcedure: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status),
+        canApplyBulkDiscount: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) && activeItems.length > 0
+      }
+    };
+  }
+
+  async applyBulkDiscount(actor: AuthUser, treatmentPlanId: string, dto: BulkDiscountTreatmentPlanItemsDto) {
+    const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
+    this.ensureTreatmentPlanCanMutate(plan, "apply discounts to");
+    const itemIds = [...new Set(dto.itemIds.map((id) => id.trim()).filter(Boolean))];
+    if (!itemIds.length) throw new BadRequestException("Select at least one procedure");
+    if (dto.discountType === "PERCENTAGE" && dto.value > 100) {
+      throw new BadRequestException("Percentage discount cannot exceed 100");
+    }
+
+    const updatedIds = await this.prisma.$transaction(async (tx) => {
+      const items = await tx.treatmentPlanItem.findMany({
+        where: { id: { in: itemIds }, treatmentPlanId },
+        include: {
+          paymentAllocations: { include: { payment: { select: { id: true, status: true } } } },
+          budgetItems: { include: { budget: { include: { items: true } } } }
+        }
+      });
+      if (items.length !== itemIds.length) throw new BadRequestException("One or more procedures do not belong to this plan");
+
+      const touchedBudgetIds = new Set<string>();
+      const budgetExtraDiscount = new Map<string, Prisma.Decimal>();
+
+      for (const item of items) {
+        if (item.status === TreatmentPlanItemStatus.CANCELLED) {
+          throw new BadRequestException("Cancelled procedures cannot receive discounts");
+        }
+        const payment = item.paymentAllocations.reduce(
+          (sum, allocation) =>
+            allocation.payment?.status === PaymentStatus.VOIDED ? sum : sum.plus(allocation.amount),
+          new Prisma.Decimal(0)
+        );
+        if (item.status === TreatmentPlanItemStatus.PAID || payment.gte(item.total)) {
+          throw new BadRequestException("Paid procedures cannot receive discounts");
+        }
+        const nonDraftBudget = item.budgetItems.find((budgetItem) => budgetItem.budget.status !== BudgetStatus.DRAFT);
+        if (nonDraftBudget) {
+          throw new BadRequestException("Cannot update discounts for procedures in sent or accepted budgets");
+        }
+
+        for (const budgetItem of item.budgetItems) {
+          touchedBudgetIds.add(budgetItem.budgetId);
+          if (!budgetExtraDiscount.has(budgetItem.budgetId)) {
+            const currentItemsDiscount = budgetItem.budget.items.reduce(
+              (sum, row) => sum.plus(row.discount),
+              new Prisma.Decimal(0)
+            );
+            const extra = new Prisma.Decimal(budgetItem.budget.discountTotal).minus(currentItemsDiscount);
+            budgetExtraDiscount.set(budgetItem.budgetId, extra.gt(0) ? extra : new Prisma.Decimal(0));
+          }
+        }
+      }
+
+      for (const item of items) {
+        const base = new Prisma.Decimal(item.quantity).mul(item.unitPrice);
+        const discount =
+          dto.discountType === "PERCENTAGE"
+            ? base.mul(dto.value).div(100).toDecimalPlaces(2)
+            : new Prisma.Decimal(dto.value).toDecimalPlaces(2);
+        if (discount.gt(base)) throw new BadRequestException("Discount cannot exceed procedure subtotal");
+        const total = base.minus(discount).toDecimalPlaces(2);
+
+        await tx.treatmentPlanItem.update({
+          where: { id: item.id },
+          data: {
+            discount,
+            total,
+            version: { increment: 1 }
+          }
+        });
+
+        for (const budgetItem of item.budgetItems) {
+          await tx.budgetItem.update({
+            where: { id: budgetItem.id },
+            data: {
+              discount,
+              total,
+              version: { increment: 1 }
+            }
+          });
+        }
+      }
+
+      for (const budgetId of touchedBudgetIds) {
+        const budgetItems = await tx.budgetItem.findMany({ where: { budgetId } });
+        const subtotal = budgetItems.reduce(
+          (sum, item) => sum.plus(new Prisma.Decimal(item.quantity).mul(item.unitPrice)),
+          new Prisma.Decimal(0)
+        );
+        const itemDiscount = budgetItems.reduce(
+          (sum, item) => sum.plus(item.discount),
+          new Prisma.Decimal(0)
+        );
+        const discountTotal = itemDiscount.plus(budgetExtraDiscount.get(budgetId) ?? 0).toDecimalPlaces(2);
+        await tx.budget.update({
+          where: { id: budgetId },
+          data: {
+            subtotal: subtotal.toDecimalPlaces(2),
+            discountTotal,
+            total: subtotal.minus(discountTotal).toDecimalPlaces(2)
+          }
+        });
+      }
+
+      return items.map((item) => item.id);
+    });
+
+    await this.audit(actor, "TreatmentPlanItem", null, "bulk_discount", {}, {
+      treatmentPlanId,
+      itemIds: updatedIds,
+      discountType: dto.discountType,
+      value: dto.value
+    } as Prisma.InputJsonValue);
+    return this.getProcedures(actor, treatmentPlanId);
+  }
+
   async updateItem(
     actor: AuthUser,
     treatmentPlanId: string,
@@ -837,6 +1149,9 @@ export class TreatmentPlansService {
       where: { id: itemId, treatmentPlanId }
     });
     if (!current) throw new NotFoundException("Treatment plan item not found");
+    if (dto.expectedVersion !== undefined && current.version !== dto.expectedVersion) {
+      throw new BadRequestException("Treatment plan item was updated by another operation. Reload and try again.");
+    }
 
     if (dto.status === TreatmentPlanItemStatus.PAID && plan.isAlternative) {
       throw new BadRequestException(
@@ -844,19 +1159,31 @@ export class TreatmentPlansService {
       );
     }
 
-    const updated = await this.prisma.treatmentPlanItem.update({
-      where: { id: itemId },
-      data: {
-        status: dto.status,
-        notes: dto.notes ?? current.notes,
-        completedAt:
-          dto.status === TreatmentPlanItemStatus.COMPLETED
-            ? (current.completedAt ?? new Date())
-            : current.completedAt
-      }
+    const completionPercentage = this.resolveItemCompletionPercentage(dto.status, current.completionPercentage, dto.completionPercentage);
+    const performedAmount = this.performedAmountForProgress(current.total, completionPercentage);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const updatedItem = await tx.treatmentPlanItem.update({
+        where: { id: itemId },
+        data: {
+          status: dto.status,
+          completionPercentage,
+          performedAmount,
+          notes: dto.notes ?? current.notes,
+          completedAt:
+            dto.status === TreatmentPlanItemStatus.COMPLETED
+              ? (current.completedAt ?? new Date())
+              : completionPercentage < 100
+                ? null
+                : current.completedAt,
+          ...(completionPercentage < 100 ? { completedByEvolutionId: null } : {}),
+          version: { increment: 1 }
+        }
+      });
+      await this.syncTreatmentPlanStatusFromItems(tx, treatmentPlanId);
+      return updatedItem;
     });
 
-    await this.syncTreatmentItemProcedureStatus(itemId, dto.status);
+    await this.syncTreatmentItemProcedureStatus(itemId, dto.status, completionPercentage);
 
     await this.audit(
       actor,
@@ -906,6 +1233,7 @@ export class TreatmentPlansService {
       }
 
       await tx.treatmentPlanItem.delete({ where: { id: itemId } });
+      await this.syncTreatmentPlanStatusFromItems(tx, treatmentPlanId);
     });
 
     const auditData = { ...current };
@@ -1144,6 +1472,329 @@ export class TreatmentPlansService {
     };
   }
 
+  async printTreatmentPlanDocument(actor: AuthUser, id: string, dto: PrintTreatmentPlanDocumentDto) {
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { id, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      include: {
+        organization: { select: { name: true, address: true, phone: true } },
+        branch: {
+          select: {
+            name: true,
+            address: true,
+            exteriorNumber: true,
+            interiorNumber: true,
+            neighborhood: true,
+            municipality: true,
+            city: true,
+            state: true,
+            phone: true
+          }
+        },
+        patient: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            birthDate: true,
+            documentNumber: true,
+            email: true,
+            phone: true,
+            occupation: true,
+            gender: true,
+            createdAt: true,
+            agreement: { select: { name: true } }
+          }
+        },
+        professional: {
+          select: {
+            firstName: true,
+            lastName: true,
+            licenseNumber: true,
+            specialties: { include: { specialty: { select: { name: true } } } }
+          }
+        },
+        specialty: { select: { name: true } },
+        items: {
+          where: { status: { not: TreatmentPlanItemStatus.CANCELLED } },
+          include: {
+            procedure: { select: { code: true, name: true } },
+            section: { select: { name: true, sortOrder: true } },
+            paymentAllocations: {
+              select: {
+                amount: true,
+                payment: { select: { status: true } }
+              }
+            }
+          },
+          orderBy: [{ section: { sortOrder: "asc" } }, { createdAt: "asc" }]
+        },
+        budgets: {
+          where: dto.budgetId ? { id: dto.budgetId } : {},
+          orderBy: { createdAt: "desc" },
+          take: 1
+        },
+        clinicalEvolutions: {
+          where: { annulledAt: null },
+          include: {
+            professional: { select: { firstName: true, lastName: true } }
+          },
+          orderBy: { createdAt: "desc" },
+          take: 100
+        }
+      }
+    });
+    if (!plan) throw new NotFoundException("Treatment plan not found");
+    if (!plan.items.length) {
+      throw new BadRequestException("Treatment plan requires at least one active item to print documents");
+    }
+    if (dto.budgetId && !plan.budgets.length) throw new NotFoundException("Budget not found");
+
+    const input = this.buildTreatmentPlanDocumentInput(plan, dto);
+    return buildTreatmentPlanDocumentPdf(input);
+  }
+
+  private buildTreatmentPlanDocumentInput(plan: any, dto: PrintTreatmentPlanDocumentDto): TreatmentPlanDocumentInput {
+    const items = plan.items.map((item: any) => this.mapTreatmentPlanDocumentItem(item));
+    const subtotal = items.reduce((sum: number, item: TreatmentPlanDocumentItem) => sum + item.subtotal, 0);
+    const discount = items.reduce((sum: number, item: TreatmentPlanDocumentItem) => sum + item.discount, 0);
+    const total = items.reduce((sum: number, item: TreatmentPlanDocumentItem) => sum + item.total, 0);
+    const paid = items.reduce((sum: number, item: TreatmentPlanDocumentItem) => sum + item.paid, 0);
+    const budget = plan.budgets[0];
+    const clinicAddress = [
+      plan.branch.address,
+      plan.branch.exteriorNumber,
+      plan.branch.interiorNumber,
+      plan.branch.neighborhood,
+      plan.branch.municipality,
+      plan.branch.city,
+      plan.branch.state
+    ]
+      .filter(Boolean)
+      .join(", ");
+
+    return {
+      documentType: dto.type,
+      planId: plan.id,
+      planNumber: this.documentNumericId(plan.id),
+      planName: plan.name,
+      status: plan.status,
+      generatedAt: budget?.createdAt ?? plan.createdAt,
+      printedAt: new Date(),
+      clinicName: plan.organization.name,
+      clinicAddress: clinicAddress || plan.organization.address || plan.branch.name,
+      clinicPhone: plan.branch.phone || plan.organization.phone || "",
+      patient: {
+        id: this.documentNumericId(plan.patient.id),
+        name: `${plan.patient.firstName} ${plan.patient.lastName}`.trim(),
+        documentNumber: plan.patient.documentNumber || "",
+        birthDate: plan.patient.birthDate,
+        email: plan.patient.email,
+        phone: plan.patient.phone,
+        occupation: plan.patient.occupation,
+        gender: plan.patient.gender,
+        createdAt: plan.patient.createdAt
+      },
+      professional: {
+        name: `${plan.professional.firstName} ${plan.professional.lastName}`.trim(),
+        specialty: plan.specialtySnapshotName || plan.specialty?.name || plan.professional.specialties?.[0]?.specialty?.name || "General",
+        licenseNumber: plan.professional.licenseNumber || "-"
+      },
+      branchName: plan.branch.name,
+      agreementName: plan.patient.agreement?.name || "Sin convenio",
+      items,
+      clinicalEvolutions: plan.clinicalEvolutions.map((evolution: any) => ({
+        createdAt: evolution.createdAt,
+        professionalName: `${evolution.professional.firstName} ${evolution.professional.lastName}`.trim(),
+        summary:
+          this.plainText(evolution.notes) ||
+          this.plainText(evolution.assessment) ||
+          this.plainText(evolution.objective) ||
+          this.plainText(evolution.plan) ||
+          this.plainText(evolution.subjective)
+      })),
+      totals: {
+        subtotal,
+        discount,
+        total,
+        paid,
+        balance: Math.max(total - paid, 0)
+      }
+    };
+  }
+
+  private mapTreatmentPlanDocumentItem(item: any): TreatmentPlanDocumentItem {
+    const quantity = Number(item.quantity) || 0;
+    const unitPrice = Number(item.unitPrice) || 0;
+    const subtotal = quantity * unitPrice;
+    const discount = Number(item.discount) || 0;
+    const total = Number(item.total) || 0;
+    const paid = this.resolveProcedurePayment(item).paidAmount.toNumber();
+
+    return {
+      id: item.id,
+      status: this.treatmentPlanItemStatusLabel(item.status),
+      procedureCode: item.procedure?.code || item.priceSnapshotCode || "-",
+      procedureName: item.procedure?.name || item.priceSnapshotName || "Procedimiento sin nombre",
+      sectionName: item.section?.name ?? null,
+      toothLabel: this.toothPrintLabel(item.toothNumber, item.surface),
+      surfaceLabel: this.surfacePrintLabel(item.surface),
+      quantity,
+      subtotal,
+      discount,
+      total,
+      paid,
+      plannedAt: item.plannedAt,
+      completedAt: item.completedAt,
+      notes: item.notes
+    };
+  }
+
+  private treatmentPlanItemStatusLabel(status: TreatmentPlanItemStatus) {
+    const labels: Record<TreatmentPlanItemStatus, string> = {
+      [TreatmentPlanItemStatus.PLANNED]: "Pendiente",
+      [TreatmentPlanItemStatus.ACCEPTED]: "Aceptado",
+      [TreatmentPlanItemStatus.PAID]: "Pagado",
+      [TreatmentPlanItemStatus.IN_PROGRESS]: "En atencion",
+      [TreatmentPlanItemStatus.COMPLETED]: "Realizado",
+      [TreatmentPlanItemStatus.CANCELLED]: "Cancelado"
+    };
+    return labels[status] ?? status;
+  }
+
+  private toothPrintLabel(toothNumber?: string | null, surface?: string | null) {
+    if (!toothNumber) return "-";
+    const normalized = toothNumber.length >= 2 ? `${toothNumber[0]}.${toothNumber[1]}` : toothNumber;
+    const surfaceCode = surface?.trim().toUpperCase();
+    if (!surfaceCode || surfaceCode === "ALL") return normalized;
+    return `${normalized}:${surfaceCode.toLowerCase()}`;
+  }
+
+  private surfacePrintLabel(surface?: string | null) {
+    const value = surface?.trim().toUpperCase();
+    if (!value) return "-";
+    if (value === "ALL") return "Pieza completa";
+    const labels: Record<string, string> = {
+      P: "Palatina",
+      M: "Mesial",
+      B: "Vestibular",
+      V: "Vestibular",
+      D: "Distal",
+      O: "Oclusal",
+      L: "Lingual",
+      I: "Incisal"
+    };
+    return value
+      .split(",")
+      .map((part) => labels[part.trim()] || part.trim())
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  private documentNumericId(id: string) {
+    let hash = 0;
+    for (let index = 0; index < id.length; index += 1) {
+      hash = id.charCodeAt(index) + ((hash << 5) - hash);
+    }
+    return Math.abs(hash % 1000000)
+      .toString()
+      .padStart(6, "0");
+  }
+
+  private plainText(value?: string | null) {
+    return (value ?? "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  private mapProcedureListItem(
+    plan: { professional: { id: string; firstName: string; lastName: string }; status: TreatmentPlanStatus },
+    item: any
+  ) {
+    const payment = this.resolveProcedurePayment(item);
+    const basePrice = new Prisma.Decimal(item.quantity).mul(item.unitPrice).toDecimalPlaces(2);
+    const completionPercentage = this.resolveItemCompletionPercentage(
+      item.status,
+      item.completionPercentage,
+      item.completionPercentage
+    );
+
+    return {
+      id: item.id,
+      code: item.procedure?.code ?? "",
+      name: item.procedure?.name ?? "",
+      description: item.procedure?.description ?? null,
+      priceListName: item.priceSnapshotName,
+      sectionId: item.sectionId,
+      sectionName: item.section?.name ?? null,
+      professional: {
+        id: plan.professional.id,
+        name: `${plan.professional.firstName} ${plan.professional.lastName}`.trim()
+      },
+      dentalScope: {
+        type: item.toothNumber ? (item.surface && item.surface !== "ALL" ? "SURFACES" : "WHOLE_TOOTH") : "GENERAL",
+        toothNumber: item.toothNumber,
+        surfaces: item.surface && item.surface !== "ALL" ? item.surface.split(",").map((surface: string) => surface.trim()) : []
+      },
+      discount: {
+        type: "AMOUNT",
+        value: item.discount.toString(),
+        amount: item.discount.toString()
+      },
+      pricing: {
+        basePrice: basePrice.toString(),
+        finalPrice: item.total.toString(),
+        currency: "MXN"
+      },
+      payment: {
+        paidAmount: payment.paidAmount.toString(),
+        balance: payment.balance.toString(),
+        status: payment.status
+      },
+      progress: {
+        percentage: completionPercentage,
+        status: item.status,
+        lastEvolutionAt: item.completedAt,
+        performedBy: null
+      },
+      future: {
+        isFuture: Boolean(item.plannedAt),
+        scheduledAt: item.plannedAt
+      },
+      status: item.status,
+      capabilities: {
+        canEdit: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) && payment.paidAmount.lt(item.total),
+        canEvolve: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) && item.status !== TreatmentPlanItemStatus.COMPLETED,
+        canUnperform: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) && item.status !== TreatmentPlanItemStatus.PLANNED,
+        canCollect: payment.balance.gt(0),
+        canDelete:
+          !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) &&
+          payment.paidAmount.eq(0) &&
+          !item.budgetItems?.some((budgetItem: any) => budgetItem.budget?.status !== BudgetStatus.DRAFT)
+      }
+    };
+  }
+
+  private resolveProcedurePayment(item: {
+    total: Prisma.Decimal;
+    paymentAllocations?: Array<{ amount: Prisma.Decimal; payment?: { status?: PaymentStatus } | null }>;
+  }) {
+    const paidAmount = (item.paymentAllocations ?? []).reduce((sum, allocation) => {
+      if (allocation.payment?.status === PaymentStatus.VOIDED) return sum;
+      return sum.plus(allocation.amount);
+    }, new Prisma.Decimal(0));
+    const balance = new Prisma.Decimal(item.total).minus(paidAmount).toDecimalPlaces(2);
+    let status: "UNPAID" | "PARTIAL" | "PAID" | "CREDIT" = "UNPAID";
+    if (paidAmount.gt(item.total)) status = "CREDIT";
+    else if (paidAmount.gte(item.total)) status = "PAID";
+    else if (paidAmount.gt(0)) status = "PARTIAL";
+    return {
+      paidAmount: paidAmount.toDecimalPlaces(2),
+      balance: balance.gt(0) ? balance : new Prisma.Decimal(0),
+      status
+    };
+  }
+
   private buildItemData(
     treatmentPlanId: string,
     dto: TreatmentPlanItemBuildInput,
@@ -1195,6 +1846,27 @@ export class TreatmentPlansService {
 
   private decimal(value: number) {
     return new Prisma.Decimal(value);
+  }
+
+  private performedAmountForProgress(total: Prisma.Decimal | number | string, percentage: number) {
+    return new Prisma.Decimal(total).mul(percentage).div(100).toDecimalPlaces(2);
+  }
+
+  private resolveItemCompletionPercentage(
+    status: TreatmentPlanItemStatus,
+    currentPercentage: number,
+    requestedPercentage?: number
+  ) {
+    if (requestedPercentage !== undefined) {
+      if (![0, 25, 50, 75, 100].includes(requestedPercentage)) {
+        throw new BadRequestException("completionPercentage must be one of 0, 25, 50, 75 or 100");
+      }
+      return requestedPercentage;
+    }
+    if (status === TreatmentPlanItemStatus.COMPLETED) return 100;
+    if (status === TreatmentPlanItemStatus.IN_PROGRESS) return currentPercentage > 0 ? currentPercentage : 25;
+    if (status === TreatmentPlanItemStatus.PLANNED || status === TreatmentPlanItemStatus.ACCEPTED) return 0;
+    return currentPercentage;
   }
 
   private async resolveItemPayload(
@@ -1439,6 +2111,13 @@ export class TreatmentPlansService {
     return ToothProcedureStatus.PLANNED;
   }
 
+  private mapItemProgressToToothProcedureStatus(status: TreatmentPlanItemStatus, completionPercentage?: number) {
+    if (status === TreatmentPlanItemStatus.CANCELLED) return ToothProcedureStatus.CANCELLED;
+    if (completionPercentage === 100 || status === TreatmentPlanItemStatus.COMPLETED) return ToothProcedureStatus.COMPLETED;
+    if ((completionPercentage ?? 0) > 0 || status === TreatmentPlanItemStatus.IN_PROGRESS) return ToothProcedureStatus.IN_PROGRESS;
+    return this.mapItemStatusToToothProcedureStatus(status);
+  }
+
   private async syncTreatmentItemOdontogram(
     tx: Prisma.TransactionClient,
     plan: { id: string; patientId: string; professionalId: string },
@@ -1532,8 +2211,12 @@ export class TreatmentPlansService {
     });
   }
 
-  private async syncTreatmentItemProcedureStatus(itemId: string, itemStatus: TreatmentPlanItemStatus) {
-    const status = this.mapItemStatusToToothProcedureStatus(itemStatus);
+  private async syncTreatmentItemProcedureStatus(
+    itemId: string,
+    itemStatus: TreatmentPlanItemStatus,
+    completionPercentage?: number
+  ) {
+    const status = this.mapItemProgressToToothProcedureStatus(itemStatus, completionPercentage);
     const current = await this.prisma.toothProcedure.findUnique({
       where: { treatmentPlanItemId: itemId },
       select: { id: true, odontogramRecordId: true, completedAt: true }
@@ -1562,6 +2245,299 @@ export class TreatmentPlansService {
     }
   }
 
+  private canViewPrivateEvolutions(actor: AuthUser) {
+    return (
+      actor.permissions.includes("system.manage_all") ||
+      actor.permissions.includes("orthodontics.private_evolutions.view")
+    );
+  }
+
+  private orthodonticEvolutionInclude() {
+    return {
+      fields: { orderBy: { sortOrder: "asc" as const } },
+      materials: {
+        include: { inventoryItem: { select: { id: true, name: true, unit: true } } }
+      },
+      professional: { select: { id: true, firstName: true, lastName: true } },
+      createdBy: { select: { id: true, firstName: true, lastName: true } }
+    };
+  }
+
+  private mapOrthodonticSummary(plan: any, canViewPrivate: boolean) {
+    const profile = plan.orthodonticProfile;
+    const evolutions = plan.clinicalEvolutions ?? [];
+    const now = new Date();
+    const calendar = this.resolveOrthodonticCalendar(plan, now);
+    const hygieneSeries = evolutions
+      .map((evolution: any) => {
+        const score = this.fieldInt(evolution, "higiene");
+        if (!score || score < 1 || score > 7) return null;
+        return {
+          evolutionId: evolution.id,
+          date: evolution.createdAt,
+          score,
+          professionalName: this.professionalName(evolution.professional),
+          comment: this.plainEvolutionComment(evolution)
+        };
+      })
+      .filter(Boolean)
+      .reverse();
+    const hygieneScores = hygieneSeries.map((item: any) => item.score);
+    const latestHygiene = hygieneSeries[hygieneSeries.length - 1] ?? null;
+    const latestEvolution = evolutions[0] ? this.mapOrthodonticEvolution(evolutions[0]) : null;
+    const completedControls = evolutions.length;
+    const plannedControls = profile?.estimatedControls ?? profile?.estimatedMonths ?? 0;
+    const realPercentage = plannedControls ? Math.min(100, (completedControls / plannedControls) * 100) : 0;
+
+    return {
+      plan: {
+        id: plan.id,
+        patientId: plan.patientId,
+        name: plan.name,
+        status: calendar.status,
+        rawStatus: plan.status,
+        startedAt: profile?.startDate ?? null,
+        completedAt: plan.completedAt,
+        plannedDurationMonths: profile?.estimatedMonths ?? null,
+        professional: {
+          id: plan.professional.id,
+          name: this.professionalName(plan.professional)
+        },
+        branch: plan.branch
+      },
+      calendarProgress: calendar,
+      realProgress: {
+        percentage: realPercentage,
+        completedControls,
+        plannedControls,
+        status: this.resolveRealProgressStatus(realPercentage, calendar.percentage, plannedControls),
+        label: this.resolveRealProgressLabel(realPercentage, calendar.percentage, plannedControls),
+        calculationMethod: plannedControls ? "COMPLETED_CONTROLS" : "INSUFFICIENT_PLANNING"
+      },
+      planning: {
+        plannedMonths: profile?.estimatedMonths ?? null,
+        plannedControls: plannedControls || null,
+        completedControls
+      },
+      currentClinicalState: this.resolveLatestOrthodonticClinicalState(evolutions),
+      hygiene: {
+        latestScore: latestHygiene?.score ?? null,
+        maximumScore: 7,
+        latestRecordedAt: latestHygiene?.date ?? null,
+        average: hygieneScores.length
+          ? Number((hygieneScores.reduce((sum: number, score: number) => sum + score, 0) / hygieneScores.length).toFixed(2))
+          : null,
+        trend: this.resolveHygieneTrend(hygieneScores),
+        series: hygieneSeries
+      },
+      latestEvolution,
+      recentEvolutions: evolutions.slice(0, 5).map((evolution: any) => this.mapOrthodonticEvolution(evolution)),
+      capabilities: {
+        canStart: !profile?.startDate && !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status),
+        canPause: Boolean(profile?.startDate) && calendar.status === "ACTIVE",
+        canResume: calendar.status === "PAUSED",
+        canComplete: Boolean(profile?.startDate) && !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status),
+        canEdit: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status),
+        canCreateEvolution: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status),
+        canViewPrivateEvolutions: canViewPrivate
+      }
+    };
+  }
+
+  private resolveOrthodonticCalendar(plan: any, now: Date) {
+    const profile = plan.orthodonticProfile;
+    const startDate = profile?.startDate ?? null;
+    const activePause = (plan.pauses ?? []).find((pause: any) => !pause.endDate);
+    const estimatedMonths = profile?.estimatedMonths ?? null;
+
+    if (!startDate) {
+      return {
+        percentage: 0,
+        status: "NOT_STARTED",
+        label: "Sin iniciar",
+        startedAt: null,
+        estimatedEndAt: null,
+        activeDays: 0,
+        pausedDays: 0,
+        pauseStartDate: null
+      };
+    }
+
+    let pausedDays = 0;
+    for (const pause of plan.pauses ?? []) {
+      const pauseEnd = pause.endDate ?? now;
+      pausedDays += Math.max(0, Math.floor((pauseEnd.getTime() - pause.startDate.getTime()) / 86400000));
+    }
+    const activeDays = Math.max(0, Math.floor((now.getTime() - startDate.getTime()) / 86400000) - pausedDays);
+    const totalPlannedDays = estimatedMonths ? estimatedMonths * 30.436875 : 0;
+    const percentage = totalPlannedDays ? Math.min(100, (activeDays / totalPlannedDays) * 100) : 0;
+    const estimatedEndAt = estimatedMonths ? new Date(startDate) : null;
+    if (estimatedEndAt) estimatedEndAt.setMonth(estimatedEndAt.getMonth() + estimatedMonths);
+
+    return {
+      percentage,
+      status:
+        plan.status === TreatmentPlanStatus.COMPLETED
+          ? "COMPLETED"
+          : activePause
+            ? "PAUSED"
+            : "ACTIVE",
+      label: activePause ? "Calendario detenido" : "Calendario corriendo",
+      startedAt: startDate,
+      estimatedEndAt,
+      activeDays,
+      pausedDays,
+      pauseStartDate: activePause?.startDate ?? null
+    };
+  }
+
+  private resolveLatestOrthodonticClinicalState(evolutions: any[]) {
+    const source = (label: string) => this.latestFieldSource(evolutions, label);
+    return {
+      upperArchMaterial: source("arco superior material"),
+      upperArchSize: source("arco superior tamano"),
+      lowerArchMaterial: source("arco inferior material"),
+      lowerArchSize: source("arco inferior tamano"),
+      upperAligner: source("alineador superior"),
+      lowerAligner: source("alineador inferior"),
+      elasticType: source("tipo de elasticos"),
+      elasticConfiguration: source("configuracion elasticos"),
+      nextControl: source("proximo control"),
+      alert: source("alerta"),
+      nextSessionInstructions: source("indicaciones proxima sesion"),
+      radiographicControl: source("control radiografico"),
+      intraoralPhotos: source("fotografias intraorales"),
+      extraoralPhotos: source("fotografias extraorales")
+    };
+  }
+
+  private latestFieldSource(evolutions: any[], label: string) {
+    for (const evolution of evolutions) {
+      const field = this.findEvolutionField(evolution, label);
+      if (field?.value?.trim()) {
+        return {
+          value: field.value,
+          recordedAt: evolution.createdAt,
+          evolutionId: evolution.id,
+          professionalName: this.professionalName(evolution.professional)
+        };
+      }
+    }
+    return null;
+  }
+
+  private mapOrthodonticEvolution(evolution: any) {
+    return {
+      id: evolution.id,
+      recordedAt: evolution.createdAt,
+      professional: {
+        id: evolution.professional?.id,
+        name: this.professionalName(evolution.professional)
+      },
+      comment: this.plainEvolutionComment(evolution),
+      isPrivate: evolution.isPrivate,
+      orthodonticControl: {
+        radiographicControl: this.fieldBoolean(evolution, "control radiografico"),
+        intraoralPhotos: this.fieldBoolean(evolution, "fotografias intraorales"),
+        extraoralPhotos: this.fieldBoolean(evolution, "fotografias extraorales"),
+        upperArchMaterial: this.fieldValue(evolution, "arco superior material"),
+        upperArchSize: this.fieldValue(evolution, "arco superior tamano"),
+        lowerArchMaterial: this.fieldValue(evolution, "arco inferior material"),
+        lowerArchSize: this.fieldValue(evolution, "arco inferior tamano"),
+        upperAligner: this.fieldValue(evolution, "alineador superior"),
+        lowerAligner: this.fieldValue(evolution, "alineador inferior"),
+        elasticType: this.fieldValue(evolution, "tipo de elasticos"),
+        elasticConfiguration: this.fieldValue(evolution, "configuracion elasticos"),
+        nextControl: this.fieldValue(evolution, "proximo control"),
+        alert: this.fieldValue(evolution, "alerta"),
+        nextSessionInstructions: this.fieldValue(evolution, "indicaciones proxima sesion"),
+        hygieneScore: this.fieldInt(evolution, "higiene")
+      },
+      materials: (evolution.materials ?? []).map((material: any) => ({
+        productId: material.inventoryItemId,
+        name: material.nameSnapshot || material.inventoryItem?.name || "Material clinico",
+        quantity: Number(material.quantity),
+        unit: material.unitSnapshot || material.inventoryItem?.unit || null
+      })),
+      createdBy: evolution.createdBy
+        ? { id: evolution.createdBy.id, name: this.userName(evolution.createdBy) }
+        : null
+    };
+  }
+
+  private findEvolutionField(evolution: any, label: string) {
+    const target = this.normalizeClinicalFieldLabel(label);
+    return (evolution.fields ?? []).find((field: any) => this.normalizeClinicalFieldLabel(field.label).includes(target));
+  }
+
+  private fieldValue(evolution: any, label: string) {
+    return this.findEvolutionField(evolution, label)?.value || null;
+  }
+
+  private fieldBoolean(evolution: any, label: string) {
+    const value = this.fieldValue(evolution, label);
+    if (!value) return false;
+    return ["si", "sí", "true", "1"].includes(this.normalizeClinicalFieldLabel(value));
+  }
+
+  private fieldInt(evolution: any, label: string) {
+    const value = this.fieldValue(evolution, label);
+    if (!value) return null;
+    const parsed = Number.parseInt(value, 10);
+    return Number.isInteger(parsed) ? parsed : null;
+  }
+
+  private resolveHygieneTrend(scores: number[]) {
+    if (scores.length < 2) return "INSUFFICIENT_DATA";
+    const first = scores[0];
+    const last = scores[scores.length - 1];
+    if (last > first) return "IMPROVING";
+    if (last < first) return "DECLINING";
+    return "STABLE";
+  }
+
+  private resolveRealProgressStatus(realProgress: number, calendarProgress: number, plannedControls: number) {
+    if (!plannedControls) return "INSUFFICIENT_PLANNING";
+    if (realProgress === 0) return "NO_ACTIVITY";
+    if (realProgress > calendarProgress + 15) return "AHEAD";
+    if (realProgress < calendarProgress - 15) return "DELAYED";
+    return "ON_TRACK";
+  }
+
+  private resolveRealProgressLabel(realProgress: number, calendarProgress: number, plannedControls: number) {
+    const status = this.resolveRealProgressStatus(realProgress, calendarProgress, plannedControls);
+    if (status === "INSUFFICIENT_PLANNING") return "Sin planificacion suficiente";
+    if (status === "NO_ACTIVITY") return "Sin actividad";
+    if (status === "AHEAD") return "Adelantado";
+    if (status === "DELAYED") return "Atrasado";
+    return "Evolucion al dia";
+  }
+
+  private plainEvolutionComment(evolution: any) {
+    return [evolution.notes, evolution.assessment, evolution.objective, evolution.plan, evolution.subjective]
+      .filter(Boolean)
+      .join(" ")
+      .replace(/<[^>]+>/g, "")
+      .trim();
+  }
+
+  private professionalName(professional?: { firstName?: string | null; lastName?: string | null } | null) {
+    return [professional?.firstName, professional?.lastName].filter(Boolean).join(" ") || "Sin profesional";
+  }
+
+  private userName(user?: { firstName?: string | null; lastName?: string | null } | null) {
+    return [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Usuario";
+  }
+
+  private normalizeClinicalFieldLabel(value: string) {
+    return value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-zA-Z0-9]+/g, " ")
+      .toLowerCase()
+      .trim();
+  }
+
   private async ensureTreatmentPlan(actor: AuthUser, treatmentPlanId: string) {
     const row = await this.prisma.treatmentPlan.findFirst({
       where: { id: treatmentPlanId, organizationId: actor.organizationId, branchId: branchScope(actor) },
@@ -1581,6 +2557,60 @@ export class TreatmentPlansService {
       throw new BadRequestException("Orthodontic data can only be updated on orthodontic treatment plans");
     }
     return row;
+  }
+
+  private withTreatmentPlanDerivedState<
+    T extends {
+      status: TreatmentPlanStatus;
+      items?: Array<{ status: TreatmentPlanItemStatus; completionPercentage?: number | null }>;
+      kind: TreatmentPlanKind;
+      orthodonticProfile?: {
+        startDate: Date | null;
+        estimatedMonths: number | null;
+        estimatedControls: number | null;
+      } | null;
+      clinicalEvolutions?: Array<{
+        id: string;
+        createdAt: Date;
+        notes: string | null;
+        objective: string | null;
+        assessment: string | null;
+        plan: string | null;
+      }>;
+      pauses?: Array<{ startDate: Date; endDate: Date | null }>;
+    }
+  >(plan: T, extra: Record<string, unknown> = {}) {
+    const clinicalProgress = calculateTreatmentPlanClinicalProgress(plan.items ?? []);
+    return {
+      ...plan,
+      ...extra,
+      clinicalProgress,
+      clinicalStatus: resolveTreatmentPlanClinicalStatus(plan.status, clinicalProgress),
+      orthodonticSummary: this.buildOrthodonticSummary(plan)
+    };
+  }
+
+  private async syncTreatmentPlanStatusFromItems(tx: Prisma.TransactionClient, treatmentPlanId: string) {
+    const plan = await tx.treatmentPlan.findUnique({
+      where: { id: treatmentPlanId },
+      select: { status: true }
+    });
+    if (!plan) return null;
+
+    const items = await tx.treatmentPlanItem.findMany({
+      where: { treatmentPlanId },
+      select: { status: true, completionPercentage: true }
+    });
+    const clinicalProgress = calculateTreatmentPlanClinicalProgress(items);
+    const nextStatus = resolveTreatmentPlanStatusFromClinicalProgress(plan.status, clinicalProgress);
+    if (nextStatus !== plan.status) {
+      await tx.treatmentPlan.update({
+        where: { id: treatmentPlanId },
+        data: { status: nextStatus }
+      });
+    }
+
+    return { clinicalProgress, previousStatus: plan.status, status: nextStatus };
   }
 
   private buildOrthodonticSummary(plan: {

@@ -227,7 +227,12 @@ export class AppointmentsService {
   async dispatchEmailNotification(appointmentId: string, type: "SCHEDULED" | "CONFIRMATION") {
     const appointment = await this.prisma.appointment.findUnique({
       where: { id: appointmentId },
-      include: { patient: true, professional: true, branch: true }
+      include: {
+        patient: true,
+        professional: true,
+        organization: true,
+        branch: { include: { brand: true } }
+      }
     });
     
     if (!appointment) {
@@ -242,16 +247,41 @@ export class AppointmentsService {
     }
 
     const tz = appointment.branch.timezone || "America/Mexico_City";
+    const organization = appointment.organization;
+    const branchBrand = appointment.branch.brand;
     const data: AppointmentEmailData = {
       patientName: `${appointment.patient.firstName} ${appointment.patient.lastName}`.trim(),
       professionalName: `${appointment.professional.firstName} ${appointment.professional.lastName}`.trim(),
       dateStr: new Intl.DateTimeFormat("es-MX", { month: "long", day: "numeric", timeZone: tz }).format(appointment.startAt),
+
       timeStr: new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }).format(appointment.startAt) + " hrs",
       address: [appointment.branch.address, appointment.branch.city, appointment.branch.state].filter(Boolean).join(", "),
-      clinicPhone: appointment.branch.phone || "+525555555555"
+      clinicPhone: appointment.branch.phone || branchBrand?.phone || organization?.phone || "+525555555555",
+      brandName: branchBrand?.name || organization?.name || "Dental+",
+      logoUrl: branchBrand?.logoUrl || organization?.logoUrl || undefined,
+      primaryColor: branchBrand?.primaryColor || undefined,
+      replyToEmail:
+        appointment.branch.replyToEmail ||
+        appointment.branch.email ||
+        branchBrand?.replyToEmail ||
+        branchBrand?.senderEmail ||
+        organization?.email ||
+        undefined
     };
 
     if (type === "SCHEDULED") {
+      const secret = this.configService.get<string>("JWT_ACCESS_SECRET") || "secret";
+      const frontendUrl = this.resolveConfirmationFrontendUrl();
+      const expSeconds = Math.floor(appointment.startAt.getTime() / 1000) - Math.floor(Date.now() / 1000);
+      
+      if (expSeconds > 0) {
+        const token = this.jwtService.sign(
+          { sub: appointment.id, purpose: "PATIENT_PROFILE_UPDATE" }, 
+          { secret, expiresIn: expSeconds }
+        );
+        data.completeProfileUrl = this.buildCompleteProfileUrl(frontendUrl, appointment.id, token);
+      }
+
       await this.emailService.sendAppointmentScheduled(patientEmail, data);
     } else if (type === "CONFIRMATION") {
       const secret = this.configService.get<string>("JWT_ACCESS_SECRET") || "secret";
@@ -284,6 +314,13 @@ export class AppointmentsService {
 
   private buildConfirmationUrl(frontendUrl: URL, appointmentId: string, token: string) {
     const url = new URL("/confirm-appointment", frontendUrl);
+    url.searchParams.set("id", appointmentId);
+    url.searchParams.set("token", token);
+    return url.toString();
+  }
+
+  private buildCompleteProfileUrl(frontendUrl: URL, appointmentId: string, token: string) {
+    const url = new URL("/complete-patient-profile", frontendUrl);
     url.searchParams.set("id", appointmentId);
     url.searchParams.set("token", token);
     return url.toString();

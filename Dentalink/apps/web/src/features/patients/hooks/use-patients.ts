@@ -8,15 +8,19 @@ import {
   createPatientTask,
   deactivatePatient,
   getPatient,
+  getPatientEmail,
   getPatientsAnalysis,
   getPatientTimeline,
+  listPatientEmails,
   listPatientTasks,
   listPatients,
   mergePatients,
   searchPatients,
+  sendPatientEmail,
   updatePatient,
   updatePatientTask,
   type PatientAnalysisQuery,
+  type PatientEmailsQuery,
   type PatientMedicalAlertInput,
   type PatientPayload,
   type PatientTaskPayload,
@@ -71,6 +75,43 @@ export function usePatientTasks(id?: string, includeCompleted = false) {
     queryKey: ["patients", "tasks", id, includeCompleted],
     queryFn: () => listPatientTasks(id as string, includeCompleted),
     enabled: Boolean(id)
+  });
+}
+
+export function usePatientEmails(id?: string, params?: PatientEmailsQuery) {
+  return useQuery({
+    queryKey: ["patients", "emails", id, params],
+    queryFn: () => listPatientEmails(id as string, params),
+    enabled: Boolean(id)
+  });
+}
+
+export function usePatientEmail(id?: string, emailId?: string) {
+  return useQuery({
+    queryKey: ["patients", "emails", id, emailId],
+    queryFn: () => getPatientEmail(id as string, emailId as string),
+    enabled: Boolean(id && emailId)
+  });
+}
+
+export function useSendPatientEmail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload,
+      idempotencyKey
+    }: {
+      id: string;
+      payload: Parameters<typeof sendPatientEmail>[1];
+      idempotencyKey: string;
+    }) => sendPatientEmail(id, payload, idempotencyKey),
+    onSuccess: (_, variables) => {
+      toast.success("Correo enviado correctamente");
+      queryClient.invalidateQueries({ queryKey: ["patients", "emails", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["patients", "detail", variables.id] });
+    },
+    onError: (error: Error) => toast.error(error.message)
   });
 }
 

@@ -109,6 +109,12 @@ export function useClinicalMutations(patientId: string) {
     queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "odontogram-history"] });
     queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "documents"] });
     queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "templates"] });
+    queryClient.invalidateQueries({ queryKey: ["treatment-plans"] });
+    queryClient.invalidateQueries({ queryKey: ["treatment-plan"] });
+    queryClient.invalidateQueries({ queryKey: ["budgets"] });
+    queryClient.invalidateQueries({ queryKey: ["patient-payments"] });
+    queryClient.invalidateQueries({ queryKey: ["orthodontic-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["orthodontic-evolutions"] });
     queryClient.invalidateQueries({ queryKey: ["settings", "clinical-document-templates"] });
   };
   const options = { onSuccess: invalidate, onError: (error: Error) => toast.error(error.message) };
@@ -190,13 +196,17 @@ export function useClinicalMutations(patientId: string) {
         toothProcedureId,
         status,
         notes,
+        completionPercentage,
+        expectedVersion,
         createClinicalEvolution
       }: {
         toothProcedureId: string;
         status: ToothProcedureStatus;
         notes?: string;
+        completionPercentage?: number;
+        expectedVersion?: number;
         createClinicalEvolution?: boolean;
-      }) => updateToothProcedureStatus(patientId, toothProcedureId, { status, notes, createClinicalEvolution }),
+      }) => updateToothProcedureStatus(patientId, toothProcedureId, { status, notes, completionPercentage, expectedVersion, createClinicalEvolution }),
       ...options
     }),
     createPeriodontalChart: useMutation({

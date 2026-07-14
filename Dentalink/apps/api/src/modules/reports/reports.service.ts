@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   AppointmentStatus,
   CashMovementType,
@@ -8,29 +8,94 @@ import {
   PaymentStatus,
   Prisma,
   TreatmentPlanItemStatus,
-  TreatmentPlanStatus
+  TreatmentPlanStatus,
+  UserStatus
 } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
-import { assertBranchAccess } from "../../common/utils/branch-scope.util";
+import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
   BaseReportQueryDto,
+  CreateExcelReportRequestDto,
+  ExcelReportDefinition,
   ProfessionalsReportQueryDto,
   ReportExportFormat,
+  ReportParameterDefinition,
   ReportResponse
 } from "./dto/reports.dto";
+import { excelReportDefinitions } from "./reports-catalog";
 
 type ResolvedFilters = {
   start: Date;
   end: Date;
   branchId?: string;
+  branchWhere: string | { in: string[] };
   format: ReportExportFormat;
 };
 
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  getExcelCatalog(actor?: AuthUser) {
+    return excelReportDefinitions
+      .filter((definition) => !actor || this.hasPermission(actor, definition.permission))
+      .map((definition) => this.serializeExcelDefinition(definition));
+  }
+
+  async createExcelRequest(actor: AuthUser, dto: CreateExcelReportRequestDto) {
+    const startedAt = new Date();
+    const definition = this.resolveExcelDefinition(dto);
+    this.assertCanRequestReport(actor, definition);
+    const format = this.resolveExcelFormat(dto, definition);
+    const parameters = this.normalizeReportParameters(definition, dto);
+    const query = {
+      ...dto,
+      ...parameters,
+      parameters,
+      format
+    };
+    let response: ReportResponse<unknown>;
+
+    if (definition.handler === "appointments") response = await this.getAppointmentsReport(actor, query);
+    else if (definition.handler === "patients") response = await this.getPatientsReport(actor, query);
+    else if (definition.handler === "treatments") response = await this.getTreatmentsReport(actor, query);
+    else if (definition.handler === "financial") response = await this.getFinancialReport(actor, query);
+    else if (definition.handler === "professionals") response = await this.getProfessionalsReport(actor, query);
+    else if (definition.handler === "users-list") response = await this.getUsersListReport(actor, query);
+    else if (definition.handler === "appointments-patients") response = await this.getAppointmentsPatientsReport(actor, query);
+    else if (definition.handler === "patient-payments") response = await this.getPatientPaymentsReport(actor, query);
+    else if (definition.handler === "dentist-contracts") response = await this.getDentistContractsReport(actor, query);
+    else throw new BadRequestException("El generador del reporte no esta implementado");
+
+    const completedAt = new Date();
+    const fileSize = response.export ? Buffer.byteLength(response.export.base64, "base64") : null;
+    const legacyType = this.legacyTypeForDefinition(definition);
+
+    return {
+      id: `sync-${startedAt.getTime()}`,
+      type: legacyType,
+      reportCode: definition.code,
+      reportName: definition.name,
+      category: definition.category,
+      format,
+      status: response.export ? "COMPLETED" : "FAILED",
+      requestedBy: actor.id,
+      requestedAt: startedAt.toISOString(),
+      startedAt: startedAt.toISOString(),
+      completedAt: completedAt.toISOString(),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      parameters,
+      filters: response.filters,
+      file: response.export ?? null,
+      fileName: response.export?.fileName ?? null,
+      mimeType: response.export?.mimeType ?? null,
+      fileSize,
+      rowCount: this.estimateRowCount(response.data),
+      errorMessage: response.export ? null : "No se pudo generar el archivo"
+    };
+  }
 
   async getDashboard(actor: AuthUser, query: BaseReportQueryDto): Promise<ReportResponse<unknown>> {
     const filters = await this.resolveFilters(actor, query);
@@ -50,7 +115,7 @@ export class ReportsService {
     const where: Prisma.AppointmentWhereInput = {
       organizationId: actor.organizationId,
       startAt: { gte: filters.start, lt: filters.end },
-      ...(filters.branchId ? { branchId: filters.branchId } : {})
+      branchId: filters.branchWhere
     };
 
     const rows = await this.prisma.appointment.findMany({
@@ -129,7 +194,7 @@ export class ReportsService {
     const baseWhere: Prisma.PatientWhereInput = {
       organizationId: actor.organizationId,
       deletedAt: null,
-      ...(filters.branchId ? { branchId: filters.branchId } : {})
+      branchId: filters.branchWhere
     };
 
     const [newPatients, activePatients, withoutFutureAppointment, bySource, newRows] = await Promise.all([
@@ -199,7 +264,7 @@ export class ReportsService {
     const baseWhere: Prisma.TreatmentPlanWhereInput = {
       organizationId: actor.organizationId,
       isAlternative: false,
-      ...(filters.branchId ? { branchId: filters.branchId } : {})
+      branchId: filters.branchWhere
     };
 
     const [plansCreated, plansAccepted, inProgress, completed, planRows] = await Promise.all([
@@ -267,7 +332,7 @@ export class ReportsService {
       organizationId: actor.organizationId,
       paidAt: { gte: filters.start, lt: filters.end },
       status: { not: PaymentStatus.REFUNDED },
-      ...(filters.branchId ? { branchId: filters.branchId } : {})
+      branchId: filters.branchWhere
     };
 
     const payments = await this.prisma.payment.findMany({
@@ -288,8 +353,8 @@ export class ReportsService {
       const dayKey = this.dateKey(payment.paidAt);
       incomeByDayMap.set(dayKey, (incomeByDayMap.get(dayKey) ?? 0) + amount);
 
-      const methodKey = payment.paymentMethodId;
-      const current = incomeByMethodMap.get(methodKey) ?? { method: payment.paymentMethod.name, amount: 0 };
+      const methodKey = payment.paymentMethodId || 'none';
+      const current = incomeByMethodMap.get(methodKey) ?? { method: payment.paymentMethod?.name || 'Unknown', amount: 0 };
       current.amount += amount;
       incomeByMethodMap.set(methodKey, current);
     }
@@ -299,14 +364,14 @@ export class ReportsService {
         _sum: { total: true },
         where: {
           status: { not: TreatmentPlanItemStatus.CANCELLED },
-          treatmentPlan: { organizationId: actor.organizationId, ...(filters.branchId ? { branchId: filters.branchId } : {}) }
+          treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
         }
       }),
       this.prisma.paymentAllocation.aggregate({
         _sum: { amount: true },
         where: {
           treatmentPlanItem: {
-            treatmentPlan: { organizationId: actor.organizationId, ...(filters.branchId ? { branchId: filters.branchId } : {}) }
+            treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
           }
         }
       }),
@@ -314,7 +379,7 @@ export class ReportsService {
         where: {
           dueDate: { lt: new Date() },
           status: { notIn: [InstallmentStatus.PAID, InstallmentStatus.CANCELLED] },
-          patient: { organizationId: actor.organizationId, ...(filters.branchId ? { branchId: filters.branchId } : {}) }
+          patient: { organizationId: actor.organizationId, branchId: filters.branchWhere }
         },
         select: { amount: true, paidAmount: true }
       }),
@@ -323,7 +388,7 @@ export class ReportsService {
           createdAt: { gte: filters.start, lt: filters.end },
           cashRegister: {
             organizationId: actor.organizationId,
-            ...(filters.branchId ? { branchId: filters.branchId } : {})
+            branchId: filters.branchWhere
           }
         },
         select: {
@@ -336,7 +401,7 @@ export class ReportsService {
         where: {
           status: TreatmentPlanItemStatus.COMPLETED,
           completedAt: { gte: filters.start, lt: filters.end },
-          treatmentPlan: { organizationId: actor.organizationId, ...(filters.branchId ? { branchId: filters.branchId } : {}) }
+          treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
         },
         select: {
           total: true,
@@ -437,7 +502,7 @@ export class ReportsService {
           organizationId: actor.organizationId,
           professionalId: { in: professionalIds },
           startAt: { gte: filters.start, lt: filters.end },
-          ...(filters.branchId ? { branchId: filters.branchId } : {})
+          branchId: filters.branchWhere
         },
         select: { professionalId: true, status: true, durationMinutes: true }
       }),
@@ -448,7 +513,7 @@ export class ReportsService {
           treatmentPlan: {
             professionalId: { in: professionalIds },
             organizationId: actor.organizationId,
-            ...(filters.branchId ? { branchId: filters.branchId } : {})
+            branchId: filters.branchWhere
           }
         },
         select: { total: true, treatmentPlan: { select: { professionalId: true } } }
@@ -457,13 +522,9 @@ export class ReportsService {
         where: {
           organizationId: actor.organizationId,
           professionalId: { in: professionalIds },
-          ...(filters.branchId
-            ? {
-                treatmentPlan: {
-                  branchId: filters.branchId
-                }
-              }
-            : {})
+          treatmentPlan: {
+            branchId: filters.branchWhere
+          }
         },
         select: { professionalId: true, status: true }
       })
@@ -535,11 +596,351 @@ export class ReportsService {
     return this.withExport(response, "professionals-report", rows, filters.format);
   }
 
+  private async getUsersListReport(actor: AuthUser, query: BaseReportQueryDto & { status?: string }): Promise<ReportResponse<unknown>> {
+    const status = query.status ?? "ALL";
+    const where: Prisma.UserWhereInput = {
+      organizationId: actor.organizationId,
+      deletedAt: null
+    };
+
+    if (status === "ENABLED") {
+      where.status = UserStatus.ACTIVE;
+      where.isActive = true;
+    } else if (status === "DISABLED") {
+      where.OR = [{ status: { in: [UserStatus.INACTIVE, UserStatus.LOCKED] } }, { isActive: false }];
+    }
+
+    const rows = await this.prisma.user.findMany({
+      where,
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        phone: true,
+        status: true,
+        isActive: true,
+        role: { select: { name: true } },
+        branches: { select: { branch: { select: { name: true } } } },
+        lastLoginAt: true,
+        createdAt: true
+      },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }]
+    });
+
+    const exportRows = rows.map((row) => ({
+      id: row.id,
+      nombre: `${row.firstName} ${row.lastName}`,
+      email: row.email,
+      telefono: row.phone ?? "",
+      estado: row.status,
+      activo: row.isActive,
+      rol: row.role?.name ?? "",
+      sucursales: row.branches.map((item) => item.branch.name).join(", "),
+      ultimoIngreso: row.lastLoginAt,
+      creado: row.createdAt
+    }));
+
+    const filters: ResolvedFilters = {
+      start: new Date(0),
+      end: new Date(),
+      branchWhere: branchScope(actor),
+      format: query.format ?? ReportExportFormat.XLSX
+    };
+    const response = this.wrapResponse(filters, { rows: exportRows });
+    return this.withExport(response, "users-list", exportRows, filters.format);
+  }
+
+  private async getAppointmentsPatientsReport(
+    actor: AuthUser,
+    query: BaseReportQueryDto & { professionalId?: string; statuses?: string[] }
+  ): Promise<ReportResponse<unknown>> {
+    const filters = await this.resolveFilters(actor, query);
+    const statuses = Array.isArray(query.statuses) ? query.statuses.filter((status) => Object.values(AppointmentStatus).includes(status as AppointmentStatus)) : [];
+    const where: Prisma.AppointmentWhereInput = {
+      organizationId: actor.organizationId,
+      branchId: filters.branchWhere,
+      startAt: { gte: filters.start, lt: filters.end },
+      patientId: { not: null },
+      ...(query.professionalId ? { professionalId: query.professionalId } : {}),
+      ...(statuses.length ? { status: { in: statuses as AppointmentStatus[] } } : {})
+    };
+
+    const rows = await this.prisma.appointment.findMany({
+      where,
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        reason: true,
+        startAt: true,
+        endAt: true,
+        durationMinutes: true,
+        branch: { select: { name: true } },
+        patient: { select: { firstName: true, lastName: true, email: true, phone: true } },
+        professional: { select: { firstName: true, lastName: true } },
+        treatmentPlanId: true
+      },
+      orderBy: { startAt: "asc" }
+    });
+
+    const exportRows = rows.map((row) => ({
+      id: row.id,
+      sucursal: row.branch.name,
+      paciente: row.patient ? `${row.patient.firstName} ${row.patient.lastName}` : "",
+      emailPaciente: row.patient?.email ?? "",
+      telefonoPaciente: row.patient?.phone ?? "",
+      profesional: `${row.professional.firstName} ${row.professional.lastName}`,
+      titulo: row.title,
+      motivo: row.reason ?? "",
+      estado: row.status,
+      fechaInicio: row.startAt,
+      fechaFin: row.endAt,
+      minutos: row.durationMinutes,
+      tipo: row.treatmentPlanId ? "TRATAMIENTO" : "DIAGNOSTICO"
+    }));
+
+    const response = this.wrapResponse(filters, { rows: exportRows });
+    return this.withExport(response, "appointments-patients", exportRows, filters.format);
+  }
+
+  private async getPatientPaymentsReport(
+    actor: AuthUser,
+    query: BaseReportQueryDto & { paymentMethodId?: string; cashRegisterId?: string; status?: string }
+  ): Promise<ReportResponse<unknown>> {
+    const filters = await this.resolveFilters(actor, query);
+    const status = query.status && query.status !== "ALL" ? query.status : undefined;
+    const where: Prisma.PaymentWhereInput = {
+      organizationId: actor.organizationId,
+      branchId: filters.branchWhere,
+      paidAt: { gte: filters.start, lt: filters.end },
+      ...(query.paymentMethodId ? { paymentMethodId: query.paymentMethodId } : {}),
+      ...(status && Object.values(PaymentStatus).includes(status as PaymentStatus) ? { status: status as PaymentStatus } : {}),
+      ...(query.cashRegisterId ? { cashMovements: { some: { cashRegisterId: query.cashRegisterId } } } : {})
+    };
+
+    const rows = await this.prisma.payment.findMany({
+      where,
+      select: {
+        id: true,
+        amount: true,
+        currency: true,
+        status: true,
+        reference: true,
+        paidAt: true,
+        branch: { select: { name: true } },
+        patient: { select: { firstName: true, lastName: true, email: true } },
+        paymentMethod: { select: { name: true } },
+        receivedBy: { select: { firstName: true, lastName: true } },
+        cashMovements: { select: { cashRegisterId: true } }
+      },
+      orderBy: { paidAt: "desc" }
+    });
+
+    const exportRows = rows.map((row) => ({
+      id: row.id,
+      sucursal: row.branch.name,
+      paciente: `${row.patient.firstName} ${row.patient.lastName}`,
+      emailPaciente: row.patient.email ?? "",
+      monto: Number(row.amount),
+      moneda: row.currency,
+      metodoPago: row.paymentMethod?.name,
+      estado: row.status,
+      referencia: row.reference ?? "",
+      caja: row.cashMovements.map((movement) => movement.cashRegisterId).join(", "),
+      recibidoPor: `${row.receivedBy.firstName} ${row.receivedBy.lastName}`,
+      pagadoEl: row.paidAt
+    }));
+
+    const response = this.wrapResponse(filters, { rows: exportRows });
+    return this.withExport(response, "patient-payments", exportRows, filters.format);
+  }
+
+  private async getDentistContractsReport(actor: AuthUser, query: BaseReportQueryDto): Promise<ReportResponse<unknown>> {
+    const filters = await this.resolveFilters(actor, query);
+    const rows = await this.prisma.professionalContract.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        branches: { some: { branchId: filters.branchWhere } }
+      },
+      select: {
+        id: true,
+        contractType: true,
+        commissionBase: true,
+        paymentDiscount: true,
+        paymentCondition: true,
+        commissionRate: true,
+        priceListName: true,
+        isActive: true,
+        startsAt: true,
+        endsAt: true,
+        professional: {
+          select: {
+            firstName: true,
+            lastName: true,
+            email: true,
+            licenseNumber: true,
+            specialties: { select: { specialty: { select: { name: true } } } }
+          }
+        },
+        branches: {
+          where: { branchId: filters.branchWhere },
+          select: { branch: { select: { name: true } } }
+        }
+      },
+      orderBy: [{ professional: { lastName: "asc" } }, { startsAt: "desc" }]
+    });
+
+    const exportRows = rows.map((row) => ({
+      id: row.id,
+      profesional: `${row.professional.firstName} ${row.professional.lastName}`,
+      email: row.professional.email ?? "",
+      cedula: row.professional.licenseNumber ?? "",
+      sucursales: row.branches.map((item) => item.branch.name).join(", "),
+      especialidades: row.professional.specialties.map((item) => item.specialty.name).join(", "),
+      tipoContrato: row.contractType,
+      baseComision: row.commissionBase,
+      descuentoPago: row.paymentDiscount,
+      condicionPago: row.paymentCondition,
+      porcentajeComision: Number(row.commissionRate),
+      listaPrecios: row.priceListName ?? "",
+      estado: row.isActive ? "ACTIVO" : "INACTIVO",
+      inicio: row.startsAt,
+      fin: row.endsAt
+    }));
+
+    const response = this.wrapResponse(filters, { rows: exportRows });
+    return this.withExport(response, "dentist-contracts", exportRows, filters.format);
+  }
+
+  private serializeExcelDefinition(definition: ExcelReportDefinition) {
+    const legacyType = this.legacyTypeForDefinition(definition);
+    return {
+      ...definition,
+      type: legacyType,
+      title: definition.name,
+      filters: definition.parameters.map((parameter) => parameter.key),
+      lastRunAt: null
+    };
+  }
+
+  private resolveExcelDefinition(dto: CreateExcelReportRequestDto) {
+    const legacyCodeByType: Record<string, string> = {
+      appointments: "APPOINTMENTS_SUMMARY",
+      patients: "PATIENTS_SUMMARY",
+      treatments: "TREATMENTS_SUMMARY",
+      financial: "FINANCIAL_SUMMARY",
+      professionals: "PROFESSIONALS_SUMMARY"
+    };
+    const code = dto.reportCode ?? (dto.type ? legacyCodeByType[dto.type] : undefined);
+    const definition = excelReportDefinitions.find((item) => item.code === code);
+    if (!definition) throw new NotFoundException("Reporte no encontrado");
+    return definition;
+  }
+
+  private assertCanRequestReport(actor: AuthUser, definition: ExcelReportDefinition) {
+    if (!definition.enabled) throw new BadRequestException("El generador del reporte no esta implementado");
+    if (!this.hasPermission(actor, definition.permission)) {
+      throw new ForbiddenException("No tienes permiso para solicitar este reporte");
+    }
+  }
+
+  private resolveExcelFormat(dto: CreateExcelReportRequestDto, definition: ExcelReportDefinition) {
+    const format = dto.format ?? ReportExportFormat.XLSX;
+    if (format === ReportExportFormat.JSON || !definition.supportedFormats.includes(format)) {
+      throw new BadRequestException("Formato no soportado");
+    }
+    return format;
+  }
+
+  private normalizeReportParameters(definition: ExcelReportDefinition, dto: CreateExcelReportRequestDto) {
+    const input = { ...(dto.parameters ?? {}) } as Record<string, unknown>;
+    if (dto.dateFrom && !input.dateFrom) input.dateFrom = dto.dateFrom;
+    if (dto.dateTo && !input.dateTo) input.dateTo = dto.dateTo;
+    if (dto.branchId && !input.branchId) input.branchId = dto.branchId;
+
+    const normalized: Record<string, unknown> = {};
+    for (const parameter of definition.parameters) {
+      const raw = input[parameter.key] ?? parameter.defaultValue;
+      if ((raw === undefined || raw === null || raw === "") && parameter.required) {
+        throw new BadRequestException("Selecciona los campos obligatorios.");
+      }
+      if (raw === undefined || raw === null || raw === "") continue;
+      normalized[parameter.key] = this.normalizeParameterValue(parameter, raw);
+    }
+
+    this.validateDateRange(definition, normalized);
+    return normalized;
+  }
+
+  private normalizeParameterValue(parameter: ReportParameterDefinition, raw: unknown) {
+    if (parameter.type === "multiselect" || parameter.type === "appointmentStatus") {
+      const values = Array.isArray(raw) ? raw : String(raw).split(",").filter(Boolean);
+      this.assertAllowedOption(parameter, values);
+      return values;
+    }
+    if (parameter.type === "checkbox") return raw === true || raw === "true";
+    if (parameter.type === "number") return Number(raw);
+    const value = String(raw);
+    this.assertAllowedOption(parameter, value);
+    return value;
+  }
+
+  private assertAllowedOption(parameter: ReportParameterDefinition, value: string | string[]) {
+    if (!parameter.options?.length) return;
+    const allowed = new Set(parameter.options.map((option) => option.value));
+    const values = Array.isArray(value) ? value : [value];
+    const invalid = values.some((item) => !allowed.has(item));
+    if (invalid) throw new BadRequestException(`Parametro invalido: ${parameter.label}`);
+  }
+
+  private validateDateRange(definition: ExcelReportDefinition, normalized: Record<string, unknown>) {
+    if (!normalized.dateFrom && !normalized.dateTo) return;
+    const dateFrom = normalized.dateFrom ? new Date(String(normalized.dateFrom)) : null;
+    const dateTo = normalized.dateTo ? new Date(String(normalized.dateTo)) : null;
+    if (!dateFrom || !dateTo || Number.isNaN(dateFrom.getTime()) || Number.isNaN(dateTo.getTime()) || dateFrom > dateTo) {
+      throw new BadRequestException("El rango de fechas no es valido.");
+    }
+
+    const maxRangeDays = definition.parameters.find((parameter) => parameter.key === "dateFrom" || parameter.key === "dateTo")?.maxRangeDays;
+    if (maxRangeDays) {
+      const days = Math.ceil((dateTo.getTime() - dateFrom.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+      if (days > maxRangeDays) throw new BadRequestException(`El rango maximo permitido es de ${maxRangeDays} dias.`);
+    }
+  }
+
+  private legacyTypeForDefinition(definition: ExcelReportDefinition) {
+    const legacyByCode: Record<string, string> = {
+      APPOINTMENTS_SUMMARY: "appointments",
+      PATIENTS_SUMMARY: "patients",
+      TREATMENTS_SUMMARY: "treatments",
+      FINANCIAL_SUMMARY: "financial",
+      PROFESSIONALS_SUMMARY: "professionals",
+      APPOINTMENTS_PATIENTS: "appointments",
+      PATIENT_PAYMENTS: "financial",
+      USERS_LIST: "professionals",
+      DENTIST_CONTRACTS: "professionals"
+    };
+    return legacyByCode[definition.code] ?? definition.id;
+  }
+
+  private hasPermission(actor: AuthUser, permission: string) {
+    return actor.permissions.includes(permission) || actor.permissions.includes("*");
+  }
+
+  private estimateRowCount(data: unknown) {
+    if (Array.isArray(data)) return data.length;
+    if (data && typeof data === "object" && "rows" in data && Array.isArray((data as { rows?: unknown }).rows)) {
+      return (data as { rows: unknown[] }).rows.length;
+    }
+    return null;
+  }
+
   private async getAgendaMetrics(actor: AuthUser, filters: ResolvedFilters) {
     const where: Prisma.AppointmentWhereInput = {
       organizationId: actor.organizationId,
       startAt: { gte: filters.start, lt: filters.end },
-      ...(filters.branchId ? { branchId: filters.branchId } : {})
+      branchId: filters.branchWhere
     };
 
     const appointments = await this.prisma.appointment.findMany({
@@ -575,7 +976,7 @@ export class ReportsService {
     const baseWhere: Prisma.PatientWhereInput = {
       organizationId: actor.organizationId,
       deletedAt: null,
-      ...(filters.branchId ? { branchId: filters.branchId } : {})
+      branchId: filters.branchWhere
     };
 
     const [newPatients, activePatients, withoutFutureAppointment, bySource] = await Promise.all([
@@ -611,7 +1012,7 @@ export class ReportsService {
     const baseWhere: Prisma.TreatmentPlanWhereInput = {
       organizationId: actor.organizationId,
       isAlternative: false,
-      ...(filters.branchId ? { branchId: filters.branchId } : {})
+      branchId: filters.branchWhere
     };
 
     const [plansCreated, plansAccepted, inProgress, completed] = await Promise.all([
@@ -645,7 +1046,7 @@ export class ReportsService {
           organizationId: actor.organizationId,
           paidAt: { gte: filters.start, lt: filters.end },
           status: { not: PaymentStatus.REFUNDED },
-          ...(filters.branchId ? { branchId: filters.branchId } : {})
+          branchId: filters.branchWhere
         },
         select: { amount: true }
       }),
@@ -653,14 +1054,14 @@ export class ReportsService {
         _sum: { total: true },
         where: {
           status: { not: TreatmentPlanItemStatus.CANCELLED },
-          treatmentPlan: { organizationId: actor.organizationId, ...(filters.branchId ? { branchId: filters.branchId } : {}) }
+          treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
         }
       }),
       this.prisma.paymentAllocation.aggregate({
         _sum: { amount: true },
         where: {
           treatmentPlanItem: {
-            treatmentPlan: { organizationId: actor.organizationId, ...(filters.branchId ? { branchId: filters.branchId } : {}) }
+            treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
           }
         }
       }),
@@ -668,7 +1069,7 @@ export class ReportsService {
         where: {
           dueDate: { lt: new Date() },
           status: { notIn: [InstallmentStatus.PAID, InstallmentStatus.CANCELLED] },
-          patient: { organizationId: actor.organizationId, ...(filters.branchId ? { branchId: filters.branchId } : {}) }
+          patient: { organizationId: actor.organizationId, branchId: filters.branchWhere }
         },
         select: { amount: true, paidAmount: true }
       })
@@ -689,21 +1090,21 @@ export class ReportsService {
         where: {
           status: TreatmentPlanItemStatus.COMPLETED,
           completedAt: { gte: filters.start, lt: filters.end },
-          treatmentPlan: { organizationId: actor.organizationId, ...(filters.branchId ? { branchId: filters.branchId } : {}) }
+          treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
         }
       }),
       this.prisma.labOrder.count({
         where: {
           organizationId: actor.organizationId,
           status: { in: [LabOrderStatus.REQUESTED, LabOrderStatus.SENT, LabOrderStatus.IN_PROCESS] },
-          ...(filters.branchId ? { treatmentPlan: { branchId: filters.branchId } } : {})
+          treatmentPlan: { branchId: filters.branchWhere }
         }
       }),
       this.prisma.inventoryStock.findMany({
         where: {
           organizationId: actor.organizationId,
           inventoryItem: { isActive: true },
-          ...(filters.branchId ? { warehouse: { branchId: filters.branchId } } : {})
+          warehouse: { branchId: filters.branchWhere }
         },
         select: { stock: true, minStock: true }
       }),
@@ -711,7 +1112,7 @@ export class ReportsService {
         where: {
           status: { in: [CollectionCaseStatus.PENDING, CollectionCaseStatus.CONTACTED, CollectionCaseStatus.PROMISE_TO_PAY] },
           nextContactAt: { lt: new Date() },
-          patient: { organizationId: actor.organizationId, ...(filters.branchId ? { branchId: filters.branchId } : {}) }
+          patient: { organizationId: actor.organizationId, branchId: filters.branchWhere }
         }
       })
     ]);
@@ -733,7 +1134,7 @@ export class ReportsService {
       where: {
         professional: { organizationId: actor.organizationId },
         isActive: true,
-        ...(filters.branchId ? { branchId: filters.branchId } : {}),
+        branchId: filters.branchWhere,
         professionalId: { in: rows.map((row) => row.professionalId) }
       },
       select: {
@@ -796,9 +1197,9 @@ export class ReportsService {
     const end = new Date(endInclusive);
     end.setHours(23, 59, 59, 999);
 
-    const branchId = query.branchId ?? actor.branchIds[0];
-    if (!branchId) throw new NotFoundException("Branch not found");
-    assertBranchAccess(actor, branchId);
+    if (!actor.branchIds.length) throw new NotFoundException("Branch not found");
+    const branchId = query.branchId;
+    if (branchId) assertBranchAccess(actor, branchId);
 
     if (branchId) {
       const branch = await this.prisma.branch.findFirst({
@@ -811,6 +1212,7 @@ export class ReportsService {
       start,
       end,
       branchId,
+      branchWhere: branchScope(actor, branchId),
       format: query.format ?? ReportExportFormat.JSON
     };
   }
@@ -883,7 +1285,8 @@ export class ReportsService {
   }
 
   private escapeField(value: string | number | boolean | undefined, delimiter: "," | "\t") {
-    const raw = String(value ?? "");
+    const rawValue = String(value ?? "");
+    const raw = /^[=+\-@]/.test(rawValue) ? `'${rawValue}` : rawValue;
     const needsQuote = raw.includes(delimiter) || raw.includes('"') || raw.includes("\n");
     if (!needsQuote) return raw;
     return `"${raw.replace(/"/g, '""')}"`;

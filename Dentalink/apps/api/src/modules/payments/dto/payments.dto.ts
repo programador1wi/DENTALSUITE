@@ -12,6 +12,7 @@ import {
   IsDateString,
   IsEnum,
   IsInt,
+  IsNumber,
   IsOptional,
   IsPositive,
   IsString,
@@ -21,13 +22,35 @@ import {
 } from "class-validator";
 import { PaginationQueryDto } from "../../../common/dto/pagination-query.dto";
 
+export class PaymentSplitInputDto {
+  @IsString()
+  paymentMethodId!: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'amount must be a valid number with up to 2 decimal places' })
+  @IsPositive()
+  amount!: number;
+
+  @IsOptional()
+  @IsString()
+  financialInstitutionId?: string;
+
+  @IsOptional()
+  @IsString()
+  reference?: string;
+}
+
 export class PaymentAllocationInputDto {
   @IsString()
   treatmentPlanItemId!: string;
 
-  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'amount must be a valid number with up to 2 decimal places' })
   @IsPositive()
   amount!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
 }
 
 export class CreatePaymentDto {
@@ -37,16 +60,18 @@ export class CreatePaymentDto {
   @IsString()
   patientId!: string;
 
-  @Type(() => Number)
+  @IsOptional()
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'amount must be a valid number with up to 2 decimal places' })
   @IsPositive()
-  amount!: number;
+  amount?: number;
 
   @IsOptional()
   @IsEnum(CurrencyCode)
   currency?: CurrencyCode;
 
+  @IsOptional()
   @IsString()
-  paymentMethodId!: string;
+  paymentMethodId?: string;
 
   @IsOptional()
   @IsString()
@@ -61,6 +86,16 @@ export class CreatePaymentDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  idempotencyKey?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PaymentSplitInputDto)
+  splits?: PaymentSplitInputDto[];
 
   @IsOptional()
   @IsDateString()

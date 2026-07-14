@@ -483,75 +483,25 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         }}
       />
 
-      {view !== "day" && (
-        <Card className="relative z-20">
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <div className="flex items-center gap-1.5 w-full">
-              <BranchFilter value={activeBranchId} branches={assignedBranches} onChange={setActiveBranchId} />
-              <HelpTooltip content="Filtra la agenda para mostrar las citas y sillones exclusivos de esta sucursal. Los clínicos solo pueden alternar entre sus sucursales asignadas." />
-            </div>
-            <div className="flex items-center gap-1.5 w-full">
-              <ProfessionalFilter value={professionalId} professionals={visibleProfessionals} onChange={setProfessionalId} />
-              <HelpTooltip content="Muestra únicamente la columna y los horarios del odontólogo seleccionado. Déjalo vacío para ver la agenda de todos los doctores en paralelo." />
-            </div>
-            <div className="flex items-center gap-1.5 w-full">
-              <ChairFilter value={chairId} chairs={visibleChairs} onChange={setChairId} />
-              <HelpTooltip content="Permite filtrar las citas por el sillón de atención asignado (ej. Sillón General o Quirófano) para organizar el espacio físico." />
-            </div>
-            <Button variant="ghost" onClick={clearFilters} disabled={!hasActiveFilters} className="w-full">
-              <RotateCcw className="h-4 w-4" />
-              Limpiar filtros
-            </Button>
-            <div ref={dropdownRef} className="relative w-full">
-              <button
-                type="button"
-                onClick={() => setDropdownOpen((prev) => !prev)}
-                className="flex h-[38px] w-full items-center justify-between gap-2 rounded-[var(--radius-md)] border border-[var(--action-primary)] bg-[var(--action-primary)] px-[var(--space-4)] text-[var(--text-base)] text-[var(--text-inverse)] font-medium transition-[background-color,border-color,color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] active:scale-[0.98] hover:border-[var(--action-primary-hover)] hover:bg-[var(--action-primary-hover)] shadow-sm"
-              >
-                <span className="truncate">Nueva cita</span>
-                <ChevronDown className={`h-4 w-4 transition-transform duration-150 ${dropdownOpen ? "rotate-180" : ""}`} />
-              </button>
-
-              {dropdownOpen && (
-                <div className="absolute right-0 left-0 lg:left-auto lg:w-56 z-50 mt-1.5 rounded-[var(--radius-lg)] border border-[var(--border-default)]/90 bg-white p-1 shadow-[0_12px_30px_rgba(4,44,83,0.12)] animate-in fade-in-50 slide-in-from-top-1 duration-[var(--duration-fast)]">
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[var(--text-sm)] text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-all duration-150"
-                    onClick={() => {
-                      openCreate();
-                      setDropdownOpen(false);
-                    }}
-                  >
-                    <Plus className="h-4 w-4 text-[var(--text-secondary)]" />
-                    <span>Cita individual</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-2 rounded-[var(--radius-md)] px-3 py-2 text-left text-[var(--text-sm)] text-[var(--text-primary)] hover:bg-[var(--bg-subtle)] transition-all duration-150"
-                    onClick={() => {
-                      openCreate(undefined, true);
-                      setDropdownOpen(false);
-                    }}
-                  >
-                    <Layers className="h-4 w-4 text-[var(--text-secondary)]" />
-                    <span>Agendamiento múltiple</span>
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </Card>
-      )}
-
-
-
       <div className={showSidebar ? "grid gap-4 xl:grid-cols-[240px_1fr]" : "w-full"}>
         {showSidebar && (
-          <SidebarStatusFilters
-            appointments={appointments.data ?? []}
-            selectedStatuses={selectedStatuses}
-            onChange={setSelectedStatuses}
-          />
+          <div className="space-y-4 sticky top-20 self-start">
+            <div className="rounded-xl border border-zinc-200/80 bg-white p-4 shadow-sm space-y-2">
+              <label className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-[var(--text-secondary)] opacity-80 block">
+                Filtrar por Doctor
+              </label>
+              <ProfessionalFilter
+                value={professionalId}
+                professionals={visibleProfessionals}
+                onChange={setProfessionalId}
+              />
+            </div>
+            <SidebarStatusFilters
+              appointments={appointments.data ?? []}
+              selectedStatuses={selectedStatuses}
+              onChange={setSelectedStatuses}
+            />
+          </div>
         )}
 
         <div className="min-w-0">
@@ -562,6 +512,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
               date={date}
               onDateChange={setDate}
               onCreateClick={() => openCreate()}
+              onCreateMultipleClick={() => openCreate(undefined, true)}
               onEdit={openEdit}
               onCancel={openCancelAppointment}
               onReschedule={setRescheduling}

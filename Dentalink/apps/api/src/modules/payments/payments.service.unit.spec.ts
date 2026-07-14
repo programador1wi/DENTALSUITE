@@ -122,7 +122,7 @@ describe("PaymentsService refund listing", () => {
       expect.objectContaining({
         paymentNumber: "348717",
         voidedBy: { id: "user-2", firstName: "Rafael", lastName: "Farrera" },
-        treatments: [{ id: "plan-1", name: "Ortodoncia", number: "PLAN-1", procedures: ["Brackets"] }]
+        treatments: [{ id: "plan-1", name: "Ortodoncia", number: "765235", procedures: ["Brackets"] }]
       })
     );
   });
@@ -363,6 +363,7 @@ describe("PaymentsService refund listing", () => {
       expect.objectContaining({
         data: expect.objectContaining({
           status: "ALLOCATED",
+          paymentNumber: expect.any(Number),
           amount: expect.anything()
         })
       })
@@ -385,7 +386,7 @@ describe("PaymentsService refund listing", () => {
     expect(result.breakdown[0]).toEqual(
       expect.objectContaining({
         kind: "INSTALLMENT",
-        treatmentNumber: "PLAN-1",
+        treatmentNumber: expect.any(String),
         paidAmount: 30
       })
     );
@@ -420,13 +421,175 @@ describe("PaymentsService refund listing", () => {
       }
     };
     const service = new PaymentsService({} as never);
+    const allocationService = service as unknown as {
+      applyAllocations: (
+        txClient: typeof tx,
+        currentActor: AuthUser,
+        paymentId: string,
+        allocations: Array<{ treatmentPlanItemId: string; amount: number; expectedVersion?: number }>
+      ) => Promise<void>;
+    };
 
     await expect(
-      (service as any).applyAllocations(tx, actor, "payment-1", [
+      allocationService.applyAllocations(tx, actor, "payment-1", [
         { treatmentPlanItemId: "item-1", amount: 30 }
       ])
     ).rejects.toThrow("Allocations exceed treatment plan item balance");
     expect(tx.paymentAllocation.create).not.toHaveBeenCalled();
     expect(tx.paymentAllocation.update).not.toHaveBeenCalled();
+  });
+
+  it("creates payment method splits and idempotency record in the same payment transaction", async () => {
+    const payment = {
+      id: "payment-1",
+      organizationId: "org-1",
+      branchId: "branch-1",
+      patientId: "patient-1",
+      receivedById: "user-1",
+      amount: 100,
+      currency: "MXN",
+      paymentMethodId: "cash",
+      financialInstitutionId: null,
+      status: "RECEIVED",
+      reference: null,
+      notes: null,
+      voidReason: null,
+      voidedAt: null,
+      voidedById: null,
+      paidAt: new Date("2026-07-13T12:00:00.000Z"),
+      createdAt: new Date("2026-07-13T12:00:00.000Z"),
+      updatedAt: new Date("2026-07-13T12:00:00.000Z"),
+      idempotencyKey: "idem-1"
+    };
+    const tx = {
+      paymentIdempotency: {
+        create: jest.fn().mockResolvedValue({ id: "idem-record-1" }),
+        update: jest.fn()
+      },
+      payment: {
+        create: jest.fn().mockResolvedValue(payment)
+      },
+      paymentMethodSplit: {
+        create: jest.fn()
+      },
+      cashMovement: {
+        create: jest.fn()
+      },
+      auditLog: {
+        create: jest.fn()
+      }
+    };
+    const prisma = {
+      branch: {
+        findFirst: jest.fn().mockResolvedValue({ id: "branch-1" })
+      },
+      patient: {
+        findFirst: jest.fn().mockResolvedValue({ id: "patient-1", branchId: "branch-1" })
+      },
+      paymentMethod: {
+        findFirst: jest.fn().mockResolvedValue({ id: "cash", isActive: true })
+      },
+      cashRegister: {
+        findFirst: jest.fn().mockResolvedValue({ id: "register-1", status: "OPEN" })
+      },
+      paymentIdempotency: {
+        findUnique: jest.fn().mockResolvedValue(null)
+      },
+      payment: {
+        findFirst: jest.fn().mockResolvedValue({
+          ...payment,
+          patient: { id: "patient-1", firstName: "Ana", lastName: "Paz", documentNumber: "123" },
+          branch: { id: "branch-1", name: "Sucursal" },
+          paymentMethod: { id: "cash", name: "Efectivo", type: "CASH" },
+          financialInstitution: null,
+          receivedBy: { id: "user-1", firstName: "User", lastName: "One" },
+          splits: [
+            { id: "split-1", amount: 60, paymentMethod: { id: "cash", name: "Efectivo", type: "CASH" }, financialInstitution: null },
+            { id: "split-2", amount: 40, paymentMethod: { id: "card", name: "Tarjeta", type: "CARD" }, financialInstitution: null }
+          ],
+          allocations: [],
+          installmentAllocations: [],
+          cashMovements: [],
+          refunds: []
+        })
+      },
+      $transaction: jest.fn((callback) => callback(tx))
+    };
+    const service = new PaymentsService(prisma as never);
+
+    const result = await service.createPayment(actor, {
+      branchId: "branch-1",
+      patientId: "patient-1",
+      amount: 100,
+      splits: [
+        { paymentMethodId: "cash", amount: 60 },
+        { paymentMethodId: "card", amount: 40, reference: "AUTH-2" }
+      ],
+      idempotencyKey: "idem-1"
+    });
+
+    expect(tx.payment.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          paymentMethodId: "cash",
+          paymentNumber: expect.any(Number),
+          idempotencyKey: "idem-1"
+        })
+      })
+    );
+    expect(tx.paymentMethodSplit.create).toHaveBeenCalledTimes(2);
+    expect(tx.cashMovement.create).toHaveBeenCalledTimes(2);
+    expect(tx.paymentIdempotency.update).toHaveBeenCalledWith({
+      where: { id: "idem-record-1" },
+      data: { paymentId: "payment-1", status: "COMPLETED" }
+    });
+    expect(result.unallocatedAmount).toBe(100);
+  });
+
+  it("rejects stale treatment item versions before creating allocations", async () => {
+    const tx = {
+      payment: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "payment-1",
+          organizationId: "org-1",
+          patientId: "patient-1",
+          amount: 100,
+          allocations: []
+        })
+      },
+      treatmentPlanItem: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "item-1",
+            version: 3,
+            total: 100,
+            status: "ACCEPTED",
+            treatmentPlan: { isAlternative: false }
+          }
+        ])
+      },
+      paymentAllocation: {
+        groupBy: jest.fn(),
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        update: jest.fn()
+      }
+    };
+    const service = new PaymentsService({} as never);
+    const staleAllocationService = service as unknown as {
+      applyAllocations: (
+        txClient: typeof tx,
+        currentActor: AuthUser,
+        paymentId: string,
+        allocations: Array<{ treatmentPlanItemId: string; amount: number; expectedVersion?: number }>
+      ) => Promise<void>;
+    };
+
+    await expect(
+      staleAllocationService.applyAllocations(tx, actor, "payment-1", [
+        { treatmentPlanItemId: "item-1", amount: 50, expectedVersion: 2 }
+      ])
+    ).rejects.toThrow("El saldo cambió mientras realizabas el cobro");
+    expect(tx.paymentAllocation.create).not.toHaveBeenCalled();
   });
 });

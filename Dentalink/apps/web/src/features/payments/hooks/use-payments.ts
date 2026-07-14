@@ -211,21 +211,7 @@ export function usePaymentsMutations() {
       onError
     }),
     payInstallment: useMutation({
-      mutationFn: ({
-        installmentId,
-        branchId,
-        paymentMethodId,
-        amount,
-        reference,
-        notes
-      }: {
-        installmentId: string;
-        branchId: string;
-        paymentMethodId: string;
-        amount: number;
-        reference?: string;
-        notes?: string;
-      }) => payInstallment(installmentId, { branchId, paymentMethodId, amount, reference, notes }),
+      mutationFn: payInstallment,
       onSuccess: () => {
         toast.success("Cuota pagada");
         invalidate();

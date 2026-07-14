@@ -51,4 +51,16 @@ export class BranchesController {
   deactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.branchesService.deactivate(user, id);
   }
+
+  @Post(":id/archive")
+  @RequirePermissions("branches.archive")
+  archive(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.branchesService.archive(user, id);
+  }
+
+  @Post(":id/restore")
+  @RequirePermissions("branches.restore")
+  restore(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.branchesService.restore(user, id);
+  }
 }

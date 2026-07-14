@@ -7,7 +7,7 @@ export function normalizeName(name: string): string {
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "") // remove accents
-    .replace(/[^a-z0-9\s\+]/g, "")  // remove special characters except spaces and +
+    .replace(/[^a-z0-9\s+]/g, "")  // remove special characters except spaces and +
     .trim()
     .replace(/\s+/g, " ");
 }

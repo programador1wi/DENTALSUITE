@@ -879,7 +879,7 @@ export class SettingsService {
         : this.roundMoney(collectedAmount * (rule.commissionRate / 100));
     const patient = row.treatmentPlan.patient;
     const paymentMethodNames = [
-      ...new Set(row.paymentAllocations.map((allocation) => allocation.payment.paymentMethod.name).filter(Boolean))
+      ...new Set(row.paymentAllocations.map((allocation) => allocation.payment.paymentMethod?.name).filter(Boolean))
     ];
     const paymentIds = [...new Set(row.paymentAllocations.map((allocation) => allocation.payment.id))];
     const paymentDates = row.paymentAllocations

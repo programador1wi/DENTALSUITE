@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useParams, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -18,6 +18,8 @@ import { ClinicalEvolutionModal } from "../components/clinical-evolution-modal";
 
 export function ClinicalEvolutionsPage() {
   const { id = "" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const treatmentPlanItemId = searchParams.get("treatmentPlanItemId") ?? "";
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const patient = usePatient(id);
   const branchId = patient.data?.branchId ?? activeBranchId;
@@ -39,6 +41,10 @@ export function ClinicalEvolutionsPage() {
   const displayedEvolutions = evolutions.data?.filter((e) => (showCancelled ? true : !e.annulledAt)) || [];
   const selectedEvolution =
     evolutions.data?.find((evolution) => evolution.id === selectedEvolutionId) ?? null;
+
+  useEffect(() => {
+    if (treatmentPlanItemId) setIsModalOpen(true);
+  }, [treatmentPlanItemId]);
 
   const handleAnnul = () => {
     if (evolutionToAnnul && annulReason.trim()) {
@@ -352,10 +358,18 @@ export function ClinicalEvolutionsPage() {
         onClose={() => {
           setIsModalOpen(false);
           setSelectedEvolutionId(null);
+          if (treatmentPlanItemId) {
+            setSearchParams((current) => {
+              const next = new URLSearchParams(current);
+              next.delete("treatmentPlanItemId");
+              return next;
+            });
+          }
         }}
         patientId={id}
         branchId={branchId}
         evolution={selectedEvolution}
+        initialTreatmentPlanItemId={treatmentPlanItemId}
       />
 
       {/* Annul Modal */}

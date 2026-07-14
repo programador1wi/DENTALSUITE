@@ -7,8 +7,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards
 } from "@nestjs/common";
+import type { Response } from "express";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
@@ -68,6 +70,15 @@ export class PaymentsController {
   @RequirePermissions("payments.read")
   getPaymentReceipt(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
     return this.service.getPaymentReceipt(actor, id);
+  }
+
+  @Get("payments/:id/receipt.pdf")
+  @RequirePermissions("payments.read")
+  async getPaymentReceiptPdf(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Res() res: Response) {
+    const receipt = await this.service.getPaymentReceiptPdf(actor, id);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${receipt.fileName}"`);
+    res.send(Buffer.from(receipt.bytes));
   }
 
   @Patch("payments/:id")

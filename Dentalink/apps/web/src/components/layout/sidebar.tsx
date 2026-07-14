@@ -15,7 +15,7 @@ const EMPTY_PERMISSIONS: string[] = [];
 const PRODUCT_NAME = "Warner Suite";
 const FLYOUT_PANEL_WIDTH = 680;
 const SIDEBAR_NAV_GROUPS = [
-  { key: "principal", label: "Principal", paths: ["/agenda", "/patients"] },
+  { key: "principal", label: "Principal", paths: ["/health-center", "/agenda", "/patients"] },
   { key: "operation", label: "Operacion", paths: ["/cash-register/open", "/accounts-receivable"] },
   { key: "management", label: "Gestion", paths: ["/settings/organization", "/reports", "/dashboard"] }
 ];

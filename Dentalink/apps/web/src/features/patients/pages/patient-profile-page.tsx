@@ -25,6 +25,7 @@ import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/feedback/loading-state";
+import { Modal } from "@/components/ui/modal";
 import { PatientAppointmentsTab } from "../components/patient-appointments-tab";
 import { PatientSecondaryNav } from "../components/patient-secondary-nav";
 import { PatientSubnav } from "../components/patient-subnav";
@@ -37,12 +38,16 @@ import { useDocumentsMutations } from "@/features/documents/hooks/use-documents"
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useUsersQuery } from "@/features/settings/users/hooks/use-users";
 import { useBranchStore } from "@/stores/branch.store";
+import { useAuthStore } from "@/stores/auth.store";
 import { getPatientStatusLabel, getPatientStatusTone } from "../components/patient-status";
 import { PatientHeader } from "../components/patient-header";
 import {
   useAddPatientAlert,
   useAddPatientNote,
   usePatient,
+  usePatientEmail,
+  usePatientEmails,
+  useSendPatientEmail,
   usePatientTaskMutations,
   usePatientTasks,
   usePatientTimeline,
@@ -52,6 +57,9 @@ import type { PatientDetail, PatientPayload, PatientStatus, PatientTask } from "
 
 const statuses: PatientStatus[] = ["NEW", "ACTIVE", "IN_TREATMENT", "INACTIVE", "DEBTOR", "COMPLETED"];
 const EMAIL_PREFIX = "[CRM_EMAIL]";
+const EMAIL_ALLOWED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"];
+const EMAIL_MAX_ATTACHMENTS = 3;
+const EMAIL_MAX_TOTAL_BYTES = 25 * 1024 * 1024;
 
 type ProfileTab = "data" | "appointments" | "comments" | "tasks" | "emails";
 
@@ -655,6 +663,77 @@ function TasksTab({ patientId, branchId }: { patientId: string; branchId: string
   );
 }
 
+function parseEmailNote(htmlContent: string) {
+  let clean = htmlContent;
+  if (clean.startsWith("[CRM_EMAIL]\n")) clean = clean.replace("[CRM_EMAIL]\n", "");
+  else if (clean.startsWith("[CRM_EMAIL]")) clean = clean.replace("[CRM_EMAIL]", "");
+  clean = clean.trim();
+
+  // 1. Try parsing HTML format
+  if (clean.includes("<div") && clean.includes("Para:")) {
+    try {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(clean, "text/html");
+      
+      let to = "";
+      let subject = "";
+      
+      const strongs = doc.querySelectorAll("strong");
+      strongs.forEach((strong) => {
+        const parentText = strong.parentElement?.textContent || "";
+        if (strong.textContent?.includes("Para:")) {
+          to = parentText.replace("Para:", "").trim();
+        } else if (strong.textContent?.includes("Asunto:")) {
+          subject = parentText.replace("Asunto:", "").trim();
+        }
+      });
+      
+      const bodyDiv = doc.querySelector(".prose");
+      if (bodyDiv) {
+        return { to, subject, body: bodyDiv.innerHTML, isHtml: true };
+      }
+    } catch (e) {
+      // Fallback
+    }
+  }
+
+  // 2. Try parsing plain text with regex (single-line or multiline with double space/newline separator)
+  const regex = /Para:\s*(.*?)\s*Asunto:\s*(.*?)(?:\s{2,}|\n+)(.*)/is;
+  const match = clean.match(regex);
+  if (match) {
+    return {
+      to: match[1].trim(),
+      subject: match[2].trim(),
+      body: match[3].trim(),
+      isHtml: false
+    };
+  }
+
+  // 3. Fallback: Parse Plain Text line by line
+  const lines = clean.split("\n");
+  let to = "";
+  let subject = "";
+  const bodyLines: string[] = [];
+
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (trimmed.toLowerCase().startsWith("para:")) {
+      to = trimmed.substring(5).trim();
+    } else if (trimmed.toLowerCase().startsWith("asunto:")) {
+      subject = trimmed.substring(7).trim();
+    } else {
+      bodyLines.push(line);
+    }
+  });
+
+  return { 
+    to, 
+    subject, 
+    body: bodyLines.join("\n").trim(), 
+    isHtml: false 
+  };
+}
+
 function EmailsTab({
   patientId,
   patientEmail,
@@ -671,11 +750,13 @@ function EmailsTab({
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [isCopyRequested, setIsCopyRequested] = useState(false);
+  const [selectedNote, setSelectedNote] = useState<PatientDetail["notes"][number] | null>(null);
   const [files, setFiles] = useState<File[]>([]);
   
   const addPatientNote = useAddPatientNote();
+  const sendPatientEmail = useSendPatientEmail();
   const documents = useDocumentsMutations();
-  const saving = addPatientNote.isPending || documents.uploadPatientBinaryFile.isPending;
+  const saving = addPatientNote.isPending || documents.uploadPatientBinaryFile.isPending || sendPatientEmail.isPending;
 
   useEffect(() => {
     if (patientEmail && !emailTo) setEmailTo(patientEmail);
@@ -709,6 +790,23 @@ function EmailsTab({
         })
       )
     );
+    const fileAttachmentIds = uploadedFiles.map((f) => f.id);
+
+    try {
+      await sendPatientEmail.mutateAsync({
+        id: patientId,
+        idempotencyKey: crypto.randomUUID(),
+        payload: {
+          subject,
+          bodyHtmlBase64: btoa(unescape(encodeURIComponent(body || " "))),
+          copyToSender: isCopyRequested,
+          fileAttachmentIds
+        }
+      });
+    } catch (error) {
+      console.error("Failed to send email:", error);
+      return; // Do not save note if email failed
+    }
 
     const htmlNote = `[CRM_EMAIL]
 <div class="mb-3 text-sm">
@@ -724,8 +822,9 @@ function EmailsTab({
       id: patientId,
       isPrivate: true,
       note: htmlNote,
-      fileAttachmentIds: uploadedFiles.map((f) => f.id)
+      fileAttachmentIds
     });
+    
     
     setComposeOpen(false);
     setEmailSubject("");
@@ -735,74 +834,98 @@ function EmailsTab({
   };
 
   return (
-    <section className="border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 px-5 py-6">
-        <h2 className="mb-6 text-2xl font-light text-slate-900">Registro de Emails</h2>
-        
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:flex-wrap flex-1">
-            <Input 
-              className="w-full sm:w-64 shrink-0" 
-              placeholder="Buscar" 
-              value={search} 
-              onChange={(event) => setSearch(event.target.value)} 
-            />
-            
-            <div className="flex items-center gap-2 whitespace-nowrap">
-              <span className="text-sm font-semibold text-slate-900">Filtrar por mes:</span>
-              <Input className="w-36 sm:w-44" type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
-            </div>
-            
-            <div className="flex items-center gap-2 whitespace-nowrap">
-              <span className="text-sm font-semibold text-slate-900">Filtrar por:</span>
-              <Select className="w-32 sm:w-44" defaultValue="all">
-                <option value="all">Todos</option>
-              </Select>
-            </div>
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden transition-all">
+      <div className="border-b border-slate-100 bg-slate-50/50 px-6 py-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900">Registro de Emails</h2>
+            <p className="text-xs text-slate-500 mt-1">Monitorea y envía correspondencia electrónica al paciente.</p>
           </div>
           
           <Button 
             type="button" 
-            className="w-full sm:w-auto bg-[#31b866] hover:bg-[#299c56] text-white whitespace-nowrap shrink-0 self-stretch sm:self-auto" 
+            className="w-full md:w-auto bg-[#31b866] hover:bg-[#299c56] text-white shadow-sm hover:shadow transition-all duration-200 border-0" 
             onClick={() => setComposeOpen((value) => !value)}
           >
-            <Plus className="h-4 w-4 mr-1" />
+            <Plus className="h-4 w-4 mr-1.5" />
             Redactar nuevo email
           </Button>
         </div>
+        
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:flex-wrap flex-1">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+            <Input 
+              className="pl-9 bg-white border-slate-200/80 focus:border-brand-500 focus:ring-brand-500/20 focus:ring-2 outline-none text-slate-900" 
+              placeholder="Buscar por asunto o contenido..." 
+              value={search} 
+              onChange={(event) => setSearch(event.target.value)} 
+            />
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 whitespace-nowrap">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Filtrar por mes:</span>
+              <Input 
+                className="w-36 sm:w-44 bg-white border-slate-200/80 text-slate-700 focus:border-brand-500 focus:ring-brand-500/20" 
+                type="month" 
+                value={month} 
+                onChange={(event) => setMonth(event.target.value)} 
+              />
+            </div>
+            
+            <div className="flex items-center gap-2 whitespace-nowrap">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Filtrar por:</span>
+              <Select className="w-32 sm:w-44 bg-white border-slate-200/80 text-slate-700 focus:border-brand-500" defaultValue="all">
+                <option value="all">Todos</option>
+              </Select>
+            </div>
+          </div>
+        </div>
 
         {composeOpen ? (
-          <form className="mt-6 rounded-lg border border-slate-200 bg-slate-50/50 p-4 shadow-sm" onSubmit={handleCreateEmail}>
+          <form className="mt-6 rounded-xl border border-slate-150 bg-slate-50/40 p-5 shadow-inner" onSubmit={handleCreateEmail}>
+            <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+              <Mail className="h-4 w-4 text-[#31b866]" /> Redactar Nuevo Mensaje
+            </h3>
+            
             <div className="mb-4 grid gap-4">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <Input className="flex-1" placeholder="Asunto" value={emailSubject} onChange={(event) => setEmailSubject(event.target.value)} />
-                <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer shrink-0">
-                  <input type="checkbox" className="rounded border-slate-300 text-brand-600 focus:ring-brand-600" checked={isCopyRequested} onChange={(e) => setIsCopyRequested(e.target.checked)} />
-                  Recibir una copia de este correo
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <Input 
+                  className="flex-1 bg-white border-slate-200 focus:border-brand-500 focus:ring-brand-500/20 focus:ring-2 text-slate-900" 
+                  placeholder="Asunto del correo" 
+                  value={emailSubject} 
+                  onChange={(event) => setEmailSubject(event.target.value)} 
+                />
+                <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer shrink-0 select-none bg-white border border-slate-200 rounded-lg px-3 py-2 hover:bg-slate-50 transition-colors">
+                  <input 
+                    type="checkbox" 
+                    className="rounded border-slate-300 text-brand-500 focus:ring-brand-500/20 bg-white h-4 w-4" 
+                    checked={isCopyRequested} 
+                    onChange={(e) => setIsCopyRequested(e.target.checked)} 
+                  />
+                  Recibir copia en mi bandeja
                 </label>
               </div>
             </div>
 
-            <div className="flex flex-col rounded-md border border-slate-300 bg-white shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-brand-500 focus-within:ring-offset-2 transition-shadow">
+            <div className="flex flex-col rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden focus-within:ring-2 focus-within:ring-brand-500/20 focus-within:border-brand-500 transition-all">
               <RichTextEditor
                 value={emailBody}
                 onChange={setEmailBody}
-                placeholder="Redacta tu mensaje aquí..."
-                className="min-h-[200px] border-0 rounded-none focus-within:ring-0 focus-within:ring-offset-0 shadow-none"
+                placeholder="Escribe el cuerpo del correo aquí..."
+                className="min-h-[250px] border-0 rounded-none focus-within:ring-0 focus-within:ring-offset-0 shadow-none p-3 text-slate-950"
               />
             </div>
 
-            <div className="mt-4 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-              <div className="flex flex-col gap-2">
-                <div className="text-xs text-slate-500">
-                  <strong className="text-slate-700 font-semibold">Importante:</strong><br/>
-                  Solo se puede adjuntar hasta un máximo de 3 archivos por correo, estos no deben superar los 25MB en total.<br/>
-                  Los archivos adjuntos ocuparán espacio de almacenamiento de la clínica.<br/>
-                  Funcionalidad compatible con formatos PNG, JPG, PDF, DOC(X), XLS(X), PPT(X).
+            <div className="mt-4 flex flex-col md:flex-row md:items-center justify-between gap-4 border-t border-slate-100 pt-4">
+              <div className="flex flex-col gap-2 max-w-xl">
+                <div className="text-[10px] text-slate-500 leading-normal">
+                  <strong className="text-slate-600 font-semibold">Reglas de adjuntos:</strong> Máximo de 3 archivos, total menor a 25MB. Formatos permitidos: PNG, JPG, PDF, DOC(X), XLS(X), PPT(X).
                 </div>
-                <label className="cursor-pointer inline-flex items-center justify-center gap-2 rounded-md bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 w-fit">
-                  <Paperclip className="h-4 w-4" />
-                  Adjuntar archivo(s)
+                <label className="cursor-pointer inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm w-fit">
+                  <Paperclip className="h-3.5 w-3.5 text-slate-400" />
+                  Adjuntar archivos
                   <Input
                     className="hidden"
                     type="file"
@@ -815,23 +938,33 @@ function EmailsTab({
                   />
                 </label>
                 {files.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-1">
+                  <div className="flex flex-wrap gap-1.5 mt-1">
                     {files.map((f, i) => (
-                      <span key={i} className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm">
-                        <span className="truncate max-w-[200px]">{f.name}</span>
-                        <button type="button" className="text-slate-400 hover:text-red-500" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}>&times;</button>
+                      <span key={i} className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 shadow-sm">
+                        <span className="truncate max-w-[150px]">{f.name}</span>
+                        <button type="button" className="text-slate-400 hover:text-red-500 ml-1 font-bold" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}>&times;</button>
                       </span>
                     ))}
                   </div>
                 )}
               </div>
-              <div className="flex gap-2 shrink-0">
-                <Button type="button" variant="secondary" onClick={() => { setComposeOpen(false); setFiles([]); }}>
+              
+              <div className="flex gap-2 shrink-0 justify-end">
+                <Button 
+                  type="button" 
+                  variant="ghost" 
+                  className="text-slate-500 hover:bg-slate-100 hover:text-slate-700" 
+                  onClick={() => { setComposeOpen(false); setFiles([]); }}
+                >
                   Descartar
                 </Button>
-                <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700" disabled={!emailTo.trim() || !emailSubject.trim() || saving}>
-                  <Send className="h-4 w-4 mr-2" />
-                  {saving ? "Guardando..." : "Enviar"}
+                <Button 
+                  type="submit" 
+                  className="bg-[#31b866] hover:bg-[#299c56] text-white border-0 shadow-sm hover:shadow transition-all" 
+                  disabled={!emailTo.trim() || !emailSubject.trim() || saving}
+                >
+                  <Send className="h-3.5 w-3.5 mr-1.5" />
+                  {saving ? "Enviando..." : "Enviar Correo"}
                 </Button>
               </div>
             </div>
@@ -845,11 +978,98 @@ function EmailsTab({
         ) : (
           <div className="mx-auto max-w-4xl space-y-4">
             {filteredNotes.map((note) => (
-              <NoteCard key={note.id} icon={<Mail className="h-5 w-5 text-sky-600" />} note={note.note} createdAt={note.createdAt} attachments={note.attachments} />
+              <NoteCard 
+                key={note.id} 
+                icon={<Mail className="h-5 w-5 text-sky-600" />} 
+                note={note.note} 
+                createdAt={note.createdAt} 
+                attachments={note.attachments} 
+                onClick={() => setSelectedNote(note)}
+              />
             ))}
           </div>
         )}
       </div>
+      {selectedNote ? (() => {
+        const emailDetails = parseEmailNote(selectedNote.note);
+        return (
+          <Modal 
+            open={!!selectedNote} 
+            title={emailDetails.subject || "Correo Enviado"} 
+            onClose={() => setSelectedNote(null)}
+            size="lg"
+          >
+            <div className="space-y-6 pt-4">
+              {/* Envelope Header */}
+              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-5 text-sm space-y-2">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">De:</p>
+                    <p className="font-medium text-slate-800">Dental+ <span className="text-xs text-slate-500 font-normal">&lt;no-reply@dentalsuite.com&gt;</span></p>
+                  </div>
+                  <span className="text-xs text-slate-400 font-medium">
+                    {new Date(selectedNote.createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}
+                  </span>
+                </div>
+                
+                <div>
+                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Para:</p>
+                  <p className="font-medium text-slate-800 text-sky-600">{emailDetails.to || patientEmail || "Paciente"}</p>
+                </div>
+                
+                {emailDetails.subject && (
+                  <div>
+                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Asunto:</p>
+                    <p className="font-semibold text-slate-900">{emailDetails.subject}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Email Content Body */}
+              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm min-h-[200px] max-h-[50vh] overflow-y-auto">
+                {emailDetails.isHtml ? (
+                  <div 
+                    className="prose prose-sm max-w-none text-slate-700 break-words prose-p:leading-relaxed"
+                    dangerouslySetInnerHTML={{ __html: emailDetails.body }}
+                  />
+                ) : emailDetails.body ? (
+                  <div className="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed font-sans">
+                    {emailDetails.body}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400 italic">Este correo no contiene texto en el cuerpo.</p>
+                )}
+              </div>
+
+              {/* Attachments */}
+              {selectedNote.attachments?.length ? (
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Archivos Adjuntos</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {selectedNote.attachments.map((attachment) => (
+                      <a
+                        key={attachment.id}
+                        href={attachment.fileAttachment.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 hover:bg-sky-50/50 hover:border-sky-200 transition-all duration-200"
+                      >
+                        <div className="flex h-8 w-8 items-center justify-center rounded bg-slate-100 text-slate-500">
+                          <Paperclip className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-medium text-slate-700">{attachment.fileAttachment.originalName}</p>
+                          <p className="text-[10px] text-slate-400">Haga clic para descargar</p>
+                        </div>
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </Modal>
+        );
+      })() : null}
     </section>
   );
 }
@@ -858,12 +1078,14 @@ function NoteCard({
   icon,
   note,
   createdAt,
-  attachments
+  attachments,
+  onClick
 }: {
   icon?: ReactNode;
   note: string;
   createdAt: string;
   attachments?: PatientDetail["notes"][number]["attachments"];
+  onClick?: () => void;
 }) {
   let displayNote = note;
   if (displayNote.startsWith("[CRM_EMAIL]\n")) displayNote = displayNote.replace("[CRM_EMAIL]\n", "");
@@ -873,30 +1095,45 @@ function NoteCard({
   
   if (isHtml) {
     return (
-      <article className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3">
-        {icon ? <div className="mt-0.5">{icon}</div> : null}
+      <article 
+        onClick={onClick}
+        className={`group relative flex gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-200/80 hover:-translate-y-[1px] transition-all duration-300 ${onClick ? "cursor-pointer hover:bg-slate-50/30" : ""}`}
+      >
+        {icon ? (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600 transition-colors group-hover:bg-sky-100/80">
+            {icon}
+          </div>
+        ) : null}
         <div className="min-w-0 flex-1">
           <div
-            className="prose prose-sm max-w-none text-slate-700 break-words prose-p:my-1 prose-ul:my-1 prose-ol:my-1 [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6 [&_li]:list-item [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5"
+            className="prose prose-sm max-w-none text-slate-600 break-words 
+              prose-p:my-1 prose-ul:my-1 prose-ol:my-1 
+              [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6 [&_li]:list-item [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5
+              [&_strong]:font-semibold [&_strong]:text-slate-800
+              [&_p]:leading-relaxed"
             dangerouslySetInnerHTML={{ __html: displayNote }}
           />
           {attachments?.length ? (
-            <div className="mt-2 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
               {attachments.map((attachment) => (
                 <a
                   key={attachment.id}
                   href={attachment.fileAttachment.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-brand-700 hover:bg-slate-50"
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-150 bg-slate-50/50 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-sky-50 hover:text-sky-700 hover:border-sky-200 transition-all duration-200"
                 >
-                  <Paperclip className="h-3 w-3" />
-                  {attachment.fileAttachment.originalName}
+                  <Paperclip className="h-3.5 w-3.5 text-slate-400 group-hover:text-sky-500" />
+                  <span className="max-w-[200px] truncate">{attachment.fileAttachment.originalName}</span>
                 </a>
               ))}
             </div>
           ) : null}
-          <p className="mt-2 text-xs text-slate-400">{new Date(createdAt).toLocaleString("es-MX")}</p>
+          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
+            <span className="font-medium">{new Date(createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}</span>
+            <span className="text-sky-600 font-semibold">Entregado</span>
+          </div>
         </div>
       </article>
     );
@@ -904,31 +1141,44 @@ function NoteCard({
 
   const lines = note.split("\n").filter((line) => !line.startsWith("["));
   return (
-    <article className="flex gap-3 rounded-lg border border-slate-200 bg-white p-3">
-      {icon ? <div className="mt-0.5">{icon}</div> : null}
+    <article 
+      onClick={onClick}
+      className={`group relative flex gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-200/80 hover:-translate-y-[1px] transition-all duration-300 ${onClick ? "cursor-pointer hover:bg-slate-50/30" : ""}`}
+    >
+      {icon ? (
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600 transition-colors group-hover:bg-sky-100/80">
+          {icon}
+        </div>
+      ) : null}
       <div className="min-w-0 flex-1">
-        {lines.map((line) => (
-          <p key={line} className="break-words text-sm text-slate-700">
-            {line}
-          </p>
-        ))}
+        <div className="space-y-1.5 text-slate-600 text-sm leading-relaxed">
+          {lines.map((line, idx) => (
+            <p key={idx} className="break-words">
+              {line}
+            </p>
+          ))}
+        </div>
         {attachments?.length ? (
-          <div className="mt-2 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
             {attachments.map((attachment) => (
               <a
                 key={attachment.id}
                 href={attachment.fileAttachment.url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs text-brand-700 hover:bg-slate-50"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-150 bg-slate-50/50 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-sky-50 hover:text-sky-700 hover:border-sky-200 transition-all duration-200"
               >
-                <Paperclip className="h-3 w-3" />
-                {attachment.fileAttachment.originalName}
+                <Paperclip className="h-3.5 w-3.5 text-slate-400 group-hover:text-sky-500" />
+                <span className="max-w-[200px] truncate">{attachment.fileAttachment.originalName}</span>
               </a>
             ))}
           </div>
         ) : null}
-        <p className="mt-2 text-xs text-slate-400">{new Date(createdAt).toLocaleString("es-MX")}</p>
+        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
+          <span className="font-medium">{new Date(createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}</span>
+          <span className="text-sky-600 font-semibold">Entregado</span>
+        </div>
       </div>
     </article>
   );
@@ -1042,4 +1292,3 @@ function SummaryRow({ label, value }: { label: string; value: ReactNode }) {
     </div>
   );
 }
-

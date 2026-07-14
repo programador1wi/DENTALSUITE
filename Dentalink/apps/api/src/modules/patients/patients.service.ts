@@ -1,8 +1,12 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import { extname } from "node:path";
 import {
   AppointmentStatus,
   BudgetStatus,
+  CommunicationChannel,
+  CommunicationJobStatus,
   InstallmentStatus,
+  MessageDeliveryStatus,
   PaymentStatus,
   PatientTaskStatus,
   Prisma,
@@ -14,10 +18,13 @@ import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
+import { DocumentsService } from "../documents/documents.service";
+import { EmailService } from "../notifications/email.service";
 import { AddPatientAlertDto } from "./dto/add-patient-alert.dto";
 import { AddPatientNoteDto } from "./dto/add-patient-note.dto";
 import { CreatePatientDto } from "./dto/create-patient.dto";
 import { PatientAnalysisQueryDto } from "./dto/patient-analysis-query.dto";
+import { ListPatientEmailsQueryDto, SendPatientEmailDto } from "./dto/patient-email.dto";
 import { PatientQueryDto } from "./dto/patient-query.dto";
 import { CreatePatientTaskDto, ListPatientTasksQueryDto, UpdatePatientTaskDto } from "./dto/patient-task.dto";
 import { UpdatePatientDto } from "./dto/update-patient.dto";
@@ -45,10 +52,30 @@ type AnalysisFilters = {
 
 const EXACT_PATIENT_DUPLICATE_MESSAGE =
   "Ya existe un paciente con el mismo nombre, apellidos, teléfono y correo. Selecciona el paciente existente.";
+const PATIENT_EMAIL_TEMPLATE_KEY = "PATIENT_EMAIL";
+const PATIENT_EMAIL_MAX_ATTACHMENTS = 3;
+const PATIENT_EMAIL_MAX_TOTAL_BYTES = 25 * 1024 * 1024;
+const PATIENT_EMAIL_ALLOWED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"]);
+const PATIENT_EMAIL_ALLOWED_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+]);
+const EMAIL_REGEX = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
 
 @Injectable()
 export class PatientsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService?: EmailService,
+    private readonly documentsService?: DocumentsService
+  ) {}
 
   async findAll(actor: AuthUser, query: PatientQueryDto) {
     const { skip, take } = resolvePagination(query);
@@ -577,6 +604,260 @@ export class PatientsService {
       },
       timeline
     };
+  }
+
+  async listEmails(actor: AuthUser, patientId: string, query: ListPatientEmailsQueryDto) {
+    await this.ensurePatientExists(actor, patientId);
+    const { skip, take, page, pageSize } = resolvePagination(query);
+    const where = this.patientEmailWhere(actor, patientId, query);
+
+    const [items, total] = await Promise.all([
+      this.prisma.communicationJob.findMany({
+        where,
+        include: this.patientEmailInclude(),
+        orderBy: { createdAt: "desc" },
+        skip,
+        take
+      }),
+      this.prisma.communicationJob.count({ where })
+    ]);
+
+    return {
+      items: items.map((item) => this.serializePatientEmail(item, false)),
+      total,
+      page,
+      pageSize
+    };
+  }
+
+  async getEmail(actor: AuthUser, patientId: string, emailId: string) {
+    await this.ensurePatientExists(actor, patientId);
+    const email = await this.prisma.communicationJob.findFirst({
+      where: {
+        id: emailId,
+        organizationId: actor.organizationId,
+        patientId,
+        channel: CommunicationChannel.EMAIL,
+        templateKey: PATIENT_EMAIL_TEMPLATE_KEY,
+        patient: { branchId: { in: actor.branchIds }, deletedAt: null }
+      },
+      include: this.patientEmailInclude()
+    });
+    if (!email) throw new NotFoundException("Email not found");
+    return this.serializePatientEmail(email, true);
+  }
+
+  async sendEmail(actor: AuthUser, patientId: string, dto: SendPatientEmailDto, idempotencyKey?: string) {
+    const patient = await this.getPatientForEmail(actor, patientId);
+    const normalizedPatientEmail = this.normalizeRequiredEmail(patient.email, "El paciente no tiene un correo electrónico registrado.", "El correo del paciente no tiene un formato válido.");
+    const subject = this.normalizeEmailSubject(dto.subject);
+    const decodedHtml = this.decodeEmailHtml(dto.bodyHtmlBase64);
+    const sanitizedContent = this.sanitizeEmailHtml(decodedHtml);
+    const textBody = this.htmlToText(sanitizedContent);
+    if (!textBody.trim()) throw new BadRequestException("Escribe el contenido del mensaje.");
+
+    const normalizedIdempotencyKey = idempotencyKey?.trim();
+    if (normalizedIdempotencyKey) {
+      const existing = await this.findIdempotentPatientEmail(actor, patientId, normalizedIdempotencyKey);
+      if (existing) return this.serializePatientEmail(existing, true);
+    }
+
+    const copyAddress = dto.copyToSender
+      ? this.normalizeRequiredEmail(actor.email, "El usuario autenticado no tiene correo registrado.", "El correo del usuario autenticado no tiene un formato válido.")
+      : undefined;
+    const sender = this.getEmailSender();
+    const attachments = await this.resolvePatientEmailAttachments(actor, patientId, dto.fileAttachmentIds ?? []);
+    const replyTo = this.firstValidEmail(patient.branch.email, patient.organization.email);
+    const toName = `${patient.firstName} ${patient.lastName}`.trim();
+    const htmlBody = this.renderPatientEmailTemplate({
+      organizationName: patient.organization.name,
+      branchName: patient.branch.name,
+      branchAddress: patient.branch.address ?? patient.organization.address ?? undefined,
+      branchPhone: patient.branch.phone ?? patient.organization.phone ?? undefined,
+      branchEmail: patient.branch.email ?? patient.organization.email ?? undefined,
+      logoUrl: patient.organization.logoUrl ?? undefined,
+      patientName: toName,
+      contentHtml: sanitizedContent
+    });
+    const templateText = this.renderPatientEmailText({
+      organizationName: patient.organization.name,
+      branchName: patient.branch.name,
+      branchAddress: patient.branch.address ?? patient.organization.address ?? undefined,
+      branchPhone: patient.branch.phone ?? patient.organization.phone ?? undefined,
+      branchEmail: patient.branch.email ?? patient.organization.email ?? undefined,
+      patientName: toName,
+      contentText: textBody
+    });
+
+    const queued = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.communicationJob.create({
+        data: {
+          organizationId: actor.organizationId,
+          patientId,
+          createdById: actor.id,
+          channel: CommunicationChannel.EMAIL,
+          templateKey: PATIENT_EMAIL_TEMPLATE_KEY,
+          recipient: normalizedPatientEmail,
+          subject,
+          body: templateText,
+          status: CommunicationJobStatus.QUEUED,
+          provider: sender.provider,
+          queuedAt: new Date(),
+          metadata: {
+            idempotencyKey: normalizedIdempotencyKey ?? null,
+            branchId: patient.branchId,
+            fromAddress: sender.fromAddress,
+            fromName: sender.fromName,
+            replyTo: replyTo ?? null,
+            toAddress: normalizedPatientEmail,
+            toName,
+            ccAddress: copyAddress ?? null,
+            htmlBody,
+            textBody: templateText,
+            attachmentIds: attachments.map((attachment) => attachment.id),
+            attachmentCount: attachments.length,
+            hasAttachments: attachments.length > 0,
+            source: "PATIENT_PROFILE_EMAIL"
+          }
+        }
+      });
+
+      await tx.messageDelivery.create({
+        data: {
+          communicationJobId: created.id,
+          status: MessageDeliveryStatus.QUEUED,
+          provider: sender.provider
+        }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: actor.organizationId,
+          actorUserId: actor.id,
+          entity: "CommunicationJob",
+          entityId: created.id,
+          action: "queue_patient_email",
+          after: {
+            patientId,
+            branchId: patient.branchId,
+            toAddress: normalizedPatientEmail,
+            subject,
+            attachmentCount: attachments.length,
+            copyToSender: Boolean(copyAddress)
+          }
+        }
+      });
+
+      return created;
+    });
+
+    try {
+      if (!this.emailService) throw new ServiceUnavailableException("El servicio de correo no está configurado para esta organización.");
+      const emailAttachments = await Promise.all(
+        attachments.map(async (attachment) => {
+          if (!this.documentsService) throw new ServiceUnavailableException("El servicio de archivos no está disponible.");
+          const file = await this.documentsService.getPatientFileContent(actor, patientId, attachment.id);
+          return {
+            filename: file.downloadName,
+            content: file.stream,
+            contentType: file.mimeType
+          };
+        })
+      );
+      const sent = await this.emailService.sendPatientEmail({
+        to: normalizedPatientEmail,
+        cc: copyAddress,
+        replyTo,
+        subject,
+        html: htmlBody,
+        text: templateText,
+        attachments: emailAttachments
+      });
+
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.communicationJob.update({
+          where: { id: queued.id },
+          data: {
+            status: CommunicationJobStatus.SENT,
+            sentAt: new Date(),
+            providerMessageId: sent.providerMessageId,
+            failedAt: null,
+            errorMessage: null
+          },
+          include: this.patientEmailInclude()
+        });
+
+        await tx.messageDelivery.create({
+          data: {
+            communicationJobId: queued.id,
+            status: MessageDeliveryStatus.SENT,
+            provider: sender.provider,
+            providerMessageId: sent.providerMessageId,
+            deliveredAt: new Date()
+          }
+        });
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: actor.organizationId,
+            actorUserId: actor.id,
+            entity: "CommunicationJob",
+            entityId: queued.id,
+            action: "send_patient_email",
+            after: {
+              patientId,
+              status: CommunicationJobStatus.SENT,
+              provider: sender.provider,
+              providerMessageId: sent.providerMessageId,
+              attachmentCount: attachments.length
+            }
+          }
+        });
+
+        return row;
+      });
+
+      return this.serializePatientEmail(updated, true);
+    } catch (error) {
+      const safeMessage = error instanceof Error ? error.message.slice(0, 500) : "Unknown email provider error";
+      const failed = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.communicationJob.update({
+          where: { id: queued.id },
+          data: {
+            status: CommunicationJobStatus.FAILED,
+            failedAt: new Date(),
+            errorMessage: safeMessage
+          },
+          include: this.patientEmailInclude()
+        });
+
+        await tx.messageDelivery.create({
+          data: {
+            communicationJobId: queued.id,
+            status: MessageDeliveryStatus.FAILED,
+            provider: sender.provider,
+            failedAt: new Date(),
+            errorMessage: safeMessage
+          }
+        });
+
+        await tx.auditLog.create({
+          data: {
+            organizationId: actor.organizationId,
+            actorUserId: actor.id,
+            entity: "CommunicationJob",
+            entityId: queued.id,
+            action: "fail_patient_email",
+            after: { patientId, status: CommunicationJobStatus.FAILED, errorMessage: safeMessage }
+          }
+        });
+
+        return row;
+      });
+
+      if (error instanceof ServiceUnavailableException) throw error;
+      throw new ServiceUnavailableException(failed.errorMessage || "No fue posible enviar el correo. Intenta nuevamente.");
+    }
   }
 
   async create(actor: AuthUser, dto: CreatePatientDto) {
@@ -1232,6 +1513,358 @@ export class PatientsService {
     });
 
     return this.findOne(actor, target.id);
+  }
+
+  private patientEmailWhere(actor: AuthUser, patientId: string, query: ListPatientEmailsQueryDto): Prisma.CommunicationJobWhereInput {
+    const monthRange = this.parseEmailMonth(query.month);
+    const status = this.resolveEmailStatusFilter(query);
+    return {
+      organizationId: actor.organizationId,
+      patientId,
+      channel: CommunicationChannel.EMAIL,
+      templateKey: PATIENT_EMAIL_TEMPLATE_KEY,
+      patient: { branchId: { in: actor.branchIds }, deletedAt: null },
+      ...(status ? { status } : {}),
+      ...(query.filter === "withFiles" ? { metadata: { path: ["hasAttachments"], equals: true } } : {}),
+      ...(monthRange ? { createdAt: { gte: monthRange.start, lt: monthRange.end } } : {}),
+      ...(query.search?.trim()
+        ? {
+            OR: [
+              { subject: { contains: query.search.trim(), mode: "insensitive" } },
+              { recipient: { contains: query.search.trim(), mode: "insensitive" } }
+            ]
+          }
+        : {})
+    };
+  }
+
+  private patientEmailInclude() {
+    return {
+      createdBy: { select: { id: true, firstName: true, lastName: true, email: true } },
+      deliveries: { orderBy: { createdAt: "desc" as const } }
+    };
+  }
+
+  private serializePatientEmail(
+    email: Prisma.CommunicationJobGetPayload<{
+      include: {
+        createdBy: { select: { id: true; firstName: true; lastName: true; email: true } };
+        deliveries: true;
+      };
+    }>,
+    includeBody: boolean
+  ) {
+    const metadata = this.emailMetadata(email.metadata);
+    const attachmentIds = Array.isArray(metadata.attachmentIds)
+      ? metadata.attachmentIds.filter((entry): entry is string => typeof entry === "string")
+      : [];
+    return {
+      id: email.id,
+      patientId: email.patientId,
+      subject: email.subject ?? "",
+      status: email.status,
+      provider: email.provider,
+      providerMessageId: email.providerMessageId,
+      fromAddress: this.stringOrNull(metadata.fromAddress),
+      fromName: this.stringOrNull(metadata.fromName),
+      toAddress: this.stringOrNull(metadata.toAddress) ?? email.recipient,
+      toName: this.stringOrNull(metadata.toName),
+      ccAddress: this.stringOrNull(metadata.ccAddress),
+      senderUser: email.createdBy,
+      preview: (this.stringOrNull(metadata.textBody) ?? email.body).slice(0, 180),
+      attachmentCount: typeof metadata.attachmentCount === "number" ? metadata.attachmentCount : attachmentIds.length,
+      attachmentIds,
+      queuedAt: email.queuedAt,
+      sentAt: email.sentAt,
+      failedAt: email.failedAt,
+      createdAt: email.createdAt,
+      updatedAt: email.updatedAt,
+      failureMessage: email.status === CommunicationJobStatus.FAILED ? email.errorMessage : null,
+      deliveries: email.deliveries.map((delivery) => ({
+        id: delivery.id,
+        status: delivery.status,
+        provider: delivery.provider,
+        providerMessageId: delivery.providerMessageId,
+        deliveredAt: delivery.deliveredAt,
+        failedAt: delivery.failedAt,
+        errorMessage: delivery.errorMessage,
+        createdAt: delivery.createdAt
+      })),
+      ...(includeBody
+        ? {
+            htmlBody: this.stringOrNull(metadata.htmlBody),
+            textBody: this.stringOrNull(metadata.textBody) ?? email.body
+          }
+        : {})
+    };
+  }
+
+  private async getPatientForEmail(actor: AuthUser, patientId: string) {
+    const patient = await this.prisma.patient.findFirst({
+      where: {
+        id: patientId,
+        organizationId: actor.organizationId,
+        branchId: { in: actor.branchIds },
+        deletedAt: null
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        branchId: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        organization: { select: { name: true, email: true, phone: true, address: true, logoUrl: true } },
+        branch: { select: { id: true, name: true, email: true, phone: true, address: true } }
+      }
+    });
+    if (!patient) throw new NotFoundException("Patient not found");
+    return patient;
+  }
+
+  private async findIdempotentPatientEmail(actor: AuthUser, patientId: string, idempotencyKey: string) {
+    return this.prisma.communicationJob.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        patientId,
+        channel: CommunicationChannel.EMAIL,
+        templateKey: PATIENT_EMAIL_TEMPLATE_KEY,
+        createdById: actor.id,
+        patient: { branchId: { in: actor.branchIds }, deletedAt: null },
+        metadata: { path: ["idempotencyKey"], equals: idempotencyKey }
+      },
+      include: this.patientEmailInclude()
+    });
+  }
+
+  private async resolvePatientEmailAttachments(actor: AuthUser, patientId: string, fileAttachmentIds: string[]) {
+    const uniqueIds = [...new Set(fileAttachmentIds.map((id) => id.trim()).filter(Boolean))];
+    if (uniqueIds.length > PATIENT_EMAIL_MAX_ATTACHMENTS) throw new BadRequestException("Solo puedes adjuntar hasta 3 archivos.");
+    if (!uniqueIds.length) return [];
+
+    const files = await this.prisma.fileAttachment.findMany({
+      where: {
+        id: { in: uniqueIds },
+        organizationId: actor.organizationId,
+        patientId,
+        deletedAt: null,
+        patient: { branchId: { in: actor.branchIds }, deletedAt: null }
+      },
+      select: { id: true, originalName: true, mimeType: true, size: true }
+    });
+    if (files.length !== uniqueIds.length) throw new BadRequestException("Uno o más archivos no pertenecen a este paciente.");
+
+    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+    if (totalSize > PATIENT_EMAIL_MAX_TOTAL_BYTES) throw new BadRequestException("Los archivos no deben superar 25 MB en total.");
+
+    for (const file of files) {
+      if (file.size <= 0) throw new BadRequestException("No se pueden adjuntar archivos vacíos.");
+      const extension = extname(file.originalName).toLowerCase();
+      if (!PATIENT_EMAIL_ALLOWED_EXTENSIONS.has(extension) || !PATIENT_EMAIL_ALLOWED_MIME_TYPES.has(file.mimeType)) {
+        throw new BadRequestException("Archivo no permitido.");
+      }
+    }
+
+    return files;
+  }
+
+  private resolveEmailStatusFilter(query: ListPatientEmailsQueryDto) {
+    if (query.status) return query.status;
+    if (query.filter === "sent") return CommunicationJobStatus.SENT;
+    if (query.filter === "queued") return CommunicationJobStatus.QUEUED;
+    if (query.filter === "failed") return CommunicationJobStatus.FAILED;
+    if (query.filter === "cancelled") return CommunicationJobStatus.CANCELLED;
+    if (query.filter === "draft") return CommunicationJobStatus.PENDING;
+    return undefined;
+  }
+
+  private parseEmailMonth(month?: string) {
+    if (!month) return undefined;
+    const match = /^(\d{4})-(\d{2})$/.exec(month.trim());
+    if (!match) throw new BadRequestException("Mes inválido");
+    const year = Number(match[1]);
+    const monthIndex = Number(match[2]) - 1;
+    if (monthIndex < 0 || monthIndex > 11) throw new BadRequestException("Mes inválido");
+    return {
+      start: new Date(Date.UTC(year, monthIndex, 1)),
+      end: new Date(Date.UTC(year, monthIndex + 1, 1))
+    };
+  }
+
+  private normalizeRequiredEmail(value: string | null | undefined, missingMessage: string, invalidMessage: string) {
+    const email = value?.trim().toLowerCase();
+    if (!email) throw new BadRequestException(missingMessage);
+    if (this.hasHeaderInjection(email) || !EMAIL_REGEX.test(email)) throw new BadRequestException(invalidMessage);
+    return email;
+  }
+
+  private normalizeEmailSubject(value: string) {
+    const subject = value.trim().replace(/[\r\n]+/g, " ");
+    if (!subject) throw new BadRequestException("Escribe un asunto.");
+    if (this.hasHeaderInjection(subject)) throw new BadRequestException("Asunto inválido.");
+    return subject;
+  }
+
+  private decodeEmailHtml(value: string) {
+    try {
+      const decoded = Buffer.from(value, "base64").toString("utf8");
+      if (!decoded.trim()) throw new BadRequestException("Escribe el contenido del mensaje.");
+      return decoded;
+    } catch {
+      throw new BadRequestException("Contenido del mensaje inválido.");
+    }
+  }
+
+  private sanitizeEmailHtml(value: string) {
+    let html = value
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/<\s*(script|iframe|object|embed|form)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
+      .replace(/<\s*(script|iframe|object|embed|form)[^>]*\/?>/gi, "")
+      .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/\s+style\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/javascript\s*:/gi, "");
+
+    html = html.replace(/<a\b([^>]*)>/gi, (_match, attrs: string) => {
+      const hrefMatch = /\s+href\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
+      const href = (hrefMatch?.[2] ?? hrefMatch?.[3] ?? hrefMatch?.[4] ?? "").trim();
+      if (!/^(https?:\/\/|mailto:|tel:)/i.test(href)) return "<a>";
+      return `<a href="${this.escapeHtmlAttribute(href)}" target="_blank" rel="noopener noreferrer">`;
+    });
+
+    return html.replace(/<\/?([a-z0-9]+)(?:\s[^>]*)?>/gi, (tag, tagName: string) => {
+      const normalized = tagName.toLowerCase();
+      const allowed = new Set(["p", "br", "strong", "b", "em", "i", "u", "ul", "ol", "li", "h1", "h2", "h3", "a"]);
+      if (!allowed.has(normalized)) return "";
+      if (normalized === "a" && /^<a\b/i.test(tag)) return tag;
+      return tag.startsWith("</") ? `</${normalized}>` : `<${normalized}>`;
+    });
+  }
+
+  private htmlToText(value: string) {
+    return value
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|h1|h2|h3|li)>/gi, "\n")
+      .replace(/<li>/gi, "- ")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  private renderPatientEmailTemplate(input: {
+    organizationName: string;
+    branchName: string;
+    branchAddress?: string;
+    branchPhone?: string;
+    branchEmail?: string;
+    logoUrl?: string;
+    patientName: string;
+    contentHtml: string;
+  }) {
+    const logo =
+      input.logoUrl && /^https:\/\//i.test(input.logoUrl)
+        ? `<img src="${this.escapeHtmlAttribute(input.logoUrl)}" alt="Dental+" width="120" style="display:block;border:0;max-width:120px;height:auto;">`
+        : `<div style="font-size:28px;font-weight:800;letter-spacing:-0.02em;color:#ef4444;">Dental<span style="color:#0f172a;">+</span></div>`;
+    return `<!doctype html>
+<html lang="es">
+<body style="margin:0;padding:0;background:#f3f7fb;font-family:Arial,Helvetica,sans-serif;color:#0f172a;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f7fb;padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:660px;background:#ffffff;border:1px solid #dbe7f3;border-radius:12px;overflow:hidden;">
+        <tr><td style="padding:28px 32px 18px;border-bottom:1px solid #e5eef7;">${logo}<div style="margin-top:14px;font-size:13px;color:#64748b;">${this.escapeHtml(input.branchName || input.organizationName)}</div></td></tr>
+        <tr><td style="padding:28px 32px;">
+          <p style="margin:0 0 18px;font-size:16px;line-height:1.6;">Hola ${this.escapeHtml(input.patientName || "paciente")},</p>
+          <div style="font-size:15px;line-height:1.7;color:#1f2937;">${input.contentHtml}</div>
+          <div style="margin-top:28px;padding-top:18px;border-top:1px solid #e5eef7;font-size:14px;line-height:1.6;color:#334155;">
+            <strong>${this.escapeHtml(input.branchName || input.organizationName)}</strong><br>
+            ${input.branchAddress ? `${this.escapeHtml(input.branchAddress)}<br>` : ""}
+            ${input.branchPhone ? `Tel. ${this.escapeHtml(input.branchPhone)}<br>` : ""}
+            ${input.branchEmail ? `<a href="mailto:${this.escapeHtmlAttribute(input.branchEmail)}" style="color:#2563eb;text-decoration:none;">${this.escapeHtml(input.branchEmail)}</a>` : ""}
+          </div>
+        </td></tr>
+        <tr><td style="padding:18px 32px;background:#f8fafc;color:#64748b;font-size:12px;line-height:1.5;text-align:center;">Este mensaje contiene informacion relacionada con tu atencion dental. Si recibiste este correo por error, comunicate con la clinica.</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+  }
+
+  private renderPatientEmailText(input: {
+    organizationName: string;
+    branchName: string;
+    branchAddress?: string;
+    branchPhone?: string;
+    branchEmail?: string;
+    patientName: string;
+    contentText: string;
+  }) {
+    return [
+      `Hola ${input.patientName || "paciente"},`,
+      "",
+      input.contentText,
+      "",
+      input.branchName || input.organizationName,
+      input.branchAddress,
+      input.branchPhone ? `Tel. ${input.branchPhone}` : undefined,
+      input.branchEmail,
+      "",
+      "Este mensaje contiene informacion relacionada con tu atencion dental."
+    ]
+      .filter((line) => line !== undefined)
+      .join("\n");
+  }
+
+  private getEmailSender() {
+    const sender = this.emailService?.getDefaultSender() ?? {
+      fromAddress: "no-reply@dentalsuite.com",
+      fromName: "Dental+",
+      provider: "smtp"
+    };
+    this.normalizeRequiredEmail(
+      sender.fromAddress,
+      "El servicio de correo no está configurado para esta organización.",
+      "El remitente configurado no tiene un formato válido."
+    );
+    return sender;
+  }
+
+  private firstValidEmail(...values: Array<string | null | undefined>) {
+    for (const value of values) {
+      const email = value?.trim().toLowerCase();
+      if (email && !this.hasHeaderInjection(email) && EMAIL_REGEX.test(email)) return email;
+    }
+    return undefined;
+  }
+
+  private hasHeaderInjection(value: string) {
+    return /[\r\n]/.test(value);
+  }
+
+  private emailMetadata(value: Prisma.JsonValue | null): Record<string, unknown> {
+    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  }
+
+  private stringOrNull(value: unknown) {
+    return typeof value === "string" && value.trim() ? value : null;
+  }
+
+  private escapeHtml(value: string) {
+    return value
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  private escapeHtmlAttribute(value: string) {
+    return this.escapeHtml(value).replace(/`/g, "&#96;");
   }
 
   private async getTimelineInternal(actor: AuthUser, patientId: string) {

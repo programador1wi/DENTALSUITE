@@ -21,7 +21,13 @@ vi.mock("@/hooks/use-permissions", () => ({
 
 vi.mock("../hooks/use-patients", () => ({
   usePatient: () => ({
-    data: { id: "patient-1", branchId: "branch-1" },
+    data: {
+      id: "patient-1",
+      branchId: "branch-1",
+      firstName: "Ana",
+      lastName: "Paz",
+      branch: { id: "branch-1", name: "Dental + Suc. Leon" }
+    },
     isLoading: false,
     isError: false,
     error: null
@@ -38,7 +44,12 @@ vi.mock("@/features/settings/financial-institutions/hooks/use-financial-institut
 
 vi.mock("@/features/payments/hooks/use-payments", () => ({
   useCurrentCashRegister: () => ({
-    data: { id: "register-1", branch: { id: "branch-1", name: "Dental + Suc. Leon" } },
+    data: {
+      id: "register-1",
+      openedAt: "2026-07-13T12:00:00.000Z",
+      branch: { id: "branch-1", name: "Dental + Suc. Leon" },
+      openedBy: { firstName: "Caja", lastName: "Uno" }
+    },
     isLoading: false
   }),
   usePatientPayments: () => ({
@@ -59,6 +70,7 @@ vi.mock("@/features/payments/hooks/use-payments", () => ({
           id: "plan-1",
           name: "Diagnostico",
           status: "ACCEPTED",
+          branch: { id: "branch-1", name: "Dental + Suc. Leon" },
           professional: { id: "professional-1", firstName: "Hilario", lastName: "Cruz" },
           createdAt: "2026-06-09T12:00:00.000Z",
           totalBudget: 1233,
@@ -68,6 +80,7 @@ vi.mock("@/features/payments/hooks/use-payments", () => ({
           items: [
             {
               id: "item-1",
+              version: 1,
               treatmentPlanId: "plan-1",
               treatmentPlanName: "Diagnostico",
               treatmentPlanStatus: "ACCEPTED",
@@ -102,16 +115,21 @@ vi.mock("@/features/payments/hooks/use-payments", () => ({
 }));
 
 describe("PatientPaymentsPage", () => {
-  it("requires selecting a treatment before showing the payment form", () => {
+  it("requires selecting a treatment before opening the item selection step", () => {
     render(<PatientPaymentsPage />);
 
-    expect(screen.getByRole("heading", { name: "Ingresar un pago" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Cobro de tratamiento" })).toBeInTheDocument();
     expect(screen.getByText("Planes de tratamiento")).toBeInTheDocument();
-    expect(screen.queryByText("Recibir pago de este paciente")).not.toBeInTheDocument();
+    expect(screen.queryByText("Selecciona prestaciones a pagar")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pagar tratamiento(s)" })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("checkbox"));
+    fireEvent.click(screen.getByRole("radio", { name: "Seleccionar Diagnostico" }));
 
-    expect(screen.getByText("Recibir pago de este paciente")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Registrar pago" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pagar tratamiento(s)" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "Pagar tratamiento(s)" }));
+
+    expect(screen.getByText("Selecciona prestaciones a pagar")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Seleccionar Diagnostico" })).toBeChecked();
+    expect(screen.getByRole("button", { name: "Continuar" })).toBeEnabled();
   });
 });

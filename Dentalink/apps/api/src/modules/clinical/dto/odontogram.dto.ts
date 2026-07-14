@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -83,6 +84,15 @@ export class UpdateToothProcedureStatusDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsInt()
+  @IsIn([0, 25, 50, 75, 100])
+  completionPercentage?: number;
+
+  @IsOptional()
+  @IsInt()
+  expectedVersion?: number;
 
   @IsOptional()
   @IsBoolean()

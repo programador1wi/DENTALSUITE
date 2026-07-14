@@ -12,7 +12,7 @@ import { JwtService } from "@nestjs/jwt";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import { AppointmentsService } from "../appointments/appointments.service";
-import { PublicAvailabilityQueryDto, PublicCreateAppointmentDto } from "./dto/public-booking.dto";
+import { PublicAvailabilityQueryDto, PublicCreateAppointmentDto, UpdatePublicPatientProfileDto } from "./dto/public-booking.dto";
 
 const PUBLIC_ACTION_ROLE_CODES = ["OWNER", "owner", "SUPER_ADMIN", "super_admin", "ADMIN", "admin"];
 const PUBLIC_ACTION_ROLE_NAMES = ["OWNER", "SUPER_ADMIN", "ADMIN"];
@@ -105,7 +105,24 @@ export class PublicBookingService {
   }
 
   async getConfig(slug: string) {
-    const config = await this.prisma.onlineSchedulingConfig.findUnique({ where: { slug } });
+    const config = await this.prisma.onlineSchedulingConfig.findUnique({
+      where: { slug },
+      include: {
+        organization: {
+          select: {
+            name: true,
+            phone: true,
+            email: true,
+            logoUrl: true,
+            branchBrands: {
+              where: { isDefault: true, status: "ACTIVE" },
+              select: { name: true, logoUrl: true, primaryColor: true, phone: true, senderEmail: true },
+              take: 1
+            }
+          }
+        }
+      }
+    });
     if (!config || !config.isEnabled) throw new NotFoundException("Booking page not found or disabled");
 
     const branches = await this.prisma.branch.findMany({
@@ -134,7 +151,20 @@ export class PublicBookingService {
       select: { id: true, name: true }
     });
 
-    return { ...config, branches, professionals, specialties };
+    const defaultBrand = config.organization.branchBrands[0];
+    return {
+      ...config,
+      brandColor: config.brandColor ?? defaultBrand?.primaryColor ?? undefined,
+      logoUrl: config.logoUrl ?? defaultBrand?.logoUrl ?? config.organization.logoUrl ?? undefined,
+      footerText:
+        config.footerText ??
+        [defaultBrand?.name ?? config.organization.name, defaultBrand?.phone ?? config.organization.phone, defaultBrand?.senderEmail ?? config.organization.email]
+          .filter(Boolean)
+          .join(" - "),
+      branches,
+      professionals,
+      specialties
+    };
   }
 
   async getAvailability(slug: string, query: PublicAvailabilityQueryDto) {
@@ -251,12 +281,14 @@ export class PublicBookingService {
     return appointment;
   }
 
-  private verifyEmailToken(id: string, token: string) {
+  private verifyEmailToken(id: string, token: string, expectedPurpose?: string) {
     if (!token) throw new BadRequestException("Token is required");
     const secret = this.configService.get<string>("JWT_ACCESS_SECRET") || "secret";
     try {
       const payload = this.jwtService.verify(token, { secret });
       if (payload.sub !== id) throw new UnauthorizedException("Invalid token");
+      if (expectedPurpose && payload.purpose !== expectedPurpose) throw new UnauthorizedException("Invalid token purpose");
+      return payload;
     } catch (error) {
       const name = error instanceof Error ? error.name : "";
       if (name === "TokenExpiredError") throw new GoneException("Token expired");
@@ -313,6 +345,106 @@ export class PublicBookingService {
     await this.appointmentsService.cancel(actor, id, {
       reason: "Cancelado por el paciente via enlace publico de email",
       cancelledBy: "patient"
+    });
+
+    return { success: true };
+  }
+
+  async getPatientProfile(id: string, token: string) {
+    this.verifyEmailToken(id, token, 'PATIENT_PROFILE_UPDATE');
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id },
+      include: {
+        patient: { include: { address: true, contacts: true } },
+        branch: { select: { organizationId: true } }
+      }
+    });
+
+    if (!appointment || !appointment.patient) throw new NotFoundException('Patient not found');
+    if (appointment.status === 'CANCELLED_BY_CLINIC' || appointment.status === 'CANCELLED_BY_PATIENT' || appointment.status === 'CANCELLED_RESCHEDULED' || appointment.status === 'CANCELLED_CONFLICT') {
+      throw new BadRequestException('Cannot update profile for a cancelled appointment');
+    }
+
+    const p = appointment.patient;
+    return {
+      firstName: p.firstName,
+      lastName: p.lastName,
+      email: p.email,
+      phone: p.phone,
+      documentType: p.documentType,
+      documentNumber: p.documentNumber,
+      birthDate: p.birthDate ? p.birthDate.toISOString() : null,
+      gender: p.gender,
+      alternatePhone: p.alternatePhone,
+      address: p.address ? {
+        street: p.address.street,
+        city: p.address.city,
+        state: p.address.state
+      } : null
+    };
+  }
+
+  async updatePatientProfile(id: string, token: string, dto: UpdatePublicPatientProfileDto) {
+    this.verifyEmailToken(id, token, 'PATIENT_PROFILE_UPDATE');
+    const appointment = await this.prisma.appointment.findUnique({
+      where: { id },
+      include: { patient: { include: { address: true } } }
+    });
+
+    if (!appointment || !appointment.patient) throw new NotFoundException('Patient not found');
+    if (!dto.privacyNoticeAccepted) throw new BadRequestException('Privacy notice must be accepted');
+
+    const patientId = appointment.patient.id;
+    const organizationId = appointment.organizationId;
+
+    const dataToUpdate: any = {};
+    if (dto.firstName !== undefined) dataToUpdate.firstName = dto.firstName.trim();
+    if (dto.lastName !== undefined) dataToUpdate.lastName = dto.lastName.trim();
+    if (dto.email !== undefined) dataToUpdate.email = dto.email ? dto.email.trim().toLowerCase() : null;
+    if (dto.phone !== undefined) dataToUpdate.phone = dto.phone ? dto.phone.trim() : null;
+    if (dto.documentType !== undefined) dataToUpdate.documentType = dto.documentType;
+    if (dto.documentNumber !== undefined) dataToUpdate.documentNumber = dto.documentNumber ? dto.documentNumber.trim() : null;
+    if (dto.birthDate !== undefined) dataToUpdate.birthDate = dto.birthDate ? new Date(dto.birthDate) : null;
+    if (dto.gender !== undefined) dataToUpdate.gender = dto.gender;
+    if (dto.alternatePhone !== undefined) dataToUpdate.alternatePhone = dto.alternatePhone ? dto.alternatePhone.trim() : null;
+
+    if (dto.address !== undefined) {
+       dataToUpdate.address = {
+         upsert: {
+           create: {
+             street: dto.address.street || '',
+             city: dto.address.city || '',
+             state: dto.address.state || ''
+           },
+           update: {
+             ...(dto.address.street !== undefined && { street: dto.address.street }),
+             ...(dto.address.city !== undefined && { city: dto.address.city }),
+             ...(dto.address.state !== undefined && { state: dto.address.state })
+           }
+         }
+       };
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      if (Object.keys(dataToUpdate).length > 0) {
+        await tx.patient.update({
+          where: { id: patientId },
+          data: dataToUpdate
+        });
+      }
+
+      await tx.auditLog.create({
+        data: {
+          organizationId,
+          entityId: patientId,
+          entity: 'Patient',
+          action: 'update_public_profile',
+          reason: 'PUBLIC_PATIENT_PROFILE',
+          newValue: { privacyNoticeAccepted: true, updatedFields: Object.keys(dataToUpdate) },
+          createdAt: new Date(),
+          userId: appointment.createdById
+        }
+      });
     });
 
     return { success: true };

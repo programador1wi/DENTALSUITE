@@ -16,9 +16,12 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import {
+  BulkDiscountTreatmentPlanItemsDto,
   ChangeTreatmentPlanBranchDto,
   CreateAlternativeDto,
   PauseTreatmentPlanDto,
+  PrintTreatmentPlanDocumentDto,
+  OrthodonticEvolutionsQueryDto,
   CreateBudgetDto,
   CreateOrthodonticMonthlyItemsDto,
   CreateTreatmentPlanDto,
@@ -30,6 +33,7 @@ import {
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
   UpdateTreatmentPlanItemStatusDto,
+  StartOrthodonticTreatmentDto,
   ReactivateTreatmentPlanDto,
   DeactivateTreatmentPlanDto,
   DuplicateTreatmentPlanDto,
@@ -80,6 +84,24 @@ export class TreatmentPlansController {
     return this.service.updateOrthodonticDiagnosis(actor, id, dto);
   }
 
+  @Get("treatment-plans/:id/orthodontics/summary")
+  @RequirePermissions("treatment_plans.read")
+  getOrthodonticSummary(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getOrthodonticSummary(actor, id);
+  }
+
+  @Get("treatment-plans/:id/orthodontics/evolutions")
+  @RequirePermissions("clinical.read")
+  listOrthodonticEvolutions(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Query() query: OrthodonticEvolutionsQueryDto) {
+    return this.service.listOrthodonticEvolutions(actor, id, query);
+  }
+
+  @Post("treatment-plans/:id/orthodontics/start")
+  @RequirePermissions("treatment_plans.status.update")
+  startOrthodonticTreatment(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: StartOrthodonticTreatmentDto) {
+    return this.service.startOrthodonticTreatment(actor, id, dto);
+  }
+
   @Post("treatment-plans/:id/orthodontics/monthly-items")
   @RequirePermissions("treatment_plans.update")
   createOrthodonticMonthlyItems(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: CreateOrthodonticMonthlyItemsDto) {
@@ -114,6 +136,32 @@ export class TreatmentPlansController {
   @RequirePermissions("treatment_plans.update")
   addItem(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateTreatmentPlanItemDto) {
     return this.service.addItem(actor, id, dto);
+  }
+
+  @Get("treatment-plans/:id/procedures")
+  @RequirePermissions("treatment_plans.read")
+  getProcedures(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getProcedures(actor, id);
+  }
+
+  @Patch("treatment-plans/:id/items/bulk-discount")
+  @RequirePermissions("treatment_plans.update")
+  applyBulkDiscount(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: BulkDiscountTreatmentPlanItemsDto
+  ) {
+    return this.service.applyBulkDiscount(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/print")
+  @RequirePermissions("budgets.print")
+  printTreatmentPlanDocument(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: PrintTreatmentPlanDocumentDto
+  ) {
+    return this.service.printTreatmentPlanDocument(actor, id, dto);
   }
 
   @Patch("treatment-plans/:id/items/:itemId")

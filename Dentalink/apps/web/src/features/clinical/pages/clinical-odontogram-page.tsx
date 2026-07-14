@@ -61,7 +61,7 @@ export function ClinicalOdontogramPage() {
           mutations.createToothCondition.mutateAsync({
             professionalId,
             toothNumber,
-            surface: selectedSurface || undefined,
+            surface: selectedSurface || "ALL",
             condition: diagnosis,
             diagnosis,
             notes

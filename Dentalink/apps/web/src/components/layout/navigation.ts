@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Armchair,
+  BarChart3,
   Briefcase,
   Calculator,
   CalendarDays,
@@ -10,11 +11,14 @@ import {
   DollarSign,
   FileCheck,
   FileText,
+  FileSpreadsheet,
   FlaskConical,
+  Gauge,
   HandCoins,
   Handshake,
   Image,
   Landmark,
+  LayoutDashboard,
   Package,
   Receipt,
   ReceiptText,
@@ -47,6 +51,7 @@ export type MainNavItem = MenuItem & {
 export const navItems: MainNavItem[] = [
   { to: "/agenda", label: "Agenda", icon: CalendarDays, permission: "appointments.read" },
   { to: "/patients", label: "Pacientes", icon: UsersRound, permission: "patients.read" },
+
   { to: "/cash-register/open", label: "Cajas", icon: WalletCards, permission: "cash_register.read" },
   {
     to: "/accounts-receivable",
@@ -94,11 +99,9 @@ export const navItems: MainNavItem[] = [
     icon: ChartNoAxesColumnIncreasing,
     permission: "reports.read",
     children: [
-      { to: "/reports/appointments", label: "Agenda", permission: "reports.read", icon: CalendarDays },
-      { to: "/reports/patients", label: "Pacientes", permission: "reports.read", icon: UsersRound },
-      { to: "/reports/treatments", label: "Tratamientos", permission: "reports.read", icon: FileCheck },
-      { to: "/reports/financial", label: "Financieros", permission: "reports.read", icon: DollarSign },
-      { to: "/reports/professionals", label: "Profesionales", permission: "reports.read", icon: UserCog }
+      { to: "/reports/performance", label: "Panel de desempeno", permission: "reports.read", icon: Gauge },
+      { to: "/reports/excel", label: "Reportes Excel", permission: "reports.read", icon: FileSpreadsheet },
+      { to: "/reports/charts", label: "Reportes graficos", permission: "reports.read", icon: BarChart3 }
     ]
   },
   { to: "/integrations", label: "CRM", icon: Handshake, permission: "integrations.communications.read" }

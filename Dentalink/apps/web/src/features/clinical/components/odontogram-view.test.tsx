@@ -3,17 +3,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useOdontogramStore } from "@/stores/odontogram.store";
 import { OdontogramView } from "./odontogram-view";
 import { ToothDiagnosisPickerWindow } from "./tooth-diagnosis-modal";
-import type { ToothProcedure } from "../services/clinical.service";
+import type { OdontogramRecord, ToothCondition, ToothProcedure } from "../services/clinical.service";
 
 function TestOdontogram({
   mode = "clinical",
   onApplyQuickDiagnosis = vi.fn(),
   onOpenProcedureCatalog = vi.fn(),
+  conditions = [],
+  records = [],
   procedures = []
 }: {
   mode?: "clinical" | "treatment-plan";
   onApplyQuickDiagnosis?: (diagnosis: string) => void;
   onOpenProcedureCatalog?: () => void;
+  conditions?: ToothCondition[];
+  records?: OdontogramRecord[];
   procedures?: ToothProcedure[];
 }) {
   const selectedTooth = useOdontogramStore((state) => state.selectedTooth);
@@ -25,8 +29,8 @@ function TestOdontogram({
       mode={mode}
       selectedTooth={selectedTooth}
       latestByTooth={{}}
-      conditions={[]}
-      records={[]}
+      conditions={conditions}
+      records={records}
       procedures={procedures}
       onSelectTooth={selectTooth}
       onOpenDiagnosis={() => openModal("diagnosis")}
@@ -148,6 +152,52 @@ describe("OdontogramView contextual interactions", () => {
       const face = screen.getByTestId(`surface-face-14-${surface}`);
       expect(face.getAttribute("class")).toContain("fill-[#ff0000]");
       expect(face.getAttribute("class")).toContain("stroke-black");
+      expect(face).toHaveAttribute("stroke-width", "1.9");
+    }
+  });
+
+  it("marks only the selected face as lesion when a surface diagnosis exists", () => {
+    render(
+      <TestOdontogram
+        records={[
+          {
+            id: "record-18",
+            toothNumber: "18",
+            surface: "D",
+            condition: "Caries",
+            diagnosis: "Caries distal",
+            status: "PLANNED",
+            createdAt: "2026-07-13T12:00:00.000Z"
+          }
+        ]}
+      />
+    );
+
+    expect(screen.getByTestId("surface-face-18-D").getAttribute("class")).toContain("fill-black");
+    expect(screen.getByTestId("surface-face-18-M").getAttribute("class")).toContain("fill-white");
+    expect(screen.getByTestId("surface-face-18-O").getAttribute("class")).toContain("fill-white");
+  });
+
+  it("marks every face as lesion when a tooth diagnosis is stored as full tooth", () => {
+    render(
+      <TestOdontogram
+        records={[
+          {
+            id: "record-34",
+            toothNumber: "34",
+            surface: "ALL",
+            condition: "Fractura",
+            diagnosis: "Fractura",
+            status: "PLANNED",
+            createdAt: "2026-07-13T12:00:00.000Z"
+          }
+        ]}
+      />
+    );
+
+    for (const surface of ["L", "D", "B", "M", "O"]) {
+      const face = screen.getByTestId(`surface-face-34-${surface}`);
+      expect(face.getAttribute("class")).toContain("fill-black");
       expect(face).toHaveAttribute("stroke-width", "1.9");
     }
   });

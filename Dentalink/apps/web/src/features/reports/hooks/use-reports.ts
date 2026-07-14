@@ -1,11 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  createExcelReportRequest,
+  generateChartReport,
   getAppointmentsReport,
+  getChartsCatalog,
   getDashboardReport,
+  getExcelCatalog,
   getFinancialReport,
+  getPerformanceReport,
   getPatientsReport,
   getProfessionalsReport,
   getTreatmentsReport,
+  type AnalyticsFilters,
+  type ExcelReportRequestPayload,
+  type ExcelReportType,
   type ReportFilters
 } from "../services/reports.service";
 
@@ -14,6 +22,35 @@ export function useDashboardReport(filters?: ReportFilters) {
     queryKey: ["reports", "dashboard", filters],
     queryFn: () => getDashboardReport(filters)
   });
+}
+
+export function usePerformanceReport(filters?: AnalyticsFilters) {
+  return useQuery({
+    queryKey: ["reports", "performance", filters],
+    queryFn: () => getPerformanceReport(filters)
+  });
+}
+
+export function useChartsCatalog() {
+  return useQuery({
+    queryKey: ["reports", "charts", "catalog"],
+    queryFn: getChartsCatalog
+  });
+}
+
+export function useExcelCatalog() {
+  return useQuery({
+    queryKey: ["reports", "excel", "catalog"],
+    queryFn: getExcelCatalog
+  });
+}
+
+export function requestExcelReport(payload: ExcelReportRequestPayload | (ReportFilters & { type: ExcelReportType; search?: string; category?: string })) {
+  return createExcelReportRequest(payload);
+}
+
+export function requestChartReport(type: string, payload: AnalyticsFilters & { criteria?: string }) {
+  return generateChartReport(type, payload);
 }
 
 export function useAppointmentsReport(filters?: ReportFilters) {

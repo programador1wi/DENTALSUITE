@@ -21,17 +21,39 @@ export type Payment = {
   voidedById?: string | null;
   paidAt: string;
   createdAt: string;
-  patient: { id: string; firstName: string; lastName: string; documentNumber?: string | null };
+  patient: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    documentNumber?: string | null;
+    birthDate?: string | null;
+    agreement?: { id: string; name: string } | null;
+  };
   branch: { id: string; name: string };
   paymentMethod: { id: string; name: string; type: string };
   financialInstitution?: { id: string; name: string } | null;
   receivedBy: { id: string; firstName: string; lastName: string };
   voidedBy?: { id: string; firstName: string; lastName: string } | null;
+  splits?: Array<{
+    id: string;
+    paymentMethodId: string;
+    amount: string;
+    reference?: string | null;
+    paymentMethod: { id: string; name: string; type: string };
+    financialInstitution?: { id: string; name: string } | null;
+  }>;
+  paymentMethods?: Array<{
+    name: string;
+    amount: number;
+    reference?: string | null;
+    financialInstitution?: string | null;
+  }>;
   treatments?: Array<{ id: string; number: string; name: string; procedures: string[] }>;
   treatmentRefs?: Array<{ id: string; number: string; name: string; procedures: string[] }>;
   cashRegister?: {
     id: string;
     movementId: string;
+    displayName?: string | null;
     status: CashRegisterStatus;
     openedAt: string;
     closedAt?: string | null;
@@ -41,6 +63,12 @@ export type Payment = {
   dueDate?: string | null;
   allocatedAmount: number;
   unallocatedAmount: number;
+  remainingPlanBalance?: number;
+  receipt?: {
+    available: boolean;
+    previewUrl: string;
+    pdfUrl: string;
+  };
   breakdown: Array<{
     id: string;
     kind: "TREATMENT" | "INSTALLMENT";
@@ -84,6 +112,7 @@ export type Refund = {
   patient: { id: string; firstName: string; lastName: string };
   payment: {
     id: string;
+    paymentNumber?: number | string | null;
     amount: string;
     status: PaymentStatus;
     allocations: Array<{
@@ -142,7 +171,9 @@ export type Installment = {
 
 export type PayableTreatmentItem = {
   id: string;
+  version: number;
   treatmentPlanId: string;
+  treatmentPlanNumber?: string;
   treatmentPlanName: string;
   treatmentPlanStatus: string;
   procedure: { id: string; code: string; name: string };
@@ -162,8 +193,10 @@ export type PayableTreatmentItem = {
 
 export type PayableTreatmentPlan = {
   id: string;
+  number?: string;
   name: string;
   status: string;
+  branch: { id: string; name: string };
   professional: { id: string; firstName: string; lastName: string };
   createdAt: string;
   totalBudget: number;
@@ -300,7 +333,9 @@ export async function createPayment(payload: {
   reference?: string;
   notes?: string;
   paidAt?: string;
-  allocations?: Array<{ treatmentPlanItemId: string; amount: number }>;
+  allocations?: Array<{ treatmentPlanItemId: string; amount: number; expectedVersion?: number }>;
+  splits?: Array<{ paymentMethodId: string; amount: number; financialInstitutionId?: string; reference?: string }>;
+  idempotencyKey?: string;
 }) {
   const { data } = await http.post<Payment>("/payments", payload);
   return data;
@@ -348,6 +383,18 @@ export async function voidPayment(paymentId: string, payload: { reason: string }
 export async function getPaymentReceipt(paymentId: string) {
   const { data } = await http.get<{ payment: Payment; printableText: string }>(`/payments/${paymentId}/receipt`);
   return data;
+}
+
+export async function downloadPaymentReceiptPdf(paymentNumber: string) {
+  const { data, headers } = await http.get<Blob>(`/payments/${paymentNumber}/receipt.pdf`, {
+    responseType: "blob"
+  });
+  const disposition = headers["content-disposition"];
+  const fileNameMatch = typeof disposition === "string" ? /filename="([^"]+)"/.exec(disposition) : null;
+  return {
+    blob: data,
+    fileName: fileNameMatch?.[1] ?? `Comprobante_Pago_${paymentNumber}.pdf`
+  };
 }
 
 export async function listPatientPayments(patientId: string) {
@@ -403,11 +450,17 @@ export async function listInstallments(params?: {
   return data;
 }
 
-export async function payInstallment(
-  installmentId: string,
-  payload: { branchId: string; paymentMethodId: string; amount: number; reference?: string; notes?: string }
-) {
-  const { data } = await http.post(`/installments/${installmentId}/pay`, payload);
+export async function payInstallment(payload: {
+  installmentId: string;
+  branchId: string;
+  paymentMethodId?: string;
+  amount: number;
+  reference?: string;
+  notes?: string;
+  splits?: Array<{ paymentMethodId: string; amount: number; financialInstitutionId?: string; reference?: string }>;
+  idempotencyKey?: string;
+}) {
+  const { data } = await http.post(`/installments/${payload.installmentId}/pay`, payload);
   return data;
 }
 

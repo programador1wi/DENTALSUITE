@@ -26,8 +26,7 @@ export function ProgressDonut({
 }: ProgressDonutProps) {
   const radius = (size - strokeWidth) / 2;
   const circumference = radius * 2 * Math.PI;
-  // Make sure percentage is within bounds for the visual
-  const safePercentage = Math.min(100, Math.max(0, percentage));
+  const safePercentage = Number.isFinite(percentage) ? Math.min(100, Math.max(0, percentage)) : 0;
   const offset = circumference - (safePercentage / 100) * circumference;
 
   const actualColor = isAlert ? "text-amber-500" : color;
@@ -64,7 +63,7 @@ export function ProgressDonut({
         {label ? (
           <span className="text-2xl font-bold text-slate-800">{label}</span>
         ) : (
-          <span className="text-2xl font-bold text-slate-800">{Math.round(percentage)}%</span>
+          <span className="text-2xl font-bold text-slate-800">{Math.round(safePercentage)}%</span>
         )}
         {subLabel && <span className="text-xs text-slate-500 font-medium mt-1 leading-tight">{subLabel}</span>}
       </div>

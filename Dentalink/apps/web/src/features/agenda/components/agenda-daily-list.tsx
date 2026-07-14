@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { CheckCircle2, DollarSign, MessageSquare } from "lucide-react";
+import { CheckCircle2, DollarSign, MessageSquare, ChevronDown, Plus, Layers } from "lucide-react";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import { appointmentColorPalette } from "./appointment-status";
@@ -73,16 +73,32 @@ export function AgendaDailyList({
   date,
   onDateChange,
   onCreateClick,
+  onCreateMultipleClick,
   ...handlers
 }: {
   appointments: Appointment[];
   date: string;
   onDateChange: (date: string) => void;
   onCreateClick?: () => void;
+  onCreateMultipleClick?: () => void;
 } & ActionHandlers) {
   const [search, setSearch]               = useState("");
   const [page, setPage]                   = useState(1);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    if (dropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dropdownOpen]);
 
   // ── Date helpers ──
   const navigate = (delta: number) => {
@@ -205,36 +221,79 @@ export function AgendaDailyList({
             )}
           </div>
 
-          {/* Search */}
-          <div className="flex-1 min-w-[200px]">
-            <EntitySearchBox
-              value={search}
-              onValueChange={(value) => {
-                setSearch(value);
-                setPage(1);
-                setSelectedAppointmentId(null);
-              }}
-              items={appointmentSuggestions}
-              onSelect={selectAppointment}
-              getItemKey={(appointment) => appointment.id}
-              placeholder="Buscar paciente, teléfono o tratamiento..."
-              inputClassName="h-8 rounded-lg border-zinc-200 bg-zinc-50/80 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 focus:border-blue-300 focus:ring-blue-200"
-              emptyMessage="Sin citas encontradas"
-              renderItem={(appointment) => {
-                const start = new Date(appointment.startAt);
-                return (
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">
-                      {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-xs font-semibold text-zinc-800">{appointmentPatientName(appointment)}</span>
-                      <span className="block truncate text-[10px] text-zinc-400">{appointment.title}</span>
-                    </span>
+          {/* Search & Nueva cita */}
+          <div className="flex-1 flex items-center gap-2 justify-end min-w-[280px]">
+            <div className="max-w-xs flex-1">
+              <EntitySearchBox
+                value={search}
+                onValueChange={(value) => {
+                  setSearch(value);
+                  setPage(1);
+                  setSelectedAppointmentId(null);
+                }}
+                items={appointmentSuggestions}
+                onSelect={selectAppointment}
+                getItemKey={(appointment) => appointment.id}
+                placeholder="Buscar paciente, teléfono..."
+                inputClassName="h-8 rounded-lg border-zinc-200 bg-zinc-50/80 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 focus:border-blue-300 focus:ring-blue-200"
+                emptyMessage="Sin citas"
+                renderItem={(appointment) => {
+                  const start = new Date(appointment.startAt);
+                  return (
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-bold text-blue-700">
+                        {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-semibold text-zinc-800">{appointmentPatientName(appointment)}</span>
+                        <span className="block truncate text-[10px] text-zinc-400">{appointment.title}</span>
+                      </span>
+                    </div>
+                  );
+                }}
+              />
+            </div>
+            
+            {onCreateClick && (
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  type="button"
+                  onClick={() => setDropdownOpen((prev) => !prev)}
+                  className="flex h-8 items-center justify-between gap-1.5 rounded-lg border border-[var(--action-primary)] bg-[var(--action-primary)] px-3 text-xs text-white font-semibold shadow-sm transition active:scale-95 hover:bg-[var(--action-primary-hover)] hover:border-[var(--action-primary-hover)]"
+                >
+                  <span>Nueva cita</span>
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+                {dropdownOpen && (
+                  <div className="absolute right-0 z-50 mt-1 w-48 rounded-lg border border-[var(--border-default)] bg-white p-1 shadow-lg animate-in fade-in zoom-in-95 duration-100">
+                    <button
+                      type="button"
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
+                      onClick={() => {
+                        onCreateClick();
+                        setDropdownOpen(false);
+                      }}
+                    >
+                      <Plus className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
+                      <span>Cita individual</span>
+                    </button>
+                    {onCreateMultipleClick && (
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
+                        onClick={() => {
+                          onCreateMultipleClick();
+                          setDropdownOpen(false);
+                        }}
+                      >
+                        <Layers className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
+                        <span>Agendamiento múltiple</span>
+                      </button>
+                    )}
                   </div>
-                );
-              }}
-            />
+                )}
+              </div>
+            )}
           </div>
 
 

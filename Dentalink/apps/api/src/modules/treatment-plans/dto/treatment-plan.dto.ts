@@ -10,6 +10,7 @@ import {
   IsBoolean,
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsObject,
@@ -20,6 +21,7 @@ import {
   ValidateNested
 } from "class-validator";
 import { PaginationQueryDto } from "../../../common/dto/pagination-query.dto";
+import { TREATMENT_PLAN_DOCUMENT_TYPES, type TreatmentPlanDocumentType } from "../treatment-plan-documents";
 
 export class TreatmentPlanSectionInputDto {
   @IsString()
@@ -208,6 +210,35 @@ export class UpdateOrthodonticDiagnosisDto {
   diagnosis!: Record<string, unknown>;
 }
 
+export class StartOrthodonticTreatmentDto {
+  @IsOptional()
+  @IsDateString()
+  startDate?: string;
+}
+
+export class OrthodonticEvolutionsQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string;
+
+  @IsOptional()
+  @IsString()
+  professionalId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  hasHygiene?: boolean;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+}
+
 export class CreateOrthodonticMonthlyItemsDto {
   @IsString()
   procedureId!: string;
@@ -329,8 +360,31 @@ export class UpdateTreatmentPlanItemStatusDto {
   status!: TreatmentPlanItemStatus;
 
   @IsOptional()
+  @IsInt()
+  @IsIn([0, 25, 50, 75, 100])
+  completionPercentage?: number;
+
+  @IsOptional()
+  @IsInt()
+  expectedVersion?: number;
+
+  @IsOptional()
   @IsString()
   notes?: string;
+}
+
+export class BulkDiscountTreatmentPlanItemsDto {
+  @IsArray()
+  @IsString({ each: true })
+  itemIds!: string[];
+
+  @IsIn(["PERCENTAGE", "AMOUNT"])
+  discountType!: "PERCENTAGE" | "AMOUNT";
+
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  value!: number;
 }
 
 export class CreateBudgetDto {
@@ -361,6 +415,15 @@ export class ListBudgetsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(BudgetStatus)
   status?: BudgetStatus;
+}
+
+export class PrintTreatmentPlanDocumentDto {
+  @IsIn(TREATMENT_PLAN_DOCUMENT_TYPES)
+  type!: TreatmentPlanDocumentType;
+
+  @IsOptional()
+  @IsString()
+  budgetId?: string;
 }
 
 export class UpdateBudgetStatusDto {

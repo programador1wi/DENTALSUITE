@@ -124,6 +124,57 @@ export type PatientTaskPayload = {
   assignedToId?: string;
 };
 
+export type PatientEmailStatus = "PENDING" | "QUEUED" | "SENT" | "FAILED" | "CANCELLED";
+
+export type PatientEmail = {
+  id: string;
+  patientId: string;
+  subject: string;
+  status: PatientEmailStatus;
+  provider: string;
+  providerMessageId?: string | null;
+  fromAddress?: string | null;
+  fromName?: string | null;
+  toAddress: string;
+  toName?: string | null;
+  ccAddress?: string | null;
+  senderUser?: { id: string; firstName: string; lastName: string; email: string } | null;
+  preview: string;
+  attachmentCount: number;
+  attachmentIds: string[];
+  queuedAt?: string | null;
+  sentAt?: string | null;
+  failedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  failureMessage?: string | null;
+  htmlBody?: string | null;
+  textBody?: string | null;
+};
+
+export type PatientEmailsQuery = {
+  search?: string;
+  month?: string;
+  status?: PatientEmailStatus;
+  filter?: "all" | "sent" | "queued" | "failed" | "cancelled" | "draft" | "withFiles";
+  page?: number;
+  pageSize?: number;
+};
+
+export type PatientEmailsResponse = {
+  items: PatientEmail[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export type SendPatientEmailPayload = {
+  subject: string;
+  bodyHtmlBase64: string;
+  copyToSender?: boolean;
+  fileAttachmentIds?: string[];
+};
+
 export type PatientDetail = {
   id: string;
   organizationId: string;
@@ -327,6 +378,23 @@ export async function getPatientTimeline(id: string) {
 
 export async function addPatientNote(id: string, payload: { note: string; isPrivate?: boolean; fileAttachmentIds?: string[] }) {
   const { data } = await http.post<PatientNote>(`/patients/${id}/notes`, payload);
+  return data;
+}
+
+export async function listPatientEmails(id: string, params?: PatientEmailsQuery) {
+  const { data } = await http.get<PatientEmailsResponse>(`/patients/${id}/emails`, { params });
+  return data;
+}
+
+export async function getPatientEmail(id: string, emailId: string) {
+  const { data } = await http.get<PatientEmail>(`/patients/${id}/emails/${emailId}`);
+  return data;
+}
+
+export async function sendPatientEmail(id: string, payload: SendPatientEmailPayload, idempotencyKey: string) {
+  const { data } = await http.post<PatientEmail>(`/patients/${id}/emails`, payload, {
+    headers: { "Idempotency-Key": idempotencyKey }
+  });
   return data;
 }
 

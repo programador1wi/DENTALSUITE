@@ -1,20 +1,30 @@
 import { Link } from "react-router-dom";
-import { Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/layout/page-header";
+import { Card } from "@/components/ui/card";
 
 const ITEMS = [
-  { to: "/reports/appointments", title: "Reportes de agenda", description: "Citas, cancelaciones, no asistencias y ocupación." },
-  { to: "/reports/patients", title: "Reportes de pacientes", description: "Nuevos, activos, sin cita futura y fuentes." },
-  { to: "/reports/treatments", title: "Reportes de tratamientos", description: "Creación, aceptación y avance de planes." },
-  { to: "/reports/financial", title: "Reportes financieros", description: "Ingresos, morosidad, saldos y producción." },
-  { to: "/reports/professionals", title: "Reportes por profesional", description: "Carga operativa y productividad clínica." }
+  {
+    to: "/reports/performance",
+    title: "Panel de desempeno",
+    description: "Indicadores ejecutivos de agenda, ventas, cobranza, operacion y produccion."
+  },
+  {
+    to: "/reports/excel",
+    title: "Reportes Excel",
+    description: "Catalogo, solicitud, filtros, generacion, descarga e historial de reportes."
+  },
+  {
+    to: "/reports/charts",
+    title: "Reportes graficos",
+    description: "Catalogo grafico bajo demanda con filtros, grafica y tabla detallada."
+  }
 ];
 
 export function ReportsPage() {
   return (
     <div className="space-y-4">
-      <PageHeader title="Reportes" description="Panel central de reportes operativos, financieros y clínicos." />
-      <div className="grid gap-3 md:grid-cols-2">
+      <PageHeader title="Reportes" description="Modulo reorganizado en desempeno, Excel y reportes graficos." />
+      <div className="grid gap-3 md:grid-cols-3">
         {ITEMS.map((item) => (
           <Link key={item.to} to={item.to}>
             <Card className="h-full">

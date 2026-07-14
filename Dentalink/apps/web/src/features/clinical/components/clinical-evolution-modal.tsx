@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
@@ -18,12 +19,18 @@ type ClinicalEvolutionModalProps = {
   branchId?: string;
   open: boolean;
   evolution?: ClinicalEvolution | null;
+  initialTreatmentPlanId?: string;
+  initialTreatmentPlanItemId?: string;
+  initialCompletionPercentage?: number;
   onClose: () => void;
+  onSuccess?: (evolution: ClinicalEvolution) => void;
 };
 
 type EvolutionForm = {
   professionalId: string;
   treatmentPlanId: string;
+  treatmentPlanItemId: string;
+  completionPercentage: number;
   notes: string;
   isPrivate: boolean;
 };
@@ -50,12 +57,15 @@ type OrthodonticFields = {
   nextSessionIndications: string;
   nextControl: string;
   alert: string;
+  recordHygiene: boolean;
   hygiene: string;
 };
 
 const EMPTY_FORM: EvolutionForm = {
   professionalId: "",
   treatmentPlanId: "",
+  treatmentPlanItemId: "",
+  completionPercentage: 100,
   notes: "",
   isPrivate: false
 };
@@ -75,7 +85,8 @@ const EMPTY_ORTHO_FIELDS: OrthodonticFields = {
   nextSessionIndications: "",
   nextControl: "",
   alert: "",
-  hygiene: "4"
+  recordHygiene: false,
+  hygiene: ""
 };
 
 export function ClinicalEvolutionModal({
@@ -83,7 +94,11 @@ export function ClinicalEvolutionModal({
   branchId,
   open,
   evolution,
-  onClose
+  initialTreatmentPlanId,
+  initialTreatmentPlanItemId,
+  initialCompletionPercentage = 100,
+  onClose,
+  onSuccess
 }: ClinicalEvolutionModalProps) {
   const professionals = useProfessionals(undefined, "true", {
     branchId: branchId || undefined,
@@ -118,6 +133,8 @@ export function ClinicalEvolutionModal({
     setForm({
       professionalId: evolution.professionalId,
       treatmentPlanId: evolution.treatmentPlanId ?? "",
+      treatmentPlanItemId: evolution.treatmentPlanItemId ?? "",
+      completionPercentage: evolution.completionPercentage ?? 100,
       notes: evolution.notes ?? "",
       isPrivate: evolution.isPrivate
     });
@@ -141,24 +158,33 @@ export function ClinicalEvolutionModal({
   const currentDate = new Intl.DateTimeFormat("es-MX", { dateStyle: "medium" }).format(new Date());
 
   const resetForm = () => {
-    setForm(EMPTY_FORM);
+    setForm({
+      ...EMPTY_FORM,
+      treatmentPlanId: initialTreatmentPlanId ?? "",
+      treatmentPlanItemId: initialTreatmentPlanItemId ?? "",
+      completionPercentage: initialCompletionPercentage
+    });
     setMaterials([]);
     setSelectedInventoryItemId("");
     setSelectedQuantity(1);
     setOrthoFields(EMPTY_ORTHO_FIELDS);
   };
 
+  const canSubmit = Boolean(form.professionalId && (form.notes.trim() || form.treatmentPlanItemId));
+
   const handleSubmit = () => {
-    if (!form.professionalId || !form.notes.trim()) return;
+    if (!canSubmit) return;
     const payload = buildEvolutionPayload(form, materials, Boolean(isOrthodontics), orthoFields);
 
     if (isEditing && evolution?.id) {
       mutations.updateEvolution.mutate(
         { evolutionId: evolution.id, data: payload },
         {
-          onSuccess: () => {
+          onSuccess: (updated) => {
             resetForm();
             onClose();
+            toast.success("La evolucion fue actualizada correctamente.");
+            onSuccess?.(updated);
           }
         }
       );
@@ -166,9 +192,11 @@ export function ClinicalEvolutionModal({
     }
 
     mutations.createEvolution.mutate(payload, {
-      onSuccess: () => {
+      onSuccess: (created) => {
         resetForm();
         onClose();
+        toast.success("La evolucion fue registrada correctamente.");
+        onSuccess?.(created);
       }
     });
   };
@@ -246,6 +274,28 @@ export function ClinicalEvolutionModal({
               <Input value={currentDate} readOnly className="w-full cursor-not-allowed bg-slate-50 text-sm" />
             </div>
           </div>
+
+          {form.treatmentPlanItemId ? (
+            <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase text-slate-500">Avance de la prestacion vinculada</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {[0, 25, 50, 75, 100].map((percentage) => (
+                  <button
+                    key={percentage}
+                    type="button"
+                    className={`h-9 rounded border px-3 text-sm font-semibold transition ${
+                      form.completionPercentage === percentage
+                        ? "border-blue-600 bg-blue-600 text-white"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-blue-300"
+                    }`}
+                    onClick={() => setForm((prev) => ({ ...prev, completionPercentage: percentage }))}
+                  >
+                    {percentage === 100 ? "Realizar (100%)" : `${percentage}%`}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <RichTextEditor
             value={form.notes}
@@ -365,24 +415,41 @@ export function ClinicalEvolutionModal({
                 onChange={(value) => setOrthoFields((prev) => ({ ...prev, nextSessionIndications: value }))}
               />
 
-              <div>
-                <div className="mb-1.5 flex items-center justify-between">
-                  <label className="block text-xs font-medium text-slate-500">Higiene</label>
-                  <span className="text-xs font-bold text-blue-600">{orthoFields.hygiene}/7</span>
-                </div>
-                <input
-                  type="range"
-                  min="1"
-                  max="7"
-                  step="1"
-                  value={orthoFields.hygiene}
-                  onChange={(event) => setOrthoFields((prev) => ({ ...prev, hygiene: event.target.value }))}
-                  className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600"
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                <Checkbox
+                  label="Registrar higiene en esta evolucion"
+                  checked={orthoFields.recordHygiene}
+                  onChange={(checked) =>
+                    setOrthoFields((prev) => ({
+                      ...prev,
+                      recordHygiene: checked,
+                      hygiene: checked ? prev.hygiene || "4" : ""
+                    }))
+                  }
                 />
-                <div className="mt-1 flex justify-between text-[10px] text-slate-400">
-                  <span>Deficiente (1)</span>
-                  <span>Excelente (7)</span>
-                </div>
+                {orthoFields.recordHygiene ? (
+                  <div className="mt-3">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <label className="block text-xs font-medium text-slate-500">Higiene</label>
+                      <span className="text-xs font-bold text-blue-600">{orthoFields.hygiene}/7</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="1"
+                      max="7"
+                      step="1"
+                      value={orthoFields.hygiene || "4"}
+                      onChange={(event) => setOrthoFields((prev) => ({ ...prev, hygiene: event.target.value }))}
+                      className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600"
+                    />
+                    <div className="mt-1 flex justify-between text-[10px] text-slate-400">
+                      <span>Deficiente (1)</span>
+                      <span>Excelente (7)</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-slate-500">No se agregara punto a la curva de higiene.</p>
+                )}
               </div>
             </section>
           ) : null}
@@ -481,7 +548,7 @@ export function ClinicalEvolutionModal({
                 Cerrar
               </Button>
               <Button
-                disabled={!form.professionalId || !form.notes.trim() || saving}
+                disabled={!canSubmit || saving}
                 onClick={handleSubmit}
                 className="bg-blue-600 text-white hover:bg-blue-700"
               >
@@ -596,6 +663,10 @@ function buildEvolutionPayload(
   };
 
   if (form.treatmentPlanId) payload.treatmentPlanId = form.treatmentPlanId;
+  if (form.treatmentPlanItemId) {
+    payload.treatmentPlanItemId = form.treatmentPlanItemId;
+    payload.completionPercentage = form.completionPercentage;
+  }
   if (isOrthodontics) payload.fields = orthodonticFieldsToPayload(orthoFields);
   return payload;
 }
@@ -642,7 +713,9 @@ function orthodonticFieldsToPayload(fields: OrthodonticFields) {
       ? [{ label: "Proximo Control", value: fields.nextControl, group: "ORTHODONTICS" }]
       : []),
     ...(fields.alert ? [{ label: "Alerta", value: fields.alert, group: "ORTHODONTICS" }] : []),
-    ...(fields.hygiene ? [{ label: "Higiene", value: fields.hygiene, group: "ORTHODONTICS" }] : [])
+    ...(fields.recordHygiene && fields.hygiene
+      ? [{ label: "Higiene", value: fields.hygiene, group: "ORTHODONTICS" }]
+      : [])
   ];
 }
 
@@ -667,7 +740,8 @@ function orthodonticFieldsFromEvolution(evolution: ClinicalEvolution): Orthodont
     nextSessionIndications: findValue("indicaciones"),
     nextControl: findValue("proximo control", "prximo control"),
     alert: findValue("alerta"),
-    hygiene: findValue("higiene") || "4"
+    recordHygiene: Boolean(findValue("higiene")),
+    hygiene: findValue("higiene")
   };
 }
 

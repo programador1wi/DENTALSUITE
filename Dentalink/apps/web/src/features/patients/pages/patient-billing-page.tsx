@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { ChevronDown, FileText, ListChecks, Pencil, Printer, Trash2 } from "lucide-react";
+import { ChevronDown, Download, FileText, ListChecks, Pencil, Printer, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,7 +17,7 @@ import { Select } from "@/components/ui/select";
 import { usePermissions } from "@/hooks/use-permissions";
 import { usePatient } from "../hooks/use-patients";
 import { usePatientPayments, usePaymentsMutations, useRefunds } from "@/features/payments/hooks/use-payments";
-import { getPaymentReceipt, type Payment, type PaymentStatus, type RefundStatus } from "@/features/payments/services/payments.service";
+import { downloadPaymentReceiptPdf, type Payment, type PaymentStatus, type RefundStatus } from "@/features/payments/services/payments.service";
 import { useFinancialInstitutions } from "@/features/settings/financial-institutions/hooks/use-financial-institutions";
 import { usePaymentMethods } from "@/features/settings/payment-methods/hooks/use-payment-methods";
 import { useBudgets } from "@/features/treatments/hooks/use-treatments";
@@ -145,13 +145,18 @@ function PaymentsReceivedTab({ rows }: { rows: NonNullable<ReturnType<typeof use
   const canUpdate = hasPermission("payments.update") || hasPermission("system.manage_all");
   const canVoid = hasPermission("payments.refund") || hasPermission("system.manage_all");
 
-  const handlePrint = async (payment: Payment) => {
-    const receipt = await getPaymentReceipt(payment.id);
-    const win = window.open("", "_blank", "noopener,noreferrer,width=720,height=900");
-    if (!win) return;
-    win.document.write(`<pre style="font:14px/1.5 system-ui;white-space:pre-wrap">${escapeHtml(receipt.printableText)}</pre>`);
-    win.document.close();
-    win.print();
+  const handlePrint = (payment: Payment) => {
+    window.open(`/payments/${payment.paymentNumber}/receipt?print=1`, "_blank", "width=980,height=900");
+  };
+
+  const handleDownload = async (payment: Payment) => {
+    const result = await downloadPaymentReceiptPdf(payment.paymentNumber);
+    const url = URL.createObjectURL(result.blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = result.fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleVoid = async () => {
@@ -169,12 +174,12 @@ function PaymentsReceivedTab({ rows }: { rows: NonNullable<ReturnType<typeof use
         tableClassName="text-[var(--text-sm)]"
         columns={[
           {
-            key: "id",
+            key: "paymentNumber",
             title: "# Pago",
             render: (row) => (
               <div>
                 <p className="font-[var(--weight-bold)] text-[var(--text-primary)]">{row.paymentNumber}</p>
-                <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">ID {row.id}</p>
+                {row.reference ? <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">Referencia: {row.reference}</p> : null}
               </div>
             )
           },
@@ -191,7 +196,14 @@ function PaymentsReceivedTab({ rows }: { rows: NonNullable<ReturnType<typeof use
             title: "Medio de pago",
             render: (row) => (
               <div>
-                <p className="font-[var(--weight-medium)] text-[var(--text-primary)]">{row.paymentMethod.name}</p>
+                <p className="font-[var(--weight-medium)] text-[var(--text-primary)]">
+                  {row.paymentMethods && row.paymentMethods.length > 1 ? `Pago mixto · ${row.paymentMethods.length} medios` : row.paymentMethods?.[0]?.name ?? row.paymentMethod.name}
+                </p>
+                {row.paymentMethods && row.paymentMethods.length > 1 ? (
+                  <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">
+                    {row.paymentMethods.map((method) => method.name).join(" + ")}
+                  </p>
+                ) : null}
                 <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">
                   Recibido por {userName(row.receivedBy)}, en sucursal {row.branch.name}
                 </p>
@@ -199,7 +211,7 @@ function PaymentsReceivedTab({ rows }: { rows: NonNullable<ReturnType<typeof use
             ),
             wrap: true
           },
-          { key: "ticketId", title: "ID ticket", render: (row) => row.ticketId ?? row.reference ?? "-" },
+          { key: "ticketId", title: "ID ticket", render: (row) => row.ticketId ?? "-" },
           { key: "paidAt", title: "Recepcion", render: (row) => dateTime(row.paidAt) },
           { key: "dueDate", title: "Vencimiento", render: (row) => (row.dueDate ? dateOnly(row.dueDate) : "-") },
           {
@@ -216,7 +228,7 @@ function PaymentsReceivedTab({ rows }: { rows: NonNullable<ReturnType<typeof use
           },
           { key: "status", title: "Estado", render: (row) => <Badge value={paymentStatusLabels[row.status]} tone={paymentStatusTone(row.status)} /> },
           {
-            key: "id",
+            key: "receipt",
             title: "Acciones",
             render: (row) => (
               <div className="relative flex justify-end">
@@ -225,11 +237,17 @@ function PaymentsReceivedTab({ rows }: { rows: NonNullable<ReturnType<typeof use
                 </Button>
                 {actionsFor === row.id ? (
                   <div className="absolute right-0 top-9 z-20 w-64 rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-[var(--space-1)] shadow-[var(--shadow-modal)]">
+                    <ActionMenuButton icon={<FileText className="h-4 w-4" />} onClick={() => { setActionsFor(null); window.open(`/payments/${row.paymentNumber}/receipt`, "_blank", "width=980,height=900"); }}>
+                      Ver comprobante
+                    </ActionMenuButton>
                     <ActionMenuButton icon={<ListChecks className="h-4 w-4" />} onClick={() => { setBreakdownPayment(row); setActionsFor(null); }}>
                       Ver desglose
                     </ActionMenuButton>
-                    <ActionMenuButton icon={<Printer className="h-4 w-4" />} onClick={() => { setActionsFor(null); void handlePrint(row); }}>
+                    <ActionMenuButton icon={<Printer className="h-4 w-4" />} onClick={() => { setActionsFor(null); handlePrint(row); }}>
                       Imprimir comprobante
+                    </ActionMenuButton>
+                    <ActionMenuButton icon={<Download className="h-4 w-4" />} onClick={() => { setActionsFor(null); void handleDownload(row); }}>
+                      Descargar PDF
                     </ActionMenuButton>
                     <ActionMenuButton disabled={!canUpdate || row.status === "VOIDED" || row.status === "REFUNDED"} icon={<Pencil className="h-4 w-4" />} onClick={() => { setEditingPayment(row); setActionsFor(null); }}>
                       Modificar datos
@@ -486,7 +504,7 @@ function RefundsTab({ refunds }: { refunds: ReturnType<typeof useRefunds> }) {
       empty={<EmptyState title="Sin devoluciones" description="No hay devoluciones registradas para este paciente." />}
       columns={[
         { key: "createdAt", title: "Fecha", render: (row) => dateTime(row.processedAt ?? row.createdAt) },
-        { key: "paymentId", title: "Pago", render: (row) => `#${row.payment.id.slice(-6).toUpperCase()}` },
+        { key: "paymentId", title: "Pago", render: (row) => `#${row.payment.paymentNumber ?? "-"}` },
         { key: "amount", title: "Monto", render: (row) => money(row.amount) },
         { key: "reason", title: "Motivo", render: (row) => row.reason ?? "-" },
         { key: "status", title: "Estado", render: (row) => <Badge value={refundStatusLabels[row.status]} tone={refundStatusTone(row.status)} /> }

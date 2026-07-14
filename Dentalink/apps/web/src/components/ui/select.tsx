@@ -339,7 +339,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
 
                       const isFirstGroup = filteredItems.filter(x => x.type === "group").indexOf(item) === 0;
 
-                      let badgeColors = "";
+                      let badgeColors: string;
                       if (theme === "dark") {
                         if (item.label.includes("NORTE")) {
                           badgeColors = "border-sky-950 bg-sky-950/40 text-sky-400 shadow-sky-950/20";

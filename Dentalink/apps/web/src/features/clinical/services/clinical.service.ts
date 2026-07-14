@@ -57,6 +57,8 @@ export type ClinicalEvolution = {
   professionalId: string;
   treatmentPlanId?: string | null;
   treatmentPlanItemId?: string | null;
+  completionPercentage?: number | null;
+  performedAmountSnapshot?: string | number | null;
   subjective?: string | null;
   objective?: string | null;
   assessment?: string | null;
@@ -74,7 +76,7 @@ export type ClinicalEvolution = {
   addenda?: ClinicalEvolution[];
   fields?: Array<{ label: string; value: string; group?: string | null; sortOrder: number }>;
   materials?: Array<{ id: string; inventoryItemId: string; quantity: string | number; unitSnapshot?: string | null; nameSnapshot?: string | null; inventoryItem?: { name: string; unit: string } }>;
-  treatmentPlanItem?: { procedure?: { name: string; code: string }; treatmentPlan?: { name: string; displayId: string } };
+  treatmentPlanItem?: { procedure?: { name: string; code: string }; treatmentPlan?: { name: string; displayId: string }; completionPercentage?: number; performedAmount?: string | number; version?: number };
 };
 
 export type Prescription = {
@@ -145,6 +147,7 @@ export type ToothProcedure = {
   notes?: string | null;
   procedureId?: string | null;
   clinicalEvolutionId?: string | null;
+  treatmentPlanItemId?: string | null;
   completedAt?: string | null;
   createdAt: string;
   procedure?: { id: string; code: string; name: string } | null;
@@ -348,7 +351,7 @@ export async function createToothProcedure(
 export async function updateToothProcedureStatus(
   patientId: string,
   toothProcedureId: string,
-  payload: { status: ToothProcedureStatus; notes?: string; createClinicalEvolution?: boolean }
+  payload: { status: ToothProcedureStatus; notes?: string; createClinicalEvolution?: boolean; completionPercentage?: number; expectedVersion?: number }
 ) {
   const { data } = await http.patch<ToothProcedure>(`/patients/${patientId}/clinical/odontogram/procedures/${toothProcedureId}/status`, payload);
   return data;

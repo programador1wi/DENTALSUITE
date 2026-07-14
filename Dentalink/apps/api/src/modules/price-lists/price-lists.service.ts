@@ -452,9 +452,9 @@ export class PriceListsService {
 
   private async ensureDefaultBranchScopeCatalogs(actor: AuthUser) {
     const brands = [
-      { code: "DENTAL_PLUS", name: "Dental+" },
-      { code: "DX_RAY", name: "Dx-Ray" },
-      { code: "DENTAL_JWARNER", name: "Dental J.Warner" }
+      { code: "DENTAL_PLUS", slug: "dental-plus", name: "Dental+" },
+      { code: "DX_RAY", slug: "dx-ray", name: "Dx-Ray" },
+      { code: "DENTAL_JWARNER", slug: "dental-jwarner", name: "Dental J.Warner" }
     ];
     const zones = [
       { code: "NORTE", name: "Norte" },

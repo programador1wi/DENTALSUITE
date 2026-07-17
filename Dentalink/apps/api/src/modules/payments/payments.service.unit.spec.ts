@@ -191,48 +191,17 @@ describe("PaymentsService refund listing", () => {
     });
   });
 
-  it("auto-opens a cash register with zero opening amount when the user can open registers", async () => {
+  it("does not auto-open a cash register during payment collection", async () => {
     const actorWithOpenPermission = { ...actor, permissions: ["cash_register.open"] };
-    const tx = {
-      cashRegister: {
-        create: jest.fn().mockResolvedValue({ id: "register-1" })
-      },
-      cashMovement: {
-        create: jest.fn()
-      },
-      auditLog: {
-        create: jest.fn()
-      }
-    };
     const prisma = {
       cashRegister: {
-        findFirst: jest.fn().mockResolvedValue(null),
-        findUniqueOrThrow: jest.fn().mockResolvedValue({ id: "register-1", status: "OPEN" })
-      },
-      $transaction: jest.fn((callback) => callback(tx))
+        findFirst: jest.fn().mockResolvedValue(null)
+      }
     };
     const service = new PaymentsService(prisma as never);
 
-    const register = await (service as any).ensureOpenCashRegister(actorWithOpenPermission, "branch-1");
-
-    expect(register).toEqual({ id: "register-1", status: "OPEN" });
-    expect(tx.cashRegister.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          branchId: "branch-1",
-          openedById: "user-1",
-          status: "OPEN"
-        })
-      })
-    );
-    expect(tx.cashMovement.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          cashRegisterId: "register-1",
-          type: "OPENING",
-          createdById: "user-1"
-        })
-      })
+    await expect((service as any).ensureOpenCashRegister(actorWithOpenPermission, "branch-1")).rejects.toThrow(
+      "No open cash register found for this user and branch"
     );
   });
 
@@ -247,6 +216,112 @@ describe("PaymentsService refund listing", () => {
     await expect((service as any).ensureOpenCashRegister(actor, "branch-1")).rejects.toThrow(
       "No open cash register found for this user and branch"
     );
+  });
+
+  it("links installment plans to selected treatment plan items", async () => {
+    const item = {
+      id: "item-1",
+      version: 1,
+      total: 100,
+      status: "ACCEPTED",
+      treatmentPlan: { id: "plan-1", isAlternative: false },
+      paymentAllocations: [],
+      installmentPlanItems: []
+    };
+    const tx = {
+      treatmentPlanItem: {
+        findMany: jest.fn().mockResolvedValue([item])
+      },
+      installmentPlan: {
+        create: jest.fn().mockResolvedValue({ id: "installment-plan-1" })
+      },
+      installmentPlanItem: {
+        create: jest.fn()
+      },
+      installment: {
+        create: jest.fn()
+      },
+      auditLog: {
+        create: jest.fn()
+      }
+    };
+    const prisma = {
+      patient: {
+        findFirst: jest.fn().mockResolvedValue({ id: "patient-1", branchId: "branch-1" })
+      },
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValue({ id: "plan-1", patientId: "patient-1" })
+      },
+      treatmentPlanItem: {
+        findMany: jest.fn().mockResolvedValue([item])
+      },
+      installmentPlan: {
+        findFirst: jest.fn().mockResolvedValue({ id: "installment-plan-1", installments: [], items: [] })
+      },
+      $transaction: jest.fn((callback) => callback(tx))
+    };
+    const service = new PaymentsService(prisma as never);
+
+    await service.createInstallmentPlan(actor, {
+      patientId: "patient-1",
+      treatmentPlanId: "plan-1",
+      totalAmount: 100,
+      downPayment: 10,
+      numberOfInstallments: 3,
+      frequency: "MONTHLY",
+      startDate: "2026-01-31",
+      itemAllocations: [{ treatmentPlanItemId: "item-1", amount: 100, expectedVersion: 1 }]
+    } as never);
+
+    expect(tx.installmentPlanItem.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        installmentPlanId: "installment-plan-1",
+        treatmentPlanItemId: "item-1",
+        amount: expect.anything()
+      })
+    });
+    expect(tx.installment.create).toHaveBeenCalledTimes(3);
+    expect(tx.installment.create.mock.calls[1][0].data.dueDate.toISOString().slice(0, 10)).toBe("2026-02-28");
+  });
+
+  it("rejects financing over already committed treatment item balance", async () => {
+    const prisma = {
+      patient: {
+        findFirst: jest.fn().mockResolvedValue({ id: "patient-1", branchId: "branch-1" })
+      },
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValue({ id: "plan-1", patientId: "patient-1" })
+      },
+      treatmentPlanItem: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "item-1",
+            version: 1,
+            total: 100,
+            status: "ACCEPTED",
+            treatmentPlan: { id: "plan-1", isAlternative: false },
+            paymentAllocations: [],
+            installmentPlanItems: [{ amount: 90 }]
+          }
+        ])
+      },
+      $transaction: jest.fn()
+    };
+    const service = new PaymentsService(prisma as never);
+
+    await expect(
+      service.createInstallmentPlan(actor, {
+        patientId: "patient-1",
+        treatmentPlanId: "plan-1",
+        totalAmount: 20,
+        downPayment: 0,
+        numberOfInstallments: 2,
+        frequency: "MONTHLY",
+        startDate: "2026-07-31",
+        itemAllocations: [{ treatmentPlanItemId: "item-1", amount: 20, expectedVersion: 1 }]
+      } as never)
+    ).rejects.toThrow("Installment item allocation exceeds available financing balance");
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
   it("records partial installment payments through an auditable installment allocation", async () => {
@@ -473,6 +548,9 @@ describe("PaymentsService refund listing", () => {
         create: jest.fn()
       },
       cashMovement: {
+        create: jest.fn()
+      },
+      patientLedgerEntry: {
         create: jest.fn()
       },
       auditLog: {

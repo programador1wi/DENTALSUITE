@@ -7,6 +7,8 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  Matches,
+  MaxLength,
   MinLength,
   ValidateNested
 } from "class-validator";
@@ -26,6 +28,7 @@ export class PatientContactInputDto {
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9\s()-]{7,40}$/)
   phone?: string;
 
   @IsOptional()
@@ -80,10 +83,12 @@ export class CreatePatientDto {
 
   @IsString()
   @MinLength(2)
+  @MaxLength(100)
   firstName!: string;
 
   @IsString()
   @MinLength(2)
+  @MaxLength(100)
   lastName!: string;
 
   @IsOptional()
@@ -108,10 +113,12 @@ export class CreatePatientDto {
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9\s()-]{7,40}$/)
   phone?: string;
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9\s()-]{7,40}$/)
   alternatePhone?: string;
 
   @IsOptional()

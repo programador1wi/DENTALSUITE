@@ -2,6 +2,10 @@ import { Type } from "class-transformer";
 import {
   CashMovementType,
   CurrencyCode,
+  AuthorizationStatus,
+  CoverageStatus,
+  FinancialDocumentStatus,
+  FinancialDocumentType,
   InstallmentFrequency,
   PaymentLinkStatus,
   PaymentStatus,
@@ -10,6 +14,7 @@ import {
 import {
   IsArray,
   IsDateString,
+  IsEmail,
   IsEnum,
   IsInt,
   IsNumber,
@@ -40,6 +45,20 @@ export class PaymentSplitInputDto {
 }
 
 export class PaymentAllocationInputDto {
+  @IsString()
+  treatmentPlanItemId!: string;
+
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'amount must be a valid number with up to 2 decimal places' })
+  @IsPositive()
+  amount!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
+}
+
+export class InstallmentPlanItemAllocationDto {
   @IsString()
   treatmentPlanItemId!: string;
 
@@ -124,6 +143,33 @@ export class ListPaymentsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(PaymentStatus)
   status?: PaymentStatus;
+}
+
+export class DailyReceiptQueryDto {
+  @IsString()
+  @MaxLength(10)
+  date!: string;
+
+  @IsString()
+  branchId!: string;
+}
+
+export class ReceiptEmailDto {
+  @IsEmail()
+  to!: string;
+
+  @IsString()
+  @MaxLength(180)
+  subject!: string;
+
+  @IsString()
+  @MaxLength(6000)
+  message!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  idempotencyKey?: string;
 }
 
 export class AddPaymentAllocationsDto {
@@ -232,6 +278,12 @@ export class CreateInstallmentPlanDto {
 
   @IsDateString()
   startDate!: string;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InstallmentPlanItemAllocationDto)
+  itemAllocations?: InstallmentPlanItemAllocationDto[];
 }
 
 export class PayInstallmentDto {
@@ -367,6 +419,28 @@ export class ListRefundsQueryDto extends PaginationQueryDto {
   @IsOptional()
   @IsEnum(RefundStatus)
   status?: RefundStatus;
+}
+
+export class ListPatientFinancialDocumentsQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsEnum(FinancialDocumentType)
+  type?: FinancialDocumentType;
+
+  @IsOptional()
+  @IsEnum(FinancialDocumentStatus)
+  status?: FinancialDocumentStatus;
+}
+
+export class ListPatientCoverageCasesQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsEnum(CoverageStatus)
+  status?: CoverageStatus;
+}
+
+export class ListPatientCoverageAuthorizationsQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsEnum(AuthorizationStatus)
+  status?: AuthorizationStatus;
 }
 
 export class CashReportQueryDto {

@@ -1,5 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import {
+  AppointmentStatus,
+  CommunicationJobStatus,
+  LabOrderStatus,
+  PaymentStatus,
   Prisma,
   ProfessionalBranchStatus,
   ToothProcedureStatus,
@@ -38,10 +42,58 @@ import {
   ListOdontogramQueryDto,
   UpdateToothProcedureStatusDto
 } from "./dto/odontogram.dto";
+import { ListPatientHistoryQueryDto, PATIENT_HISTORY_CATEGORIES, type PatientHistoryCategory } from "./dto/patient-history.dto";
 import {
   calculateTreatmentPlanClinicalProgress,
   resolveTreatmentPlanStatusFromClinicalProgress
 } from "../treatment-plans/treatment-plan-progress";
+
+type HistoryActor = { id: string; name: string } | null;
+type HistoryRef = { id: string; name: string } | null;
+
+type PatientHistoryEvent = {
+  id: string;
+  eventType: string;
+  category: PatientHistoryCategory;
+  module: string;
+  title: string;
+  summary: string;
+  occurredAt: string;
+  clinicalDate?: string | null;
+  createdAt: string;
+  branch: HistoryRef;
+  professional: HistoryRef;
+  createdBy: HistoryActor;
+  sourceEntityType: string;
+  sourceEntityId: string;
+  treatmentPlanId?: string | null;
+  appointmentId?: string | null;
+  toothId?: string | null;
+  status?: string | null;
+  isAnnulled: boolean;
+  annulledAt?: string | null;
+  annulmentReason?: string | null;
+  isPrivate: boolean;
+  visibility: "PUBLIC" | "PRIVATE" | "FINANCIAL" | "SENSITIVE";
+  payload: Record<string, unknown>;
+};
+
+const CANCELLED_APPOINTMENT_STATUSES = new Set<AppointmentStatus>([
+  AppointmentStatus.CANCELLED_BY_PATIENT,
+  AppointmentStatus.CANCELLED_BY_CLINIC,
+  AppointmentStatus.CANCELLED_CONFLICT,
+  AppointmentStatus.CANCELLED_RESCHEDULED
+]);
+
+const ANNULLED_TREATMENT_STATUSES = new Set<TreatmentPlanStatus>([
+  TreatmentPlanStatus.CANCELLED,
+  TreatmentPlanStatus.REJECTED
+]);
+
+const ANNULLED_PAYMENT_STATUSES = new Set<PaymentStatus>([
+  PaymentStatus.VOIDED,
+  PaymentStatus.REFUNDED
+]);
 
 @Injectable()
 export class ClinicalService {
@@ -80,6 +132,675 @@ export class ClinicalService {
       ...appointment,
       specialty: appointment.specialty ? withAllowedSpecialtyName(appointment.specialty) : null
     }));
+  }
+
+  async listPatientHistory(actor: AuthUser, patientId: string, query: ListPatientHistoryQueryDto) {
+    const patient = await this.ensurePatient(actor, patientId);
+    const selectedCategories = this.resolveHistoryCategories(query.categories);
+    const dateRange = this.resolveHistoryDateRange(query);
+    const branchWhere = query.branchId ? branchScope(actor, query.branchId) : { in: actor.branchIds };
+    const take = Math.min(query.take ?? 40, 100);
+    const order = query.order ?? "desc";
+    const canViewFinancial = actor.permissions.includes("payments.read");
+    const sourceTake = Math.max(take * 4, 80);
+    const dateWhere = this.historyDateWhere(dateRange);
+
+    const [
+      organization,
+      appointments,
+      plans,
+      budgets,
+      evolutions,
+      odontogramRecords,
+      toothProcedures,
+      periodontalCharts,
+      clinicalSummary,
+      documents,
+      prescriptions,
+      payments,
+      refunds,
+      labOrders,
+      consents
+    ] = await Promise.all([
+      this.prisma.organization.findUnique({
+        where: { id: actor.organizationId },
+        select: { id: true, name: true, legalName: true, logoUrl: true, phone: true, email: true, address: true }
+      }),
+      this.prisma.appointment.findMany({
+        where: {
+          patientId,
+          organizationId: actor.organizationId,
+          branchId: branchWhere,
+          ...(dateWhere
+            ? {
+                OR: [
+                  { startAt: dateWhere },
+                  { createdAt: dateWhere },
+                  { statusHistory: { some: { createdAt: dateWhere } } },
+                  { reminders: { some: { sentAt: dateWhere } } },
+                  { communicationJobs: { some: { createdAt: dateWhere } } }
+                ]
+              }
+            : {})
+        },
+        include: {
+          branch: { select: { id: true, name: true, phone: true, address: true, brand: { select: { id: true, name: true, logoUrl: true } } } },
+          professional: { select: { id: true, firstName: true, lastName: true } },
+          specialty: { select: { id: true, name: true } },
+          createdBy: { select: { id: true, firstName: true, lastName: true } },
+          updatedBy: { select: { id: true, firstName: true, lastName: true } },
+          statusHistory: {
+            include: { changedBy: { select: { id: true, firstName: true, lastName: true } } },
+            orderBy: { createdAt: "desc" }
+          },
+          reminders: { orderBy: { createdAt: "desc" } },
+          communicationJobs: { orderBy: { createdAt: "desc" } }
+        },
+        orderBy: [{ startAt: "desc" }, { createdAt: "desc" }],
+        take: sourceTake
+      }),
+      this.prisma.treatmentPlan.findMany({
+        where: { patientId, organizationId: actor.organizationId, branchId: branchWhere, ...(dateWhere ? { createdAt: dateWhere } : {}) },
+        include: {
+          branch: { select: { id: true, name: true } },
+          professional: { select: { id: true, firstName: true, lastName: true } },
+          specialty: { select: { id: true, name: true } },
+          items: { select: { id: true, total: true, status: true, completionPercentage: true } }
+        },
+        orderBy: { createdAt: "desc" },
+        take: sourceTake
+      }),
+      this.prisma.budget.findMany({
+        where: {
+          patientId,
+          organizationId: actor.organizationId,
+          treatmentPlan: { branchId: branchWhere },
+          ...(dateWhere ? { createdAt: dateWhere } : {})
+        },
+        include: {
+          treatmentPlan: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
+          professional: { select: { id: true, firstName: true, lastName: true } }
+        },
+        orderBy: { createdAt: "desc" },
+        take: sourceTake
+      }),
+      this.prisma.clinicalEvolution.findMany({
+        where: {
+          patientId,
+          branchId: branchWhere,
+          ...(dateWhere ? { createdAt: dateWhere } : {}),
+          ...(query.includeAnnulled ? {} : { annulledAt: null })
+        },
+        include: this.clinicalEvolutionInclude(),
+        orderBy: { createdAt: "desc" },
+        take: sourceTake
+      }),
+      this.prisma.odontogramRecord.findMany({
+        where: { patientId, ...(dateWhere ? { createdAt: dateWhere } : {}) },
+        include: {
+          professional: { select: { id: true, firstName: true, lastName: true } },
+          procedure: { select: { id: true, code: true, name: true } },
+          appointment: { select: { id: true, branch: { select: { id: true, name: true } } } }
+        },
+        orderBy: { createdAt: "desc" },
+        take: sourceTake
+      }),
+      this.prisma.toothProcedure.findMany({
+        where: { patientId, ...(dateWhere ? { createdAt: dateWhere } : {}) },
+        include: {
+          professional: { select: { id: true, firstName: true, lastName: true } },
+          procedure: { select: { id: true, code: true, name: true } },
+          appointment: { select: { id: true, branch: { select: { id: true, name: true } } } }
+        },
+        orderBy: { createdAt: "desc" },
+        take: sourceTake
+      }),
+      this.prisma.periodontalChart.findMany({
+        where: { patientId, ...(dateWhere ? { chartDate: dateWhere } : {}) },
+        include: {
+          professional: { select: { id: true, firstName: true, lastName: true } },
+          appointment: { select: { id: true, branch: { select: { id: true, name: true } } } },
+          measurements: { select: { id: true } }
+        },
+        orderBy: { chartDate: "desc" },
+        take: sourceTake
+      }),
+      this.getClinicalSummary(actor, patientId),
+      this.prisma.clinicalDocument.findMany({
+        where: { patientId, ...(dateWhere ? { createdAt: dateWhere } : {}) },
+        include: {
+          template: { select: { id: true, name: true } },
+          treatmentPlan: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
+          createdBy: { select: { id: true, firstName: true, lastName: true } },
+          deletedBy: { select: { id: true, firstName: true, lastName: true } }
+        },
+        orderBy: { createdAt: "desc" },
+        take: sourceTake
+      }),
+      this.prisma.prescription.findMany({
+        where: { patientId, ...(dateWhere ? { createdAt: dateWhere } : {}) },
+        include: {
+          professional: { select: { id: true, firstName: true, lastName: true } },
+          treatmentPlan: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
+          appointment: { select: { id: true, branch: { select: { id: true, name: true } } } },
+          items: { select: { id: true, medication: true } }
+        },
+        orderBy: { createdAt: "desc" },
+        take: sourceTake
+      }),
+      canViewFinancial
+        ? this.prisma.payment.findMany({
+            where: { patientId, organizationId: actor.organizationId, branchId: branchWhere, ...(dateWhere ? { paidAt: dateWhere } : {}) },
+            include: {
+              branch: { select: { id: true, name: true } },
+              receivedBy: { select: { id: true, firstName: true, lastName: true } },
+              paymentMethod: { select: { id: true, name: true } },
+              allocations: { select: { id: true, amount: true } }
+            },
+            orderBy: { paidAt: "desc" },
+            take: sourceTake
+          })
+        : Promise.resolve([]),
+      canViewFinancial
+        ? this.prisma.refund.findMany({
+            where: { patientId, organizationId: actor.organizationId, branchId: branchWhere, ...(dateWhere ? { createdAt: dateWhere } : {}) },
+            include: {
+              branch: { select: { id: true, name: true } },
+              processedBy: { select: { id: true, firstName: true, lastName: true } }
+            },
+            orderBy: { createdAt: "desc" },
+            take: sourceTake
+          })
+        : Promise.resolve([]),
+      this.prisma.labOrder.findMany({
+        where: { patientId, organizationId: actor.organizationId, ...(dateWhere ? { createdAt: dateWhere } : {}) },
+        include: {
+          treatmentPlan: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
+          professional: { select: { id: true, firstName: true, lastName: true } },
+          labProvider: { select: { id: true, name: true } },
+          items: { select: { id: true, description: true, toothNumber: true } }
+        },
+        orderBy: { createdAt: "desc" },
+        take: sourceTake
+      }),
+      this.prisma.consent.findMany({
+        where: { patientId, ...(dateWhere ? { createdAt: dateWhere } : {}) },
+        include: {
+          template: { select: { id: true, name: true } },
+          treatmentPlan: { select: { id: true, name: true, branch: { select: { id: true, name: true } } } },
+          appointment: { select: { id: true, branch: { select: { id: true, name: true } } } }
+        },
+        orderBy: { createdAt: "desc" },
+        take: sourceTake
+      })
+    ]);
+
+    const events: PatientHistoryEvent[] = [];
+    const push = (event: PatientHistoryEvent) => events.push(event);
+
+    for (const appointment of appointments) {
+      const branch = this.historyRef(appointment.branch);
+      const professional = this.historyPerson(appointment.professional);
+      push({
+        id: `appointment:${appointment.id}:created`,
+        eventType: "appointment.created",
+        category: "APPOINTMENTS",
+        module: "agenda",
+        title: "Cita agendada",
+        summary: appointment.reason || appointment.title,
+        occurredAt: appointment.startAt.toISOString(),
+        clinicalDate: appointment.startAt.toISOString(),
+        createdAt: appointment.createdAt.toISOString(),
+        branch,
+        professional,
+        createdBy: this.historyPerson(appointment.createdBy),
+        sourceEntityType: "Appointment",
+        sourceEntityId: appointment.id,
+        appointmentId: appointment.id,
+        treatmentPlanId: appointment.treatmentPlanId,
+        status: appointment.status,
+        isAnnulled: CANCELLED_APPOINTMENT_STATUSES.has(appointment.status),
+        annulmentReason: appointment.cancellationReason,
+        isPrivate: false,
+        visibility: "PUBLIC",
+        payload: {
+          scheduledAt: appointment.startAt,
+          specialty: appointment.specialty ? withAllowedSpecialtyName(appointment.specialty)?.name ?? null : null,
+          cancellationReason: appointment.cancellationReason
+        }
+      });
+      for (const item of appointment.statusHistory) {
+        push({
+          id: `appointment:${appointment.id}:status:${item.id}`,
+          eventType: `appointment.status.${String(item.newStatus).toLowerCase()}`,
+          category: "APPOINTMENTS",
+          module: "agenda",
+          title: `Cita ${this.appointmentStatusText(item.newStatus).toLowerCase()}`,
+          summary: item.reason || `Cambio de ${item.previousStatus ? this.appointmentStatusText(item.previousStatus) : "sin estado"} a ${this.appointmentStatusText(item.newStatus)}`,
+          occurredAt: item.createdAt.toISOString(),
+          clinicalDate: appointment.startAt.toISOString(),
+          createdAt: item.createdAt.toISOString(),
+          branch,
+          professional,
+          createdBy: this.historyPerson(item.changedBy),
+          sourceEntityType: "AppointmentStatusHistory",
+          sourceEntityId: item.id,
+          appointmentId: appointment.id,
+          treatmentPlanId: appointment.treatmentPlanId,
+          status: item.newStatus,
+          isAnnulled: CANCELLED_APPOINTMENT_STATUSES.has(item.newStatus),
+          annulmentReason: item.reason,
+          isPrivate: false,
+          visibility: "PUBLIC",
+          payload: { previousStatus: item.previousStatus, newStatus: item.newStatus }
+        });
+      }
+      for (const reminder of appointment.reminders.filter((item) => item.sentAt)) {
+        push({
+          id: `appointment:${appointment.id}:reminder:${reminder.id}`,
+          eventType: "appointment.reminder.sent",
+          category: "APPOINTMENTS",
+          module: "agenda",
+          title: "Recordatorio enviado",
+          summary: `${reminder.channel} - ${reminder.status}`,
+          occurredAt: (reminder.sentAt ?? reminder.createdAt).toISOString(),
+          clinicalDate: appointment.startAt.toISOString(),
+          createdAt: reminder.createdAt.toISOString(),
+          branch,
+          professional,
+          createdBy: null,
+          sourceEntityType: "AppointmentReminder",
+          sourceEntityId: reminder.id,
+          appointmentId: appointment.id,
+          status: reminder.status,
+          isAnnulled: false,
+          isPrivate: false,
+          visibility: "PUBLIC",
+          payload: { channel: reminder.channel }
+        });
+      }
+      for (const job of appointment.communicationJobs.filter((item) => item.status === CommunicationJobStatus.SENT || item.sentAt)) {
+        push({
+          id: `appointment:${appointment.id}:communication:${job.id}`,
+          eventType: `appointment.communication.${String(job.channel).toLowerCase()}`,
+          category: "APPOINTMENTS",
+          module: "agenda",
+          title: job.channel === "WHATSAPP" ? "Confirmacion WhatsApp" : "Comunicacion enviada",
+          summary: `${job.channel} - ${job.status}`,
+          occurredAt: (job.sentAt ?? job.createdAt).toISOString(),
+          clinicalDate: appointment.startAt.toISOString(),
+          createdAt: job.createdAt.toISOString(),
+          branch,
+          professional,
+          createdBy: null,
+          sourceEntityType: "CommunicationJob",
+          sourceEntityId: job.id,
+          appointmentId: appointment.id,
+          status: job.status,
+          isAnnulled: false,
+          isPrivate: false,
+          visibility: "PUBLIC",
+          payload: { channel: job.channel, templateKey: job.templateKey }
+        });
+      }
+    }
+
+    for (const plan of plans) {
+      const total = plan.items.reduce((sum, item) => sum + Number(item.total), 0);
+      push({
+        id: `treatment-plan:${plan.id}:created`,
+        eventType: plan.isAlternative ? "treatment_plan.alternative.created" : "treatment_plan.created",
+        category: plan.kind === "ORTHODONTICS" ? "ORTHODONTICS" : "TREATMENT_PLANS",
+        module: "treatment-plans",
+        title: plan.isAlternative ? "Alternativa creada" : "Plan de tratamiento creado",
+        summary: `${plan.name} - ${this.treatmentStatusText(plan.status)}`,
+        occurredAt: plan.createdAt.toISOString(),
+        createdAt: plan.createdAt.toISOString(),
+        branch: this.historyRef(plan.branch),
+        professional: this.historyPerson(plan.professional),
+        createdBy: null,
+        sourceEntityType: "TreatmentPlan",
+        sourceEntityId: plan.id,
+        treatmentPlanId: plan.id,
+        status: plan.status,
+        isAnnulled: ANNULLED_TREATMENT_STATUSES.has(plan.status),
+        isPrivate: false,
+        visibility: canViewFinancial ? "PUBLIC" : "SENSITIVE",
+        payload: {
+          displayTotal: canViewFinancial ? total : null,
+          itemCount: plan.items.length,
+          specialty: plan.specialty ? withAllowedSpecialtyName(plan.specialty)?.name ?? plan.specialtySnapshotName : plan.specialtySnapshotName
+        }
+      });
+    }
+
+    for (const budget of budgets) {
+      push({
+        id: `budget:${budget.id}:created`,
+        eventType: "budget.created",
+        category: "BUDGETS",
+        module: "budgets",
+        title: "Presupuesto creado",
+        summary: `${budget.treatmentPlan.name} - ${this.budgetStatusText(String(budget.status))}`,
+        occurredAt: budget.createdAt.toISOString(),
+        createdAt: budget.createdAt.toISOString(),
+        branch: this.historyRef(budget.treatmentPlan.branch),
+        professional: this.historyPerson(budget.professional),
+        createdBy: null,
+        sourceEntityType: "Budget",
+        sourceEntityId: budget.id,
+        treatmentPlanId: budget.treatmentPlanId,
+        status: budget.status,
+        isAnnulled: String(budget.status) === "CANCELLED" || String(budget.status) === "REJECTED",
+        isPrivate: false,
+        visibility: canViewFinancial ? "FINANCIAL" : "SENSITIVE",
+        payload: { total: canViewFinancial ? Number(budget.total) : null, discountTotal: canViewFinancial ? Number(budget.discountTotal) : null }
+      });
+    }
+
+    for (const evolution of evolutions) {
+      push({
+        id: `evolution:${evolution.id}:${evolution.annulledAt ? "annulled" : "saved"}`,
+        eventType: evolution.annulledAt ? "evolution.annulled" : "evolution.saved",
+        category: "EVOLUTIONS",
+        module: "clinical",
+        title: evolution.annulledAt ? "Evolucion anulada" : "Evolucion guardada",
+        summary: this.evolutionSummary(evolution),
+        occurredAt: (evolution.annulledAt ?? evolution.createdAt).toISOString(),
+        clinicalDate: evolution.createdAt.toISOString(),
+        createdAt: evolution.createdAt.toISOString(),
+        branch: this.historyRef(evolution.branch),
+        professional: this.historyPerson(evolution.professional),
+        createdBy: this.historyPerson(evolution.createdBy),
+        sourceEntityType: "ClinicalEvolution",
+        sourceEntityId: evolution.id,
+        treatmentPlanId: evolution.treatmentPlanId,
+        appointmentId: evolution.appointmentId,
+        toothId: evolution.treatmentPlanItem?.procedure?.id ?? null,
+        status: evolution.signedAt ? "SIGNED" : "DRAFT",
+        isAnnulled: Boolean(evolution.annulledAt),
+        annulledAt: evolution.annulledAt?.toISOString(),
+        annulmentReason: evolution.annulReason,
+        isPrivate: evolution.isPrivate,
+        visibility: evolution.isPrivate ? "PRIVATE" : "PUBLIC",
+        payload: {
+          treatmentPlan: evolution.treatmentPlanItem?.treatmentPlan?.name,
+          procedure: evolution.treatmentPlanItem?.procedure?.name,
+          completionPercentage: evolution.completionPercentage,
+          fields: evolution.fields?.slice(0, 4).map((field) => ({ label: field.label, value: field.value }))
+        }
+      });
+    }
+
+    for (const procedure of toothProcedures) {
+      push({
+        id: `procedure:${procedure.id}`,
+        eventType: `treatment_item.${String(procedure.status).toLowerCase()}`,
+        category: "PROCEDURES",
+        module: "odontogram",
+        title: procedure.status === ToothProcedureStatus.COMPLETED ? "Prestacion realizada" : "Prestacion actualizada",
+        summary: `${procedure.procedure?.name ?? "Procedimiento"} - Pieza ${procedure.toothNumber}${procedure.surface ? ` ${procedure.surface}` : ""}`,
+        occurredAt: (procedure.completedAt ?? procedure.updatedAt ?? procedure.createdAt).toISOString(),
+        createdAt: procedure.createdAt.toISOString(),
+        branch: this.historyRef(procedure.appointment?.branch ?? null),
+        professional: this.historyPerson(procedure.professional),
+        createdBy: null,
+        sourceEntityType: "ToothProcedure",
+        sourceEntityId: procedure.id,
+        treatmentPlanId: procedure.treatmentPlanId,
+        appointmentId: procedure.appointmentId,
+        toothId: procedure.toothNumber,
+        status: procedure.status,
+        isAnnulled: procedure.status === ToothProcedureStatus.CANCELLED,
+        isPrivate: false,
+        visibility: "PUBLIC",
+        payload: { procedureCode: procedure.procedure?.code, diagnosis: procedure.diagnosis }
+      });
+    }
+
+    for (const record of odontogramRecords) {
+      push({
+        id: `odontogram:${record.id}`,
+        eventType: "odontogram.updated",
+        category: "ODONTOGRAM",
+        module: "odontogram",
+        title: "Odontograma actualizado",
+        summary: `${record.condition} - Pieza ${record.toothNumber}${record.surface ? ` ${record.surface}` : ""}`,
+        occurredAt: record.createdAt.toISOString(),
+        createdAt: record.createdAt.toISOString(),
+        branch: this.historyRef(record.appointment?.branch ?? null),
+        professional: this.historyPerson(record.professional),
+        createdBy: null,
+        sourceEntityType: "OdontogramRecord",
+        sourceEntityId: record.id,
+        appointmentId: record.appointmentId,
+        toothId: record.toothNumber,
+        status: record.status,
+        isAnnulled: record.status === ToothProcedureStatus.CANCELLED,
+        isPrivate: false,
+        visibility: "PUBLIC",
+        payload: { procedure: record.procedure?.name, diagnosis: record.diagnosis, symbol: record.odontogramSymbol }
+      });
+    }
+
+    for (const chart of periodontalCharts) {
+      push({
+        id: `periodontogram:${chart.id}`,
+        eventType: "periodontogram.saved",
+        category: "PERIODONTOGRAM",
+        module: "periodontogram",
+        title: "Periodontograma guardado",
+        summary: `${chart.measurements.length} mediciones registradas`,
+        occurredAt: chart.chartDate.toISOString(),
+        clinicalDate: chart.chartDate.toISOString(),
+        createdAt: chart.createdAt.toISOString(),
+        branch: this.historyRef(chart.appointment?.branch ?? null),
+        professional: this.historyPerson(chart.professional),
+        createdBy: null,
+        sourceEntityType: "PeriodontalChart",
+        sourceEntityId: chart.id,
+        appointmentId: chart.appointmentId,
+        status: "SAVED",
+        isAnnulled: false,
+        isPrivate: false,
+        visibility: "PUBLIC",
+        payload: { notes: chart.notes }
+      });
+    }
+
+    this.pushMedicalHistoryEvents(events, clinicalSummary, patient.branchId);
+
+    for (const document of documents) {
+      push({
+        id: `clinical-document:${document.id}:${document.deletedAt ? "deleted" : "created"}`,
+        eventType: document.deletedAt ? "document.annulled" : "document.created",
+        category: "DOCUMENTS",
+        module: "clinical-documents",
+        title: document.deletedAt ? "Documento anulado" : "Documento creado",
+        summary: document.title,
+        occurredAt: (document.deletedAt ?? document.createdAt).toISOString(),
+        createdAt: document.createdAt.toISOString(),
+        branch: this.historyRef(document.treatmentPlan?.branch ?? null),
+        professional: null,
+        createdBy: this.historyPerson(document.deletedAt ? document.deletedBy : document.createdBy),
+        sourceEntityType: "ClinicalDocument",
+        sourceEntityId: document.id,
+        treatmentPlanId: document.treatmentPlanId,
+        status: document.status,
+        isAnnulled: Boolean(document.deletedAt),
+        annulledAt: document.deletedAt?.toISOString(),
+        annulmentReason: document.deleteReason,
+        isPrivate: false,
+        visibility: "PUBLIC",
+        payload: { template: document.template?.name, treatmentPlan: document.treatmentPlan?.name }
+      });
+    }
+
+    for (const prescription of prescriptions) {
+      push({
+        id: `prescription:${prescription.id}`,
+        eventType: "prescription.created",
+        category: "PRESCRIPTIONS",
+        module: "prescriptions",
+        title: "Receta creada",
+        summary: `${prescription.items.map((item) => item.medication).slice(0, 3).join(", ")}${prescription.items.length > 3 ? "..." : ""}`,
+        occurredAt: prescription.createdAt.toISOString(),
+        createdAt: prescription.createdAt.toISOString(),
+        branch: this.historyRef(prescription.appointment?.branch ?? prescription.treatmentPlan?.branch ?? null),
+        professional: this.historyPerson(prescription.professional),
+        createdBy: null,
+        sourceEntityType: "Prescription",
+        sourceEntityId: prescription.id,
+        treatmentPlanId: prescription.treatmentPlanId,
+        appointmentId: prescription.appointmentId,
+        status: prescription.status,
+        isAnnulled: prescription.status !== "ACTIVE",
+        isPrivate: false,
+        visibility: "SENSITIVE",
+        payload: { diagnosis: prescription.diagnosis, itemCount: prescription.items.length }
+      });
+    }
+
+    for (const payment of payments) {
+      push({
+        id: `payment:${payment.id}`,
+        eventType: payment.status === PaymentStatus.VOIDED ? "payment.voided" : "payment.registered",
+        category: "PAYMENTS",
+        module: "payments",
+        title: payment.status === PaymentStatus.VOIDED ? "Pago anulado" : "Pago registrado",
+        summary: `${payment.paymentMethod?.name ?? "Metodo no especificado"} - ${this.moneyText(Number(payment.amount), String(payment.currency))}`,
+        occurredAt: payment.paidAt.toISOString(),
+        createdAt: payment.createdAt.toISOString(),
+        branch: this.historyRef(payment.branch),
+        professional: null,
+        createdBy: this.historyPerson(payment.receivedBy),
+        sourceEntityType: "Payment",
+        sourceEntityId: payment.id,
+        status: payment.status,
+        isAnnulled: ANNULLED_PAYMENT_STATUSES.has(payment.status),
+        annulledAt: payment.voidedAt?.toISOString(),
+        annulmentReason: payment.voidReason,
+        isPrivate: false,
+        visibility: "FINANCIAL",
+        payload: { paymentNumber: payment.paymentNumber, allocationCount: payment.allocations.length, amount: Number(payment.amount) }
+      });
+    }
+
+    for (const refund of refunds) {
+      push({
+        id: `refund:${refund.id}`,
+        eventType: "refund.created",
+        category: "REFUNDS",
+        module: "payments",
+        title: "Devolucion registrada",
+        summary: `${this.moneyText(Number(refund.amount), "MXN")} - ${refund.reason ?? refund.status}`,
+        occurredAt: (refund.processedAt ?? refund.createdAt).toISOString(),
+        createdAt: refund.createdAt.toISOString(),
+        branch: this.historyRef(refund.branch),
+        professional: null,
+        createdBy: this.historyPerson(refund.processedBy),
+        sourceEntityType: "Refund",
+        sourceEntityId: refund.id,
+        status: refund.status,
+        isAnnulled: String(refund.status) === "CANCELLED" || String(refund.status) === "REJECTED",
+        isPrivate: false,
+        visibility: "FINANCIAL",
+        payload: { amount: Number(refund.amount) }
+      });
+    }
+
+    for (const labOrder of labOrders) {
+      push({
+        id: `lab-order:${labOrder.id}`,
+        eventType: `laboratory.${String(labOrder.status).toLowerCase()}`,
+        category: "LABORATORY",
+        module: "labs",
+        title: this.labOrderTitle(labOrder.status),
+        summary: `${labOrder.labProvider.name} - ${labOrder.items.map((item) => item.description).slice(0, 2).join(", ")}`,
+        occurredAt: (labOrder.receivedAt ?? labOrder.sentAt ?? labOrder.createdAt).toISOString(),
+        createdAt: labOrder.createdAt.toISOString(),
+        branch: this.historyRef(labOrder.treatmentPlan?.branch ?? null),
+        professional: this.historyPerson(labOrder.professional),
+        createdBy: null,
+        sourceEntityType: "LabOrder",
+        sourceEntityId: labOrder.id,
+        treatmentPlanId: labOrder.treatmentPlanId,
+        status: labOrder.status,
+        isAnnulled: String(labOrder.status) === "CANCELLED",
+        isPrivate: false,
+        visibility: "PUBLIC",
+        payload: { provider: labOrder.labProvider.name, itemCount: labOrder.items.length, cost: canViewFinancial ? Number(labOrder.cost ?? 0) : null }
+      });
+    }
+
+    for (const consent of consents) {
+      push({
+        id: `consent:${consent.id}`,
+        eventType: consent.signedAt ? "consent.signed" : "consent.created",
+        category: "CONSENTS",
+        module: "consents",
+        title: consent.signedAt ? "Consentimiento firmado" : "Consentimiento creado",
+        summary: consent.template.name,
+        occurredAt: (consent.signedAt ?? consent.createdAt).toISOString(),
+        createdAt: consent.createdAt.toISOString(),
+        branch: this.historyRef(consent.appointment?.branch ?? consent.treatmentPlan?.branch ?? null),
+        professional: null,
+        createdBy: null,
+        sourceEntityType: "Consent",
+        sourceEntityId: consent.id,
+        treatmentPlanId: consent.treatmentPlanId,
+        appointmentId: consent.appointmentId,
+        status: consent.status,
+        isAnnulled: String(consent.status) === "VOIDED" || String(consent.status) === "CANCELLED",
+        isPrivate: false,
+        visibility: "SENSITIVE",
+        payload: { treatmentPlan: consent.treatmentPlan?.name }
+      });
+    }
+
+    const filteredEvents = events
+      .filter((event) => selectedCategories.has(event.category))
+      .filter((event) => (query.includeAnnulled ? true : !event.isAnnulled))
+      .filter((event) => (query.professionalId ? event.professional?.id === query.professionalId : true))
+      .filter((event) => (query.branchId ? event.branch?.id === query.branchId : true))
+      .filter((event) => (query.treatmentPlanId ? event.treatmentPlanId === query.treatmentPlanId : true))
+      .filter((event) => (query.toothId ? event.toothId === query.toothId : true))
+      .filter((event) => (query.status ? String(event.status ?? "").toLowerCase() === query.status.toLowerCase() : true))
+      .filter((event) => this.historyTextMatches(event, query.text));
+
+    const sorted = filteredEvents.sort((left, right) => {
+      const delta = new Date(left.occurredAt).getTime() - new Date(right.occurredAt).getTime();
+      if (delta !== 0) return order === "asc" ? delta : -delta;
+      return order === "asc" ? left.id.localeCompare(right.id) : right.id.localeCompare(left.id);
+    });
+    const afterCursor = this.applyHistoryCursor(sorted, query.cursor, order);
+    const items = afterCursor.slice(0, take);
+
+    return {
+      patient: {
+        id: patient.id,
+        firstName: patient.firstName,
+        lastName: patient.lastName,
+        documentType: patient.documentType,
+        documentNumber: patient.documentNumber,
+        birthDate: patient.birthDate,
+        phone: patient.phone,
+        email: patient.email,
+        createdAt: patient.createdAt
+      },
+      printContext: {
+        organizationName: organization?.legalName || organization?.name || "Clinica",
+        organizationLogoUrl: organization?.logoUrl ?? null,
+        branchName: appointments[0]?.branch?.name ?? patient.branchId,
+        branchLogoUrl: appointments[0]?.branch?.brand?.logoUrl ?? organization?.logoUrl ?? null,
+        generatedAt: new Date().toISOString(),
+        generatedBy: `${actor.firstName} ${actor.lastName}`.trim()
+      },
+      availableCategories: PATIENT_HISTORY_CATEGORIES,
+      items,
+      nextCursor: items.length === take ? this.encodeHistoryCursor(items[items.length - 1]) : null,
+      totalLoaded: filteredEvents.length
+    };
   }
 
   async upsertHistory(actor: AuthUser, patientId: string, dto: UpsertMedicalHistoryDto) {
@@ -1125,6 +1846,310 @@ export class ClinicalService {
     });
     if (!patient) throw new NotFoundException("Patient not found");
     return patient;
+  }
+
+  private resolveHistoryCategories(value?: string) {
+    const all = new Set<PatientHistoryCategory>(PATIENT_HISTORY_CATEGORIES);
+    if (!value?.trim()) return all;
+    const selected = value
+      .split(",")
+      .map((item) => item.trim().toUpperCase())
+      .filter((item): item is PatientHistoryCategory => all.has(item as PatientHistoryCategory));
+    return selected.length ? new Set(selected) : all;
+  }
+
+  private resolveHistoryDateRange(query: ListPatientHistoryQueryDto) {
+    if (query.month?.trim()) {
+      const match = /^(\d{4})-(\d{2})$/.exec(query.month.trim());
+      if (!match) throw new BadRequestException("Invalid history month");
+      const year = Number(match[1]);
+      const month = Number(match[2]) - 1;
+      const from = new Date(Date.UTC(year, month, 1, 0, 0, 0, 0));
+      const to = new Date(Date.UTC(year, month + 1, 0, 23, 59, 59, 999));
+      return { from, to };
+    }
+
+    const from = query.from ? new Date(query.from) : undefined;
+    const to = query.to ? new Date(query.to) : undefined;
+    if (from && Number.isNaN(from.getTime())) throw new BadRequestException("Invalid history from date");
+    if (to && Number.isNaN(to.getTime())) throw new BadRequestException("Invalid history to date");
+    if (to) to.setHours(23, 59, 59, 999);
+    if (from && to && from > to) throw new BadRequestException("Invalid history date range");
+    return { from, to };
+  }
+
+  private historyDateWhere(range: { from?: Date; to?: Date }) {
+    if (!range.from && !range.to) return undefined;
+    return {
+      ...(range.from ? { gte: range.from } : {}),
+      ...(range.to ? { lte: range.to } : {})
+    };
+  }
+
+  private historyRef(row?: { id: string; name: string } | null): HistoryRef {
+    return row ? { id: row.id, name: row.name } : null;
+  }
+
+  private historyPerson(row?: { id: string; firstName: string; lastName: string } | null): HistoryActor {
+    return row ? { id: row.id, name: `${row.firstName} ${row.lastName}`.trim() } : null;
+  }
+
+  private pushMedicalHistoryEvents(
+    events: PatientHistoryEvent[],
+    summary: Awaited<ReturnType<ClinicalService["getClinicalSummary"]>>,
+    branchId?: string | null
+  ) {
+    const branch = branchId ? { id: branchId, name: "Sucursal del paciente" } : null;
+    if (summary.history) {
+      const activeFlags = [
+        summary.history.hasDiabetes ? "diabetes" : null,
+        summary.history.hasHypertension ? "hipertension" : null,
+        summary.history.hasHeartDisease ? "cardiopatia" : null,
+        summary.history.isPregnant ? "embarazo" : null,
+        summary.history.smokes ? "tabaquismo" : null,
+        summary.history.drinksAlcohol ? "alcohol" : null
+      ].filter(Boolean);
+      events.push({
+        id: `medical-history:${summary.history.id}`,
+        eventType: "medical_history.updated",
+        category: "MEDICAL_HISTORY",
+        module: "clinical",
+        title: "Antecedente medico guardado",
+        summary: activeFlags.length ? activeFlags.join(", ") : summary.history.notes || "Historia medica actualizada",
+        occurredAt: summary.history.updatedAt.toISOString(),
+        createdAt: summary.history.createdAt.toISOString(),
+        branch,
+        professional: null,
+        createdBy: null,
+        sourceEntityType: "MedicalHistory",
+        sourceEntityId: summary.history.id,
+        status: "ACTIVE",
+        isAnnulled: false,
+        isPrivate: false,
+        visibility: "SENSITIVE",
+        payload: { bloodType: summary.history.bloodType }
+      });
+    }
+
+    for (const alert of summary.alerts) {
+      events.push({
+        id: `medical-alert:${alert.id}`,
+        eventType: "medical_history.alert.updated",
+        category: "MEDICAL_HISTORY",
+        module: "clinical",
+        title: "Alerta medica guardada",
+        summary: `${alert.type}: ${alert.description}`,
+        occurredAt: alert.createdAt.toISOString(),
+        createdAt: alert.createdAt.toISOString(),
+        branch,
+        professional: null,
+        createdBy: null,
+        sourceEntityType: "PatientMedicalAlert",
+        sourceEntityId: alert.id,
+        status: alert.severity,
+        isAnnulled: !alert.isActive,
+        isPrivate: false,
+        visibility: "SENSITIVE",
+        payload: { severity: alert.severity }
+      });
+    }
+
+    for (const condition of summary.conditions) {
+      events.push({
+        id: `medical-condition:${condition.id}`,
+        eventType: "medical_history.condition.created",
+        category: "MEDICAL_HISTORY",
+        module: "clinical",
+        title: "Enfermedad registrada",
+        summary: condition.notes ? `${condition.name}: ${condition.notes}` : condition.name,
+        occurredAt: condition.createdAt.toISOString(),
+        createdAt: condition.createdAt.toISOString(),
+        branch,
+        professional: null,
+        createdBy: null,
+        sourceEntityType: "MedicalCondition",
+        sourceEntityId: condition.id,
+        status: condition.isActive ? "ACTIVE" : "INACTIVE",
+        isAnnulled: !condition.isActive,
+        isPrivate: false,
+        visibility: "SENSITIVE",
+        payload: {}
+      });
+    }
+
+    for (const allergy of summary.allergies) {
+      events.push({
+        id: `allergy:${allergy.id}`,
+        eventType: "medical_history.allergy.created",
+        category: "MEDICAL_HISTORY",
+        module: "clinical",
+        title: "Alergia registrada",
+        summary: allergy.reaction ? `${allergy.name}: ${allergy.reaction}` : allergy.name,
+        occurredAt: allergy.createdAt.toISOString(),
+        createdAt: allergy.createdAt.toISOString(),
+        branch,
+        professional: null,
+        createdBy: null,
+        sourceEntityType: "Allergy",
+        sourceEntityId: allergy.id,
+        status: allergy.severity,
+        isAnnulled: false,
+        isPrivate: false,
+        visibility: "SENSITIVE",
+        payload: { severity: allergy.severity }
+      });
+    }
+
+    for (const medication of summary.medications) {
+      events.push({
+        id: `medication:${medication.id}`,
+        eventType: "medical_history.medication.created",
+        category: "MEDICAL_HISTORY",
+        module: "clinical",
+        title: "Medicamento registrado",
+        summary: [medication.name, medication.dosage, medication.frequency].filter(Boolean).join(" - "),
+        occurredAt: medication.createdAt.toISOString(),
+        createdAt: medication.createdAt.toISOString(),
+        branch,
+        professional: null,
+        createdBy: null,
+        sourceEntityType: "Medication",
+        sourceEntityId: medication.id,
+        status: "ACTIVE",
+        isAnnulled: false,
+        isPrivate: false,
+        visibility: "SENSITIVE",
+        payload: {}
+      });
+    }
+  }
+
+  private appointmentStatusText(status: AppointmentStatus | string) {
+    const labels: Record<string, string> = {
+      SCHEDULED: "Agendada",
+      CONFIRMED: "Confirmada",
+      CONFIRMED_BY_WHATSAPP: "Confirmada por WhatsApp",
+      CONFIRMED_BY_PHONE: "Confirmada por telefono",
+      CONFIRMED_BY_EMAIL: "Confirmada por email",
+      PENDING_CONFIRMATION: "Por confirmar",
+      NOTIFIED_BY_WHATSAPP: "Notificada por WhatsApp",
+      NOTIFIED_BY_EMAIL: "Notificada por email",
+      ARRIVED: "Llegada",
+      WAITING_ROOM: "Sala de espera",
+      IN_PROGRESS: "En atencion",
+      COMPLETED: "Atendida",
+      CANCELLED_BY_PATIENT: "Cancelada por paciente",
+      CANCELLED_BY_CLINIC: "Cancelada por clinica",
+      CANCELLED_CONFLICT: "Cancelada por conflicto",
+      CANCELLED_RESCHEDULED: "Anulada por reprogramacion",
+      NO_SHOW: "No asistio",
+      RESCHEDULED: "Reagendada",
+      BLOCKED: "Bloqueada"
+    };
+    return labels[String(status)] ?? String(status);
+  }
+
+  private treatmentStatusText(status: TreatmentPlanStatus | string) {
+    const labels: Record<string, string> = {
+      DRAFT: "Borrador",
+      PROPOSED: "Propuesto",
+      ACCEPTED: "Aceptado",
+      IN_PROGRESS: "En progreso",
+      COMPLETED: "Finalizado",
+      CANCELLED: "Cancelado",
+      REJECTED: "Rechazado"
+    };
+    return labels[String(status)] ?? String(status);
+  }
+
+  private budgetStatusText(status: string) {
+    const labels: Record<string, string> = {
+      DRAFT: "Borrador",
+      SENT: "Enviado",
+      ACCEPTED: "Aceptado",
+      REJECTED: "Rechazado",
+      EXPIRED: "Expirado",
+      CANCELLED: "Cancelado"
+    };
+    return labels[status] ?? status;
+  }
+
+  private evolutionSummary(evolution: {
+    actionNameSnapshot?: string | null;
+    notes?: string | null;
+    objective?: string | null;
+    assessment?: string | null;
+    treatmentPlanItem?: { procedure?: { name: string } | null } | null;
+  }) {
+    return (
+      evolution.actionNameSnapshot ||
+      evolution.treatmentPlanItem?.procedure?.name ||
+      evolution.objective ||
+      evolution.assessment ||
+      evolution.notes ||
+      "Evolucion clinica"
+    );
+  }
+
+  private moneyText(amount: number, currency: string) {
+    return new Intl.NumberFormat("es-MX", { style: "currency", currency }).format(amount);
+  }
+
+  private labOrderTitle(status: LabOrderStatus | string) {
+    const labels: Record<string, string> = {
+      REQUESTED: "Orden de laboratorio creada",
+      SENT: "Orden de laboratorio enviada",
+      RECEIVED: "Orden de laboratorio recibida",
+      DELIVERED: "Trabajo de laboratorio entregado",
+      CANCELLED: "Orden de laboratorio anulada"
+    };
+    return labels[String(status)] ?? "Orden de laboratorio";
+  }
+
+  private historyTextMatches(event: PatientHistoryEvent, text?: string) {
+    const needle = text?.trim().toLowerCase();
+    if (!needle) return true;
+    return [
+      event.title,
+      event.summary,
+      event.category,
+      event.module,
+      event.branch?.name,
+      event.professional?.name,
+      event.status,
+      event.sourceEntityType
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(needle);
+  }
+
+  private applyHistoryCursor(events: PatientHistoryEvent[], cursor: string | undefined, order: "asc" | "desc") {
+    const decoded = this.decodeHistoryCursor(cursor);
+    if (!decoded) return events;
+    return events.filter((event) => {
+      const eventTime = new Date(event.occurredAt).getTime();
+      if (order === "asc") {
+        return eventTime > decoded.occurredAt || (eventTime === decoded.occurredAt && event.id > decoded.id);
+      }
+      return eventTime < decoded.occurredAt || (eventTime === decoded.occurredAt && event.id < decoded.id);
+    });
+  }
+
+  private encodeHistoryCursor(event: PatientHistoryEvent) {
+    return Buffer.from(JSON.stringify({ occurredAt: new Date(event.occurredAt).getTime(), id: event.id })).toString("base64url");
+  }
+
+  private decodeHistoryCursor(cursor?: string) {
+    if (!cursor) return null;
+    try {
+      const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as { occurredAt?: unknown; id?: unknown };
+      if (typeof parsed.occurredAt !== "number" || typeof parsed.id !== "string") return null;
+      return { occurredAt: parsed.occurredAt, id: parsed.id };
+    } catch {
+      return null;
+    }
   }
 
   private async validateProfessional(actor: AuthUser, professionalId: string, branchId?: string) {

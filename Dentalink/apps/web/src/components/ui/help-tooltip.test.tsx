@@ -87,4 +87,42 @@ describe("HelpTooltip", () => {
     const tooltip = await screen.findByRole("tooltip");
     expect(tooltip).toHaveStyle({ left: "50px", top: "12px" });
   });
+
+  it("suppresses tooltip when a dialog overlay is present in the DOM unless nested", async () => {
+    mockRects({
+      tooltip: { height: 48, width: 180 },
+      trigger: { bottom: 140, height: 20, left: 80, right: 100, top: 120, width: 20 }
+    });
+
+    // 1. Render tooltip trigger in background, and a dialog in the DOM
+    const { unmount } = render(
+      <div>
+        <div role="dialog" id="active-dialog">
+          <p>Dialog Content</p>
+        </div>
+        <HelpTooltip content="Tooltip in background" />
+      </div>
+    );
+
+    const trigger = screen.getByRole("button", { name: "Ayuda del sistema" });
+    fireEvent.mouseEnter(trigger);
+
+    // Tooltip should not render because dialog is present and trigger is not inside it
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    unmount();
+
+    // 2. Render tooltip trigger INSIDE the dialog
+    render(
+      <div role="dialog" id="active-dialog-2">
+        <HelpTooltip content="Tooltip inside dialog" />
+      </div>
+    );
+
+    const triggerInside = screen.getByRole("button", { name: "Ayuda del sistema" });
+    fireEvent.mouseEnter(triggerInside);
+
+    // Tooltip should render because trigger is nested inside the active dialog
+    const tooltip = await screen.findByRole("tooltip");
+    expect(tooltip).toHaveTextContent("Tooltip inside dialog");
+  });
 });

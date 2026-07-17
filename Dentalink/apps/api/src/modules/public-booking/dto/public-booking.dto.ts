@@ -1,4 +1,5 @@
-import { IsDateString, IsNotEmpty, IsOptional, IsString, IsObject } from 'class-validator';
+import { Type } from "class-transformer";
+import { IsBoolean, IsDateString, IsEmail, IsNotEmpty, IsObject, IsOptional, IsString, Matches, MinLength, ValidateNested } from "class-validator";
 
 export class PublicAvailabilityQueryDto {
   @IsNotEmpty()
@@ -17,18 +18,21 @@ export class PublicAvailabilityQueryDto {
 export class PublicPatientDto {
   @IsNotEmpty()
   @IsString()
+  @MinLength(2)
   firstName!: string;
 
   @IsNotEmpty()
   @IsString()
+  @MinLength(2)
   lastName!: string;
 
   @IsOptional()
-  @IsString()
+  @IsEmail()
   email?: string;
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9\s()-]{7,40}$/)
   phone?: string;
 
   @IsOptional()
@@ -38,6 +42,10 @@ export class PublicPatientDto {
   @IsOptional()
   @IsString()
   documentNumber?: string;
+
+  @IsOptional()
+  @IsDateString()
+  birthDate?: string;
 }
 
 export class PublicCreateAppointmentDto {
@@ -63,7 +71,13 @@ export class PublicCreateAppointmentDto {
 
   @IsNotEmpty()
   @IsObject()
+  @ValidateNested()
+  @Type(() => PublicPatientDto)
   patient!: PublicPatientDto;
+
+  @IsOptional()
+  @IsString()
+  identitySessionId?: string;
 
   @IsOptional()
   @IsString()
@@ -102,5 +116,29 @@ export class UpdatePublicPatientProfileDto {
         city?: string;
         state?: string;
     };
-    @IsNotEmpty() privacyNoticeAccepted!: boolean;
+    @IsNotEmpty() @IsBoolean() privacyNoticeAccepted!: boolean;
+}
+
+export class PublicIdentityResolveDto {
+  @IsNotEmpty()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => PublicPatientDto)
+  patient!: PublicPatientDto;
+
+  @IsOptional()
+  @IsString()
+  conversationId?: string;
+}
+
+export class PublicIdentityVerifyDto {
+  @IsOptional() @IsString() firstName?: string;
+  @IsOptional() @IsString() lastName?: string;
+  @IsOptional() @IsDateString() birthDate?: string;
+  @IsOptional() @IsString() documentNumber?: string;
+}
+
+export class PublicIdentitySelectDto {
+  @IsNotEmpty() @IsString() patientId!: string;
+  @IsOptional() @IsString() familyGroupId?: string;
 }

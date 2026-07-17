@@ -4,6 +4,7 @@ import {
   ProfessionalBranchStatus,
   TreatmentPlanItemStatus,
   TreatmentPlanKind,
+  TreatmentPlanStatus,
   TreatmentPriceSource
 } from "@prisma/client";
 import type { AuthUser } from "../../common/types/auth-user";
@@ -26,7 +27,8 @@ describe("TreatmentPlansService professional branch validation", () => {
   };
 
   it("rejects treatment plans with a professional outside the selected branch", async () => {
-    const prisma = {
+    let prisma: any;
+    prisma = {
       branch: {
         findFirst: jest.fn().mockResolvedValue({ id: "branch-1" })
       },
@@ -97,16 +99,19 @@ describe("TreatmentPlansService professional branch validation", () => {
       alternativesAsParent: [],
       clinicalEvolutions: []
     };
-    const prisma = {
+    let prisma: any;
+    prisma = {
       treatmentPlan: {
         findFirst: jest.fn().mockResolvedValueOnce(currentPlan).mockResolvedValueOnce(detailPlan)
       },
       orthodonticTreatmentProfile: {
+        findUnique: jest.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(savedProfile),
         upsert: jest.fn().mockResolvedValue(savedProfile)
       },
       auditLog: {
         create: jest.fn()
-      }
+      },
+      $transaction: jest.fn(async (callback) => callback(prisma))
     };
     const service = new TreatmentPlansService(prisma as never);
 
@@ -128,6 +133,121 @@ describe("TreatmentPlansService professional branch validation", () => {
       })
     });
     expect(result.orthodonticSummary?.estimatedControls).toBe(18);
+  });
+
+  it("starts orthodontic treatment from the quick modal duration and preserves existing controls", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const currentPlan = {
+      id: "plan-ortho",
+      organizationId: "org-1",
+      patientId: "patient-1",
+      branchId: "branch-1",
+      professionalId: "professional-1",
+      kind: TreatmentPlanKind.ORTHODONTICS,
+      status: TreatmentPlanStatus.DRAFT,
+      patient: { id: "patient-1", agreement: null }
+    };
+    const savedProfile = {
+      id: "profile-1",
+      treatmentPlanId: "plan-ortho",
+      startDate: new Date(`${today}T00:00:00`),
+      startedById: "user-1",
+      startedAt: new Date(),
+      actualEndDate: null,
+      estimatedMonths: 24,
+      estimatedControls: 24,
+      controlFrequencyValue: 1,
+      controlFrequencyUnit: "MONTH",
+      nextControlAt: new Date(),
+      version: 2
+    };
+    const summaryPlan = {
+      ...currentPlan,
+      status: TreatmentPlanStatus.IN_PROGRESS,
+      name: "Ortodoncia",
+      completedAt: null,
+      patient: { id: "patient-1", firstName: "Ana", lastName: "Lopez" },
+      professional: { id: "professional-1", firstName: "Andrea", lastName: "Silva" },
+      branch: { id: "branch-1", name: "Sucursal 1" },
+      orthodonticProfile: savedProfile,
+      pauses: [],
+      items: [],
+      appointments: [],
+      orthodonticControls: Array.from({ length: 4 }, (_, index) => ({
+        id: `control-${index + 1}`,
+        clinicalDate: new Date()
+      })),
+      orthodonticHygieneAssessments: [],
+      orthodonticMilestones: [],
+      clinicalEvolutions: []
+    };
+    const tx = {
+      orthodonticTreatmentProfile: {
+        upsert: jest.fn().mockResolvedValue(savedProfile)
+      },
+      treatmentPlan: {
+        update: jest.fn()
+      }
+    };
+    const prisma = {
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValueOnce(currentPlan).mockResolvedValueOnce(summaryPlan)
+      },
+      orthodonticTreatmentProfile: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ id: "profile-1", treatmentPlanId: "plan-ortho", startDate: null })
+      },
+      professional: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "professional-1",
+          specialties: [{ specialty: { id: "specialty-ortho", name: "Ortodoncia", isActive: true } }]
+        })
+      },
+      orthodonticControl: {
+        count: jest.fn().mockResolvedValue(4)
+      },
+      auditLog: {
+        create: jest.fn()
+      },
+      $transaction: jest.fn((callback) => callback(tx))
+    };
+    const service = new TreatmentPlansService(prisma as never);
+
+    const result = await service.startOrthodonticTreatment(actor, "plan-ortho", {
+      startDate: today,
+      durationMonths: 24
+    });
+
+    expect(tx.orthodonticTreatmentProfile.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          estimatedMonths: 24,
+          estimatedControls: 24,
+          controlFrequencyValue: 1,
+          controlFrequencyUnit: "MONTH"
+        })
+      })
+    );
+    expect(tx.treatmentPlan.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: TreatmentPlanStatus.IN_PROGRESS })
+      })
+    );
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: "ORTHODONTIC_TREATMENT_STARTED",
+          after: expect.objectContaining({
+            durationMonths: 24,
+            plannedControls: 24,
+            existingCompletedControls: 4
+          })
+        })
+      })
+    );
+    expect(result.realProgress.completedControls).toBe(4);
+    expect(result.realProgress.percentage).toBeCloseTo(16.67, 1);
   });
 
   it("changes patient and current plan branch without moving future appointments by default", async () => {
@@ -674,6 +794,32 @@ describe("TreatmentPlansService professional branch validation", () => {
           procedure: { code: "ENDO-1", name: "Endodoncia", category: { name: "Endodoncia" } }
         })
       },
+      agreement: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "agreement-1",
+          name: "POLIZA 2026",
+          isActive: true,
+          status: "ACTIVE",
+          startsAt: null,
+          endsAt: null,
+          version: 1,
+          versions: [{ version: 1, branches: [{ branchId: "branch-1" }] }]
+        })
+      },
+      agreementVersion: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "agreement-version-1",
+          version: 1,
+          discountPercent: 0,
+          coveragePercent: 0,
+          copayAmount: 0,
+          coverageLimitAmount: null,
+          coverageRules: null,
+          branches: [{ branchId: "branch-1" }],
+          categoryRules: [],
+          procedureRules: []
+        })
+      },
       auditLog: {
         create: jest.fn()
       },
@@ -727,6 +873,32 @@ describe("TreatmentPlansService professional branch validation", () => {
           procedure: { code: "ENDO-1", name: "Endodoncia", category: { name: "Endodoncia" } }
         })
       },
+      agreement: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "agreement-1",
+          name: "POLIZA 2026",
+          isActive: true,
+          status: "ACTIVE",
+          startsAt: null,
+          endsAt: null,
+          version: 1,
+          versions: [{ version: 1, branches: [{ branchId: "branch-1" }] }]
+        })
+      },
+      agreementVersion: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "agreement-version-1",
+          version: 1,
+          discountPercent: 0,
+          coveragePercent: 0,
+          copayAmount: 0,
+          coverageLimitAmount: null,
+          coverageRules: null,
+          branches: [{ branchId: "branch-1" }],
+          categoryRules: [],
+          procedureRules: []
+        })
+      },
       $transaction: jest.fn()
     };
     const service = new TreatmentPlansService(prisma as never);
@@ -735,5 +907,333 @@ describe("TreatmentPlansService professional branch validation", () => {
       service.addItem(actor, "plan-1", { procedureId: "procedure-1", quantity: 1, unitPrice: 999 } as never)
     ).rejects.toThrow("Manual price overrides require price_lists.override_manual permission");
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects individual discounts when the treatment item snapshot does not allow discounts", async () => {
+    const discountActor = { ...actor, permissions: ["treatment_discount.apply"] };
+    const plan = {
+      id: "plan-1",
+      organizationId: "org-1",
+      patientId: "patient-1",
+      branchId: "branch-1",
+      professionalId: "professional-1",
+      status: TreatmentPlanStatus.DRAFT,
+      patient: { id: "patient-1", agreement: null }
+    };
+    const currentItem = {
+      id: "item-1",
+      treatmentPlanId: "plan-1",
+      procedureId: "procedure-1",
+      sectionId: null,
+      toothNumber: null,
+      surface: null,
+      odontogramSymbol: null,
+      quantity: 1,
+      unitPrice: 100,
+      discount: 0,
+      total: 100,
+      status: TreatmentPlanItemStatus.PLANNED,
+      allowsDiscountSnapshot: false,
+      agreementCoverage: 0,
+      notes: null
+    };
+    const prisma = {
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValue(plan)
+      },
+      treatmentPlanItem: {
+        findFirst: jest.fn().mockResolvedValue(currentItem)
+      },
+      $transaction: jest.fn()
+    };
+    const service = new TreatmentPlansService(prisma as never);
+
+    await expect(
+      service.updateItem(discountActor, "plan-1", "item-1", { discount: 10 } as never)
+    ).rejects.toThrow("Procedure does not allow discounts according to its price list snapshot");
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("excludes non-discountable snapshots from bulk discounts", async () => {
+    const discountActor = { ...actor, permissions: ["treatment_discount.apply"] };
+    const plan = {
+      id: "plan-1",
+      organizationId: "org-1",
+      patientId: "patient-1",
+      branchId: "branch-1",
+      professionalId: "professional-1",
+      status: TreatmentPlanStatus.DRAFT,
+      patient: { id: "patient-1", agreement: null }
+    };
+    const tx = {
+      treatmentPlanItem: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "item-1",
+            treatmentPlanId: "plan-1",
+            quantity: 1,
+            unitPrice: 100,
+            discount: 0,
+            total: 100,
+            status: TreatmentPlanItemStatus.PLANNED,
+            allowsDiscountSnapshot: true,
+            paymentAllocations: [],
+            budgetItems: []
+          },
+          {
+            id: "item-2",
+            treatmentPlanId: "plan-1",
+            quantity: 1,
+            unitPrice: 300,
+            discount: 0,
+            total: 300,
+            status: TreatmentPlanItemStatus.PLANNED,
+            allowsDiscountSnapshot: false,
+            paymentAllocations: [],
+            budgetItems: []
+          }
+        ]),
+        update: jest.fn()
+      }
+    };
+    const prisma = {
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValue(plan)
+      },
+      auditLog: {
+        create: jest.fn()
+      },
+      $transaction: jest.fn((callback) => callback(tx))
+    };
+    const service = new TreatmentPlansService(prisma as never);
+    jest.spyOn(service, "getProcedures").mockResolvedValue({ items: [] } as never);
+
+    await service.applyBulkDiscount(discountActor, "plan-1", {
+      itemIds: ["item-1", "item-2"],
+      discountType: "PERCENTAGE",
+      value: 10
+    });
+
+    expect(tx.treatmentPlanItem.update).toHaveBeenCalledTimes(1);
+    expect(tx.treatmentPlanItem.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "item-1" },
+        data: expect.objectContaining({
+          discount: expect.objectContaining({ toString: expect.any(Function) }),
+          total: expect.objectContaining({ toString: expect.any(Function) })
+        })
+      })
+    );
+    expect(tx.treatmentPlanItem.update.mock.calls[0][0].data.discount.toString()).toBe("10");
+    expect(tx.treatmentPlanItem.update.mock.calls[0][0].data.total.toString()).toBe("90");
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          after: expect.objectContaining({
+            itemIds: ["item-1"],
+            skippedItemIds: ["item-2"]
+          })
+        })
+      })
+    );
+  });
+
+  it("allocates fixed bulk discounts proportionally over the discountable base", async () => {
+    const discountActor = { ...actor, permissions: ["treatment_discount.apply"] };
+    const plan = {
+      id: "plan-1",
+      organizationId: "org-1",
+      patientId: "patient-1",
+      branchId: "branch-1",
+      professionalId: "professional-1",
+      status: TreatmentPlanStatus.DRAFT,
+      patient: { id: "patient-1", agreement: null }
+    };
+    const tx = {
+      treatmentPlanItem: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            id: "item-1",
+            treatmentPlanId: "plan-1",
+            quantity: 1,
+            unitPrice: 100,
+            discount: 0,
+            total: 100,
+            status: TreatmentPlanItemStatus.PLANNED,
+            allowsDiscountSnapshot: true,
+            paymentAllocations: [],
+            budgetItems: []
+          },
+          {
+            id: "item-2",
+            treatmentPlanId: "plan-1",
+            quantity: 1,
+            unitPrice: 300,
+            discount: 0,
+            total: 300,
+            status: TreatmentPlanItemStatus.PLANNED,
+            allowsDiscountSnapshot: true,
+            paymentAllocations: [],
+            budgetItems: []
+          }
+        ]),
+        update: jest.fn()
+      }
+    };
+    const prisma = {
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValue(plan)
+      },
+      auditLog: {
+        create: jest.fn()
+      },
+      $transaction: jest.fn((callback) => callback(tx))
+    };
+    const service = new TreatmentPlansService(prisma as never);
+    jest.spyOn(service, "getProcedures").mockResolvedValue({ items: [] } as never);
+
+    await service.applyBulkDiscount(discountActor, "plan-1", {
+      itemIds: ["item-1", "item-2"],
+      discountType: "AMOUNT",
+      value: 80
+    });
+
+    expect(tx.treatmentPlanItem.update).toHaveBeenCalledTimes(2);
+    expect(tx.treatmentPlanItem.update.mock.calls[0][0].data.discount.toString()).toBe("20");
+    expect(tx.treatmentPlanItem.update.mock.calls[0][0].data.total.toString()).toBe("80");
+    expect(tx.treatmentPlanItem.update.mock.calls[1][0].data.discount.toString()).toBe("60");
+    expect(tx.treatmentPlanItem.update.mock.calls[1][0].data.total.toString()).toBe("240");
+  });
+
+  it("builds orthodontic summary from explicit controls, hygiene assessments, agenda and financial data", async () => {
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - 5);
+    const futureAppointment = new Date();
+    futureAppointment.setDate(futureAppointment.getDate() + 7);
+    const overdueMilestone = new Date();
+    overdueMilestone.setDate(overdueMilestone.getDate() - 3);
+    const prisma = {
+      treatmentPlan: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "plan-ortho",
+          organizationId: "org-1",
+          patientId: "patient-1",
+          branchId: "branch-1",
+          professionalId: "professional-1",
+          kind: TreatmentPlanKind.ORTHODONTICS,
+          status: "IN_PROGRESS",
+          name: "Ortodoncia",
+          completedAt: null,
+          patient: { id: "patient-1", firstName: "Ana", lastName: "Lopez" },
+          professional: { id: "professional-1", firstName: "Andrea", lastName: "Silva" },
+          branch: { id: "branch-1", name: "Sucursal 1" },
+          orthodonticProfile: {
+            startDate,
+            actualEndDate: null,
+            estimatedMonths: 24,
+            estimatedControls: 24,
+            controlFrequencyValue: 1,
+            controlFrequencyUnit: "MONTH"
+          },
+          pauses: [],
+          items: [
+            {
+              status: TreatmentPlanItemStatus.PLANNED,
+              total: 16800,
+              discount: 0,
+              completionPercentage: 50,
+              paymentAllocations: [
+                { amount: 2800, payment: { status: "RECEIVED" } },
+                { amount: 500, payment: { status: "VOIDED" } }
+              ]
+            }
+          ],
+          appointments: [
+            {
+              id: "appointment-1",
+              startAt: futureAppointment,
+              endAt: futureAppointment,
+              status: AppointmentStatus.CONFIRMED,
+              professionalId: "professional-1",
+              professional: { id: "professional-1", firstName: "Andrea", lastName: "Silva" }
+            }
+          ],
+          orthodonticControls: Array.from({ length: 4 }, (_, index) => ({
+            id: `control-${index + 1}`,
+            clinicalDate: new Date(startDate)
+          })),
+          orthodonticHygieneAssessments: [
+            {
+              id: "hygiene-1",
+              evolutionId: "evolution-1",
+              controlId: "control-1",
+              clinicalDate: startDate,
+              numericValue: 3,
+              observations: null,
+              recommendations: null,
+              scale: { minValue: 1, maxValue: 5, higherIsBetter: true },
+              option: { label: "Regular" }
+            },
+            {
+              id: "hygiene-2",
+              evolutionId: "evolution-2",
+              controlId: "control-2",
+              clinicalDate: futureAppointment,
+              numericValue: 5,
+              observations: null,
+              recommendations: null,
+              scale: { minValue: 1, maxValue: 5, higherIsBetter: true },
+              option: { label: "Excelente" }
+            }
+          ],
+          orthodonticMilestones: [
+            {
+              id: "milestone-1",
+              type: "REEVALUATION",
+              label: "Reevaluacion",
+              plannedAt: overdueMilestone,
+              completedAt: null,
+              status: "PENDING",
+              professionalId: null,
+              evolutionId: null,
+              fileAttachmentId: null,
+              notes: null,
+              findings: null
+            }
+          ],
+          clinicalEvolutions: [
+            {
+              id: "evolution-general",
+              createdAt: new Date(),
+              professional: { id: "professional-1", firstName: "Andrea", lastName: "Silva" },
+              createdBy: null,
+              notes: "Nota general sin control",
+              assessment: null,
+              objective: null,
+              plan: null,
+              subjective: null,
+              isPrivate: false,
+              fields: [],
+              materials: []
+            }
+          ]
+        })
+      }
+    };
+    const service = new TreatmentPlansService(prisma as never);
+
+    const result = await service.getOrthodonticSummary(actor, "plan-ortho");
+
+    expect(result.realProgress.percentage).toBeCloseTo(16.67, 1);
+    expect(result.realProgress.completedControls).toBe(4);
+    expect(result.calendarProgress.percentage).toBeGreaterThan(0);
+    expect(result.hygiene.average).toBe(4);
+    expect(result.hygiene.trend).toBe("IMPROVING");
+    expect(result.hygiene.points[0].maximumScore).toBe(5);
+    expect(result.appointment?.id).toBe("appointment-1");
+    expect(result.milestones[0].status).toBe("OVERDUE");
+    expect(Number(result.finances.budgetTotal)).toBe(16800);
+    expect(Number(result.finances.paidTotal)).toBe(2800);
+    expect(Number(result.finances.balance)).toBe(14000);
   });
 });

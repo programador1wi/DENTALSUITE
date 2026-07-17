@@ -8,6 +8,12 @@ import {
   createPayment,
   createPaymentLink,
   createRefund,
+  getPatientBalance,
+  getPatientBalanceByPlan,
+  getPatientBillingSummary,
+  getPatientLedger,
+  getPatientPaymentBehavior,
+  getPatientPaymentDistribution,
   getCashBoxSummary,
   getCashCollectionSummary,
   getCashPaymentsByPeriod,
@@ -18,7 +24,11 @@ import {
   listCashRegisters,
   listCancelledPendingPayments,
   listInstallments,
+  listPatientFinancialDocuments,
+  listPatientOnlineBenefits,
   listPatientPayments,
+  listPatientReimbursementRequests,
+  listPatientVoidedPayments,
   listPaymentLinks,
   listPayments,
   listRefunds,
@@ -58,6 +68,86 @@ export function usePatientPayments(patientId: string) {
   return useQuery({
     queryKey: ["patient-payments", patientId],
     queryFn: () => listPatientPayments(patientId),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientBillingSummary(patientId: string) {
+  return useQuery({
+    queryKey: ["patient-billing-summary", patientId],
+    queryFn: () => getPatientBillingSummary(patientId),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientFinancialDocuments(patientId: string, params?: { type?: string; status?: string }) {
+  return useQuery({
+    queryKey: ["patient-financial-documents", patientId, params],
+    queryFn: () => listPatientFinancialDocuments(patientId, params),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientReimbursementRequests(patientId: string, params?: { status?: string }) {
+  return useQuery({
+    queryKey: ["patient-reimbursement-requests", patientId, params],
+    queryFn: () => listPatientReimbursementRequests(patientId, params),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientOnlineBenefits(patientId: string, params?: { status?: string }) {
+  return useQuery({
+    queryKey: ["patient-online-benefits", patientId, params],
+    queryFn: () => listPatientOnlineBenefits(patientId, params),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientVoidedPayments(patientId: string) {
+  return useQuery({
+    queryKey: ["patient-voided-payments", patientId],
+    queryFn: () => listPatientVoidedPayments(patientId),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientBalance(patientId: string) {
+  return useQuery({
+    queryKey: ["patient-balance", patientId],
+    queryFn: () => getPatientBalance(patientId),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientLedger(patientId: string) {
+  return useQuery({
+    queryKey: ["patient-ledger", patientId],
+    queryFn: () => getPatientLedger(patientId),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientPaymentBehavior(patientId: string) {
+  return useQuery({
+    queryKey: ["patient-payment-behavior", patientId],
+    queryFn: () => getPatientPaymentBehavior(patientId),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientPaymentDistribution(patientId: string) {
+  return useQuery({
+    queryKey: ["patient-payment-distribution", patientId],
+    queryFn: () => getPatientPaymentDistribution(patientId),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientBalanceByPlan(patientId: string) {
+  return useQuery({
+    queryKey: ["patient-balance-by-plan", patientId],
+    queryFn: () => getPatientBalanceByPlan(patientId),
     enabled: Boolean(patientId)
   });
 }
@@ -120,6 +210,14 @@ export function usePaymentsMutations() {
     queryClient.invalidateQueries({ queryKey: ["payments"] });
     queryClient.invalidateQueries({ queryKey: ["payments", "cancelled-pending"] });
     queryClient.invalidateQueries({ queryKey: ["patient-payments"] });
+    queryClient.invalidateQueries({ queryKey: ["patient-billing-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["patient-financial-documents"] });
+    queryClient.invalidateQueries({ queryKey: ["patient-voided-payments"] });
+    queryClient.invalidateQueries({ queryKey: ["patient-balance"] });
+    queryClient.invalidateQueries({ queryKey: ["patient-ledger"] });
+    queryClient.invalidateQueries({ queryKey: ["patient-payment-behavior"] });
+    queryClient.invalidateQueries({ queryKey: ["patient-payment-distribution"] });
+    queryClient.invalidateQueries({ queryKey: ["patient-balance-by-plan"] });
     queryClient.invalidateQueries({ queryKey: ["accounts-receivable"] });
     queryClient.invalidateQueries({ queryKey: ["installments"] });
     queryClient.invalidateQueries({ queryKey: ["cash-register"] });

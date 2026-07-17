@@ -1,14 +1,4 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-  Query,
-  UseGuards
-} from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
@@ -18,6 +8,8 @@ import { AuthUser } from "../../common/types/auth-user";
 import {
   BulkDiscountTreatmentPlanItemsDto,
   ChangeTreatmentPlanBranchDto,
+  CreateOrthodonticDiagnosisOptionDto,
+  CreateOrthodonticOptionDto,
   CreateAlternativeDto,
   PauseTreatmentPlanDto,
   PrintTreatmentPlanDocumentDto,
@@ -27,9 +19,14 @@ import {
   CreateTreatmentPlanDto,
   ListBudgetsQueryDto,
   ListTreatmentPlansQueryDto,
+  SaveOrthodonticDiagnosisDto,
+  SortOrthodonticDiagnosisOptionsDto,
   TreatmentPlanSectionInputDto,
+  UpdateOrthodonticDiagnosisOptionDto,
   UpdateOrthodonticDiagnosisDto,
+  SortOrthodonticOptionsDto,
   UpdateOrthodonticProfileDto,
+  UpdateOrthodonticOptionDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
   UpdateTreatmentPlanItemStatusDto,
@@ -37,7 +34,9 @@ import {
   ReactivateTreatmentPlanDto,
   DeactivateTreatmentPlanDto,
   DuplicateTreatmentPlanDto,
-  ReferTreatmentPlanDto
+  ReferTreatmentPlanDto,
+  RepriceTreatmentPlanDto,
+  TreatmentPlanPricePreviewDto
 } from "./dto/treatment-plan.dto";
 import { TreatmentPlansService } from "./treatment-plans.service";
 
@@ -60,6 +59,113 @@ export class TreatmentPlansController {
     return this.service.createTreatmentPlan(actor, dto);
   }
 
+  @Get("orthodontic-option-fields")
+  @RequirePermissions("treatment_plans.read")
+  listOrthodonticOptionFields(@CurrentUser() actor: AuthUser) {
+    return this.service.listOrthodonticOptionFields(actor);
+  }
+
+  @Post("orthodontic-option-fields/:fieldId/options")
+  @RequirePermissions("orthodontic_catalogs.manage")
+  createOrthodonticFieldOption(
+    @CurrentUser() actor: AuthUser,
+    @Param("fieldId") fieldId: string,
+    @Body() dto: CreateOrthodonticOptionDto
+  ) {
+    return this.service.createOrthodonticFieldOption(actor, fieldId, dto);
+  }
+
+  @Patch("orthodontic-field-options/:optionId")
+  @RequirePermissions("orthodontic_catalogs.manage")
+  updateOrthodonticFieldOption(
+    @CurrentUser() actor: AuthUser,
+    @Param("optionId") optionId: string,
+    @Body() dto: UpdateOrthodonticOptionDto
+  ) {
+    return this.service.updateOrthodonticFieldOption(actor, optionId, dto);
+  }
+
+  @Post("orthodontic-field-options/:optionId/deactivate")
+  @RequirePermissions("orthodontic_catalogs.manage")
+  deactivateOrthodonticFieldOption(
+    @CurrentUser() actor: AuthUser,
+    @Param("optionId") optionId: string,
+    @Body() dto: UpdateOrthodonticOptionDto
+  ) {
+    return this.service.deactivateOrthodonticFieldOption(actor, optionId, dto.deactivationReason);
+  }
+
+  @Post("orthodontic-field-options/:optionId/reactivate")
+  @RequirePermissions("orthodontic_catalogs.manage")
+  reactivateOrthodonticFieldOption(@CurrentUser() actor: AuthUser, @Param("optionId") optionId: string) {
+    return this.service.reactivateOrthodonticFieldOption(actor, optionId);
+  }
+
+  @Put("orthodontic-option-fields/:fieldId/sort")
+  @RequirePermissions("orthodontic_catalogs.manage")
+  sortOrthodonticFieldOptions(
+    @CurrentUser() actor: AuthUser,
+    @Param("fieldId") fieldId: string,
+    @Body() dto: SortOrthodonticOptionsDto
+  ) {
+    return this.service.sortOrthodonticFieldOptions(actor, fieldId, dto);
+  }
+
+  @Get("orthodontic-diagnosis-catalog")
+  @RequirePermissions("orthodontic_diagnosis.read")
+  listOrthodonticDiagnosisCatalog(@CurrentUser() actor: AuthUser) {
+    return this.service.listOrthodonticDiagnosisCatalog(actor);
+  }
+
+  @Post("orthodontic-diagnosis-fields/:fieldId/options")
+  @RequirePermissions("orthodontic_diagnosis.catalogs.manage")
+  createOrthodonticDiagnosisFieldOption(
+    @CurrentUser() actor: AuthUser,
+    @Param("fieldId") fieldId: string,
+    @Body() dto: CreateOrthodonticDiagnosisOptionDto
+  ) {
+    return this.service.createOrthodonticDiagnosisFieldOption(actor, fieldId, dto);
+  }
+
+  @Patch("orthodontic-diagnosis-field-options/:optionId")
+  @RequirePermissions("orthodontic_diagnosis.catalogs.manage")
+  updateOrthodonticDiagnosisFieldOption(
+    @CurrentUser() actor: AuthUser,
+    @Param("optionId") optionId: string,
+    @Body() dto: UpdateOrthodonticDiagnosisOptionDto
+  ) {
+    return this.service.updateOrthodonticDiagnosisFieldOption(actor, optionId, dto);
+  }
+
+  @Post("orthodontic-diagnosis-field-options/:optionId/deactivate")
+  @RequirePermissions("orthodontic_diagnosis.catalogs.manage")
+  deactivateOrthodonticDiagnosisFieldOption(
+    @CurrentUser() actor: AuthUser,
+    @Param("optionId") optionId: string,
+    @Body() dto: UpdateOrthodonticDiagnosisOptionDto
+  ) {
+    return this.service.deactivateOrthodonticDiagnosisFieldOption(actor, optionId, dto.deactivationReason);
+  }
+
+  @Post("orthodontic-diagnosis-field-options/:optionId/reactivate")
+  @RequirePermissions("orthodontic_diagnosis.catalogs.manage")
+  reactivateOrthodonticDiagnosisFieldOption(
+    @CurrentUser() actor: AuthUser,
+    @Param("optionId") optionId: string
+  ) {
+    return this.service.reactivateOrthodonticDiagnosisFieldOption(actor, optionId);
+  }
+
+  @Put("orthodontic-diagnosis-fields/:fieldId/sort")
+  @RequirePermissions("orthodontic_diagnosis.catalogs.manage")
+  sortOrthodonticDiagnosisFieldOptions(
+    @CurrentUser() actor: AuthUser,
+    @Param("fieldId") fieldId: string,
+    @Body() dto: SortOrthodonticDiagnosisOptionsDto
+  ) {
+    return this.service.sortOrthodonticDiagnosisFieldOptions(actor, fieldId, dto);
+  }
+
   @Get("treatment-plans/:id")
   @RequirePermissions("treatment_plans.read")
   getTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
@@ -68,19 +174,63 @@ export class TreatmentPlansController {
 
   @Patch("treatment-plans/:id")
   @RequirePermissions("treatment_plans.update")
-  updateTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateTreatmentPlanDto) {
+  updateTreatmentPlan(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateTreatmentPlanDto
+  ) {
     return this.service.updateTreatmentPlan(actor, id, dto);
   }
 
   @Patch("treatment-plans/:id/orthodontics/profile")
   @RequirePermissions("treatment_plans.update")
-  updateOrthodonticProfile(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateOrthodonticProfileDto) {
+  updateOrthodonticProfile(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateOrthodonticProfileDto
+  ) {
     return this.service.updateOrthodonticProfile(actor, id, dto);
+  }
+
+  @Get("treatment-plans/:id/orthodontics/diagnosis/status")
+  @RequirePermissions("orthodontic_diagnosis.read")
+  getOrthodonticDiagnosisStatus(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getOrthodonticDiagnosisStatus(actor, id);
+  }
+
+  @Get("treatment-plans/:id/orthodontics/diagnosis")
+  @RequirePermissions("orthodontic_diagnosis.read")
+  getOrthodonticDiagnosis(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getOrthodonticDiagnosis(actor, id);
+  }
+
+  @Post("treatment-plans/:id/orthodontics/diagnosis/draft")
+  @RequirePermissions("orthodontic_diagnosis.draft")
+  saveOrthodonticDiagnosisDraft(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: SaveOrthodonticDiagnosisDto
+  ) {
+    return this.service.saveOrthodonticDiagnosisDraft(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/orthodontics/diagnosis")
+  @RequirePermissions("orthodontic_diagnosis.create")
+  saveOrthodonticDiagnosisActive(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: SaveOrthodonticDiagnosisDto
+  ) {
+    return this.service.saveOrthodonticDiagnosisActive(actor, id, dto);
   }
 
   @Patch("treatment-plans/:id/orthodontics/diagnosis")
   @RequirePermissions("treatment_plans.update")
-  updateOrthodonticDiagnosis(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateOrthodonticDiagnosisDto) {
+  updateOrthodonticDiagnosis(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateOrthodonticDiagnosisDto
+  ) {
     return this.service.updateOrthodonticDiagnosis(actor, id, dto);
   }
 
@@ -92,43 +242,71 @@ export class TreatmentPlansController {
 
   @Get("treatment-plans/:id/orthodontics/evolutions")
   @RequirePermissions("clinical.read")
-  listOrthodonticEvolutions(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Query() query: OrthodonticEvolutionsQueryDto) {
+  listOrthodonticEvolutions(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Query() query: OrthodonticEvolutionsQueryDto
+  ) {
     return this.service.listOrthodonticEvolutions(actor, id, query);
   }
 
   @Post("treatment-plans/:id/orthodontics/start")
   @RequirePermissions("treatment_plans.status.update")
-  startOrthodonticTreatment(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: StartOrthodonticTreatmentDto) {
+  startOrthodonticTreatment(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: StartOrthodonticTreatmentDto
+  ) {
     return this.service.startOrthodonticTreatment(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/orthodontics/monthly-items")
   @RequirePermissions("treatment_plans.update")
-  createOrthodonticMonthlyItems(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: CreateOrthodonticMonthlyItemsDto) {
+  createOrthodonticMonthlyItems(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: CreateOrthodonticMonthlyItemsDto
+  ) {
     return this.service.createOrthodonticMonthlyItems(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/change-branch")
   @RequirePermissions("patients.update", "treatment_plans.update")
-  changeBranch(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: ChangeTreatmentPlanBranchDto) {
+  changeBranch(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: ChangeTreatmentPlanBranchDto
+  ) {
     return this.service.changeBranch(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/sections")
   @RequirePermissions("treatment_plans.update")
-  addSection(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: TreatmentPlanSectionInputDto) {
+  addSection(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: TreatmentPlanSectionInputDto
+  ) {
     return this.service.addSection(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/alternatives")
   @RequirePermissions("treatment_plans.alternatives.manage")
-  createAlternative(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: CreateAlternativeDto) {
+  createAlternative(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: CreateAlternativeDto
+  ) {
     return this.service.createAlternative(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/alternatives/:alternativeId/activate")
   @RequirePermissions("treatment_plans.alternatives.manage")
-  activateAlternative(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Param("alternativeId") alternativeId: string) {
+  activateAlternative(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Param("alternativeId") alternativeId: string
+  ) {
     return this.service.activateAlternative(actor, id, alternativeId);
   }
 
@@ -138,6 +316,46 @@ export class TreatmentPlansController {
     return this.service.addItem(actor, id, dto);
   }
 
+  @Post("treatment-plans/:id/price-preview")
+  @RequirePermissions("treatment_plans.read")
+  pricePreview(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: TreatmentPlanPricePreviewDto
+  ) {
+    return this.service.pricePreview(actor, id, dto);
+  }
+
+  @Get("treatment-plans/:id/price-catalog")
+  @RequirePermissions("treatment_plans.read")
+  priceCatalog(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Query("clinicalDate") clinicalDate?: string
+  ) {
+    return this.service.priceCatalog(actor, id, clinicalDate);
+  }
+
+  @Post("treatment-plans/:id/reprice-preview")
+  @RequirePermissions("treatment_plans.read")
+  repricePreview(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: RepriceTreatmentPlanDto
+  ) {
+    return this.service.repricePreview(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/reprice-apply")
+  @RequirePermissions("treatment_plans.update")
+  repriceApply(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: RepriceTreatmentPlanDto
+  ) {
+    return this.service.repriceApply(actor, id, dto);
+  }
+
   @Get("treatment-plans/:id/procedures")
   @RequirePermissions("treatment_plans.read")
   getProcedures(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
@@ -145,7 +363,7 @@ export class TreatmentPlansController {
   }
 
   @Patch("treatment-plans/:id/items/bulk-discount")
-  @RequirePermissions("treatment_plans.update")
+  @RequirePermissions("treatment_plans.update", "treatment_discount.apply")
   applyBulkDiscount(
     @CurrentUser() actor: AuthUser,
     @Param("id") id: string,
@@ -164,9 +382,40 @@ export class TreatmentPlansController {
     return this.service.printTreatmentPlanDocument(actor, id, dto);
   }
 
+  @Get("treatment-plans/:id/print-options")
+  @RequirePermissions("treatment_plans.read")
+  getTreatmentPlanPrintOptions(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getTreatmentPlanPrintOptions(actor, id);
+  }
+
+  @Post("treatment-plans/:id/documents/preview")
+  @RequirePermissions("treatment_plans.read")
+  previewTreatmentPlanDocument(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: PrintTreatmentPlanDocumentDto
+  ) {
+    return this.service.previewTreatmentPlanDocument(actor, id, dto);
+  }
+
+  @Post("treatment-plans/:id/documents")
+  @RequirePermissions("treatment_plans.read")
+  generateTreatmentPlanDocument(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: PrintTreatmentPlanDocumentDto
+  ) {
+    return this.service.printTreatmentPlanDocument(actor, id, dto);
+  }
+
   @Patch("treatment-plans/:id/items/:itemId")
   @RequirePermissions("treatment_plans.update")
-  updateItem(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Param("itemId") itemId: string, @Body() dto: UpdateTreatmentPlanItemDto) {
+  updateItem(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Param("itemId") itemId: string,
+    @Body() dto: UpdateTreatmentPlanItemDto
+  ) {
     return this.service.updateItem(actor, id, itemId, dto);
   }
 
@@ -231,31 +480,51 @@ export class TreatmentPlansController {
 
   @Post("treatment-plans/:id/reactivate")
   @RequirePermissions("treatment_plans.status.update")
-  reactivateTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: ReactivateTreatmentPlanDto) {
+  reactivateTreatmentPlan(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: ReactivateTreatmentPlanDto
+  ) {
     return this.service.reactivateTreatmentPlan(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/deactivate")
   @RequirePermissions("treatment_plans.status.update")
-  deactivateTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: DeactivateTreatmentPlanDto) {
+  deactivateTreatmentPlan(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: DeactivateTreatmentPlanDto
+  ) {
     return this.service.deactivateTreatmentPlan(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/duplicate")
   @RequirePermissions("treatment_plans.create")
-  duplicateTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: DuplicateTreatmentPlanDto) {
+  duplicateTreatmentPlan(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: DuplicateTreatmentPlanDto
+  ) {
     return this.service.duplicateTreatmentPlan(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/refer")
   @RequirePermissions("treatment_plans.update")
-  referTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: ReferTreatmentPlanDto) {
+  referTreatmentPlan(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: ReferTreatmentPlanDto
+  ) {
     return this.service.referTreatmentPlan(actor, id, dto);
   }
 
   @Post("treatment-plans/:id/pause")
   @RequirePermissions("treatment_plans.update")
-  pauseTreatmentPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: PauseTreatmentPlanDto) {
+  pauseTreatmentPlan(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: PauseTreatmentPlanDto
+  ) {
     return this.service.pauseTreatment(actor, id, dto);
   }
 

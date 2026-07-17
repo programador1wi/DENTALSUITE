@@ -2,8 +2,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PatientTreatmentsPage } from "./patient-treatments-page";
-import type { PriceList } from "@/features/settings/price-lists/services/price-lists.service";
 import type {
+  OrthodonticTreatmentProfile,
+  TreatmentPriceCatalog,
   TreatmentPlanDetail,
   TreatmentPlanItem
 } from "@/features/treatments/services/treatments.service";
@@ -14,6 +15,9 @@ const mockState = vi.hoisted(() => ({
   addItemMutateAsync: vi.fn(),
   addSectionMutateAsync: vi.fn(),
   createBudgetMutateAsync: vi.fn(),
+  previewRepriceMutateAsync: vi.fn(),
+  applyRepriceMutateAsync: vi.fn(),
+  saveOrthodonticDiagnosisDraftMutateAsync: vi.fn(),
   updateItemMutateAsync: vi.fn(),
   updateOrthodonticProfileMutateAsync: vi.fn(),
   navigate: vi.fn(),
@@ -22,10 +26,21 @@ const mockState = vi.hoisted(() => ({
     id: string;
     name: string;
     discountPercent: string;
+    priceListId?: string | null;
     priceList?: { id: string; name: string; isDefault: boolean } | null;
   } | null,
+  agreements: [] as Array<{
+    id: string;
+    name: string;
+    discountPercent: string;
+    priceListId?: string | null;
+    priceList?: { id: string; name: string; isDefault: boolean } | null;
+    _count: { patients: number };
+  }>,
   currentPlan: null as TreatmentPlanDetail | null,
-  currentPriceList: null as PriceList | null,
+  currentPriceList: null as TreatmentPriceCatalog | null,
+  priceListsById: {} as Record<string, TreatmentPriceCatalog | null>,
+  lastPriceListId: "",
   priceListLoading: false,
   selectedTooth: "",
   selectedTeeth: [] as string[],
@@ -88,27 +103,26 @@ vi.mock("@/features/documents/hooks/use-documents", () => ({
   usePatientFiles: () => ({ data: [], isLoading: false, isError: false })
 }));
 
+vi.mock("@/hooks/use-permissions", () => ({
+  usePermissions: () => ({ hasPermission: () => true })
+}));
+
 vi.mock("@/features/payments/hooks/use-payments", () => ({
   usePatientPayments: () => ({
-    data: { balance: { allocatedPaidAmount: 0 } },
+    data: { balance: { allocatedPaidAmount: 0 }, payablePlans: [] },
     isLoading: false,
     isError: false
   }),
-  usePaymentsMutations: () => ({ removeAllocation: { mutateAsync: vi.fn(), isPending: false } }),
+  usePaymentsMutations: () => ({
+    createInstallmentPlan: { mutateAsync: vi.fn(), isPending: false },
+    removeAllocation: { mutateAsync: vi.fn(), isPending: false }
+  }),
   useRefunds: () => ({ data: [], isLoading: false, isError: false })
 }));
 
 vi.mock("@/features/settings/admin-workflows/hooks/use-admin-workflows", () => ({
   useAgreements: () => ({
-    data: [
-      {
-        id: "agreement-1",
-        name: "Seguro Dental",
-        discountPercent: "0",
-        priceList: { id: "price-list-1", name: "REDES SOCIALES 2026", isDefault: false },
-        _count: { patients: 1 }
-      }
-    ],
+    data: mockState.agreements,
     isLoading: false,
     isError: false
   })
@@ -119,11 +133,14 @@ vi.mock("@/features/settings/branches/hooks/use-branches", () => ({
 }));
 
 vi.mock("@/features/settings/price-lists/hooks/use-price-lists", () => ({
-  usePriceList: () => ({
-    data: mockState.currentPriceList,
-    isLoading: mockState.priceListLoading,
-    isError: false
-  })
+  usePriceList: (id: string) => {
+    mockState.lastPriceListId = id;
+    return {
+      data: id ? (mockState.priceListsById[id] ?? mockState.currentPriceList) : null,
+      isLoading: mockState.priceListLoading,
+      isError: false
+    };
+  }
 }));
 
 vi.mock("@/features/settings/procedures/hooks/use-procedures", () => ({
@@ -161,11 +178,15 @@ vi.mock("@/stores/odontogram.store", () => {
     selectedTeeth: mockState.selectedTeeth,
     selectedSurface: mockState.selectedSurface
   });
-  const useOdontogramStore = (selector: (value: typeof state & {
-      selectedTooth: string;
-      selectedTeeth: string[];
-      selectedSurface: string;
-    }) => unknown) => selector(getState());
+  const useOdontogramStore = (
+    selector: (
+      value: typeof state & {
+        selectedTooth: string;
+        selectedTeeth: string[];
+        selectedSurface: string;
+      }
+    ) => unknown
+  ) => selector(getState());
   useOdontogramStore.getState = getState;
   return { useOdontogramStore };
 });
@@ -188,7 +209,13 @@ vi.mock("../hooks/use-patients", () => ({
 vi.mock("@/features/treatments/hooks/use-treatments", () => ({
   useBudgets: () => ({ data: mockState.currentPlan?.budgets ?? [], isLoading: false, isError: false }),
   useTreatmentPlan: () => ({ data: mockState.currentPlan, isLoading: false, isError: false }),
+  useTreatmentPlanPrintOptions: () => ({ data: [], isLoading: false, isError: false }),
   useTreatmentPlanProcedures: () => ({ data: null, isLoading: false, isError: false }),
+  useTreatmentPlanPriceCatalog: () => ({
+    data: mockState.currentPriceList,
+    isLoading: mockState.priceListLoading,
+    isError: false
+  }),
   useTreatmentPlans: () => ({
     data: mockState.currentPlan ? [mockState.currentPlan] : [],
     isLoading: false,
@@ -199,22 +226,74 @@ vi.mock("@/features/treatments/hooks/use-treatments", () => ({
     isLoading: false,
     isError: false
   }),
+  useOrthodonticOptionFields: () => ({
+    data: [],
+    isLoading: false,
+    isError: false
+  }),
+  useOrthodonticDiagnosisStatus: () => ({
+    data: {
+      treatmentPlanId: "plan-1",
+      status: "EMPTY",
+      diagnosis: null,
+      summaryItems: [],
+      sectionsWithData: []
+    },
+    isLoading: false,
+    isError: false
+  }),
+  useOrthodonticDiagnosis: () => ({
+    data: {
+      treatmentPlanId: "plan-1",
+      status: "EMPTY",
+      diagnosis: null,
+      summaryItems: [],
+      sectionsWithData: [],
+      catalog: []
+    },
+    isLoading: false,
+    isError: false
+  }),
+  useOrthodonticDiagnosisCatalog: () => ({
+    data: [],
+    isLoading: false,
+    isError: false
+  }),
   useTreatmentMutations: () => ({
     acceptBudget: { mutate: vi.fn(), isPending: false },
     addItem: { mutateAsync: mockState.addItemMutateAsync, isPending: false },
     addSection: { mutateAsync: mockState.addSectionMutateAsync, isPending: false },
     applyBulkDiscount: { mutateAsync: vi.fn(), isPending: false },
+    applyReprice: { mutateAsync: mockState.applyRepriceMutateAsync, isPending: false },
     changeBranch: { mutateAsync: vi.fn(), isPending: false },
     createBudget: { mutateAsync: mockState.createBudgetMutateAsync, isPending: false },
+    createOrthodonticDiagnosisFieldOption: { mutateAsync: vi.fn(), isPending: false },
+    createOrthodonticFieldOption: { mutateAsync: vi.fn(), isPending: false },
     createOrthodonticMonthlyItems: { mutateAsync: vi.fn(), isPending: false },
     createTreatmentPlan: { mutateAsync: vi.fn(), isPending: false },
     deleteItem: { mutate: vi.fn(), isPending: false },
     duplicateTreatmentPlan: { mutateAsync: vi.fn(), isPending: false },
+    generateTreatmentPlanDocument: { mutateAsync: vi.fn(), isPending: false },
     pauseTreatment: { mutateAsync: vi.fn(), isPending: false },
+    previewTreatmentPlanDocument: { mutateAsync: vi.fn(), isPending: false },
+    previewReprice: { mutateAsync: mockState.previewRepriceMutateAsync, isPending: false },
     printBudget: { mutateAsync: vi.fn(), isPending: false },
+    saveOrthodonticDiagnosisActive: { mutateAsync: vi.fn(), isPending: false },
+    saveOrthodonticDiagnosisDraft: {
+      mutateAsync: mockState.saveOrthodonticDiagnosisDraftMutateAsync,
+      isPending: false
+    },
     resumeTreatment: { mutateAsync: vi.fn(), isPending: false },
     sendBudget: { mutate: vi.fn(), isPending: false },
     startOrthodonticTreatment: { mutateAsync: vi.fn(), isPending: false },
+    deactivateOrthodonticDiagnosisFieldOption: { mutateAsync: vi.fn(), isPending: false },
+    deactivateOrthodonticFieldOption: { mutateAsync: vi.fn(), isPending: false },
+    reactivateOrthodonticDiagnosisFieldOption: { mutateAsync: vi.fn(), isPending: false },
+    reactivateOrthodonticFieldOption: { mutateAsync: vi.fn(), isPending: false },
+    sortOrthodonticDiagnosisFieldOptions: { mutateAsync: vi.fn(), isPending: false },
+    sortOrthodonticFieldOptions: { mutateAsync: vi.fn(), isPending: false },
+    updateOrthodonticDiagnosisFieldOption: { mutateAsync: vi.fn(), isPending: false },
+    updateOrthodonticFieldOption: { mutateAsync: vi.fn(), isPending: false },
     updateOrthodonticDiagnosis: { mutateAsync: vi.fn(), isPending: false },
     updateOrthodonticProfile: {
       mutateAsync: mockState.updateOrthodonticProfileMutateAsync,
@@ -229,8 +308,11 @@ describe("PatientTreatmentsPage budget agreement flow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockState.patientAgreement = null;
+    mockState.agreements = [agreementFixture()];
     mockState.currentPlan = planFixture();
     mockState.currentPriceList = null;
+    mockState.priceListsById = {};
+    mockState.lastPriceListId = "";
     mockState.priceListLoading = false;
     mockState.selectedTooth = "";
     mockState.selectedTeeth = [];
@@ -244,6 +326,33 @@ describe("PatientTreatmentsPage budget agreement flow", () => {
       )
     );
     mockState.createBudgetMutateAsync.mockResolvedValue({});
+    mockState.applyRepriceMutateAsync.mockResolvedValue(planFixture());
+    mockState.previewRepriceMutateAsync.mockResolvedValue({
+      planId: "plan-1",
+      status: "DRAFT",
+      canApply: true,
+      requiresRevision: false,
+      items: [
+        {
+          itemId: "item-1",
+          procedureId: "procedure-1",
+          current: { unitPrice: "399.00", discount: "0.00", total: "399.00", versionNumber: 2 },
+          proposed: {
+            basePrice: "450.00",
+            finalPrice: "450.00",
+            discountAmount: "0.00",
+            total: "450.00",
+            quantity: "1.00",
+            priceList: { id: "price-list-1", name: "REDES SOCIALES 2026" },
+            version: { id: "version-3", number: 3, itemId: "price-item-1" }
+          },
+          difference: "51.00",
+          hasFinancialDependencies: false,
+          error: null
+        }
+      ]
+    });
+    mockState.saveOrthodonticDiagnosisDraftMutateAsync.mockResolvedValue({});
     mockState.updateItemMutateAsync.mockResolvedValue(planFixture());
     mockState.updateOrthodonticProfileMutateAsync.mockResolvedValue(planFixture());
     mockState.updatePatientMutateAsync.mockResolvedValue({});
@@ -280,8 +389,9 @@ describe("PatientTreatmentsPage budget agreement flow", () => {
     render(<PatientTreatmentsPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "Plan de tratamiento" }));
-    fireEvent.change(screen.getByLabelText("Controles estimados"), { target: { value: "20" } });
-    fireEvent.click(screen.getByRole("button", { name: /Guardar plan/i }));
+    expect(screen.getByRole("dialog", { name: "Plan de tratamiento" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Cantidad controles"), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: /Guardar cambios/i }));
 
     await waitFor(() => expect(mockState.updateOrthodonticProfileMutateAsync).toHaveBeenCalled());
     expect(mockState.updateOrthodonticProfileMutateAsync).toHaveBeenCalledWith({
@@ -290,6 +400,48 @@ describe("PatientTreatmentsPage budget agreement flow", () => {
         estimatedMonths: 24,
         estimatedControls: 20
       })
+    });
+  });
+
+  it("shows an empty treatment plan state and auto opens the technical modal", async () => {
+    mockState.currentPlan = planFixture({
+      kind: "ORTHODONTICS",
+      specialtySnapshotName: "Ortodoncia",
+      orthodonticProfile: emptyOrthodonticProfileFixture({
+        startDate: "2026-07-14T00:00:00.000Z",
+        estimatedMonths: 24,
+        estimatedControls: 24,
+        nextControlAt: "2026-08-13T18:00:00.000Z"
+      })
+    });
+
+    render(<PatientTreatmentsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Plan de tratamiento" }));
+
+    expect(screen.getByText("El plan de tratamiento está vacío")).toBeInTheDocument();
+    expect(await screen.findByRole("dialog", { name: "Plan de tratamiento" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Definir Plan de Tratamiento" })).toBeInTheDocument();
+  });
+
+  it("auto opens the orthodontic diagnosis modal and saves an empty draft", async () => {
+    mockState.currentPlan = planFixture({
+      kind: "ORTHODONTICS",
+      specialtySnapshotName: "Ortodoncia",
+      orthodonticProfile: orthodonticProfileFixture()
+    });
+
+    render(<PatientTreatmentsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Diagnostico" }));
+
+    expect(await screen.findByRole("heading", { name: "Diagnostico" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Guardar borrador" }));
+
+    await waitFor(() => expect(mockState.saveOrthodonticDiagnosisDraftMutateAsync).toHaveBeenCalled());
+    expect(mockState.saveOrthodonticDiagnosisDraftMutateAsync).toHaveBeenCalledWith({
+      id: "plan-1",
+      payload: { values: [] }
     });
   });
 
@@ -329,6 +481,64 @@ describe("PatientTreatmentsPage budget agreement flow", () => {
       })
     });
     expect(mockState.toastSuccess).toHaveBeenCalledWith("Prestación agregada al plan.");
+  });
+
+  it("uses the current agreement price list instead of a stale patient agreement snapshot", () => {
+    mockState.patientAgreement = {
+      ...agreementFixture(),
+      priceListId: "price-list-old",
+      priceList: { id: "price-list-old", name: "ARANCEL VIEJO", isDefault: false }
+    };
+    mockState.agreements = [
+      {
+        ...agreementFixture(),
+        priceListId: "price-list-current",
+        priceList: { id: "price-list-current", name: "TARIFARIO POLIZA", isDefault: false }
+      }
+    ];
+    mockState.currentPriceList = priceListFixture({}, { id: "price-list-current", name: "TARIFARIO POLIZA" });
+
+    render(<PatientTreatmentsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Generar presupuesto/i }));
+
+    expect(screen.getByText(/TARIFARIO POLIZA/i)).toBeInTheDocument();
+    expect(screen.queryByText(/ARANCEL VIEJO/i)).not.toBeInTheDocument();
+  });
+
+  it("shows mixed historical versions and reprices a draft only after preview and reason", async () => {
+    mockState.patientAgreement = agreementFixture();
+    mockState.currentPriceList = priceListFixture();
+    mockState.currentPlan = planFixture({
+      items: [
+        itemFixture({
+          priceListVersionId: "version-2",
+          priceListVersionNumber: 2,
+          priceListVersionItemId: "price-item-2",
+          priceSnapshotName: "REDES SOCIALES 2026",
+          priceSource: "PRICE_LIST"
+        })
+      ]
+    });
+
+    render(<PatientTreatmentsPage />);
+
+    expect(screen.getByText(/v2 · precio histórico/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Actualizar precios/i }));
+
+    expect(await screen.findByText("Actualizar precios del borrador")).toBeInTheDocument();
+    expect(screen.getByText(/v2 → v3/i)).toBeInTheDocument();
+    const confirm = screen.getByRole("button", { name: /Confirmar actualización/i });
+    expect(confirm).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText(/Actualización autorizada/i), {
+      target: { value: "Cambio autorizado por administración" }
+    });
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(mockState.applyRepriceMutateAsync).toHaveBeenCalledWith({
+      id: "plan-1",
+      payload: { reason: "Cambio autorizado por administración" }
+    }));
   });
 
   it("links a selected tooth even when the product does not require tooth", async () => {
@@ -600,7 +810,9 @@ function agreementFixture() {
     id: "agreement-1",
     name: "Seguro Dental",
     discountPercent: "0",
-    priceList: { id: "price-list-1", name: "REDES SOCIALES 2026", isDefault: false }
+    priceListId: "price-list-1",
+    priceList: { id: "price-list-1", name: "REDES SOCIALES 2026", isDefault: false },
+    _count: { patients: 1 }
   };
 }
 
@@ -627,7 +839,9 @@ function planFixture(overrides: Partial<TreatmentPlanDetail> = {}): TreatmentPla
   };
 }
 
-function orthodonticProfileFixture() {
+function orthodonticProfileFixture(
+  overrides: Partial<OrthodonticTreatmentProfile> = {}
+): OrthodonticTreatmentProfile {
   return {
     id: "profile-1",
     treatmentPlanId: "plan-1",
@@ -645,8 +859,37 @@ function orthodonticProfileFixture() {
     diagnosis: {},
     planNotes: null,
     createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z"
+    updatedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides
   };
+}
+
+function emptyOrthodonticProfileFixture(
+  overrides: Partial<OrthodonticTreatmentProfile> = {}
+): OrthodonticTreatmentProfile {
+  return orthodonticProfileFixture({
+    technicalDescription: null,
+    startDate: null,
+    estimatedMonths: null,
+    estimatedControls: null,
+    totalAligners: null,
+    indicatedExtractions: null,
+    performedExtractions: null,
+    reevaluationDate: null,
+    interconsultations: null,
+    lastUpperArch: null,
+    lastLowerArch: null,
+    nextControlAt: null,
+    nextRadiographyAt: null,
+    hygieneStatus: null,
+    alert: null,
+    indications: null,
+    elastics: null,
+    planNotes: null,
+    fieldValues: [],
+    optionValues: [],
+    ...overrides
+  });
 }
 
 function itemFixture(overrides: Partial<TreatmentPlanItem> = {}): TreatmentPlanItem {
@@ -670,19 +913,24 @@ function itemFixture(overrides: Partial<TreatmentPlanItem> = {}): TreatmentPlanI
 }
 
 function priceListFixture(
-  procedureOverrides: Partial<PriceList["categories"][number]["items"][number]["procedure"]> = {}
-): PriceList {
+  procedureOverrides: Partial<TreatmentPriceCatalog["categories"][number]["items"][number]["procedure"]> = {},
+  priceListOverrides: Partial<TreatmentPriceCatalog> = {}
+): TreatmentPriceCatalog {
+  const priceListId = priceListOverrides.id ?? "price-list-1";
   return {
-    id: "price-list-1",
-    name: "REDES SOCIALES 2026",
-    isDefault: false,
-    isActive: true,
-    branchAssignments: [],
+    id: priceListId,
+    name: priceListOverrides.name ?? "REDES SOCIALES 2026",
+    context: {
+      branchId: "branch-1",
+      agreementId: "agreement-1",
+      clinicalDate: "2026-07-17T12:00:00.000Z"
+    },
+    activeVersion: { id: "version-3", number: 3, currency: "MXN" },
     categories: [
       {
         id: "category-1",
-        priceListId: "price-list-1",
         name: "Operatoria",
+        description: null,
         sortOrder: 1,
         isActive: true,
         items: [
@@ -691,17 +939,20 @@ function priceListFixture(
             procedureId: "procedure-1",
             priceListCategoryId: "category-1",
             price: "399",
+            basePrice: "399",
+            appliedPrice: "399",
             labCost: "0",
+            internalCost: "0",
             allowsDiscount: true,
             currency: "MXN",
+            priceList: { id: priceListId, name: priceListOverrides.name ?? "REDES SOCIALES 2026" },
+            version: { id: "version-3", number: 3, itemId: "price-item-1" },
+            category: { id: "category-1", name: "Operatoria" },
             procedure: {
               id: "procedure-1",
-              categoryId: "procedure-category-1",
               displayId: 1,
               code: "45E1",
               name: "Limpieza dental",
-              type: "CLINICAL",
-              defaultDuration: 30,
               requiresTooth: false,
               requiresSurface: false,
               requiresLab: false,
@@ -713,6 +964,7 @@ function priceListFixture(
         ]
       }
     ],
-    items: []
+    items: [],
+    ...priceListOverrides
   };
 }

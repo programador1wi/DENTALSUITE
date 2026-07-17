@@ -17,6 +17,7 @@ const FIXED_END_TIMES_BY_DAY: Partial<Record<number, string>> = {
   5: "19:00",
   6: "15:00"
 };
+const MAX_SIMULTANEOUS_CHAIRS = 3;
 
 @Injectable()
 export class ProfessionalSchedulesService {
@@ -65,6 +66,7 @@ export class ProfessionalSchedulesService {
 
   async create(actor: AuthUser, dto: CreateProfessionalScheduleDto) {
     await this.validateReferences(actor, dto.professionalId, dto.branchId, dto.chairId);
+    this.validateSimultaneousChairs(dto.simultaneousChairs ?? 1);
     this.validateTimeRange(dto.startTime, dto.endTime, dto.breakStartTime, dto.breakEndTime);
     this.validateClinicEndTimePolicy(dto.dayOfWeek, dto.endTime);
     this.validateClinicBreakPolicy(dto.dayOfWeek, dto.breakStartTime, dto.breakEndTime);
@@ -130,9 +132,12 @@ export class ProfessionalSchedulesService {
     const endTime = dto.endTime ?? current.endTime;
     const breakStartTime = "breakStartTime" in dto ? dto.breakStartTime ?? undefined : current.breakStartTime ?? undefined;
     const breakEndTime = "breakEndTime" in dto ? dto.breakEndTime ?? undefined : current.breakEndTime ?? undefined;
+    const simultaneousChairs = dto.simultaneousChairs ?? current.simultaneousChairs;
+    const attendanceMode = dto.attendanceMode ?? current.attendanceMode;
     const isActive = dto.isActive ?? current.isActive;
 
     await this.validateReferences(actor, professionalId, branchId, chairId);
+    this.validateSimultaneousChairs(simultaneousChairs);
     this.validateTimeRange(startTime, endTime, breakStartTime, breakEndTime);
     if (isActive) {
       this.validateClinicEndTimePolicy(dayOfWeek, endTime);
@@ -173,6 +178,8 @@ export class ProfessionalSchedulesService {
             dayOfWeek,
             startTime,
             endTime,
+          simultaneousChairs,
+          attendanceMode,
           isActive: dto.isActive
         }
       }
@@ -226,6 +233,12 @@ export class ProfessionalSchedulesService {
       });
 
       if (!chair) throw new BadRequestException("Invalid chairId for selected branch");
+    }
+  }
+
+  private validateSimultaneousChairs(value: number) {
+    if (!Number.isInteger(value) || value < 1 || value > MAX_SIMULTANEOUS_CHAIRS) {
+      throw new BadRequestException(`simultaneousChairs must be between 1 and ${MAX_SIMULTANEOUS_CHAIRS}`);
     }
   }
 
@@ -396,6 +409,7 @@ export class ProfessionalSchedulesService {
 
   async createSpecial(actor: AuthUser, dto: CreateProfessionalSpecialScheduleDto) {
     await this.validateReferences(actor, dto.professionalId, dto.branchId, dto.chairId);
+    this.validateSimultaneousChairs(dto.simultaneousChairs ?? 1);
     this.validateTimeRange(dto.startTime, dto.endTime, dto.breakStartTime, dto.breakEndTime);
     await this.validateInsideBranchHours(actor, dto.branchId, dto.startTime, dto.endTime);
     await this.ensureNoSpecialOverlap(actor, {
@@ -423,7 +437,9 @@ export class ProfessionalSchedulesService {
         startTime: dto.startTime,
         endTime: dto.endTime,
         breakStartTime: dto.breakStartTime,
-        breakEndTime: dto.breakEndTime
+        breakEndTime: dto.breakEndTime,
+        simultaneousChairs: dto.simultaneousChairs ?? 1,
+        attendanceMode: dto.attendanceMode
       }
     });
 
@@ -440,7 +456,9 @@ export class ProfessionalSchedulesService {
           chairId: schedule.chairId,
           date: schedule.date,
           startTime: schedule.startTime,
-          endTime: schedule.endTime
+          endTime: schedule.endTime,
+          simultaneousChairs: schedule.simultaneousChairs,
+          attendanceMode: schedule.attendanceMode
         }
       }
     });
@@ -459,9 +477,12 @@ export class ProfessionalSchedulesService {
     const endTime = dto.endTime ?? current.endTime;
     const breakStartTime = "breakStartTime" in dto ? dto.breakStartTime ?? undefined : current.breakStartTime ?? undefined;
     const breakEndTime = "breakEndTime" in dto ? dto.breakEndTime ?? undefined : current.breakEndTime ?? undefined;
+    const simultaneousChairs = dto.simultaneousChairs ?? current.simultaneousChairs;
+    const attendanceMode = dto.attendanceMode ?? current.attendanceMode;
     const isActive = dto.isActive ?? current.isActive;
 
     await this.validateReferences(actor, professionalId, branchId, chairId);
+    this.validateSimultaneousChairs(simultaneousChairs);
     this.validateTimeRange(startTime, endTime, breakStartTime, breakEndTime);
     await this.validateInsideBranchHours(actor, branchId, startTime, endTime);
     if (isActive) {
@@ -482,6 +503,8 @@ export class ProfessionalSchedulesService {
         endTime,
         breakStartTime: "breakStartTime" in dto ? dto.breakStartTime : breakStartTime,
         breakEndTime: "breakEndTime" in dto ? dto.breakEndTime : breakEndTime,
+        simultaneousChairs: dto.simultaneousChairs,
+        attendanceMode: dto.attendanceMode,
         isActive: dto.isActive
       }
     });
@@ -500,6 +523,8 @@ export class ProfessionalSchedulesService {
           date,
           startTime,
           endTime,
+          simultaneousChairs,
+          attendanceMode,
           isActive: dto.isActive
         }
       }

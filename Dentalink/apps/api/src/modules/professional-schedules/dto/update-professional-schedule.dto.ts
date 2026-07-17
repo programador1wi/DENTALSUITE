@@ -1,4 +1,5 @@
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, ValidateIf } from "class-validator";
+import { AttendanceMode } from "@prisma/client";
+import { IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, Max, Min, ValidateIf } from "class-validator";
 
 export class UpdateProfessionalScheduleDto {
   @IsOptional()
@@ -40,4 +41,14 @@ export class UpdateProfessionalScheduleDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3)
+  simultaneousChairs?: number;
+
+  @IsOptional()
+  @IsEnum(AttendanceMode)
+  attendanceMode?: AttendanceMode;
 }

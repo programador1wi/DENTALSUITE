@@ -13,6 +13,7 @@ export type PublicPatient = {
   phone?: string;
   documentType?: string;
   documentNumber?: string;
+  birthDate?: string;
 };
 
 export type PublicCreateAppointmentDto = {
@@ -23,6 +24,31 @@ export type PublicCreateAppointmentDto = {
   startAt: string;
   patient: PublicPatient;
   campaignCode?: string;
+  identitySessionId: string;
+};
+
+export type PublicIdentityCandidate = {
+  patientId: string;
+  maskedName: string;
+  displayName?: string;
+  ageReference?: string;
+  relationship?: string | null;
+  familyGroupId?: string;
+};
+
+export type PublicIdentitySession = {
+  id: string;
+  status: string;
+  resolution: string;
+  confidence: number;
+  expiresAt: string;
+  hasSelectedPatient: boolean;
+  selectedPatientId?: string;
+  familyGroupId?: string;
+  bookingActorPatientId?: string;
+  contactVerified?: boolean;
+  selectionExpiresAt?: string;
+  candidates?: PublicIdentityCandidate[];
 };
 
 export type AvailabilitySlot = {
@@ -57,13 +83,39 @@ export async function getPublicConfig(slug: string) {
 }
 
 export async function getPublicAvailability(slug: string, query: PublicAvailabilityQuery) {
-  const params = new URLSearchParams(query as any).toString();
+  const params = new URLSearchParams({ branchId: query.branchId, professionalId: query.professionalId, date: query.date }).toString();
   const { data } = await http.get<{ slots: AvailabilitySlot[] }>(`/public/booking/${slug}/availability?${params}`);
   return data;
 }
 
-export async function createPublicAppointment(slug: string, dto: PublicCreateAppointmentDto) {
-  const { data } = await http.post(`/public/booking/${slug}/appointments`, dto);
+export async function createPublicAppointment(slug: string, dto: PublicCreateAppointmentDto, idempotencyKey: string) {
+  const { data } = await http.post(`/public/booking/${slug}/appointments`, dto, { headers: { "idempotency-key": idempotencyKey } });
+  return data;
+}
+
+export async function resolvePublicIdentity(slug: string, patient: PublicPatient) {
+  const { data } = await http.post<PublicIdentitySession>(`/public/booking/${slug}/identity/resolve`, {
+    patient,
+    conversationId: crypto.randomUUID()
+  });
+  return data;
+}
+
+export async function verifyPublicIdentity(slug: string, sessionId: string, patient: PublicPatient) {
+  const { data } = await http.post<PublicIdentitySession>(`/public/booking/${slug}/identity/${sessionId}/verify`, {
+    firstName: patient.firstName,
+    lastName: patient.lastName,
+    birthDate: patient.birthDate,
+    documentNumber: patient.documentNumber
+  });
+  return data;
+}
+
+export async function selectPublicIdentity(slug: string, sessionId: string, candidate: PublicIdentityCandidate) {
+  const { data } = await http.post<PublicIdentitySession>(`/public/booking/${slug}/identity/${sessionId}/select`, {
+    patientId: candidate.patientId,
+    familyGroupId: candidate.familyGroupId
+  });
   return data;
 }
 

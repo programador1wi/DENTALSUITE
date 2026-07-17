@@ -12,7 +12,7 @@ import {
   MinLength,
   ValidateNested
 } from "class-validator";
-import { AppointmentStatus } from "@prisma/client";
+import { AppointmentStatus, AttendanceMode } from "@prisma/client";
 
 export class CreateAppointmentDto {
   @IsString()
@@ -28,6 +28,15 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsString()
   chairId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  chairIndex?: number;
+
+  @IsOptional()
+  @IsEnum(AttendanceMode)
+  attendanceMode?: AttendanceMode;
 
   @IsOptional()
   @IsString()

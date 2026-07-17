@@ -1,5 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import { ProfessionalBranchStatus } from "@prisma/client";
+import { AppointmentStatus, ProfessionalBranchStatus } from "@prisma/client";
 import type { AuthUser } from "../../common/types/auth-user";
 import { ClinicalService } from "./clinical.service";
 
@@ -141,6 +141,103 @@ describe("ClinicalService clinical documents", () => {
     ).rejects.toThrow("Clinical document template not found");
 
     expect(prisma.clinicalDocument.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("ClinicalService patient history", () => {
+  function historyPrisma(overrides: Record<string, unknown> = {}) {
+    const emptyFindMany = jest.fn().mockResolvedValue([]);
+    return {
+      patient: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "patient-1",
+          branchId: "branch-1",
+          firstName: "Ana",
+          lastName: "Lopez",
+          documentType: "CURP",
+          documentNumber: "ABC123",
+          birthDate: null,
+          phone: "555",
+          email: "ana@example.com",
+          createdAt: new Date("2026-07-01T10:00:00.000Z")
+        })
+      },
+      organization: {
+        findUnique: jest.fn().mockResolvedValue({ id: "org-1", name: "Dental+", legalName: null, logoUrl: "logo.png", phone: null, email: null, address: null })
+      },
+      appointment: { findMany: emptyFindMany },
+      treatmentPlan: { findMany: emptyFindMany },
+      budget: { findMany: emptyFindMany },
+      clinicalEvolution: { findMany: emptyFindMany },
+      odontogramRecord: { findMany: emptyFindMany },
+      toothProcedure: { findMany: emptyFindMany },
+      periodontalChart: { findMany: emptyFindMany },
+      medicalHistory: { findUnique: jest.fn().mockResolvedValue(null) },
+      medicalCondition: { findMany: emptyFindMany },
+      allergy: { findMany: emptyFindMany },
+      medication: { findMany: emptyFindMany },
+      patientMedicalAlert: { findMany: emptyFindMany },
+      clinicalDocument: { findMany: emptyFindMany },
+      prescription: { findMany: emptyFindMany },
+      labOrder: { findMany: emptyFindMany },
+      consent: { findMany: emptyFindMany },
+      ...overrides
+    } as any;
+  }
+
+  it("returns an integral timeline from backend sources and excludes annulled events by default", async () => {
+    const appointmentRows = [
+      {
+        id: "appointment-active",
+        title: "Consulta",
+        reason: "Valoracion",
+        status: AppointmentStatus.SCHEDULED,
+        startAt: new Date("2026-07-15T16:00:00.000Z"),
+        endAt: new Date("2026-07-15T16:30:00.000Z"),
+        createdAt: new Date("2026-07-10T12:00:00.000Z"),
+        treatmentPlanId: null,
+        cancellationReason: null,
+        branch: { id: "branch-1", name: "Centro", phone: null, address: null, brand: null },
+        professional: { id: "professional-1", firstName: "Luisa", lastName: "Mora" },
+        specialty: null,
+        createdBy: { id: "user-1", firstName: "User", lastName: "One" },
+        updatedBy: null,
+        statusHistory: [],
+        reminders: [],
+        communicationJobs: []
+      },
+      {
+        id: "appointment-cancelled",
+        title: "Control",
+        reason: "Cancelada",
+        status: AppointmentStatus.CANCELLED_BY_PATIENT,
+        startAt: new Date("2026-07-14T16:00:00.000Z"),
+        endAt: new Date("2026-07-14T16:30:00.000Z"),
+        createdAt: new Date("2026-07-10T11:00:00.000Z"),
+        treatmentPlanId: null,
+        cancellationReason: "Paciente no puede asistir",
+        branch: { id: "branch-1", name: "Centro", phone: null, address: null, brand: null },
+        professional: { id: "professional-1", firstName: "Luisa", lastName: "Mora" },
+        specialty: null,
+        createdBy: { id: "user-1", firstName: "User", lastName: "One" },
+        updatedBy: null,
+        statusHistory: [],
+        reminders: [],
+        communicationJobs: []
+      }
+    ];
+    const prisma = historyPrisma({ appointment: { findMany: jest.fn().mockResolvedValue(appointmentRows) } });
+    const service = new ClinicalService(prisma as never);
+
+    const result = await service.listPatientHistory(actor, "patient-1", { categories: "APPOINTMENTS" });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({
+      sourceEntityType: "Appointment",
+      sourceEntityId: "appointment-active",
+      category: "APPOINTMENTS",
+      isAnnulled: false
+    });
   });
 });
 

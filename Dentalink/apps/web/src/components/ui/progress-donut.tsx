@@ -32,8 +32,8 @@ export function ProgressDonut({
   const actualColor = isAlert ? "text-amber-500" : color;
 
   return (
-    <div className={cn("relative flex flex-col items-center justify-center", className)} style={{ width: size, height: size }}>
-      <svg className="transform -rotate-90 w-full h-full" width={size} height={size}>
+    <div className={cn("relative flex flex-col items-center justify-center shrink-0", className)} style={{ width: size, height: size }}>
+      <svg className="transform -rotate-90 w-full h-full" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         {/* Track */}
         <circle
           className={trackColor}

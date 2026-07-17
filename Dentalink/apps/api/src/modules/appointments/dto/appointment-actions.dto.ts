@@ -1,4 +1,5 @@
-import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, Min } from "class-validator";
+import { AttendanceMode } from "@prisma/client";
+import { IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator";
 
 export class CancelAppointmentDto {
   @IsString()
@@ -21,6 +22,15 @@ export class RescheduleAppointmentDto {
   @IsOptional()
   @IsString()
   chairId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  chairIndex?: number;
+
+  @IsOptional()
+  @IsEnum(AttendanceMode)
+  attendanceMode?: AttendanceMode;
 
   @IsOptional()
   @IsString()
@@ -62,6 +72,10 @@ export class AvailabilityQueryDto {
   @IsOptional()
   @IsString()
   chairId?: string;
+
+  @IsOptional()
+  @IsString()
+  chairIndex?: string;
 
   @IsDateString()
   date!: string;

@@ -1,0 +1,33 @@
+.login-particle-background-container {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  background-color: #f1f2f4;
+}
+
+.login-particle-background-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  display: block;
+}
+
+.login-particle-background-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse 60% 50% at 50% 50%,
+    rgba(241, 242, 244, 0.15) 0%,
+    rgba(241, 242, 244, 0.65) 40%,
+    rgba(241, 242, 244, 0.92) 75%,
+    #f1f2f4 100%
+  );
+}

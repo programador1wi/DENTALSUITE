@@ -27,6 +27,7 @@ import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { Modal } from "@/components/ui/modal";
 import { PatientAppointmentsTab } from "../components/patient-appointments-tab";
+import { PatientBenefitsCoverageView } from "./patient-benefits-coverage-view";
 import { PatientSecondaryNav } from "../components/patient-secondary-nav";
 import { PatientSubnav } from "../components/patient-subnav";
 import { Select } from "@/components/ui/select";
@@ -41,6 +42,7 @@ import { useBranchStore } from "@/stores/branch.store";
 import { useAuthStore } from "@/stores/auth.store";
 import { getPatientStatusLabel, getPatientStatusTone } from "../components/patient-status";
 import { PatientHeader } from "../components/patient-header";
+import { PatientIdentityCard } from "../components/patient-identity-card";
 import {
   useAddPatientAlert,
   useAddPatientNote,
@@ -55,20 +57,43 @@ import {
 } from "../hooks/use-patients";
 import type { PatientDetail, PatientPayload, PatientStatus, PatientTask } from "../services/patients.service";
 
-const statuses: PatientStatus[] = ["NEW", "ACTIVE", "IN_TREATMENT", "INACTIVE", "DEBTOR", "COMPLETED"];
+const statuses: PatientStatus[] = [
+  "NEW",
+  "PROVISIONAL",
+  "ACTIVE",
+  "IN_TREATMENT",
+  "INACTIVE",
+  "DEBTOR",
+  "COMPLETED"
+];
 const EMAIL_PREFIX = "[CRM_EMAIL]";
-const EMAIL_ALLOWED_EXTENSIONS = [".png", ".jpg", ".jpeg", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"];
+const EMAIL_ALLOWED_EXTENSIONS = [
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx"
+];
 const EMAIL_MAX_ATTACHMENTS = 3;
 const EMAIL_MAX_TOTAL_BYTES = 25 * 1024 * 1024;
 
-type ProfileTab = "data" | "appointments" | "comments" | "tasks" | "emails";
-
-
+type ProfileTab = "data" | "benefits-coverages" | "appointments" | "comments" | "tasks" | "emails";
 
 function profileTabs(patientId: string, appointmentCount?: number) {
   return [
     { to: `/patients/${patientId}/profile`, label: "Datos personales" },
-    { to: `/patients/${patientId}/profile/appointments`, label: "Citas", permission: "appointments.read", count: appointmentCount },
+    { to: `/patients/${patientId}/profile/benefits-coverages`, label: "Beneficios y coberturas" },
+    {
+      to: `/patients/${patientId}/profile/appointments`,
+      label: "Citas",
+      permission: "appointments.read",
+      count: appointmentCount
+    },
     { to: `/patients/${patientId}/profile/comments`, label: "Comentarios administrativos" },
     { to: `/patients/${patientId}/profile/tasks`, label: "Tareas de gestion" },
     { to: `/patients/${patientId}/profile/emails`, label: "Emails" }
@@ -76,7 +101,14 @@ function profileTabs(patientId: string, appointmentCount?: number) {
 }
 
 function normalizeProfileTab(value?: string): ProfileTab {
-  if (value === "appointments" || value === "comments" || value === "tasks" || value === "emails") return value;
+  if (
+    value === "benefits-coverages" ||
+    value === "appointments" ||
+    value === "comments" ||
+    value === "tasks" ||
+    value === "emails"
+  )
+    return value;
   return "data";
 }
 
@@ -101,7 +133,6 @@ export function PatientProfilePage() {
   const [alertType, setAlertType] = useState("");
   const [alertDescription, setAlertDescription] = useState("");
   const [alertSeverity, setAlertSeverity] = useState("MEDIUM");
-
 
   const form = useForm<PatientFormValues>({
     resolver: zodResolver(patientFormSchema),
@@ -168,8 +199,6 @@ export function PatientProfilePage() {
     });
   }, [form, patientQuery.data, activeBranchId]);
 
-
-
   const patient = patientQuery.data;
   const activeAlerts = useMemo(
     () => patient?.medicalAlerts.filter((alert) => alert.isActive) ?? [],
@@ -181,7 +210,10 @@ export function PatientProfilePage() {
 
   if (patientQuery.isLoading) return <LoadingState message="Cargando paciente..." />;
   if (patientQuery.isError) return <ErrorState message={patientQuery.error.message} />;
-  if (!patient) return <EmptyState title="Paciente no encontrado" description="El registro no existe o fue desactivado." />;
+  if (!patient)
+    return (
+      <EmptyState title="Paciente no encontrado" description="El registro no existe o fue desactivado." />
+    );
 
   const onSubmit = form.handleSubmit(async (values) => {
     const payload: Partial<PatientPayload> = {
@@ -202,7 +234,11 @@ export function PatientProfilePage() {
     };
 
     payload.address =
-      values.addressStreet || values.addressCity || values.addressState || values.addressCountry || values.addressZipCode
+      values.addressStreet ||
+      values.addressCity ||
+      values.addressState ||
+      values.addressCountry ||
+      values.addressZipCode
         ? {
             street: values.addressStreet || undefined,
             city: values.addressCity || undefined,
@@ -227,13 +263,14 @@ export function PatientProfilePage() {
     await updatePatient.mutateAsync({ id, payload });
   });
 
-
-
   return (
     <div className="space-y-4">
       <PatientHeader patientId={id} />
       <PatientSubnav patientId={id} />
-      <PatientSecondaryNav tabs={profileTabs(id, appointmentCountQuery.data?.length)} label="Datos personales" />
+      <PatientSecondaryNav
+        tabs={profileTabs(id, appointmentCountQuery.data?.length)}
+        label="Datos personales"
+      />
 
       {activeTab === "data" ? (
         <PatientDataTab
@@ -272,6 +309,10 @@ export function PatientProfilePage() {
         />
       ) : null}
 
+      {activeTab === "benefits-coverages" ? (
+        <PatientBenefitsCoverageView patientId={id} patient={patient} />
+      ) : null}
+
       {activeTab === "appointments" ? <PatientAppointmentsTab patientId={id} /> : null}
 
       {activeTab === "comments" ? (
@@ -287,11 +328,7 @@ export function PatientProfilePage() {
       {activeTab === "tasks" ? <TasksTab patientId={id} branchId={patient.branchId} /> : null}
 
       {activeTab === "emails" ? (
-        <EmailsTab
-          patientId={id}
-          patientEmail={patient.email ?? ""}
-          notes={emailNotes}
-        />
+        <EmailsTab patientId={id} patientEmail={patient.email ?? ""} notes={emailNotes} />
       ) : null}
     </div>
   );
@@ -332,15 +369,38 @@ function PatientDataTab({
   timelineQuery: ReturnType<typeof usePatientTimeline>;
   patientId: string;
 }) {
-  const lastAppointmentLabel = patient.summary.lastAppointment ?? "Sin dato";
-  const nextAppointmentLabel = patient.summary.nextAppointment ?? "Sin dato";
+  const lastAppointmentLabel = formatPatientDateTime(patient.summary.lastAppointment);
+  const nextAppointmentLabel = formatPatientDateTime(patient.summary.nextAppointment);
+
+  useEffect(() => {
+    if (!form.formState.isDirty) return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [form.formState.isDirty]);
 
   return (
     <>
       <div className="grid gap-4 md:grid-cols-5">
         <Card className="md:col-span-3">
-          <h3 className="mb-3 text-base font-semibold text-slate-900">Datos del paciente</h3>
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">Datos del paciente</h3>
+              <p className="text-sm text-slate-500">
+                Informacion general, contacto, direccion y administracion.
+              </p>
+            </div>
+            {form.formState.isDirty ? (
+              <Badge value="Cambios pendientes" tone="warning" />
+            ) : (
+              <Badge value="Sin cambios" tone="success" />
+            )}
+          </div>
           <form className="space-y-3" onSubmit={onSubmit}>
+            <SectionLabel title="Informacion general" />
             <div className="grid gap-3 md:grid-cols-3">
               <Field label="Sucursal" error={form.formState.errors.branchId?.message}>
                 <Select {...form.register("branchId")}>
@@ -352,21 +412,32 @@ function PatientDataTab({
                   ))}
                 </Select>
               </Field>
-              <Field label="Nombre" error={form.formState.errors.firstName?.message}><Input {...form.register("firstName")} /></Field>
-              <Field label="Apellidos" error={form.formState.errors.lastName?.message}><Input {...form.register("lastName")} /></Field>
+              <Field label="Nombre" error={form.formState.errors.firstName?.message}>
+                <Input {...form.register("firstName")} />
+              </Field>
+              <Field label="Apellidos" error={form.formState.errors.lastName?.message}>
+                <Input {...form.register("lastName")} />
+              </Field>
             </div>
+            <SectionLabel title="Identificacion" />
             <div className="grid gap-3 md:grid-cols-4">
-              <Field label="Nacimiento" error={form.formState.errors.birthDate?.message}><Input type="date" {...form.register("birthDate")} /></Field>
+              <Field label="Nacimiento" error={form.formState.errors.birthDate?.message}>
+                <Input type="date" {...form.register("birthDate")} />
+              </Field>
               <Field label="Genero" error={form.formState.errors.gender?.message}>
                 <Select {...form.register("gender")}>
                   <option value="">Selecciona</option>
                   {GENDERS.map((g) => (
-                    <option key={g} value={g}>{g}</option>
+                    <option key={g} value={g}>
+                      {g}
+                    </option>
                   ))}
                 </Select>
               </Field>
-              <Field label="Documento" error={form.formState.errors.documentNumber?.message}><Input {...form.register("documentNumber")} /></Field>
-              <Field label="Estado" error={form.formState.errors.status?.message}>
+              <Field label="Documento" error={form.formState.errors.documentNumber?.message}>
+                <Input {...form.register("documentNumber")} />
+              </Field>
+              <Field label="Estado del paciente" error={form.formState.errors.status?.message}>
                 <Select {...form.register("status")}>
                   {statuses.map((status) => (
                     <option key={status} value={status}>
@@ -376,29 +447,79 @@ function PatientDataTab({
                 </Select>
               </Field>
             </div>
+            <SectionLabel title="Contacto" />
             <div className="grid gap-3 md:grid-cols-3">
-              <Field label="Telefono" error={form.formState.errors.phone?.message}><Input type="tel" onInput={(e) => e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+]/g, '')} {...form.register("phone")} /></Field>
-              <Field label="Telefono alterno" error={form.formState.errors.alternatePhone?.message}><Input type="tel" onInput={(e) => e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+]/g, '')} {...form.register("alternatePhone")} /></Field>
-              <Field label="Email" error={form.formState.errors.email?.message}><Input type="email" {...form.register("email")} /></Field>
+              <Field label="Telefono" error={form.formState.errors.phone?.message}>
+                <Input
+                  type="tel"
+                  onInput={(e) => (e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+]/g, ""))}
+                  {...form.register("phone")}
+                />
+              </Field>
+              <Field label="Telefono alterno" error={form.formState.errors.alternatePhone?.message}>
+                <Input
+                  type="tel"
+                  onInput={(e) => (e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+]/g, ""))}
+                  {...form.register("alternatePhone")}
+                />
+              </Field>
+              <Field label="Email" error={form.formState.errors.email?.message}>
+                <Input type="email" {...form.register("email")} />
+              </Field>
             </div>
+            <SectionLabel title="Direccion" />
             <div className="grid gap-3 md:grid-cols-3">
-              <Field label="Calle" error={form.formState.errors.addressStreet?.message}><Input {...form.register("addressStreet")} /></Field>
-              <Field label="Ciudad" error={form.formState.errors.addressCity?.message}><Input {...form.register("addressCity")} /></Field>
-              <Field label="Estado" error={form.formState.errors.addressState?.message}>
+              <Field label="Calle" error={form.formState.errors.addressStreet?.message}>
+                <Input {...form.register("addressStreet")} />
+              </Field>
+              <Field label="Ciudad" error={form.formState.errors.addressCity?.message}>
+                <Input {...form.register("addressCity")} />
+              </Field>
+              <Field label="Estado/Provincia" error={form.formState.errors.addressState?.message}>
                 <Select {...form.register("addressState")}>
                   <option value="">Selecciona</option>
                   {MEXICO_STATES.map((state) => (
-                    <option key={state} value={state}>{state}</option>
+                    <option key={state} value={state}>
+                      {state}
+                    </option>
                   ))}
                 </Select>
               </Field>
             </div>
+            <SectionLabel title="Contacto de emergencia" />
             <div className="grid gap-3 md:grid-cols-3">
-              <Field label="Contacto emergencia" error={form.formState.errors.emergencyName?.message}><Input {...form.register("emergencyName")} /></Field>
-              <Field label="Relacion" error={form.formState.errors.emergencyRelationship?.message}><Input {...form.register("emergencyRelationship")} /></Field>
-              <Field label="Telefono emergencia" error={form.formState.errors.emergencyPhone?.message}><Input type="tel" onInput={(e) => e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+]/g, '')} {...form.register("emergencyPhone")} /></Field>
+              <Field label="Contacto emergencia" error={form.formState.errors.emergencyName?.message}>
+                <Input {...form.register("emergencyName")} />
+              </Field>
+              <Field label="Relacion" error={form.formState.errors.emergencyRelationship?.message}>
+                <Input {...form.register("emergencyRelationship")} />
+              </Field>
+              <Field label="Telefono emergencia" error={form.formState.errors.emergencyPhone?.message}>
+                <Input
+                  type="tel"
+                  onInput={(e) => (e.currentTarget.value = e.currentTarget.value.replace(/[^0-9+]/g, ""))}
+                  {...form.register("emergencyPhone")}
+                />
+              </Field>
             </div>
-            <div className="flex justify-end">
+            <SectionLabel title="Informacion administrativa" />
+            <div className="grid gap-3 md:grid-cols-3">
+              <Field label="Ocupacion" error={form.formState.errors.occupation?.message}>
+                <Input {...form.register("occupation")} />
+              </Field>
+              <Field label="Fuente" error={form.formState.errors.source?.message}>
+                <Input {...form.register("source")} />
+              </Field>
+              <Field label="Referido por" error={form.formState.errors.referredBy?.message}>
+                <Input {...form.register("referredBy")} />
+              </Field>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 pt-2">
+              {form.formState.isDirty ? (
+                <Button type="button" variant="ghost" onClick={() => form.reset()}>
+                  Descartar cambios
+                </Button>
+              ) : null}
               <Button type="submit" disabled={updating}>
                 {updating ? "Guardando..." : "Actualizar paciente"}
               </Button>
@@ -410,18 +531,45 @@ function PatientDataTab({
           <Card>
             <h3 className="mb-3 text-base font-semibold text-slate-900">Resumen</h3>
             <div className="space-y-2 text-sm text-slate-700">
-              <SummaryRow label="Estado" value={<Badge value={getPatientStatusLabel(patient.status)} tone={getPatientStatusTone(patient.status)} />} />
+              <SummaryRow
+                label="Estado"
+                value={
+                  <Badge
+                    value={getPatientStatusLabel(patient.status)}
+                    tone={getPatientStatusTone(patient.status)}
+                  />
+                }
+              />
               <SummaryRow label="Proxima cita" value={nextAppointmentLabel} />
               <SummaryRow label="Ultima cita" value={lastAppointmentLabel} />
-              <SummaryRow label="Saldo" value={`$${patient.summary.balance.toFixed(2)}`} />
+              <SummaryRow label="Saldo" value={formatMoney(patient.summary.balance)} />
               <SummaryRow label="Tratamientos activos" value={String(patient.summary.activeTreatments)} />
+              <SummaryRow label="Beneficios activos" value={String(patient.summary.activeBenefits ?? 0)} />
+              <SummaryRow
+                label="Cobertura por vencer"
+                value={
+                  patient.summary.coverageExpiringSoon
+                    ? `${patient.summary.coverageExpiringSoon.providerName} - ${formatPatientDateTime(patient.summary.coverageExpiringSoon.endsAt)}`
+                    : "Sin dato"
+                }
+              />
             </div>
           </Card>
+
+          <PatientIdentityCard
+            patientId={patient.id}
+            patientName={`${patient.firstName} ${patient.lastName}`}
+            patientBranchId={patient.branchId}
+            patientPhone={patient.phone}
+          />
 
           <Card className={patient.summary.hasCriticalAlert ? "border-red-400" : undefined}>
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-base font-semibold text-slate-900">Alertas medicas</h3>
-              <Badge value={patient.summary.hasCriticalAlert ? "Critica" : "Sin riesgo"} tone={patient.summary.hasCriticalAlert ? "danger" : "success"} />
+              <Badge
+                value={patient.summary.hasCriticalAlert ? "Critica" : "Sin riesgo"}
+                tone={patient.summary.hasCriticalAlert ? "danger" : "success"}
+              />
             </div>
             {!activeAlerts.length ? (
               <p className="text-sm text-slate-600">Sin alertas activas.</p>
@@ -443,15 +591,26 @@ function PatientDataTab({
       <Card>
         <h3 className="mb-2 text-base font-semibold text-slate-900">Agregar alerta medica</h3>
         <div className="grid gap-2 md:grid-cols-[1fr_2fr_180px_auto]">
-          <Input value={alertType} onChange={(event) => setAlertType(event.target.value)} placeholder="Tipo de alerta" />
-          <Input value={alertDescription} onChange={(event) => setAlertDescription(event.target.value)} placeholder="Descripcion de alerta" />
+          <Input
+            value={alertType}
+            onChange={(event) => setAlertType(event.target.value)}
+            placeholder="Tipo de alerta"
+          />
+          <Input
+            value={alertDescription}
+            onChange={(event) => setAlertDescription(event.target.value)}
+            placeholder="Descripcion de alerta"
+          />
           <Select value={alertSeverity} onChange={(event) => setAlertSeverity(event.target.value)}>
             <option value="LOW">LOW</option>
             <option value="MEDIUM">MEDIUM</option>
             <option value="HIGH">HIGH</option>
             <option value="CRITICAL">CRITICAL</option>
           </Select>
-          <Button onClick={addPatientAlert} disabled={!alertType.trim() || !alertDescription.trim() || addingAlert}>
+          <Button
+            onClick={addPatientAlert}
+            disabled={!alertType.trim() || !alertDescription.trim() || addingAlert}
+          >
             Agregar alerta
           </Button>
         </div>
@@ -460,7 +619,10 @@ function PatientDataTab({
       <Card>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-base font-semibold text-slate-900">Timeline</h3>
-          <Link to={`/patients/${patientId}/clinical/history`} className="text-sm text-brand-700 hover:underline">
+          <Link
+            to={`/patients/${patientId}/clinical/history`}
+            className="text-sm text-brand-700 hover:underline"
+          >
             Ir a clinico
           </Link>
         </div>
@@ -476,8 +638,12 @@ function PatientDataTab({
                   <span className="font-medium text-slate-900">{event.type}</span>
                   <span className="text-xs text-slate-500">{new Date(event.date).toLocaleString()}</span>
                 </div>
-                {"note" in event.payload ? <p className="mt-1 text-slate-700">{String(event.payload.note)}</p> : null}
-                {"description" in event.payload ? <p className="mt-1 text-slate-700">{String(event.payload.description)}</p> : null}
+                {"note" in event.payload ? (
+                  <p className="mt-1 text-slate-700">{String(event.payload.note)}</p>
+                ) : null}
+                {"description" in event.payload ? (
+                  <p className="mt-1 text-slate-700">{String(event.payload.description)}</p>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -486,8 +652,6 @@ function PatientDataTab({
     </>
   );
 }
-
-
 
 function CommentsTab({
   patientId,
@@ -557,8 +721,8 @@ function CommentsTab({
               </label>
               <span className="text-[11px] text-slate-400 pl-10">jpg, pdf, xlsx, docx</span>
             </div>
-            <Button 
-              onClick={onSave} 
+            <Button
+              onClick={onSave}
               disabled={!newNote.trim() || saving || uploading}
               className="shrink-0 font-medium"
             >
@@ -568,7 +732,10 @@ function CommentsTab({
           {files.length ? (
             <div className="border-t border-slate-200 bg-white px-4 py-3 flex flex-wrap gap-2">
               {files.map((file, i) => (
-                <span key={i} className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm">
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 shadow-sm"
+                >
                   <Paperclip className="h-3 w-3 text-slate-400" />
                   <span className="truncate max-w-[200px]">{file.name}</span>
                 </span>
@@ -583,7 +750,12 @@ function CommentsTab({
           ) : (
             <div className="space-y-3">
               {notes.map((note) => (
-                <NoteCard key={note.id} note={note.note} createdAt={note.createdAt} attachments={note.attachments} />
+                <NoteCard
+                  key={note.id}
+                  note={note.note}
+                  createdAt={note.createdAt}
+                  attachments={note.attachments}
+                />
               ))}
             </div>
           )}
@@ -628,10 +800,18 @@ function TasksTab({ patientId, branchId }: { patientId: string; branchId: string
         <h2 className="text-2xl font-light text-slate-900">Tareas de gestion</h2>
         <div className="flex items-center gap-2">
           <label className="inline-flex h-9 items-center gap-2 rounded-md bg-slate-100 px-3 text-sm text-slate-700">
-            <input type="checkbox" checked={showCompleted} onChange={(event) => setShowCompleted(event.target.checked)} />
+            <input
+              type="checkbox"
+              checked={showCompleted}
+              onChange={(event) => setShowCompleted(event.target.checked)}
+            />
             Ver tareas completadas
           </label>
-          <Button type="button" onClick={createTask} disabled={!detail.trim() || mutations.createTask.isPending}>
+          <Button
+            type="button"
+            onClick={createTask}
+            disabled={!detail.trim() || mutations.createTask.isPending}
+          >
             <Plus className="h-4 w-4" />
             Nueva tarea personalizada
           </Button>
@@ -674,10 +854,10 @@ function parseEmailNote(htmlContent: string) {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(clean, "text/html");
-      
+
       let to = "";
       let subject = "";
-      
+
       const strongs = doc.querySelectorAll("strong");
       strongs.forEach((strong) => {
         const parentText = strong.parentElement?.textContent || "";
@@ -687,7 +867,7 @@ function parseEmailNote(htmlContent: string) {
           subject = parentText.replace("Asunto:", "").trim();
         }
       });
-      
+
       const bodyDiv = doc.querySelector(".prose");
       if (bodyDiv) {
         return { to, subject, body: bodyDiv.innerHTML, isHtml: true };
@@ -726,18 +906,18 @@ function parseEmailNote(htmlContent: string) {
     }
   });
 
-  return { 
-    to, 
-    subject, 
-    body: bodyLines.join("\n").trim(), 
-    isHtml: false 
+  return {
+    to,
+    subject,
+    body: bodyLines.join("\n").trim(),
+    isHtml: false
   };
 }
 
 function EmailsTab({
   patientId,
   patientEmail,
-  notes,
+  notes
 }: {
   patientId: string;
   patientEmail: string;
@@ -752,11 +932,12 @@ function EmailsTab({
   const [isCopyRequested, setIsCopyRequested] = useState(false);
   const [selectedNote, setSelectedNote] = useState<PatientDetail["notes"][number] | null>(null);
   const [files, setFiles] = useState<File[]>([]);
-  
+
   const addPatientNote = useAddPatientNote();
   const sendPatientEmail = useSendPatientEmail();
   const documents = useDocumentsMutations();
-  const saving = addPatientNote.isPending || documents.uploadPatientBinaryFile.isPending || sendPatientEmail.isPending;
+  const saving =
+    addPatientNote.isPending || documents.uploadPatientBinaryFile.isPending || sendPatientEmail.isPending;
 
   useEffect(() => {
     if (patientEmail && !emailTo) setEmailTo(patientEmail);
@@ -824,8 +1005,7 @@ function EmailsTab({
       note: htmlNote,
       fileAttachmentIds
     });
-    
-    
+
     setComposeOpen(false);
     setEmailSubject("");
     setEmailBody("");
@@ -839,44 +1019,53 @@ function EmailsTab({
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
           <div>
             <h2 className="text-xl font-semibold text-slate-900">Registro de Emails</h2>
-            <p className="text-xs text-slate-500 mt-1">Monitorea y envía correspondencia electrónica al paciente.</p>
+            <p className="text-xs text-slate-500 mt-1">
+              Monitorea y envía correspondencia electrónica al paciente.
+            </p>
           </div>
-          
-          <Button 
-            type="button" 
-            className="w-full md:w-auto bg-[#31b866] hover:bg-[#299c56] text-white shadow-sm hover:shadow transition-all duration-200 border-0" 
+
+          <Button
+            type="button"
+            className="w-full md:w-auto bg-[#31b866] hover:bg-[#299c56] text-white shadow-sm hover:shadow transition-all duration-200 border-0"
             onClick={() => setComposeOpen((value) => !value)}
           >
             <Plus className="h-4 w-4 mr-1.5" />
             Redactar nuevo email
           </Button>
         </div>
-        
+
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:flex-wrap flex-1">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <Input 
-              className="pl-9 bg-white border-slate-200/80 focus:border-brand-500 focus:ring-brand-500/20 focus:ring-2 outline-none text-slate-900" 
-              placeholder="Buscar por asunto o contenido..." 
-              value={search} 
-              onChange={(event) => setSearch(event.target.value)} 
+            <Input
+              className="pl-9 bg-white border-slate-200/80 focus:border-brand-500 focus:ring-brand-500/20 focus:ring-2 outline-none text-slate-900"
+              placeholder="Buscar por asunto o contenido..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          
+
           <div className="flex flex-wrap items-center gap-3">
             <div className="flex items-center gap-2 whitespace-nowrap">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Filtrar por mes:</span>
-              <Input 
-                className="w-36 sm:w-44 bg-white border-slate-200/80 text-slate-700 focus:border-brand-500 focus:ring-brand-500/20" 
-                type="month" 
-                value={month} 
-                onChange={(event) => setMonth(event.target.value)} 
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Filtrar por mes:
+              </span>
+              <Input
+                className="w-36 sm:w-44 bg-white border-slate-200/80 text-slate-700 focus:border-brand-500 focus:ring-brand-500/20"
+                type="month"
+                value={month}
+                onChange={(event) => setMonth(event.target.value)}
               />
             </div>
-            
+
             <div className="flex items-center gap-2 whitespace-nowrap">
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Filtrar por:</span>
-              <Select className="w-32 sm:w-44 bg-white border-slate-200/80 text-slate-700 focus:border-brand-500" defaultValue="all">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                Filtrar por:
+              </span>
+              <Select
+                className="w-32 sm:w-44 bg-white border-slate-200/80 text-slate-700 focus:border-brand-500"
+                defaultValue="all"
+              >
                 <option value="all">Todos</option>
               </Select>
             </div>
@@ -884,25 +1073,28 @@ function EmailsTab({
         </div>
 
         {composeOpen ? (
-          <form className="mt-6 rounded-xl border border-slate-150 bg-slate-50/40 p-5 shadow-inner" onSubmit={handleCreateEmail}>
+          <form
+            className="mt-6 rounded-xl border border-slate-150 bg-slate-50/40 p-5 shadow-inner"
+            onSubmit={handleCreateEmail}
+          >
             <h3 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
               <Mail className="h-4 w-4 text-[#31b866]" /> Redactar Nuevo Mensaje
             </h3>
-            
+
             <div className="mb-4 grid gap-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <Input 
-                  className="flex-1 bg-white border-slate-200 focus:border-brand-500 focus:ring-brand-500/20 focus:ring-2 text-slate-900" 
-                  placeholder="Asunto del correo" 
-                  value={emailSubject} 
-                  onChange={(event) => setEmailSubject(event.target.value)} 
+                <Input
+                  className="flex-1 bg-white border-slate-200 focus:border-brand-500 focus:ring-brand-500/20 focus:ring-2 text-slate-900"
+                  placeholder="Asunto del correo"
+                  value={emailSubject}
+                  onChange={(event) => setEmailSubject(event.target.value)}
                 />
                 <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer shrink-0 select-none bg-white border border-slate-200 rounded-lg px-3 py-2 hover:bg-slate-50 transition-colors">
-                  <input 
-                    type="checkbox" 
-                    className="rounded border-slate-300 text-brand-500 focus:ring-brand-500/20 bg-white h-4 w-4" 
-                    checked={isCopyRequested} 
-                    onChange={(e) => setIsCopyRequested(e.target.checked)} 
+                  <input
+                    type="checkbox"
+                    className="rounded border-slate-300 text-brand-500 focus:ring-brand-500/20 bg-white h-4 w-4"
+                    checked={isCopyRequested}
+                    onChange={(e) => setIsCopyRequested(e.target.checked)}
                   />
                   Recibir copia en mi bandeja
                 </label>
@@ -921,7 +1113,8 @@ function EmailsTab({
             <div className="mt-4 flex flex-col md:flex-row md:items-center justify-between gap-4 border-t border-slate-100 pt-4">
               <div className="flex flex-col gap-2 max-w-xl">
                 <div className="text-[10px] text-slate-500 leading-normal">
-                  <strong className="text-slate-600 font-semibold">Reglas de adjuntos:</strong> Máximo de 3 archivos, total menor a 25MB. Formatos permitidos: PNG, JPG, PDF, DOC(X), XLS(X), PPT(X).
+                  <strong className="text-slate-600 font-semibold">Reglas de adjuntos:</strong> Máximo de 3
+                  archivos, total menor a 25MB. Formatos permitidos: PNG, JPG, PDF, DOC(X), XLS(X), PPT(X).
                 </div>
                 <label className="cursor-pointer inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm w-fit">
                   <Paperclip className="h-3.5 w-3.5 text-slate-400" />
@@ -940,27 +1133,39 @@ function EmailsTab({
                 {files.length > 0 && (
                   <div className="flex flex-wrap gap-1.5 mt-1">
                     {files.map((f, i) => (
-                      <span key={i} className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 shadow-sm">
+                      <span
+                        key={i}
+                        className="inline-flex items-center gap-1 rounded-md bg-slate-100 border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600 shadow-sm"
+                      >
                         <span className="truncate max-w-[150px]">{f.name}</span>
-                        <button type="button" className="text-slate-400 hover:text-red-500 ml-1 font-bold" onClick={() => setFiles(prev => prev.filter((_, idx) => idx !== i))}>&times;</button>
+                        <button
+                          type="button"
+                          className="text-slate-400 hover:text-red-500 ml-1 font-bold"
+                          onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                        >
+                          &times;
+                        </button>
                       </span>
                     ))}
                   </div>
                 )}
               </div>
-              
+
               <div className="flex gap-2 shrink-0 justify-end">
-                <Button 
-                  type="button" 
-                  variant="ghost" 
-                  className="text-slate-500 hover:bg-slate-100 hover:text-slate-700" 
-                  onClick={() => { setComposeOpen(false); setFiles([]); }}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="text-slate-500 hover:bg-slate-100 hover:text-slate-700"
+                  onClick={() => {
+                    setComposeOpen(false);
+                    setFiles([]);
+                  }}
                 >
                   Descartar
                 </Button>
-                <Button 
-                  type="submit" 
-                  className="bg-[#31b866] hover:bg-[#299c56] text-white border-0 shadow-sm hover:shadow transition-all" 
+                <Button
+                  type="submit"
+                  className="bg-[#31b866] hover:bg-[#299c56] text-white border-0 shadow-sm hover:shadow transition-all"
                   disabled={!emailTo.trim() || !emailSubject.trim() || saving}
                 >
                   <Send className="h-3.5 w-3.5 mr-1.5" />
@@ -974,102 +1179,125 @@ function EmailsTab({
 
       <div className="min-h-[400px] p-8 bg-slate-50/30">
         {!filteredNotes.length ? (
-          <EmptyState title="No se encontró ningún registro de email" description="Aquí podrás ver el registro de todos los emails que se envían al paciente." />
+          <EmptyState
+            title="No se encontró ningún registro de email"
+            description="Aquí podrás ver el registro de todos los emails que se envían al paciente."
+          />
         ) : (
           <div className="mx-auto max-w-4xl space-y-4">
             {filteredNotes.map((note) => (
-              <NoteCard 
-                key={note.id} 
-                icon={<Mail className="h-5 w-5 text-sky-600" />} 
-                note={note.note} 
-                createdAt={note.createdAt} 
-                attachments={note.attachments} 
+              <NoteCard
+                key={note.id}
+                icon={<Mail className="h-5 w-5 text-sky-600" />}
+                note={note.note}
+                createdAt={note.createdAt}
+                attachments={note.attachments}
                 onClick={() => setSelectedNote(note)}
               />
             ))}
           </div>
         )}
       </div>
-      {selectedNote ? (() => {
-        const emailDetails = parseEmailNote(selectedNote.note);
-        return (
-          <Modal 
-            open={!!selectedNote} 
-            title={emailDetails.subject || "Correo Enviado"} 
-            onClose={() => setSelectedNote(null)}
-            size="lg"
-          >
-            <div className="space-y-6 pt-4">
-              {/* Envelope Header */}
-              <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-5 text-sm space-y-2">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">De:</p>
-                    <p className="font-medium text-slate-800">Dental+ <span className="text-xs text-slate-500 font-normal">&lt;no-reply@dentalsuite.com&gt;</span></p>
-                  </div>
-                  <span className="text-xs text-slate-400 font-medium">
-                    {new Date(selectedNote.createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}
-                  </span>
-                </div>
-                
-                <div>
-                  <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Para:</p>
-                  <p className="font-medium text-slate-800 text-sky-600">{emailDetails.to || patientEmail || "Paciente"}</p>
-                </div>
-                
-                {emailDetails.subject && (
-                  <div>
-                    <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Asunto:</p>
-                    <p className="font-semibold text-slate-900">{emailDetails.subject}</p>
-                  </div>
-                )}
-              </div>
+      {selectedNote
+        ? (() => {
+            const emailDetails = parseEmailNote(selectedNote.note);
+            return (
+              <Modal
+                open={!!selectedNote}
+                title={emailDetails.subject || "Correo Enviado"}
+                onClose={() => setSelectedNote(null)}
+                size="lg"
+              >
+                <div className="space-y-6 pt-4">
+                  {/* Envelope Header */}
+                  <div className="rounded-xl border border-slate-100 bg-slate-50/50 p-5 text-sm space-y-2">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">De:</p>
+                        <p className="font-medium text-slate-800">
+                          Dental+{" "}
+                          <span className="text-xs text-slate-500 font-normal">
+                            &lt;no-reply@dentalsuite.com&gt;
+                          </span>
+                        </p>
+                      </div>
+                      <span className="text-xs text-slate-400 font-medium">
+                        {new Date(selectedNote.createdAt).toLocaleString("es-MX", {
+                          dateStyle: "long",
+                          timeStyle: "short"
+                        })}
+                      </span>
+                    </div>
 
-              {/* Email Content Body */}
-              <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm min-h-[200px] max-h-[50vh] overflow-y-auto">
-                {emailDetails.isHtml ? (
-                  <div 
-                    className="prose prose-sm max-w-none text-slate-700 break-words prose-p:leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: emailDetails.body }}
-                  />
-                ) : emailDetails.body ? (
-                  <div className="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed font-sans">
-                    {emailDetails.body}
-                  </div>
-                ) : (
-                  <p className="text-sm text-slate-400 italic">Este correo no contiene texto en el cuerpo.</p>
-                )}
-              </div>
+                    <div>
+                      <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Para:</p>
+                      <p className="font-medium text-slate-800 text-sky-600">
+                        {emailDetails.to || patientEmail || "Paciente"}
+                      </p>
+                    </div>
 
-              {/* Attachments */}
-              {selectedNote.attachments?.length ? (
-                <div className="space-y-2">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Archivos Adjuntos</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {selectedNote.attachments.map((attachment) => (
-                      <a
-                        key={attachment.id}
-                        href={attachment.fileAttachment.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 hover:bg-sky-50/50 hover:border-sky-200 transition-all duration-200"
-                      >
-                        <div className="flex h-8 w-8 items-center justify-center rounded bg-slate-100 text-slate-500">
-                          <Paperclip className="h-4 w-4" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-medium text-slate-700">{attachment.fileAttachment.originalName}</p>
-                          <p className="text-[10px] text-slate-400">Haga clic para descargar</p>
-                        </div>
-                      </a>
-                    ))}
+                    {emailDetails.subject && (
+                      <div>
+                        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                          Asunto:
+                        </p>
+                        <p className="font-semibold text-slate-900">{emailDetails.subject}</p>
+                      </div>
+                    )}
                   </div>
+
+                  {/* Email Content Body */}
+                  <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm min-h-[200px] max-h-[50vh] overflow-y-auto">
+                    {emailDetails.isHtml ? (
+                      <div
+                        className="prose prose-sm max-w-none text-slate-700 break-words prose-p:leading-relaxed"
+                        dangerouslySetInnerHTML={{ __html: emailDetails.body }}
+                      />
+                    ) : emailDetails.body ? (
+                      <div className="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed font-sans">
+                        {emailDetails.body}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-slate-400 italic">
+                        Este correo no contiene texto en el cuerpo.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Attachments */}
+                  {selectedNote.attachments?.length ? (
+                    <div className="space-y-2">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                        Archivos Adjuntos
+                      </h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {selectedNote.attachments.map((attachment) => (
+                          <a
+                            key={attachment.id}
+                            href={attachment.fileAttachment.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 hover:bg-sky-50/50 hover:border-sky-200 transition-all duration-200"
+                          >
+                            <div className="flex h-8 w-8 items-center justify-center rounded bg-slate-100 text-slate-500">
+                              <Paperclip className="h-4 w-4" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-medium text-slate-700">
+                                {attachment.fileAttachment.originalName}
+                              </p>
+                              <p className="text-[10px] text-slate-400">Haga clic para descargar</p>
+                            </div>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
-            </div>
-          </Modal>
-        );
-      })() : null}
+              </Modal>
+            );
+          })()
+        : null}
     </section>
   );
 }
@@ -1090,12 +1318,12 @@ function NoteCard({
   let displayNote = note;
   if (displayNote.startsWith("[CRM_EMAIL]\n")) displayNote = displayNote.replace("[CRM_EMAIL]\n", "");
   else if (displayNote.startsWith("[CRM_EMAIL]")) displayNote = displayNote.replace("[CRM_EMAIL]", "");
-  
+
   const isHtml = displayNote.includes("<") && displayNote.includes(">");
-  
+
   if (isHtml) {
     return (
-      <article 
+      <article
         onClick={onClick}
         className={`group relative flex gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-200/80 hover:-translate-y-[1px] transition-all duration-300 ${onClick ? "cursor-pointer hover:bg-slate-50/30" : ""}`}
       >
@@ -1131,7 +1359,9 @@ function NoteCard({
             </div>
           ) : null}
           <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
-            <span className="font-medium">{new Date(createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}</span>
+            <span className="font-medium">
+              {new Date(createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}
+            </span>
             <span className="text-sky-600 font-semibold">Entregado</span>
           </div>
         </div>
@@ -1141,7 +1371,7 @@ function NoteCard({
 
   const lines = note.split("\n").filter((line) => !line.startsWith("["));
   return (
-    <article 
+    <article
       onClick={onClick}
       className={`group relative flex gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-200/80 hover:-translate-y-[1px] transition-all duration-300 ${onClick ? "cursor-pointer hover:bg-slate-50/30" : ""}`}
     >
@@ -1176,7 +1406,9 @@ function NoteCard({
           </div>
         ) : null}
         <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
-          <span className="font-medium">{new Date(createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}</span>
+          <span className="font-medium">
+            {new Date(createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}
+          </span>
           <span className="text-sky-600 font-semibold">Entregado</span>
         </div>
       </div>
@@ -1198,7 +1430,9 @@ function PatientTasksTable({
   onComplete: (taskId: string) => void;
 }) {
   if (!tasks.length) {
-    return <EmptyState title="Sin tareas" description="No hay tareas de gestion registradas para este paciente." />;
+    return (
+      <EmptyState title="Sin tareas" description="No hay tareas de gestion registradas para este paciente." />
+    );
   }
 
   return (
@@ -1218,14 +1452,21 @@ function PatientTasksTable({
             <tr key={task.id} className="border-b border-slate-100 align-middle">
               <td className="px-3 py-4 font-semibold text-slate-900">
                 <span className="inline-flex items-center gap-2">
-                  <CircleDot className={`h-4 w-4 ${task.status === "COMPLETED" ? "text-emerald-500" : task.type.toLowerCase().includes("cita") ? "text-fuchsia-600" : "text-sky-600"}`} />
+                  <CircleDot
+                    className={`h-4 w-4 ${task.status === "COMPLETED" ? "text-emerald-500" : task.type.toLowerCase().includes("cita") ? "text-fuchsia-600" : "text-sky-600"}`}
+                  />
                   {task.type}
                 </span>
               </td>
               <td className="px-3 py-4 text-slate-700">{task.detail}</td>
-              <td className="px-3 py-4 text-slate-700">{task.dueDate ? new Date(task.dueDate).toLocaleDateString("es-MX") : "-"}</td>
+              <td className="px-3 py-4 text-slate-700">
+                {task.dueDate ? new Date(task.dueDate).toLocaleDateString("es-MX") : "-"}
+              </td>
               <td className="px-3 py-4">
-                <Select value={task.assignedToId ?? ""} onChange={(event) => onAssign(task.id, event.target.value)}>
+                <Select
+                  value={task.assignedToId ?? ""}
+                  onChange={(event) => onAssign(task.id, event.target.value)}
+                >
                   <option value="">Asignar</option>
                   {users.map((user) => (
                     <option key={user.id} value={user.id}>
@@ -1257,15 +1498,7 @@ function shortId(id: string) {
   return id.length > 6 ? id.slice(-6) : id;
 }
 
-function Field({
-  label,
-  error,
-  children
-}: {
-  label: string;
-  error?: string;
-  children: ReactNode;
-}) {
+function Field({ label, error, children }: { label: string; error?: string; children: ReactNode }) {
   return (
     <label className="space-y-1 text-sm text-slate-700 flex flex-col">
       <span>{label}</span>
@@ -1273,6 +1506,27 @@ function Field({
       {error ? <span className="text-xs text-red-500">{error}</span> : null}
     </label>
   );
+}
+
+function SectionLabel({ title }: { title: string }) {
+  return (
+    <div className="border-t border-slate-100 pt-3 first:border-t-0 first:pt-0">
+      <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</h4>
+    </div>
+  );
+}
+
+function formatPatientDateTime(value?: string | null) {
+  if (!value) return "Sin dato";
+  return new Date(value).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" });
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("es-MX", {
+    style: "currency",
+    currency: "MXN",
+    maximumFractionDigits: 2
+  }).format(value);
 }
 
 function Summary({ label, value }: { label: string; value: number }) {

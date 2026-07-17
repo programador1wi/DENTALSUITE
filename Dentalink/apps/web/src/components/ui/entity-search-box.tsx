@@ -239,7 +239,7 @@ export function EntitySearchBox<T>({
           <div
             ref={dropdownRef}
             className={cn(
-              "fixed z-[1100] flex flex-col rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[0_20px_50px_rgba(0,0,0,0.12)] overflow-hidden",
+              "fixed z-[1600] flex flex-col rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-[0_20px_50px_rgba(0,0,0,0.12)] overflow-hidden",
               dropdownClassName
             )}
             style={dropdownStyle}

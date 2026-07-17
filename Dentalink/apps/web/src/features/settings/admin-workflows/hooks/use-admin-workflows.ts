@@ -3,9 +3,15 @@ import { toast } from "sonner";
 import {
   assignAgreementPatients,
   createAgreement,
+  createAgreementVersion,
+  cancelAgreement,
   createExpense,
   deactivateAgreement,
+  duplicateAgreement,
+  getAgreement,
   listAgreements,
+  previewAgreementPrice,
+  publishAgreement,
   listAgreementDebts,
   payAgreementDebt,
   listExpenses,
@@ -25,6 +31,14 @@ export function useAgreements(search?: string, active?: string) {
   });
 }
 
+export function useAgreement(id?: string) {
+  return useQuery({
+    queryKey: ["settings", "agreements", id],
+    queryFn: () => getAgreement(id!),
+    enabled: Boolean(id)
+  });
+}
+
 export function useCreateAgreement() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -40,8 +54,13 @@ export function useCreateAgreement() {
 export function useUpdateAgreement() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: Partial<AgreementPayload> & { isActive?: boolean } }) =>
-      updateAgreement(id, payload),
+    mutationFn: ({
+      id,
+      payload
+    }: {
+      id: string;
+      payload: Partial<AgreementPayload> & { isActive?: boolean };
+    }) => updateAgreement(id, payload),
     onSuccess: () => {
       toast.success("Convenio actualizado");
       queryClient.invalidateQueries({ queryKey: ["settings", "agreements"] });
@@ -62,10 +81,53 @@ export function useDeactivateAgreement() {
   });
 }
 
+function useAgreementAction<T, R>(mutationFn: (input: T) => Promise<R>, success: string) {
+  const queryClient = useQueryClient();
+  return useMutation<R, Error, T>({
+    mutationFn,
+    onSuccess: () => {
+      toast.success(success);
+      queryClient.invalidateQueries({ queryKey: ["settings", "agreements"] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useCreateAgreementVersion() {
+  return useAgreementAction(
+    ({ id, payload }: { id: string; payload: AgreementPayload }) => createAgreementVersion(id, payload),
+    "Versión creada"
+  );
+}
+
+export function usePublishAgreement() {
+  return useAgreementAction(
+    ({ id, version }: { id: string; version?: number }) => publishAgreement(id, version),
+    "Convenio publicado"
+  );
+}
+
+export function useCancelAgreement() {
+  return useAgreementAction(cancelAgreement, "Convenio cancelado");
+}
+
+export function useDuplicateAgreement() {
+  return useAgreementAction(duplicateAgreement, "Convenio duplicado como borrador");
+}
+
+export function useAgreementPreview() {
+  return useAgreementAction(
+    ({ id, ...params }: { id: string; branchId: string; procedureId: string; quantity?: number }) =>
+      previewAgreementPrice(id, params),
+    "Previsualización actualizada"
+  );
+}
+
 export function useAssignAgreementPatients() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, patientIds }: { id: string; patientIds: string[] }) => assignAgreementPatients(id, patientIds),
+    mutationFn: ({ id, patientIds }: { id: string; patientIds: string[] }) =>
+      assignAgreementPatients(id, patientIds),
     onSuccess: () => {
       toast.success("Pacientes asignados al convenio");
       queryClient.invalidateQueries({ queryKey: ["settings", "agreements"] });

@@ -27,15 +27,20 @@ import {
   CreatePaymentDto,
   CreatePaymentLinkDto,
   CreateRefundDto,
+  DailyReceiptQueryDto,
   ListAccountsReceivableQueryDto,
   ListCashRegistersQueryDto,
   ListCancelledPendingPaymentsQueryDto,
+  ListPatientCoverageAuthorizationsQueryDto,
+  ListPatientCoverageCasesQueryDto,
+  ListPatientFinancialDocumentsQueryDto,
   ListInstallmentsQueryDto,
   ListPaymentLinksQueryDto,
   ListPaymentsQueryDto,
   ListRefundsQueryDto,
   OpenCashRegisterDto,
   PayInstallmentDto,
+  ReceiptEmailDto,
   UpdatePaymentDto,
   VoidPaymentDto
 } from "./dto/payments.dto";
@@ -81,6 +86,42 @@ export class PaymentsController {
     res.send(Buffer.from(receipt.bytes));
   }
 
+  @Post("payments/:id/receipt/email")
+  @RequirePermissions("integrations.communications.send")
+  sendPaymentReceiptEmail(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: ReceiptEmailDto) {
+    return this.service.sendPaymentReceiptEmail(actor, id, dto);
+  }
+
+  @Get("payments/:id/daily-receipt.pdf")
+  @RequirePermissions("payments.read")
+  async getDailyReceiptPdf(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Res() res: Response) {
+    const receipt = await this.service.getDailyReceiptPdf(actor, id);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${receipt.fileName}"`);
+    res.send(Buffer.from(receipt.bytes));
+  }
+
+  @Get("patients/:id/payments/daily-receipt")
+  @RequirePermissions("payments.read")
+  getPatientDailyReceipt(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Query() query: DailyReceiptQueryDto) {
+    return this.service.getPatientDailyReceipt(actor, id, query);
+  }
+
+  @Get("patients/:id/payments/daily-receipt.pdf")
+  @RequirePermissions("payments.read")
+  async getPatientDailyReceiptPdf(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Query() query: DailyReceiptQueryDto, @Res() res: Response) {
+    const receipt = await this.service.getPatientDailyReceiptPdf(actor, id, query);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${receipt.fileName}"`);
+    res.send(Buffer.from(receipt.bytes));
+  }
+
+  @Post("patients/:id/payments/daily-receipt/email")
+  @RequirePermissions("integrations.communications.send")
+  sendPatientDailyReceiptEmail(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Query() query: DailyReceiptQueryDto, @Body() dto: ReceiptEmailDto) {
+    return this.service.sendPatientDailyReceiptEmail(actor, id, query, dto);
+  }
+
   @Patch("payments/:id")
   @RequirePermissions("payments.update")
   updatePayment(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdatePaymentDto) {
@@ -123,10 +164,76 @@ export class PaymentsController {
     return this.service.getPatientPayments(actor, id);
   }
 
+  @Get("patients/:id/billing/summary")
+  @RequirePermissions("payments.read")
+  getPatientBillingSummary(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getPatientBillingSummary(actor, id);
+  }
+
+  @Get("patients/:id/financial-documents")
+  @RequirePermissions("payments.read")
+  listPatientFinancialDocuments(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Query() query: ListPatientFinancialDocumentsQueryDto
+  ) {
+    return this.service.listPatientFinancialDocuments(actor, id, query);
+  }
+
+  @Get("patients/:id/reimbursement-requests")
+  @RequirePermissions("payments.read")
+  listPatientReimbursementRequests(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Query() query: ListPatientCoverageCasesQueryDto
+  ) {
+    return this.service.listPatientReimbursementRequests(actor, id, query);
+  }
+
+  @Get("patients/:id/online-benefits")
+  @RequirePermissions("payments.read")
+  listPatientOnlineBenefits(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Query() query: ListPatientCoverageAuthorizationsQueryDto
+  ) {
+    return this.service.listPatientOnlineBenefits(actor, id, query);
+  }
+
+  @Get("patients/:id/voided-payments")
+  @RequirePermissions("payments.read")
+  listPatientVoidedPayments(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.listPatientVoidedPayments(actor, id);
+  }
+
   @Get("patients/:id/balance")
   @RequirePermissions("accounts_receivable.read")
   getPatientBalance(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
     return this.service.getPatientBalance(actor, id);
+  }
+
+  @Get("patients/:id/balance/by-plan")
+  @RequirePermissions("accounts_receivable.read")
+  getPatientBalanceByPlan(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getPatientBalanceByPlan(actor, id);
+  }
+
+  @Get("patients/:id/ledger")
+  @RequirePermissions("accounts_receivable.read")
+  getPatientLedger(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getPatientLedger(actor, id);
+  }
+
+  @Get("patients/:id/payment-distribution")
+  @RequirePermissions("accounts_receivable.read")
+  getPatientPaymentDistribution(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getPatientPaymentDistribution(actor, id);
+  }
+
+  @Get("patients/:id/payment-behavior")
+  @RequirePermissions("accounts_receivable.read")
+  getPatientPaymentBehavior(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getPatientPaymentBehavior(actor, id);
   }
 
   @Get("accounts-receivable")

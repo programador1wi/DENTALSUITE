@@ -50,6 +50,96 @@ export type ClinicalAppointmentHistoryItem = {
   specialty?: { id: string; name: string } | null;
 };
 
+export type PatientHistoryCategory =
+  | "APPOINTMENTS"
+  | "TREATMENT_PLANS"
+  | "BUDGETS"
+  | "EVOLUTIONS"
+  | "PROCEDURES"
+  | "MEDICAL_HISTORY"
+  | "ODONTOGRAM"
+  | "PERIODONTOGRAM"
+  | "PAYMENTS"
+  | "REFUNDS"
+  | "BILLING"
+  | "DOCUMENTS"
+  | "PRESCRIPTIONS"
+  | "LABORATORY"
+  | "ORTHODONTICS"
+  | "CONSENTS"
+  | "INSURANCE"
+  | "COLLABORATIONS";
+
+export type PatientHistoryEvent = {
+  id: string;
+  eventType: string;
+  category: PatientHistoryCategory;
+  module: string;
+  title: string;
+  summary: string;
+  occurredAt: string;
+  clinicalDate?: string | null;
+  createdAt: string;
+  branch?: { id: string; name: string } | null;
+  professional?: { id: string; name: string } | null;
+  createdBy?: { id: string; name: string } | null;
+  sourceEntityType: string;
+  sourceEntityId: string;
+  treatmentPlanId?: string | null;
+  appointmentId?: string | null;
+  toothId?: string | null;
+  status?: string | null;
+  isAnnulled: boolean;
+  annulledAt?: string | null;
+  annulmentReason?: string | null;
+  isPrivate: boolean;
+  visibility: "PUBLIC" | "PRIVATE" | "FINANCIAL" | "SENSITIVE";
+  payload: Record<string, unknown>;
+};
+
+export type PatientHistoryQuery = {
+  month?: string;
+  from?: string;
+  to?: string;
+  categories?: string;
+  professionalId?: string;
+  branchId?: string;
+  treatmentPlanId?: string;
+  toothId?: string;
+  status?: string;
+  text?: string;
+  includeAnnulled?: boolean;
+  order?: "desc" | "asc";
+  cursor?: string;
+  take?: number;
+};
+
+export type PatientHistoryResponse = {
+  patient: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    documentType?: string | null;
+    documentNumber?: string | null;
+    birthDate?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    createdAt: string;
+  };
+  printContext: {
+    organizationName: string;
+    organizationLogoUrl?: string | null;
+    branchName: string;
+    branchLogoUrl?: string | null;
+    generatedAt: string;
+    generatedBy: string;
+  };
+  availableCategories: PatientHistoryCategory[];
+  items: PatientHistoryEvent[];
+  nextCursor?: string | null;
+  totalLoaded: number;
+};
+
 export type ClinicalEvolution = {
   id: string;
   patientId: string;
@@ -209,6 +299,11 @@ export async function getClinicalSummary(patientId: string) {
 
 export async function listAppointmentHistory(patientId: string) {
   const { data } = await http.get<ClinicalAppointmentHistoryItem[]>(`/patients/${patientId}/clinical/appointment-history`);
+  return data;
+}
+
+export async function listPatientHistory(patientId: string, params?: PatientHistoryQuery) {
+  const { data } = await http.get<PatientHistoryResponse>(`/patients/${patientId}/clinical/patient-history`, { params });
   return data;
 }
 

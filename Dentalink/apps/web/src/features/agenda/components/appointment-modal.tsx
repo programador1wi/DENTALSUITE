@@ -49,6 +49,7 @@ import {
   getAvailability,
   listAppointments,
   type Appointment,
+  type AttendanceMode,
   type AppointmentPayload,
   type AppointmentStatus
 } from "../services/appointments.service";
@@ -59,6 +60,9 @@ type FormState = {
   patientId: string;
   professionalId: string;
   chairId: string;
+  chairIndex: number;
+  allowOverbooking: boolean;
+  attendanceMode: AttendanceMode;
   title: string;
   reason: string;
   status: AppointmentStatus;
@@ -120,6 +124,9 @@ const defaultForm: FormState = {
   patientId: "",
   professionalId: "",
   chairId: "",
+  chairIndex: 1,
+  allowOverbooking: false,
+  attendanceMode: "PRESENTIAL",
   title: "",
   reason: "",
   status: "SCHEDULED",
@@ -370,6 +377,7 @@ export function AppointmentModal({
       form.branchId,
       form.professionalId,
       form.chairId,
+      form.chairIndex,
       selectedDuration,
       weekStart,
       appointment?.id
@@ -398,6 +406,7 @@ export function AppointmentModal({
                   branchId: form.branchId,
                   professionalId: form.professionalId,
                   chairId: form.chairId || undefined,
+                  chairIndex: String(form.chairIndex),
                   date: day.date,
                   durationMinutes: String(selectedDuration),
                   excludeAppointmentId: appointment?.id
@@ -649,6 +658,9 @@ export function AppointmentModal({
         patientId: requiresPatient ? patientId : undefined,
         professionalId: form.professionalId,
         chairId: form.chairId || undefined,
+        chairIndex: form.chairIndex,
+        allowOverbooking: form.allowOverbooking,
+        attendanceMode: form.attendanceMode,
         specialtyId: form.specialtyId || undefined,
         title: appointment
           ? form.title || buildAppointmentTitle(patientName, form.reason)
@@ -2018,6 +2030,9 @@ function toFormFromAppointment(appointment: Appointment): FormState {
     patientId: appointment.patientId ?? "",
     professionalId: appointment.professionalId,
     chairId: appointment.chairId ?? "",
+    chairIndex: appointment.chairIndex ?? 1,
+    allowOverbooking: appointment.isOverbooking ?? false,
+    attendanceMode: appointment.attendanceMode ?? "PRESENTIAL",
     title: appointment.title,
     reason: appointment.reason ?? "",
     status: appointment.status,
@@ -2039,6 +2054,9 @@ function toFormDefaults(initialValues?: Partial<AppointmentPayload> | null): For
     patientId: initialValues?.patientId ?? "",
     professionalId: initialValues?.professionalId ?? "",
     chairId: initialValues?.chairId ?? "",
+    chairIndex: initialValues?.chairIndex ?? 1,
+    allowOverbooking: initialValues?.allowOverbooking ?? false,
+    attendanceMode: initialValues?.attendanceMode ?? "PRESENTIAL",
     title: initialValues?.title ?? "",
     reason: initialValues?.reason ?? "",
     status: initialValues?.status ?? "SCHEDULED",

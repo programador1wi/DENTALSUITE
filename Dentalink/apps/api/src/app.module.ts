@@ -33,6 +33,10 @@ import { UsersModule } from "./modules/users/users.module";
 import { OnlineSchedulingModule } from "./modules/online-scheduling/online-scheduling.module";
 import { PublicBookingModule } from "./modules/public-booking/public-booking.module";
 import { IntegrationsModule } from "./modules/integrations/integrations.module";
+import { PhotographicTemplatesModule } from "./modules/photographic-templates/photographic-templates.module";
+import { PatientIdentityModule } from "./modules/patient-identity/patient-identity.module";
+import { PricingModule } from "./modules/pricing/pricing.module";
+import { FamilyPoliciesModule } from "./modules/family-policies/family-policies.module";
 
 @Module({
   imports: [
@@ -66,12 +70,16 @@ import { IntegrationsModule } from "./modules/integrations/integrations.module";
     ProcedureCategoriesModule,
     ProceduresModule,
     PriceListsModule,
+    PricingModule,
     TreatmentPlansModule,
     HealthModule,
     HealthCenterModule,
     OnlineSchedulingModule,
     PublicBookingModule,
-    IntegrationsModule
+    IntegrationsModule,
+    PhotographicTemplatesModule,
+    PatientIdentityModule,
+    FamilyPoliciesModule
   ],
   providers: [AppLogger],
   exports: [AppLogger]

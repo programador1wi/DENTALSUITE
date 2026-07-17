@@ -3,16 +3,65 @@ import { http } from "@/lib/api/http-client";
 export type Agreement = {
   id: string;
   name: string;
+  entityName?: string | null;
+  entityTaxId?: string | null;
+  type: "CORPORATE" | "INSURANCE" | "MEMBERSHIP" | "PAYROLL" | "OTHER";
+  status: "DRAFT" | "SCHEDULED" | "ACTIVE" | "EXPIRED" | "INACTIVE" | "CANCELLED";
+  startsAt?: string | null;
+  endsAt?: string | null;
+  version: number;
   description?: string | null;
   priceListId?: string | null;
   priceList?: { id: string; name: string; isDefault: boolean } | null;
   discountPercent: string;
+  coveragePercent: string;
+  copayAmount: string;
+  coverageLimitAmount?: string | null;
+  coverageRules?: Record<string, unknown> | null;
   appliesToLabs: boolean;
   appliesToOtherCategories: boolean;
   payrollDiscount: boolean;
   isPublic: boolean;
   isActive: boolean;
   _count: { patients: number };
+  versions?: AgreementVersion[];
+};
+
+export type AgreementProcedureRule = {
+  procedureId: string;
+  isEligible?: boolean;
+  preferredPrice?: number;
+  discountPercent?: number;
+  coveragePercent?: number;
+  copayAmount?: number;
+  coverageLimitAmount?: number;
+  coverageRules?: Record<string, unknown>;
+};
+
+export type AgreementCategoryRule = {
+  procedureCategoryId: string;
+  isEligible?: boolean;
+  preferredPrice?: number;
+  discountPercent?: number;
+  coveragePercent?: number;
+  copayAmount?: number;
+  coverageLimitAmount?: number;
+  coverageRules?: Record<string, unknown>;
+};
+
+export type AgreementVersion = {
+  id: string;
+  version: number;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  priceListId?: string | null;
+  branches: Array<{ branchId: string; branch?: { id: string; name: string } }>;
+  categoryRules: Array<
+    AgreementCategoryRule & { procedureCategory?: { id: string; name: string; type: string } }
+  >;
+  procedureRules: Array<
+    AgreementProcedureRule & { procedure?: { id: string; code: string; name: string; categoryId?: string } }
+  >;
 };
 
 export type AgreementDebt = {
@@ -24,9 +73,21 @@ export type AgreementDebt = {
 
 export type AgreementPayload = {
   name: string;
+  entityName?: string;
+  entityTaxId?: string;
+  type?: Agreement["type"];
+  startsAt?: string;
+  endsAt?: string;
   description?: string;
   priceListId?: string;
   discountPercent?: number;
+  coveragePercent?: number;
+  copayAmount?: number;
+  coverageLimitAmount?: number;
+  coverageRules?: Record<string, unknown>;
+  branchIds?: string[];
+  categoryRules?: AgreementCategoryRule[];
+  procedureRules?: AgreementProcedureRule[];
   appliesToLabs?: boolean;
   appliesToOtherCategories?: boolean;
   payrollDiscount?: boolean;
@@ -137,12 +198,20 @@ export async function listAgreements(params?: { search?: string; active?: string
   return data;
 }
 
+export async function getAgreement(id: string) {
+  const { data } = await http.get<Agreement>(`/settings/agreements/${id}`);
+  return data;
+}
+
 export async function createAgreement(payload: AgreementPayload) {
   const { data } = await http.post<Agreement>("/settings/agreements", payload);
   return data;
 }
 
-export async function updateAgreement(id: string, payload: Partial<AgreementPayload> & { isActive?: boolean }) {
+export async function updateAgreement(
+  id: string,
+  payload: Partial<AgreementPayload> & { isActive?: boolean }
+) {
   const { data } = await http.patch<Agreement>(`/settings/agreements/${id}`, payload);
   return data;
 }
@@ -152,8 +221,45 @@ export async function deactivateAgreement(id: string) {
   return data;
 }
 
+export async function createAgreementVersion(id: string, payload: AgreementPayload) {
+  const { data } = await http.post<AgreementVersion>(`/settings/agreements/${id}/versions`, payload);
+  return data;
+}
+
+export async function publishAgreement(id: string, version?: number) {
+  const { data } = await http.post<Agreement>(`/settings/agreements/${id}/publish`, { version });
+  return data;
+}
+
+export async function cancelAgreement(id: string) {
+  const { data } = await http.post<Agreement>(`/settings/agreements/${id}/cancel`);
+  return data;
+}
+
+export async function duplicateAgreement(id: string) {
+  const { data } = await http.post<Agreement>(`/settings/agreements/${id}/duplicate`);
+  return data;
+}
+
+export async function previewAgreementPrice(
+  id: string,
+  params: { branchId: string; procedureId: string; quantity?: number }
+) {
+  const { data } = await http.get<{
+    normalPrice: number;
+    appliedPrice: number;
+    discountAmount: number;
+    coverageAmount: number;
+    patientTotal: number;
+    agreementVersion: number;
+  }>(`/settings/agreements/${id}/preview`, { params });
+  return data;
+}
+
 export async function assignAgreementPatients(id: string, patientIds: string[]) {
-  const { data } = await http.post<{ updated: number }>(`/settings/agreements/${id}/patients`, { patientIds });
+  const { data } = await http.post<{ updated: number }>(`/settings/agreements/${id}/patients`, {
+    patientIds
+  });
   return data;
 }
 
@@ -163,11 +269,18 @@ export async function listAgreementDebts() {
 }
 
 export async function payAgreementDebt(id: string) {
-  const { data } = await http.post<{ success: boolean; amountPaid: number }>(`/settings/agreements/${id}/pay-debt`);
+  const { data } = await http.post<{ success: boolean; amountPaid: number }>(
+    `/settings/agreements/${id}/pay-debt`
+  );
   return data;
 }
 
-export async function listExpenses(params?: { search?: string; branchId?: string; month?: number; year?: number }) {
+export async function listExpenses(params?: {
+  search?: string;
+  branchId?: string;
+  month?: number;
+  year?: number;
+}) {
   const { data } = await http.get<Expense[]>("/settings/expenses", { params });
   return data;
 }
@@ -183,7 +296,9 @@ export async function listPayroll(branchId?: string) {
 }
 
 export async function listFinalizedPayroll(branchId?: string) {
-  const { data } = await http.get<FinalizedPayroll[]>("/settings/payroll/finalized", { params: { branchId } });
+  const { data } = await http.get<FinalizedPayroll[]>("/settings/payroll/finalized", {
+    params: { branchId }
+  });
   return data;
 }
 

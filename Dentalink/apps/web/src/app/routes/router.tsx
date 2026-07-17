@@ -36,7 +36,10 @@ import { ReportsTreatmentsPage } from "@/features/reports/pages/reports-treatmen
 import { ConsentTemplatesSettingsPage } from "@/features/settings/consent-templates/pages/consent-templates-settings-page";
 import { ProfilePage } from "@/features/settings/profile/pages/profile-page";
 import { UsersPage } from "@/features/settings/users/pages/users-page";
-import { AccessUsersBlockPage, AgendaUsersBlockPage } from "@/features/settings/users/pages/users-blocks-page";
+import {
+  AccessUsersBlockPage,
+  AgendaUsersBlockPage
+} from "@/features/settings/users/pages/users-blocks-page";
 import { UsersBulkContractsPage } from "@/features/settings/users/pages/users-bulk-contracts-page";
 import { RolesPage } from "@/features/settings/roles/pages/roles-page";
 import { RoleDetailPage } from "@/features/settings/roles/pages/role-detail-page";
@@ -66,8 +69,19 @@ import { PatientDetailPage } from "@/features/patients/pages/patient-detail-page
 import { PatientFilesPage } from "@/features/patients/pages/patient-files-page";
 import { PatientNewPage } from "@/features/patients/pages/patient-new-page";
 import { PatientMergePage } from "@/features/patients/pages/patient-merge-page";
+import { PatientIdentityQualityPage } from "@/features/patients/pages/patient-identity-quality-page";
 import { PatientPaymentsPage } from "@/features/patients/pages/patient-payments-page";
-import { PatientBillingPage } from "@/features/patients/pages/patient-billing-page";
+import { PatientBillingLayout } from "@/features/patients/pages/patient-billing-layout";
+import { PaymentsView } from "@/features/patients/pages/billing-views/payments-view";
+import { IssuedDocumentsView } from "@/features/patients/pages/billing-views/issued-documents-view";
+import {
+  CoverageLayout,
+  OnlineBenefitsView,
+  ReimbursementRequestsView
+} from "@/features/patients/pages/billing-views/coverages-view";
+import { RefundsView } from "@/features/patients/pages/billing-views/refunds-view";
+import { VoidedPaymentsView } from "@/features/patients/pages/billing-views/voided-payments-view";
+import { PatientBalanceView } from "@/features/patients/pages/billing-views/patient-balance-view";
 import { PatientProfilePage } from "@/features/patients/pages/patient-profile-page";
 import { PatientTreatmentNewPage } from "@/features/patients/pages/patient-treatment-new-page";
 import { PatientTreatmentsPage } from "@/features/patients/pages/patient-treatments-page";
@@ -81,12 +95,14 @@ import { InstallmentsPage } from "@/features/payments/pages/installments-page";
 import { PaymentsPage } from "@/features/payments/pages/payments-page";
 import { PaymentLinksPage } from "@/features/payments/pages/payment-links-page";
 import { CancelledPendingPaymentsPage } from "@/features/payments/pages/cancelled-pending-payments-page";
+import { PaymentDailyReceiptPage } from "@/features/payments/pages/payment-daily-receipt-page";
 import { PaymentReceiptPage } from "@/features/payments/pages/payment-receipt-page";
 import { BudgetsPage } from "@/features/treatments/pages/budgets-page";
 import { TreatmentPlansPage } from "@/features/treatments/pages/treatment-plans-page";
 import { PublicBookingPage } from "@/features/public-booking/pages/public-booking-page";
 import { ConfirmAppointmentPage } from "@/features/public-booking/pages/confirm-appointment-page";
 import { CompletePatientProfilePage } from "@/features/public-booking/pages/complete-patient-profile-page";
+import { MobilePhotographicUploadPage } from "@/features/treatments/pages/mobile-photographic-upload-page";
 
 function PublicShell() {
   return (
@@ -101,6 +117,14 @@ function PrivateShell() {
     <PrivateLayout>
       <Outlet />
     </PrivateLayout>
+  );
+}
+
+function ReceiptShell() {
+  return (
+    <div className="min-h-screen bg-slate-100 text-slate-950">
+      <Outlet />
+    </div>
   );
 }
 
@@ -137,12 +161,25 @@ export const router = createBrowserRouter([
     children: [
       { path: "/book/:slug", element: <PublicBookingPage /> },
       { path: "/confirm-appointment", element: <ConfirmAppointmentPage /> },
-      { path: "/complete-patient-profile", element: <CompletePatientProfilePage /> }
+      { path: "/complete-patient-profile", element: <CompletePatientProfilePage /> },
+      { path: "/mobile/photographic-upload/:token", element: <MobilePhotographicUploadPage /> }
     ]
   },
   {
     element: <RequireAuth />,
     children: [
+      {
+        element: <RequirePermissions required={["payments.read"]} />,
+        children: [
+          {
+            element: <ReceiptShell />,
+            children: [
+              { path: "/payments/:paymentNumber/receipt", element: <PaymentReceiptPage /> },
+              { path: "/patients/:id/payments/daily-receipt", element: <PaymentDailyReceiptPage /> }
+            ]
+          }
+        ]
+      },
       {
         element: <PrivateShell />,
         children: [
@@ -183,10 +220,13 @@ export const router = createBrowserRouter([
             children: [
               { path: "/settings/online-scheduling", element: <AgendaOnlineTab /> },
               { path: "/settings/online-scheduling/express", element: <AgendaExpressTab /> },
-              { path: "/settings/schedules", element: <RedirectWithSearch to="/settings/online-scheduling/schedules" /> },
+              {
+                path: "/settings/schedules",
+                element: <RedirectWithSearch to="/settings/online-scheduling/schedules" />
+              },
               { path: "/settings/online-scheduling/schedules", element: <OnlineSchedulesTab /> },
               { path: "/settings/online-scheduling/campaigns", element: <CampaignsTab /> },
-              { path: "/settings/online-scheduling/dashboard", element: <DashboardTab /> },
+              { path: "/settings/online-scheduling/dashboard", element: <DashboardTab /> }
             ]
           },
           {
@@ -203,7 +243,10 @@ export const router = createBrowserRouter([
           },
           {
             element: <RequirePermissions required={["price_lists.read"]} />,
-            children: [{ path: "/settings/price-lists", element: <PriceListsSettingsPage /> }]
+            children: [
+              { path: "/settings/price-lists", element: <PriceListsSettingsPage /> },
+              { path: "/settings/price-lists/categories/:categoryId", element: <PriceListsSettingsPage /> }
+            ]
           },
           {
             element: <RequirePermissions required={["consent_templates.read"]} />,
@@ -211,7 +254,17 @@ export const router = createBrowserRouter([
           },
           {
             element: <RequirePermissions required={["clinical.read", "clinical.templates.manage"]} />,
-            children: [{ path: "/settings/clinical-documents", element: <ClinicalDocumentTemplatesSettingsPage /> }]
+            children: [
+              { path: "/settings/clinical-documents", element: <ClinicalDocumentTemplatesSettingsPage /> }
+            ]
+          },
+          {
+            element: <RequirePermissions required={["patient_duplicates.review"]} />,
+            children: [{ path: "/patients/data-quality", element: <PatientIdentityQualityPage /> }]
+          },
+          {
+            element: <RequirePermissions required={["patients.merge"]} />,
+            children: [{ path: "/patients/merge", element: <PatientMergePage /> }]
           },
           {
             element: <RequirePermissions required={["patients.read"]} />,
@@ -221,9 +274,9 @@ export const router = createBrowserRouter([
               { path: "/patients/analysis", element: <PatientsAnalysisPage /> },
               { path: "/patients/orthodontia", element: <PatientsOrthodontiaPage /> },
               { path: "/patients/new", element: <PatientNewPage /> },
-              { path: "/patients/merge", element: <PatientMergePage /> },
               { path: "/patients/:id", element: <PatientDetailPage /> },
               { path: "/patients/:id/profile", element: <PatientProfilePage /> },
+              { path: "/patients/:id/profile/benefits-coverages", element: <PatientProfilePage /> },
               { path: "/patients/:id/profile/comments", element: <PatientProfilePage /> },
               { path: "/patients/:id/profile/tasks", element: <PatientProfilePage /> },
               { path: "/patients/:id/profile/emails", element: <PatientProfilePage /> },
@@ -235,7 +288,10 @@ export const router = createBrowserRouter([
             element: <RequirePermissions required={["patients.read", "appointments.read"]} />,
             children: [
               { path: "/patients/:id/profile/appointments", element: <PatientProfilePage /> },
-              { path: "/patients/:id/appointments", element: <RedirectPatientWithSearch to="profile/appointments" /> }
+              {
+                path: "/patients/:id/appointments",
+                element: <RedirectPatientWithSearch to="profile/appointments" />
+              }
             ]
           },
           {
@@ -245,19 +301,34 @@ export const router = createBrowserRouter([
           {
             element: <RequirePermissions required={["patients.read", "payments.read"]} />,
             children: [
-              { path: "/patients/:id/billing", element: <PatientBillingPage /> },
-              { path: "/patients/:id/billing/documents", element: <PatientBillingPage /> },
-              { path: "/patients/:id/billing/coverage", element: <PatientBillingPage /> },
-              { path: "/patients/:id/billing/refunds", element: <PatientBillingPage /> },
-              { path: "/patients/:id/billing/deleted", element: <PatientBillingPage /> },
-              { path: "/patients/:id/billing/balance", element: <PatientBillingPage /> }
+              {
+                path: "/patients/:id/billing",
+                element: <PatientBillingLayout />,
+                children: [
+                  { index: true, element: <Navigate to="payments" replace /> },
+                  { path: "payments", element: <PaymentsView /> },
+                  { path: "documents", element: <IssuedDocumentsView /> },
+                  { path: "coverage", element: <Navigate to="../coverages/reimbursements" replace /> },
+                  {
+                    path: "coverages",
+                    element: <CoverageLayout />,
+                    children: [
+                      { index: true, element: <Navigate to="reimbursements" replace /> },
+                      { path: "reimbursements", element: <ReimbursementRequestsView /> },
+                      { path: "online-benefits", element: <OnlineBenefitsView /> }
+                    ]
+                  },
+                  { path: "refunds", element: <RefundsView /> },
+                  { path: "deleted", element: <Navigate to="../voided-payments" replace /> },
+                  { path: "voided-payments", element: <VoidedPaymentsView /> },
+                  { path: "balance", element: <PatientBalanceView /> }
+                ]
+              }
             ]
           },
           {
             element: <RequirePermissions required={["patients.read", "payments.create"]} />,
-            children: [
-              { path: "/patients/:id/payments", element: <PatientPaymentsPage /> }
-            ]
+            children: [{ path: "/patients/:id/payments", element: <PatientPaymentsPage /> }]
           },
           {
             element: <RequirePermissions required={["clinical.read", "files.read"]} />,
@@ -270,7 +341,10 @@ export const router = createBrowserRouter([
             element: <RequirePermissions required={["clinical.read", "consents.read"]} />,
             children: [
               { path: "/patients/:id/clinical/consents", element: <PatientConsentsPage /> },
-              { path: "/patients/:id/consents", element: <RedirectPatientWithSearch to="clinical/consents" /> }
+              {
+                path: "/patients/:id/consents",
+                element: <RedirectPatientWithSearch to="clinical/consents" />
+              }
             ]
           },
           {
@@ -309,7 +383,6 @@ export const router = createBrowserRouter([
             element: <RequirePermissions required={["payments.read"]} />,
             children: [
               { path: "/payments", element: <PaymentsPage /> },
-              { path: "/payments/:paymentNumber/receipt", element: <PaymentReceiptPage /> },
               { path: "/payments/tpv", element: <PaymentLinksPage /> },
               { path: "/payments/cancelled-pending", element: <CancelledPendingPaymentsPage /> }
             ]

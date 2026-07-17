@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { getPublicConfig, getPublicAvailability, createPublicAppointment, trackPublicEvent, type PublicPatient, type PublicCreateAppointmentDto } from '../services/public-booking.service';
+import { getPublicConfig, getPublicAvailability, createPublicAppointment, resolvePublicIdentity, selectPublicIdentity, trackPublicEvent, verifyPublicIdentity, type PublicIdentityCandidate, type PublicIdentitySession, type PublicPatient, type PublicCreateAppointmentDto } from '../services/public-booking.service';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils/cn';
@@ -23,9 +23,15 @@ export function PublicBookingPage() {
     lastName: '',
     email: '',
     phone: '',
-    documentNumber: ''
+    documentNumber: '',
+    birthDate: ''
   });
   const [motive, setMotive] = useState<string>('');
+  const [identitySession, setIdentitySession] = useState<PublicIdentitySession | null>(null);
+  const [identityCandidates, setIdentityCandidates] = useState<PublicIdentityCandidate[]>([]);
+  const [identityError, setIdentityError] = useState('');
+  const [resolvingIdentity, setResolvingIdentity] = useState(false);
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
 
   const { data: config, isLoading, error } = useQuery({
     queryKey: ['public-booking-config', slug],
@@ -73,26 +79,82 @@ export function PublicBookingPage() {
   });
 
   const mutation = useMutation({
-    mutationFn: (dto: PublicCreateAppointmentDto) => createPublicAppointment(slug!, dto),
+    mutationFn: (dto: PublicCreateAppointmentDto) => createPublicAppointment(slug!, dto, idempotencyKey),
     onSuccess: () => {
       setStep(5);
-    }
+    },
+    onError: (error: Error) => setIdentityError(error.message)
   });
 
   if (isLoading) return <div className="p-8 text-center flex items-center justify-center min-h-screen">Cargando portal de reservas...</div>;
   if (error || !config) return <div className="p-8 text-center text-red-500 flex items-center justify-center min-h-screen">Página de reserva no encontrada o no disponible.</div>;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const appointmentPayload = (sessionId: string): PublicCreateAppointmentDto => ({
+    branchId: selectedBranch,
+    professionalId: selectedProfessional,
+    specialtyId: selectedSpecialty || undefined,
+    startAt: selectedSlot,
+    patient,
+    motive,
+    campaignCode: sessionStorage.getItem(`campaign_${slug}`) || undefined,
+    identitySessionId: sessionId
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    mutation.mutate({
-      branchId: selectedBranch,
-      professionalId: selectedProfessional,
-      specialtyId: selectedSpecialty || undefined,
-      startAt: selectedSlot,
-      patient,
-      motive,
-      campaignCode: sessionStorage.getItem(`campaign_${slug}`) || undefined
-    });
+    setIdentityError('');
+    if (!patient.birthDate) {
+      setIdentityError('Fecha de nacimiento es obligatoria para evitar asignar la cita a otra persona.');
+      return;
+    }
+    if (identitySession?.hasSelectedPatient) {
+      mutation.mutate(appointmentPayload(identitySession.id));
+      return;
+    }
+    setResolvingIdentity(true);
+    try {
+      const resolved = identitySession ?? await resolvePublicIdentity(slug!, patient);
+      setIdentitySession(resolved);
+      if (resolved.resolution === 'NO_MATCH') {
+        mutation.mutate(appointmentPayload(resolved.id));
+        return;
+      }
+      if (resolved.resolution === 'FAMILY_SHARED') {
+        setIdentityCandidates(resolved.candidates ?? []);
+        return;
+      }
+      if (resolved.resolution === 'AMBIGUOUS') {
+        setIdentityError('Este teléfono requiere verificación manual por recepción. No se creó ninguna cita.');
+        return;
+      }
+      const verified = await verifyPublicIdentity(slug!, resolved.id, patient);
+      setIdentitySession(verified);
+      if (verified.candidates?.length) {
+        setIdentityCandidates(verified.candidates);
+      } else {
+        setIdentityError('No fue posible resolver la identidad de forma segura. Contacta recepción para continuar.');
+      }
+    } catch (error) {
+      setIdentityError(error instanceof Error ? error.message : 'No fue posible resolver la identidad.');
+    } finally {
+      setResolvingIdentity(false);
+    }
+  };
+
+  const choosePatient = async (candidate: PublicIdentityCandidate) => {
+    if (!identitySession) return;
+    setResolvingIdentity(true);
+    setIdentityError('');
+    try {
+      const selected = await selectPublicIdentity(slug!, identitySession.id, candidate);
+      setIdentitySession(selected);
+      setIdentityCandidates([]);
+      mutation.mutate(appointmentPayload(selected.id));
+    } catch (error) {
+      setIdentityError(error instanceof Error ? error.message : 'No fue posible seleccionar al paciente.');
+    } finally {
+      setResolvingIdentity(false);
+    }
   };
 
   const steps = [
@@ -176,7 +238,7 @@ export function PublicBookingPage() {
               
               {searchMode === 'specialty' && !selectedSpecialty && (
                 <div className="grid sm:grid-cols-2 gap-3">
-                  {config.specialties?.length ? config.specialties.map((s: any) => (
+                  {config.specialties?.length ? config.specialties.map((s) => (
                     <button 
                       key={s.id} 
                       onClick={() => setSelectedSpecialty(s.id)}
@@ -192,7 +254,7 @@ export function PublicBookingPage() {
 
               {(searchMode === 'professional' || (searchMode === 'specialty' && selectedSpecialty)) && (
                 <div className="grid sm:grid-cols-2 gap-3">
-                  {config.professionals?.length ? config.professionals.map((p: any) => (
+                  {config.professionals?.length ? config.professionals.map((p) => (
                     <button 
                       key={p.id} 
                       onClick={() => {
@@ -232,7 +294,7 @@ export function PublicBookingPage() {
                     onChange={e => setSelectedBranch(e.target.value)}
                   >
                     <option value="">Seleccionar Sucursal</option>
-                    {config.branches.map((b: any) => (
+                    {config.branches.map((b) => (
                       <option key={b.id} value={b.id}>{b.name}</option>
                     ))}
                   </select>
@@ -257,7 +319,7 @@ export function PublicBookingPage() {
                     </div>
                   ) : availability?.slots?.length ? (
                     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-                      {availability.slots.filter((s: any) => s.available).map((s: any) => {
+                      {availability.slots.filter((s) => s.available).map((s) => {
                         const timeString = new Date(s.startAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                         return (
                           <Button 
@@ -309,6 +371,12 @@ export function PublicBookingPage() {
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-slate-700">Fecha de nacimiento *</label>
+                  <Input type="date" required max={new Date().toISOString().split('T')[0]} value={patient.birthDate} onChange={e => setPatient({...patient, birthDate: e.target.value})} className="mt-1 max-w-sm" />
+                  <p className="mt-1 text-xs text-slate-500">Se usa solo para evitar confundir fichas con teléfonos compartidos.</p>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   <div>
                     <label className="block text-sm font-medium text-slate-700">Email *</label>
@@ -338,9 +406,38 @@ export function PublicBookingPage() {
                   />
                 </div>
 
+                {identityError ? (
+                  <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{identityError}</div>
+                ) : null}
+
+                {identityCandidates.length ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                    <h3 className="font-semibold text-amber-950">¿Para quién es la cita?</h3>
+                    <p className="mt-1 text-sm text-amber-800">Este teléfono tiene relaciones autorizadas. Selecciona explícitamente; no mostraremos información clínica.</p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {identityCandidates.map(candidate => (
+                        <button
+                          key={candidate.patientId}
+                          type="button"
+                          onClick={() => void choosePatient(candidate)}
+                          className="rounded-lg border border-amber-300 bg-white px-4 py-3 text-left transition hover:border-amber-500 hover:bg-amber-100"
+                        >
+                          <span className="block text-sm font-semibold text-slate-900">{candidate.displayName ?? candidate.maskedName}</span>
+                          {candidate.relationship || candidate.ageReference ? (
+                            <span className="block text-xs text-slate-500">
+                              {[candidate.relationship, candidate.ageReference].filter(Boolean).join(' · ')}
+                            </span>
+                          ) : null}
+                          <span className="block text-xs text-slate-500">{candidate.relationship === 'FAMILY' ? 'Integrante autorizado' : 'Coincidencia verificada'}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="pt-6 border-t border-slate-100 flex justify-end">
-                  <Button type="submit" size="lg" className="w-full sm:w-auto px-10 h-12 text-base font-semibold" disabled={mutation.isPending}>
-                    {mutation.isPending ? 'Confirmando reserva...' : 'Confirmar Reserva'}
+                  <Button type="submit" size="lg" className="w-full sm:w-auto px-10 h-12 text-base font-semibold" disabled={mutation.isPending || resolvingIdentity || identityCandidates.length > 0}>
+                    {mutation.isPending ? 'Confirmando reserva...' : resolvingIdentity ? 'Verificando identidad...' : 'Confirmar Reserva'}
                   </Button>
                 </div>
               </form>

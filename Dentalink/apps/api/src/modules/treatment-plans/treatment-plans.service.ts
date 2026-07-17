@@ -1,7 +1,21 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException
+} from "@nestjs/common";
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import {
   AppointmentStatus,
   BudgetStatus,
+  HygieneAssessmentStatus,
+  LabOrderStatus,
+  OrthodonticControlStatus,
+  OrthodonticDiagnosisStatus,
+  OrthodonticMilestoneStatus,
   PaymentStatus,
   Prisma,
   ProfessionalBranchStatus,
@@ -16,18 +30,26 @@ import { branchScope } from "../../common/utils/branch-scope.util";
 import { resolveAllowedSpecialtyName } from "../../common/utils/specialty-policy.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
+import { PricingService } from "../pricing/pricing.service";
 import {
   BulkDiscountTreatmentPlanItemsDto,
   ChangeTreatmentPlanBranchDto,
+  CreateOrthodonticOptionDto,
   CreateAlternativeDto,
   CreateBudgetDto,
   CreateOrthodonticMonthlyItemsDto,
+  CreateOrthodonticDiagnosisOptionDto,
   CreateTreatmentPlanDto,
   ListBudgetsQueryDto,
   ListTreatmentPlansQueryDto,
   OrthodonticEvolutionsQueryDto,
   PrintTreatmentPlanDocumentDto,
+  SaveOrthodonticDiagnosisDto,
+  SortOrthodonticDiagnosisOptionsDto,
+  SortOrthodonticOptionsDto,
+  UpdateOrthodonticDiagnosisOptionDto,
   TreatmentPlanSectionInputDto,
+  UpdateOrthodonticOptionDto,
   UpdateOrthodonticDiagnosisDto,
   UpdateOrthodonticProfileDto,
   UpdateTreatmentPlanDto,
@@ -37,12 +59,17 @@ import {
   DeactivateTreatmentPlanDto,
   DuplicateTreatmentPlanDto,
   ReferTreatmentPlanDto,
-  StartOrthodonticTreatmentDto
+  RepriceTreatmentPlanDto,
+  StartOrthodonticTreatmentDto,
+  TreatmentPlanPricePreviewDto
 } from "./dto/treatment-plan.dto";
 import {
   buildTreatmentPlanDocumentPdf,
+  type TreatmentPlanDocumentImage,
   type TreatmentPlanDocumentInput,
-  type TreatmentPlanDocumentItem
+  type TreatmentPlanDocumentItem,
+  type TreatmentPlanDocumentOdontogram,
+  type TreatmentPlanDocumentOdontogramRecord
 } from "./treatment-plan-documents";
 import {
   calculateTreatmentPlanClinicalProgress,
@@ -53,6 +80,11 @@ import {
 type TreatmentAgreementSnapshot = {
   id?: string | null;
   isActive?: boolean;
+  status?: string;
+  version?: number;
+  startsAt?: Date | null;
+  endsAt?: Date | null;
+  priceListId?: string | null;
   discountPercent?: Prisma.Decimal | number | string | null;
 } | null;
 
@@ -60,6 +92,10 @@ type TreatmentPatientForPricing = {
   agreement?: {
     id?: string | null;
     isActive?: boolean;
+    status?: string;
+    version?: number;
+    startsAt?: Date | null;
+    endsAt?: Date | null;
     priceListId?: string | null;
     discountPercent?: Prisma.Decimal | number | string | null;
   } | null;
@@ -74,19 +110,826 @@ type ProcedurePriceSnapshot = {
   priceSnapshotCode: string | null;
   priceSnapshotCategory: string | null;
   priceResolvedAt: Date | null;
+  priceListVersionId?: string | null;
+  priceListVersionNumber?: number | null;
+  priceListVersionItemId?: string | null;
+  priceCurrency?: "MXN" | "USD" | "EUR";
+  laboratoryCostSnapshot?: number;
+  internalCostSnapshot?: number;
+  pricingRuleSnapshot?: Prisma.InputJsonValue;
+  pricedById?: string | null;
+  procedureNameSnapshot?: string | null;
+  allowsDiscountSnapshot?: boolean;
 };
 
 type TreatmentPlanItemBuildInput = Required<
   Pick<UpdateTreatmentPlanItemDto, "procedureId" | "quantity" | "unitPrice" | "discount">
 > &
   UpdateTreatmentPlanItemDto &
-  ProcedurePriceSnapshot;
+  ProcedurePriceSnapshot & { agreementPricing?: AgreementItemPricing | null };
+
+type AgreementItemPricing = {
+  agreementId: string;
+  agreementVersionId: string | null;
+  agreementVersionNumber: number;
+  snapshot: Prisma.InputJsonValue;
+  normalPrice: number;
+  appliedPrice: number;
+  discountAmount: number;
+  coverageAmount: number;
+};
 
 type ProfessionalPlanSpecialty = {
   id: string;
   name: string;
   kind: TreatmentPlanKind;
 };
+
+type OrthodonticOptionFieldSeed = {
+  code: string;
+  name: string;
+  inputType: "select" | "multiselect";
+  allowsMultiple: boolean;
+  options: string[];
+};
+
+type OrthodonticCatalogFieldRow = {
+  id: string;
+  code: string;
+  name: string;
+  inputType: string;
+  allowsMultiple: boolean;
+  isConfigurable: boolean;
+  isActive: boolean;
+  options: Array<{
+    id: string;
+    label: string;
+    code: string;
+    sortOrder: number;
+    isActive: boolean;
+    version: number;
+  }>;
+};
+
+type OrthodonticDiagnosisInputType = "text" | "textarea" | "number" | "select" | "checkbox";
+
+type OrthodonticDiagnosisFieldSeed = {
+  code: string;
+  name: string;
+  inputType: OrthodonticDiagnosisInputType;
+  allowsMultiple?: boolean;
+  isHighlighted?: boolean;
+  includeInSummary?: boolean;
+  unitType?: string;
+  options?: string[];
+};
+
+type OrthodonticDiagnosisSectionSeed = {
+  code: string;
+  name: string;
+  sortOrder: number;
+  fields: OrthodonticDiagnosisFieldSeed[];
+};
+
+const TREATMENT_PLAN_PRINT_PERMISSION_BY_TYPE: Record<string, string> = {
+  BUDGET_COMPLETE: "print_complete_budget",
+  BUDGET_TOTAL_ONLY: "print_total_only_budget",
+  BUDGET_NO_DETAIL: "print_budget_without_values",
+  LAB_ORDER: "print_laboratory_order",
+  CARE_PLAN: "print_care_plan",
+  SECTIONS: "print_treatment_sections",
+  ODONTOGRAM: "print_odontogram",
+  CLINICAL_HISTORY: "print_clinical_history"
+};
+
+const TREATMENT_PLAN_PRINT_LABEL_BY_TYPE: Record<string, string> = {
+  BUDGET_COMPLETE: "Presupuesto completo",
+  BUDGET_TOTAL_ONLY: "Presupuesto con total general",
+  BUDGET_NO_DETAIL: "Presupuesto sin valores",
+  LAB_ORDER: "Orden de laboratorio",
+  CARE_PLAN: "Plan de atencion",
+  SECTIONS: "Secciones",
+  ODONTOGRAM: "Odontograma",
+  CLINICAL_HISTORY: "Historial clinico"
+};
+
+const TREATMENT_PLAN_PRINT_DESCRIPTION_BY_TYPE: Record<string, string> = {
+  BUDGET_COMPLETE: "Muestra procedimientos, importes individuales, resumen y estado de cuenta.",
+  BUDGET_TOTAL_ONLY: "Muestra procedimientos y el total final, sin precios unitarios.",
+  BUDGET_NO_DETAIL: "Muestra el detalle clinico sin informacion economica.",
+  LAB_ORDER: "Imprime la orden de laboratorio vinculada al plan.",
+  CARE_PLAN: "Documento clinico agrupado por secciones, sin informacion economica.",
+  SECTIONS: "Permite imprimir las secciones del plan.",
+  ODONTOGRAM: "Imprime el odontograma y su tabla de hallazgos.",
+  CLINICAL_HISTORY: "Imprime el historial clinico del paciente."
+};
+
+const ORTHODONTIC_PLAN_FIELD_SEEDS: OrthodonticOptionFieldSeed[] = [
+  {
+    code: "treatment_type",
+    name: "Tipo de tratamiento",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["Interceptivo", "Correctivo", "Ortodoncia fija", "Alineadores", "Retencion"]
+  },
+  {
+    code: "treatment_time",
+    name: "Tiempo de tratamiento",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["3 meses", "6 meses", "9 meses", "12 meses", "18 meses", "24 meses", "30 meses", "36 meses"]
+  },
+  {
+    code: "upper_anchor",
+    name: "Anclaje superior",
+    inputType: "multiselect",
+    allowsMultiple: true,
+    options: ["Absoluto", "Maximo", "Medio", "Minimo"]
+  },
+  {
+    code: "lower_anchor",
+    name: "Anclaje inferior",
+    inputType: "multiselect",
+    allowsMultiple: true,
+    options: ["Maximo", "Medio", "Minimo", "Minimo absoluto"]
+  },
+  {
+    code: "attachments",
+    name: "Aditamentos",
+    inputType: "multiselect",
+    allowsMultiple: true,
+    options: [
+      "Microtornillos",
+      "Miniplacas",
+      "Jigz",
+      "Suzuki Shelf",
+      "Barra Palatina",
+      "SSP Inferior",
+      "Topes"
+    ]
+  },
+  {
+    code: "radiographic_control",
+    name: "Tipo de control radiografico",
+    inputType: "multiselect",
+    allowsMultiple: true,
+    options: ["Panoramica", "Tele", "Marzo", "Scanner ATM post", "Depuracion"]
+  },
+  {
+    code: "periodicity",
+    name: "Periodicidad",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["Mensual", "Bimensual", "Trimestral", "Semestral", "Anual"]
+  },
+  {
+    code: "brackets",
+    name: "Brackets",
+    inputType: "multiselect",
+    allowsMultiple: true,
+    options: ["Estandar", "Alexander/American Orthodontic", "Esteticos", "Autoligados"]
+  },
+  {
+    code: "aligners",
+    name: "Alineadores",
+    inputType: "multiselect",
+    allowsMultiple: true,
+    options: ["Invisalign"]
+  },
+  {
+    code: "plates",
+    name: "Placas",
+    inputType: "multiselect",
+    allowsMultiple: true,
+    options: [
+      "Arco Lingual",
+      "Arco Transpalatino",
+      "Bionator",
+      "Bite Plane Anterior",
+      "Frankel",
+      "Hass",
+      "Hyrax",
+      "Lip Bumper",
+      "Placa Schwarz",
+      "Plano inclinado",
+      "Transpalatino"
+    ]
+  },
+  {
+    code: "upper_tubes",
+    name: "Tubos superiores",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["Sin definir", "6", "7", "6 y 7"]
+  },
+  {
+    code: "lower_tubes",
+    name: "Tubos inferiores",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["Sin definir", "6", "7", "6 y 7"]
+  },
+  {
+    code: "upper_bands",
+    name: "Bandas superiores",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["Sin definir", "6", "7", "6 y 7"]
+  },
+  {
+    code: "lower_bands",
+    name: "Bandas inferiores",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["Sin definir", "6", "7", "6 y 7"]
+  },
+  {
+    code: "upper_anterior_cementation",
+    name: "Cementacion superior anterior",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["Sin definir", "Directa", "Indirecta"]
+  },
+  {
+    code: "upper_posterior_cementation",
+    name: "Cementacion superior posterior",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["Sin definir", "Directa", "Indirecta"]
+  },
+  {
+    code: "lower_anterior_cementation",
+    name: "Cementacion inferior anterior",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["Sin definir", "Directa", "Indirecta"]
+  },
+  {
+    code: "lower_posterior_cementation",
+    name: "Cementacion inferior posterior",
+    inputType: "select",
+    allowsMultiple: false,
+    options: ["Sin definir", "Directa", "Indirecta"]
+  }
+];
+
+const COMMON_OCCLUSAL_OPTIONS = ["Normal", "Aumentado", "Disminuido", "Desviado", "No evaluado"];
+const CLASS_OPTIONS = ["Clase I", "Clase II", "Clase III", "No evaluado"];
+const YES_NO_OPTIONS = ["Si", "No", "No evaluado"];
+const AIRWAY_OPTIONS = ["Nasal", "Bucal", "Mixta", "No evaluado"];
+
+const ORTHODONTIC_DIAGNOSIS_SECTION_SEEDS: OrthodonticDiagnosisSectionSeed[] = [
+  {
+    code: "generales",
+    name: "Generales",
+    sortOrder: 10,
+    fields: [
+      {
+        code: "motivo_consulta",
+        name: "Motivo de consulta",
+        inputType: "textarea",
+        isHighlighted: true,
+        includeInSummary: true
+      },
+      {
+        code: "malos_habitos",
+        name: "Malos habitos",
+        inputType: "checkbox",
+        allowsMultiple: true,
+        isHighlighted: true,
+        includeInSummary: true,
+        options: [
+          "Bruxismo Diurno",
+          "Bruxismo Nocturno",
+          "Onicofagia",
+          "Uso prolongado chupete",
+          "Uso prolongado mamadera",
+          "Succion digital",
+          "Interposicion lingual",
+          "Dificultad para articular un sonido",
+          "Dificultad al masticar",
+          "Respiracion bucal",
+          "Mordida profunda"
+        ]
+      },
+      { code: "rx_mano", name: "Rx Mano", inputType: "select", isHighlighted: true, options: YES_NO_OPTIONS }
+    ]
+  },
+  {
+    code: "caracteristicas_faciales",
+    name: "Caracteristicas faciales",
+    sortOrder: 20,
+    fields: [
+      {
+        code: "asimetria_williams",
+        name: "Asimetria de Williams",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "desviacion_mandibular",
+        name: "Desviacion mandibular",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "exposicion_gingival",
+        name: "Exposicion gingival",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "cierre_labial",
+        name: "Cierre labial",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "clase_facial_sagital",
+        name: "Clase facial sagital",
+        inputType: "select",
+        isHighlighted: true,
+        includeInSummary: true,
+        options: CLASS_OPTIONS
+      },
+      {
+        code: "tercio_inferior",
+        name: "Tercio inferior",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      { code: "labio_superior", name: "Labio superior", inputType: "text", isHighlighted: true },
+      { code: "labio_inferior", name: "Labio inferior", inputType: "text", isHighlighted: true },
+      { code: "menton", name: "Menton", inputType: "text", isHighlighted: true }
+    ]
+  },
+  {
+    code: "analisis_oclusal_dentario",
+    name: "Analisis oclusal y dentario",
+    sortOrder: 30,
+    fields: [
+      {
+        code: "etapa_denticion",
+        name: "Etapa denticion",
+        inputType: "select",
+        isHighlighted: true,
+        includeInSummary: true,
+        options: ["Temporal", "Mixta temprana", "Mixta tardia", "Permanente", "No evaluado"]
+      },
+      {
+        code: "linea_media_superior",
+        name: "Linea media superior",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "linea_media_inferior",
+        name: "Linea media inferior",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "clase_molar_izquierda",
+        name: "Clase molar izquierda",
+        inputType: "select",
+        isHighlighted: true,
+        includeInSummary: true,
+        options: CLASS_OPTIONS
+      },
+      {
+        code: "clase_molar_derecha",
+        name: "Clase molar derecha",
+        inputType: "select",
+        isHighlighted: true,
+        includeInSummary: true,
+        options: CLASS_OPTIONS
+      },
+      {
+        code: "clase_canina_izquierda",
+        name: "Clase canina izquierda",
+        inputType: "select",
+        isHighlighted: true,
+        options: CLASS_OPTIONS
+      },
+      {
+        code: "clase_canina_derecha",
+        name: "Clase canina derecha",
+        inputType: "select",
+        isHighlighted: true,
+        options: CLASS_OPTIONS
+      },
+      {
+        code: "overjet",
+        name: "Overjet",
+        inputType: "select",
+        isHighlighted: true,
+        includeInSummary: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "curva_spee",
+        name: "Curva de Spee",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "overbite",
+        name: "Overbite",
+        inputType: "select",
+        isHighlighted: true,
+        includeInSummary: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "inclinacion_plano_oclusal",
+        name: "Inclinacion de plano oclusal",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "mordida",
+        name: "Mordida",
+        inputType: "select",
+        isHighlighted: true,
+        options: ["Abierta", "Cruzada", "Profunda", "Borde a borde", "Normal", "No evaluado"]
+      },
+      {
+        code: "curva_wilson",
+        name: "Curva de Wilson",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "arco_superior",
+        name: "Arco superior",
+        inputType: "select",
+        isHighlighted: true,
+        options: ["Ovalado", "Triangular", "Cuadrado", "No evaluado"]
+      },
+      {
+        code: "arco_inferior",
+        name: "Arco inferior",
+        inputType: "select",
+        isHighlighted: true,
+        options: ["Ovalado", "Triangular", "Cuadrado", "No evaluado"]
+      }
+    ]
+  },
+  {
+    code: "dentoalveolar",
+    name: "Dentoalveolar",
+    sortOrder: 40,
+    fields: [
+      {
+        code: "discrepancia_dent_sup",
+        name: "Discrepancia dent. sup.",
+        inputType: "number",
+        isHighlighted: true,
+        unitType: "mm",
+        includeInSummary: true
+      },
+      {
+        code: "discrepancia_dent_inf",
+        name: "Discrepancia dent. inf.",
+        inputType: "number",
+        isHighlighted: true,
+        unitType: "mm",
+        includeInSummary: true
+      },
+      {
+        code: "discrepancia_posterior",
+        name: "Discrepancia posterior",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      { code: "indice_bolton", name: "Indice de Bolton", inputType: "number", isHighlighted: true },
+      {
+        code: "supernumerarios_agenesias",
+        name: "Supernum. / Agenesias",
+        inputType: "text",
+        isHighlighted: true
+      },
+      { code: "ausentes_retenidos", name: "Ausentes / Retenidos", inputType: "text", isHighlighted: true },
+      {
+        code: "segundos_molares",
+        name: "Segundos molares",
+        inputType: "select",
+        isHighlighted: true,
+        options: YES_NO_OPTIONS
+      },
+      {
+        code: "terceros_molares",
+        name: "Terceros molares",
+        inputType: "select",
+        isHighlighted: true,
+        options: YES_NO_OPTIONS
+      },
+      { code: "trauma", name: "Trauma", inputType: "text", isHighlighted: true },
+      { code: "facetas_desgaste", name: "Facetas de desgaste", inputType: "text", isHighlighted: true },
+      { code: "caries", name: "Caries", inputType: "text", isHighlighted: true },
+      { code: "otros_dentoalveolar", name: "Otros", inputType: "text", isHighlighted: true },
+      {
+        code: "radiografia_panoramica",
+        name: "Radiografia panoramica",
+        inputType: "textarea",
+        isHighlighted: true
+      }
+    ]
+  },
+  {
+    code: "montaje_articulador",
+    name: "Montaje articulador",
+    sortOrder: 50,
+    fields: [
+      {
+        code: "discrepancia_rcoc",
+        name: "Discrepancia RCOC",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      { code: "contacto_prematuro", name: "Contacto prematuro", inputType: "text", isHighlighted: true },
+      { code: "rotacion_molar", name: "Rotacion molar", inputType: "text", isHighlighted: true },
+      { code: "torque_molar", name: "Torque molar", inputType: "text", isHighlighted: true },
+      { code: "cpi_derecho", name: "CPI derecho", inputType: "text", isHighlighted: true },
+      { code: "cpi_transversal", name: "CPI transversal", inputType: "text", isHighlighted: true },
+      { code: "cpi_izquierdo", name: "CPI izquierdo", inputType: "text", isHighlighted: true }
+    ]
+  },
+  {
+    code: "analisis_periodontal",
+    name: "Analisis periodontal",
+    sortOrder: 60,
+    fields: [
+      {
+        code: "higiene",
+        name: "Higiene",
+        inputType: "select",
+        isHighlighted: true,
+        includeInSummary: true,
+        options: ["Buena", "Regular", "Deficiente", "No evaluado"]
+      },
+      {
+        code: "biotipo_periodontal",
+        name: "Biotipo periodontal",
+        inputType: "select",
+        isHighlighted: true,
+        options: ["Fino", "Grueso", "Mixto", "No evaluado"]
+      },
+      {
+        code: "recesiones",
+        name: "Recesiones",
+        inputType: "select",
+        isHighlighted: true,
+        options: YES_NO_OPTIONS
+      },
+      {
+        code: "hiperplasia_gingival",
+        name: "Hiperplasia gingival",
+        inputType: "select",
+        isHighlighted: true,
+        options: YES_NO_OPTIONS
+      },
+      {
+        code: "eminencias_radiculares",
+        name: "Eminencias radiculares",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "frenillo_lingual",
+        name: "Frenillo lingual",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "frenillo_medio_superior",
+        name: "Frenillo medio superior",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "frenillo_medio_inferior",
+        name: "Frenillo medio inferior",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "frenillos_laterales",
+        name: "Frenillos laterales",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      { code: "otros_periodontal", name: "Otros", inputType: "textarea", isHighlighted: true }
+    ]
+  },
+  {
+    code: "atm_muscular",
+    name: "Analisis ATM/Muscular",
+    sortOrder: 70,
+    fields: [
+      {
+        code: "manipulacion_mandibular",
+        name: "Manipulacion mandibular",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "atm_derecha",
+        name: "ATM derecha",
+        inputType: "checkbox",
+        allowsMultiple: true,
+        isHighlighted: true,
+        options: ["Sin alteraciones", "Click", "Crepito", "Apertura", "Cierre"]
+      },
+      {
+        code: "atm_izquierda",
+        name: "ATM izquierda",
+        inputType: "checkbox",
+        allowsMultiple: true,
+        isHighlighted: true,
+        options: ["Sin alteraciones", "Click", "Crepito", "Apertura", "Cierre"]
+      },
+      {
+        code: "palpacion_muscular",
+        name: "Palpacion muscular",
+        inputType: "checkbox",
+        allowsMultiple: true,
+        isHighlighted: true,
+        options: ["Temporal", "Masetero", "ECM", "Intramaseo"]
+      },
+      {
+        code: "patron_apertura",
+        name: "Patron de apertura",
+        inputType: "checkbox",
+        allowsMultiple: true,
+        isHighlighted: true,
+        options: [
+          "Hiperlaxitud",
+          "Limitada",
+          "Maxima sin dolor",
+          "Maxima con dolor centrada",
+          "Desviacion derecha",
+          "Desviacion izquierda"
+        ]
+      },
+      { code: "dx_cbct", name: "Dx CBCT", inputType: "text", isHighlighted: true },
+      { code: "dx_rnm", name: "Dx RNM", inputType: "text", isHighlighted: true },
+      { code: "otros_atm", name: "Otros", inputType: "text", isHighlighted: true }
+    ]
+  },
+  {
+    code: "via_aerea",
+    name: "Analisis via aerea",
+    sortOrder: 80,
+    fields: [
+      { code: "volumen_via_aerea", name: "Volumen via aerea", inputType: "text", isHighlighted: true },
+      {
+        code: "tipo_respiracion",
+        name: "Tipo de respiracion",
+        inputType: "select",
+        isHighlighted: true,
+        includeInSummary: true,
+        options: AIRWAY_OPTIONS
+      },
+      {
+        code: "sueno",
+        name: "Sueno",
+        inputType: "select",
+        isHighlighted: true,
+        options: ["Normal", "Ronquido", "Apnea sospechada", "No evaluado"]
+      },
+      { code: "otros_via_aerea", name: "Otros", inputType: "text", isHighlighted: true }
+    ]
+  },
+  {
+    code: "cefalometrico",
+    name: "Analisis cefalometrico",
+    sortOrder: 90,
+    fields: [
+      { code: "ricketts_vert", name: "Ricketts - Vert", inputType: "text", isHighlighted: true },
+      {
+        code: "ricketts_tipo",
+        name: "Ricketts - Tipo",
+        inputType: "checkbox",
+        allowsMultiple: true,
+        isHighlighted: true,
+        options: ["Braquifacial", "Mesofacial", "Dolicofacial"]
+      },
+      {
+        code: "ricketts_nivel",
+        name: "Ricketts - Nivel",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "jarabak_tipo",
+        name: "Jarabak - Tipo",
+        inputType: "checkbox",
+        allowsMultiple: true,
+        isHighlighted: true,
+        options: ["Antihorario", "Neutro", "Horario"]
+      },
+      {
+        code: "jarabak_nivel",
+        name: "Jarabak - Nivel",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      { code: "jarabak_porcentaje", name: "Jarabak - Porcentaje", inputType: "number", isHighlighted: true },
+      {
+        code: "inclinacion_incisivo_superior",
+        name: "Inclinacion incisivo superior",
+        inputType: "text",
+        isHighlighted: true
+      },
+      {
+        code: "inclinacion_incisivo_inferior",
+        name: "Inclinacion incisivo inferior",
+        inputType: "text",
+        isHighlighted: true
+      }
+    ]
+  },
+  {
+    code: "clase_esqueletal",
+    name: "Clase esqueletal",
+    sortOrder: 100,
+    fields: [
+      {
+        code: "componente_sagital_vertical",
+        name: "Componente",
+        inputType: "checkbox",
+        allowsMultiple: true,
+        isHighlighted: true,
+        options: ["Vertical", "Sagital"]
+      },
+      { code: "anb", name: "ANB", inputType: "number", isHighlighted: true, includeInSummary: true },
+      { code: "witts_verdadero", name: "WITS verdadero", inputType: "number", isHighlighted: true },
+      {
+        code: "clase_esqueletal",
+        name: "Clase",
+        inputType: "checkbox",
+        allowsMultiple: true,
+        isHighlighted: true,
+        includeInSummary: true,
+        options: ["Clase I", "Clase II", "Clase III"]
+      },
+      {
+        code: "exceso_vertical_maxilar",
+        name: "Exceso vertical maxilar",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "incisivo_inferior_stomion_superior",
+        name: "Incisivo inferior a Stomion superior",
+        inputType: "text",
+        isHighlighted: true
+      },
+      {
+        code: "incisivo_superior_stomion",
+        name: "Incisivo superior a Stomion",
+        inputType: "text",
+        isHighlighted: true
+      },
+      { code: "analisis_penn", name: "Analisis Penn", inputType: "text", isHighlighted: true },
+      {
+        code: "ancho_sinfisis_grupo_v",
+        name: "Ancho sinfisis grupo V",
+        inputType: "select",
+        isHighlighted: true,
+        options: COMMON_OCCLUSAL_OPTIONS
+      },
+      {
+        code: "otros_factores_determinantes",
+        name: "Otros factores determinantes",
+        inputType: "textarea",
+        isHighlighted: true
+      }
+    ]
+  }
+];
 
 const CLOSED_TREATMENT_PLAN_STATUSES = new Set<TreatmentPlanStatus>([
   TreatmentPlanStatus.CANCELLED,
@@ -95,7 +938,10 @@ const CLOSED_TREATMENT_PLAN_STATUSES = new Set<TreatmentPlanStatus>([
 
 @Injectable()
 export class TreatmentPlansService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pricing?: PricingService
+  ) {}
 
   async listTreatmentPlans(actor: AuthUser, query: ListTreatmentPlansQueryDto) {
     const { skip, take } = resolvePagination(query);
@@ -118,12 +964,33 @@ export class TreatmentPlansService {
             specialties: { include: { specialty: { select: { id: true, name: true } } } }
           }
         },
+        agreement: {
+          select: {
+            id: true,
+            name: true,
+            discountPercent: true,
+            payrollDiscount: true,
+            isActive: true,
+            status: true,
+            priceListId: true,
+            priceList: { select: { id: true, name: true, isDefault: true } }
+          }
+        },
         specialty: { select: { id: true, name: true } },
-        orthodonticProfile: true,
+        orthodonticProfile: { include: this.orthodonticProfileCatalogInclude() },
         pauses: true,
         branch: { select: { id: true, name: true } },
         items: true,
         budgets: true,
+        orthodonticControls: {
+          where: {
+            status: OrthodonticControlStatus.COMPLETED,
+            annulledAt: null,
+            clinicalConfirmed: true
+          },
+          select: { id: true },
+          orderBy: [{ clinicalDate: "asc" }, { createdAt: "asc" }]
+        },
         clinicalEvolutions: {
           where: { annulledAt: null },
           select: {
@@ -144,15 +1011,22 @@ export class TreatmentPlansService {
       orderBy: { createdAt: "desc" }
     });
 
-    return rows.map((row) => this.withTreatmentPlanDerivedState(row, {
-      itemsCount: row.items.length,
-      budgetCount: row.budgets.length
-    }));
+    return rows.map((row) =>
+      this.withTreatmentPlanDerivedState(row, {
+        itemsCount: row.items.length,
+        budgetCount: row.budgets.length
+      })
+    );
   }
 
   async createTreatmentPlan(actor: AuthUser, dto: CreateTreatmentPlanDto) {
     await this.validateBranch(actor, dto.branchId);
     const patient = await this.validatePatient(actor, dto.patientId);
+    const agreement = await this.resolveTreatmentAgreement(
+      actor,
+      dto.branchId,
+      dto.agreementId ?? patient.agreement?.id
+    );
     const planSpecialty = await this.validateProfessionalPlanSpecialty(
       actor,
       dto.professionalId,
@@ -167,6 +1041,9 @@ export class TreatmentPlansService {
           organizationId: actor.organizationId,
           branchId: dto.branchId,
           patientId: dto.patientId,
+          agreementId: agreement?.id ?? null,
+          agreementVersionNumber: agreement?.version ?? null,
+          agreementSnapshot: agreement ? this.treatmentAgreementSnapshot(agreement) : undefined,
           professionalId: dto.professionalId,
           kind: planSpecialty.kind,
           specialtyId: planSpecialty.id,
@@ -202,10 +1079,9 @@ export class TreatmentPlansService {
           await this.validateProcedureInTransaction(tx, actor, item.procedureId);
           if (item.sectionId) await this.validateSectionInTransaction(tx, plan.id, item.sectionId);
 
-          const agreement = patient.agreement;
-          const itemPayload = await this.resolveItemPayload(actor, dto.branchId, patient, item);
+          const itemPayload = await this.resolveItemPayload(actor, dto.branchId, patient, item, agreement);
           await tx.treatmentPlanItem.create({
-            data: this.buildItemData(plan.id, itemPayload, agreement)
+            data: this.buildItemData(plan.id, itemPayload, agreement, actor.id)
           });
         }
       }
@@ -246,6 +1122,163 @@ export class TreatmentPlansService {
     return this.getTreatmentPlan(actor, created.id);
   }
 
+  async listOrthodonticOptionFields(actor: AuthUser) {
+    await this.ensureOrthodonticCatalogSeed(actor.organizationId, actor.id);
+    return this.findOrthodonticOptionFields(actor.organizationId, true);
+  }
+
+  async createOrthodonticFieldOption(actor: AuthUser, fieldId: string, dto: CreateOrthodonticOptionDto) {
+    const label = this.cleanOptionLabel(dto.label);
+    const field = await (this.prisma as any).orthodonticOptionField.findFirst({
+      where: { id: fieldId, organizationId: actor.organizationId }
+    });
+    if (!field) throw new NotFoundException("Orthodontic option field not found");
+    const normalizedLabel = this.normalizeOptionLabel(label);
+    const existing = await (this.prisma as any).orthodonticFieldOption.findUnique({
+      where: { fieldId_normalizedLabel: { fieldId, normalizedLabel } }
+    });
+    if (existing) throw new BadRequestException("An equivalent option already exists for this field");
+    const max = await (this.prisma as any).orthodonticFieldOption.aggregate({
+      where: { fieldId },
+      _max: { sortOrder: true }
+    });
+    const created = await (this.prisma as any).orthodonticFieldOption.create({
+      data: {
+        fieldId,
+        code: this.optionCode(label),
+        label,
+        normalizedLabel,
+        sortOrder: (max._max.sortOrder ?? -1) + 1,
+        createdById: actor.id,
+        updatedById: actor.id
+      }
+    });
+    await this.audit(
+      actor,
+      "OrthodonticFieldOption",
+      created.id,
+      "create",
+      {},
+      created as Prisma.InputJsonValue
+    );
+    return this.findOrthodonticOptionFields(actor.organizationId, true);
+  }
+
+  async updateOrthodonticFieldOption(actor: AuthUser, optionId: string, dto: UpdateOrthodonticOptionDto) {
+    const current = await this.findOrthodonticOptionForActor(actor, optionId);
+    const data: Record<string, unknown> = {
+      updatedById: actor.id,
+      version: { increment: 1 }
+    };
+    if (dto.label !== undefined) {
+      const label = this.cleanOptionLabel(dto.label);
+      const normalizedLabel = this.normalizeOptionLabel(label);
+      const usedCount = await this.countOrthodonticOptionUsage(optionId);
+      if (usedCount > 0 && normalizedLabel !== current.normalizedLabel) {
+        throw new BadRequestException(
+          "Used options cannot be renamed; create a new option and deactivate the previous one"
+        );
+      }
+      data.label = label;
+      data.normalizedLabel = normalizedLabel;
+      data.code = this.optionCode(label);
+    }
+    if (dto.sortOrder !== undefined) data.sortOrder = dto.sortOrder;
+    const updated = await (this.prisma as any).orthodonticFieldOption.update({
+      where: { id: optionId },
+      data
+    });
+    await this.audit(
+      actor,
+      "OrthodonticFieldOption",
+      optionId,
+      "update",
+      current as Prisma.InputJsonValue,
+      updated as Prisma.InputJsonValue
+    );
+    return this.findOrthodonticOptionFields(actor.organizationId, true);
+  }
+
+  async deactivateOrthodonticFieldOption(actor: AuthUser, optionId: string, reason?: string) {
+    const current = await this.findOrthodonticOptionForActor(actor, optionId);
+    const updated = await (this.prisma as any).orthodonticFieldOption.update({
+      where: { id: optionId },
+      data: {
+        isActive: false,
+        deactivatedById: actor.id,
+        deactivatedAt: new Date(),
+        deactivationReason: reason?.trim() || null,
+        updatedById: actor.id,
+        version: { increment: 1 }
+      }
+    });
+    await this.audit(
+      actor,
+      "OrthodonticFieldOption",
+      optionId,
+      "deactivate",
+      current as Prisma.InputJsonValue,
+      updated as Prisma.InputJsonValue
+    );
+    return this.findOrthodonticOptionFields(actor.organizationId, true);
+  }
+
+  async reactivateOrthodonticFieldOption(actor: AuthUser, optionId: string) {
+    const current = await this.findOrthodonticOptionForActor(actor, optionId);
+    const activeEquivalent = await (this.prisma as any).orthodonticFieldOption.findFirst({
+      where: {
+        fieldId: current.fieldId,
+        normalizedLabel: current.normalizedLabel,
+        isActive: true,
+        id: { not: optionId }
+      }
+    });
+    if (activeEquivalent) throw new BadRequestException("An active equivalent option already exists");
+    const updated = await (this.prisma as any).orthodonticFieldOption.update({
+      where: { id: optionId },
+      data: {
+        isActive: true,
+        reactivatedById: actor.id,
+        reactivatedAt: new Date(),
+        updatedById: actor.id,
+        version: { increment: 1 }
+      }
+    });
+    await this.audit(
+      actor,
+      "OrthodonticFieldOption",
+      optionId,
+      "reactivate",
+      current as Prisma.InputJsonValue,
+      updated as Prisma.InputJsonValue
+    );
+    return this.findOrthodonticOptionFields(actor.organizationId, true);
+  }
+
+  async sortOrthodonticFieldOptions(actor: AuthUser, fieldId: string, dto: SortOrthodonticOptionsDto) {
+    const field = await (this.prisma as any).orthodonticOptionField.findFirst({
+      where: { id: fieldId, organizationId: actor.organizationId },
+      include: { options: true }
+    });
+    if (!field) throw new NotFoundException("Orthodontic option field not found");
+    const knownIds = new Set(field.options.map((option: { id: string }) => option.id));
+    if (dto.optionIds.some((id) => !knownIds.has(id))) {
+      throw new BadRequestException("One or more options do not belong to this field");
+    }
+    await this.prisma.$transaction(
+      dto.optionIds.map((id, index) =>
+        (this.prisma as any).orthodonticFieldOption.update({
+          where: { id },
+          data: { sortOrder: index, updatedById: actor.id, version: { increment: 1 } }
+        })
+      )
+    );
+    await this.audit(actor, "OrthodonticOptionField", fieldId, "sort_options", {}, {
+      optionIds: dto.optionIds
+    } as Prisma.InputJsonValue);
+    return this.findOrthodonticOptionFields(actor.organizationId, true);
+  }
+
   async getTreatmentPlan(actor: AuthUser, id: string) {
     const plan = await this.prisma.treatmentPlan.findFirst({
       where: { id, organizationId: actor.organizationId, branchId: branchScope(actor) },
@@ -259,8 +1292,20 @@ export class TreatmentPlansService {
             specialties: { include: { specialty: { select: { id: true, name: true } } } }
           }
         },
+        agreement: {
+          select: {
+            id: true,
+            name: true,
+            discountPercent: true,
+            payrollDiscount: true,
+            isActive: true,
+            status: true,
+            priceListId: true,
+            priceList: { select: { id: true, name: true, isDefault: true } }
+          }
+        },
         specialty: { select: { id: true, name: true } },
-        orthodonticProfile: true,
+        orthodonticProfile: { include: this.orthodonticProfileCatalogInclude() },
         pauses: true,
         branch: { select: { id: true, name: true } },
         sections: { orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }] },
@@ -275,6 +1320,15 @@ export class TreatmentPlansService {
         budgets: {
           include: { items: true },
           orderBy: { createdAt: "desc" }
+        },
+        orthodonticControls: {
+          where: {
+            status: OrthodonticControlStatus.COMPLETED,
+            annulledAt: null,
+            clinicalConfirmed: true
+          },
+          select: { id: true },
+          orderBy: [{ clinicalDate: "asc" }, { createdAt: "asc" }]
         },
         alternativePlans: {
           include: {
@@ -363,9 +1417,15 @@ export class TreatmentPlansService {
     const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
     this.ensureTreatmentPlanCanMutate(plan, "update orthodontic data for");
     const payload = {
+      technicalDescription: this.optionalString(dto.technicalDescription),
       startDate: this.optionalDate(dto.startDate),
       estimatedMonths: dto.estimatedMonths === undefined ? undefined : dto.estimatedMonths,
       estimatedControls: dto.estimatedControls === undefined ? undefined : dto.estimatedControls,
+      totalAligners: dto.totalAligners === undefined ? undefined : dto.totalAligners,
+      indicatedExtractions: this.optionalString(dto.indicatedExtractions),
+      performedExtractions: this.optionalString(dto.performedExtractions),
+      reevaluationDate: this.optionalDate(dto.reevaluationDate),
+      interconsultations: this.optionalString(dto.interconsultations),
       lastUpperArch: this.optionalString(dto.lastUpperArch),
       lastLowerArch: this.optionalString(dto.lastLowerArch),
       nextControlAt: this.optionalDate(dto.nextControlAt),
@@ -377,13 +1437,33 @@ export class TreatmentPlansService {
       planNotes: this.optionalString(dto.planNotes)
     };
 
-    const saved = await this.prisma.orthodonticTreatmentProfile.upsert({
+    const previous = await (this.prisma as any).orthodonticTreatmentProfile.findUnique({
       where: { treatmentPlanId: plan.id },
-      create: {
-        treatmentPlanId: plan.id,
-        ...payload
-      },
-      update: payload
+      include: this.orthodonticProfileCatalogInclude()
+    });
+    if (dto.catalogSelections) {
+      await this.ensureOrthodonticCatalogSeed(actor.organizationId, actor.id);
+    }
+
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const profile = await (tx as any).orthodonticTreatmentProfile.upsert({
+        where: { treatmentPlanId: plan.id },
+        create: {
+          treatmentPlanId: plan.id,
+          ...payload
+        },
+        update: {
+          ...payload,
+          version: { increment: 1 }
+        }
+      });
+      if (dto.catalogSelections) {
+        await this.replaceOrthodonticCatalogSelections(tx, actor, profile.id, dto.catalogSelections);
+      }
+      return (tx as any).orthodonticTreatmentProfile.findUnique({
+        where: { id: profile.id },
+        include: this.orthodonticProfileCatalogInclude()
+      });
     });
 
     await this.audit(
@@ -391,7 +1471,7 @@ export class TreatmentPlansService {
       "OrthodonticTreatmentProfile",
       saved.id,
       "update",
-      {},
+      (previous ?? {}) as Prisma.InputJsonValue,
       saved as Prisma.InputJsonValue
     );
     return this.getTreatmentPlan(actor, id);
@@ -417,6 +1497,159 @@ export class TreatmentPlansService {
     return this.getTreatmentPlan(actor, id);
   }
 
+  async listOrthodonticDiagnosisCatalog(actor: AuthUser) {
+    await this.ensureOrthodonticDiagnosisCatalogSeed(actor.id);
+    return this.findOrthodonticDiagnosisCatalog(true);
+  }
+
+  async getOrthodonticDiagnosisStatus(actor: AuthUser, id: string) {
+    const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    const diagnosis = await this.findCurrentOrthodonticDiagnosis(plan.id);
+    return this.mapOrthodonticDiagnosisResult(plan, diagnosis);
+  }
+
+  async getOrthodonticDiagnosis(actor: AuthUser, id: string) {
+    const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    await this.ensureOrthodonticDiagnosisCatalogSeed(actor.id);
+    const diagnosis = await this.findCurrentOrthodonticDiagnosis(plan.id);
+    return {
+      ...this.mapOrthodonticDiagnosisResult(plan, diagnosis),
+      catalog: await this.findOrthodonticDiagnosisCatalog(true)
+    };
+  }
+
+  async saveOrthodonticDiagnosisDraft(actor: AuthUser, id: string, dto: SaveOrthodonticDiagnosisDto) {
+    return this.saveOrthodonticDiagnosisWorkflow(actor, id, dto, OrthodonticDiagnosisStatus.DRAFT);
+  }
+
+  async saveOrthodonticDiagnosisActive(actor: AuthUser, id: string, dto: SaveOrthodonticDiagnosisDto) {
+    return this.saveOrthodonticDiagnosisWorkflow(actor, id, dto, OrthodonticDiagnosisStatus.ACTIVE);
+  }
+
+  async createOrthodonticDiagnosisFieldOption(
+    actor: AuthUser,
+    fieldId: string,
+    dto: CreateOrthodonticDiagnosisOptionDto
+  ) {
+    await this.ensureOrthodonticDiagnosisCatalogSeed(actor.id);
+    const field = await (this.prisma as any).orthodonticDiagnosisField.findFirst({ where: { id: fieldId } });
+    if (!field) throw new NotFoundException("Orthodontic diagnosis field not found");
+    if (!field.isConfigurable) throw new BadRequestException("This diagnosis field cannot be configured");
+    const label = this.cleanOptionLabel(dto.label);
+    const normalizedLabel = this.normalizeOptionLabel(label);
+    const maxSort = await (this.prisma as any).orthodonticDiagnosisFieldOption.aggregate({
+      where: { fieldId },
+      _max: { sortOrder: true }
+    });
+    await (this.prisma as any).orthodonticDiagnosisFieldOption.create({
+      data: {
+        fieldId,
+        code: `${field.code}_${this.optionCode(label)}`,
+        label,
+        normalizedLabel,
+        sortOrder: (maxSort._max.sortOrder ?? -1) + 1,
+        createdById: actor.id,
+        updatedById: actor.id
+      }
+    });
+    await this.audit(actor, "OrthodonticDiagnosisFieldOption", fieldId, "create", {}, { fieldId, label });
+    return this.listOrthodonticDiagnosisCatalog(actor);
+  }
+
+  async updateOrthodonticDiagnosisFieldOption(
+    actor: AuthUser,
+    optionId: string,
+    dto: UpdateOrthodonticDiagnosisOptionDto
+  ) {
+    const option = await this.findOrthodonticDiagnosisOption(optionId);
+    const used = await this.countOrthodonticDiagnosisOptionUsage(optionId);
+    const data: Record<string, unknown> = { updatedById: actor.id, version: { increment: 1 } };
+    if (dto.label !== undefined) {
+      if (used > 0) throw new BadRequestException("Used diagnosis options cannot be renamed");
+      const label = this.cleanOptionLabel(dto.label);
+      data.label = label;
+      data.normalizedLabel = this.normalizeOptionLabel(label);
+      data.code = `${option.field.code}_${this.optionCode(label)}`;
+    }
+    if (dto.sortOrder !== undefined) data.sortOrder = dto.sortOrder;
+    await (this.prisma as any).orthodonticDiagnosisFieldOption.update({ where: { id: optionId }, data });
+    await this.audit(
+      actor,
+      "OrthodonticDiagnosisFieldOption",
+      optionId,
+      "update",
+      option,
+      data as Prisma.InputJsonValue
+    );
+    return this.listOrthodonticDiagnosisCatalog(actor);
+  }
+
+  async deactivateOrthodonticDiagnosisFieldOption(actor: AuthUser, optionId: string, reason?: string) {
+    const option = await this.findOrthodonticDiagnosisOption(optionId);
+    await (this.prisma as any).orthodonticDiagnosisFieldOption.update({
+      where: { id: optionId },
+      data: {
+        isActive: false,
+        deactivatedById: actor.id,
+        deactivatedAt: new Date(),
+        deactivationReason: this.optionalString(reason) ?? undefined,
+        updatedById: actor.id,
+        version: { increment: 1 }
+      }
+    });
+    await this.audit(actor, "OrthodonticDiagnosisFieldOption", optionId, "deactivate", option, { reason });
+    return this.listOrthodonticDiagnosisCatalog(actor);
+  }
+
+  async reactivateOrthodonticDiagnosisFieldOption(actor: AuthUser, optionId: string) {
+    const option = await this.findOrthodonticDiagnosisOption(optionId);
+    await (this.prisma as any).orthodonticDiagnosisFieldOption.update({
+      where: { id: optionId },
+      data: {
+        isActive: true,
+        reactivatedById: actor.id,
+        reactivatedAt: new Date(),
+        updatedById: actor.id,
+        version: { increment: 1 }
+      }
+    });
+    await this.audit(actor, "OrthodonticDiagnosisFieldOption", optionId, "reactivate", option, {});
+    return this.listOrthodonticDiagnosisCatalog(actor);
+  }
+
+  async sortOrthodonticDiagnosisFieldOptions(
+    actor: AuthUser,
+    fieldId: string,
+    dto: SortOrthodonticDiagnosisOptionsDto
+  ) {
+    const field = await (this.prisma as any).orthodonticDiagnosisField.findFirst({ where: { id: fieldId } });
+    if (!field) throw new NotFoundException("Orthodontic diagnosis field not found");
+    const options = await (this.prisma as any).orthodonticDiagnosisFieldOption.findMany({
+      where: { fieldId }
+    });
+    const optionIds = new Set(options.map((option: any) => option.id));
+    if (dto.optionIds.some((optionId) => !optionIds.has(optionId))) {
+      throw new BadRequestException("Invalid option order for diagnosis field");
+    }
+    await this.prisma.$transaction(
+      dto.optionIds.map((optionId, sortOrder) =>
+        (this.prisma as any).orthodonticDiagnosisFieldOption.update({
+          where: { id: optionId },
+          data: { sortOrder, updatedById: actor.id, version: { increment: 1 } }
+        })
+      )
+    );
+    await this.audit(
+      actor,
+      "OrthodonticDiagnosisFieldOption",
+      fieldId,
+      "sort",
+      {},
+      { fieldId, optionIds: dto.optionIds }
+    );
+    return this.listOrthodonticDiagnosisCatalog(actor);
+  }
+
   async startOrthodonticTreatment(actor: AuthUser, id: string, dto: StartOrthodonticTreatmentDto) {
     const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
     this.ensureTreatmentPlanCanMutate(plan, "start");
@@ -426,15 +1659,61 @@ export class TreatmentPlansService {
     if (existingProfile?.startDate) {
       throw new BadRequestException("Orthodontic treatment has already been started");
     }
+    const durationMonths = dto.durationMonths ?? existingProfile?.estimatedMonths;
+    if (!durationMonths || durationMonths < 3 || durationMonths > 36) {
+      throw new BadRequestException("Orthodontic duration must be between 3 and 36 months");
+    }
+    await this.validateProfessionalPlanSpecialty(
+      actor,
+      plan.professionalId,
+      plan.branchId,
+      TreatmentPlanKind.ORTHODONTICS
+    );
 
     const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
     if (Number.isNaN(startDate.getTime())) throw new BadRequestException("Invalid startDate");
+    const tomorrow = new Date();
+    tomorrow.setHours(24, 0, 0, 0);
+    if (startDate >= tomorrow) {
+      throw new BadRequestException("Orthodontic start date cannot be in the future");
+    }
+    const plannedControls = durationMonths;
+    const recommendedNextControlAt = this.addMonths(startDate, 1);
+    const expectedEndAt = this.addMonths(startDate, durationMonths);
+    const existingCompletedControls = await this.prisma.orthodonticControl.count({
+      where: {
+        treatmentPlanId: plan.id,
+        status: OrthodonticControlStatus.COMPLETED,
+        annulledAt: null,
+        clinicalConfirmed: true
+      }
+    });
 
     const saved = await this.prisma.$transaction(async (tx) => {
       const profile = await tx.orthodonticTreatmentProfile.upsert({
         where: { treatmentPlanId: plan.id },
-        create: { treatmentPlanId: plan.id, startDate },
-        update: { startDate }
+        create: {
+          treatmentPlanId: plan.id,
+          startDate,
+          estimatedMonths: durationMonths,
+          estimatedControls: plannedControls,
+          controlFrequencyValue: 1,
+          controlFrequencyUnit: "MONTH",
+          nextControlAt: recommendedNextControlAt,
+          startedById: actor.id,
+          startedAt: new Date()
+        },
+        update: {
+          startDate,
+          estimatedMonths: durationMonths,
+          estimatedControls: plannedControls,
+          controlFrequencyValue: 1,
+          controlFrequencyUnit: "MONTH",
+          nextControlAt: existingProfile?.nextControlAt ?? recommendedNextControlAt,
+          startedById: actor.id,
+          startedAt: new Date(),
+          version: { increment: 1 }
+        }
       });
       await tx.treatmentPlan.update({
         where: { id: plan.id },
@@ -448,23 +1727,74 @@ export class TreatmentPlansService {
       return profile;
     });
 
-    await this.audit(actor, "OrthodonticTreatmentProfile", saved.id, "start", {}, {
+    await this.audit(actor, "OrthodonticTreatmentProfile", saved.id, "ORTHODONTIC_TREATMENT_STARTED", {}, {
       treatmentPlanId: plan.id,
-      startDate
+      startDate,
+      durationMonths,
+      plannedControls,
+      controlFrequencyValue: 1,
+      controlFrequencyUnit: "MONTH",
+      expectedEndAt,
+      recommendedNextControlAt,
+      existingCompletedControls
     } as Prisma.InputJsonValue);
     return this.getOrthodonticSummary(actor, id);
   }
 
   async getOrthodonticSummary(actor: AuthUser, id: string) {
     const canViewPrivate = this.canViewPrivateEvolutions(actor);
+    const now = new Date();
     const plan = await this.prisma.treatmentPlan.findFirst({
       where: { id, organizationId: actor.organizationId, branchId: branchScope(actor) },
       include: {
         patient: { select: { id: true, firstName: true, lastName: true } },
         professional: { select: { id: true, firstName: true, lastName: true } },
         branch: { select: { id: true, name: true } },
-        orthodonticProfile: true,
+        orthodonticProfile: { include: this.orthodonticProfileCatalogInclude() },
         pauses: { orderBy: { startDate: "desc" } },
+        items: {
+          include: {
+            paymentAllocations: { include: { payment: { select: { id: true, status: true } } } }
+          }
+        },
+        appointments: {
+          where: {
+            startAt: { gte: now },
+            status: {
+              notIn: [
+                AppointmentStatus.CANCELLED_BY_PATIENT,
+                AppointmentStatus.CANCELLED_BY_CLINIC,
+                AppointmentStatus.CANCELLED_CONFLICT,
+                AppointmentStatus.CANCELLED_RESCHEDULED,
+                AppointmentStatus.NO_SHOW,
+                AppointmentStatus.RESCHEDULED,
+                AppointmentStatus.BLOCKED
+              ]
+            }
+          },
+          include: { professional: { select: { id: true, firstName: true, lastName: true } } },
+          orderBy: { startAt: "asc" },
+          take: 1
+        },
+        orthodonticControls: {
+          where: {
+            status: OrthodonticControlStatus.COMPLETED,
+            annulledAt: null,
+            clinicalConfirmed: true
+          },
+          orderBy: [{ clinicalDate: "asc" }, { createdAt: "asc" }]
+        },
+        orthodonticHygieneAssessments: {
+          where: { status: HygieneAssessmentStatus.ACTIVE, annulledAt: null },
+          include: {
+            scale: true,
+            option: true
+          },
+          orderBy: [{ clinicalDate: "asc" }, { createdAt: "asc" }]
+        },
+        orthodonticMilestones: {
+          orderBy: [{ plannedAt: "asc" }, { createdAt: "asc" }]
+        },
         clinicalEvolutions: {
           where: {
             annulledAt: null,
@@ -593,7 +1923,8 @@ export class TreatmentPlansService {
               plannedAt: plannedAt.toISOString(),
               notes: dto.notes?.trim() || `Mensualidad ${index + 1}/${dto.months}`
             },
-            agreement
+            agreement,
+            actor.id
           )
         });
         ids.push(item.id);
@@ -802,15 +2133,25 @@ export class TreatmentPlansService {
     await this.validateProcedure(actor, dto.procedureId);
     if (dto.sectionId) await this.validateSection(treatmentPlanId, dto.sectionId);
 
-    const agreement = plan.patient.agreement;
-    const itemPayload = await this.resolveItemPayload(actor, plan.branchId, plan.patient, {
-      ...dto,
-      procedureId: dto.procedureId
-    });
+    const agreement = await this.resolveTreatmentAgreement(
+      actor,
+      plan.branchId,
+      plan.agreementId ?? plan.patient.agreement?.id
+    );
+    const itemPayload = await this.resolveItemPayload(
+      actor,
+      plan.branchId,
+      plan.patient,
+      {
+        ...dto,
+        procedureId: dto.procedureId
+      },
+      agreement
+    );
 
     const created = await this.prisma.$transaction(async (tx) => {
       const item = await tx.treatmentPlanItem.create({
-        data: this.buildItemData(treatmentPlanId, itemPayload, agreement),
+        data: this.buildItemData(treatmentPlanId, itemPayload, agreement, actor.id),
         include: { procedure: true, section: true }
       });
 
@@ -823,6 +2164,231 @@ export class TreatmentPlansService {
 
     await this.audit(actor, "TreatmentPlanItem", created.id, "create", {}, created as Prisma.InputJsonValue);
     return this.getTreatmentPlan(actor, plan.id);
+  }
+
+  async pricePreview(actor: AuthUser, treatmentPlanId: string, dto: TreatmentPlanPricePreviewDto) {
+    if (!this.pricing || process.env.PRICE_LISTS_V2_ENABLED !== "true") {
+      throw new BadRequestException("Versioned pricing is disabled");
+    }
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { id: treatmentPlanId, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      select: { id: true, branchId: true, patientId: true, agreementId: true, status: true }
+    });
+    if (!plan) throw new NotFoundException("Treatment plan not found");
+    return this.pricing.resolve(actor, {
+      branchId: plan.branchId,
+      patientId: plan.patientId,
+      planId: plan.id,
+      procedureId: dto.procedureId,
+      clinicalDate: dto.clinicalDate,
+      currency: dto.currency,
+      agreementId: plan.agreementId ?? undefined
+    });
+  }
+
+  async priceCatalog(actor: AuthUser, treatmentPlanId: string, clinicalDate?: string) {
+    if (!this.pricing || process.env.PRICE_LISTS_V2_ENABLED !== "true") {
+      throw new BadRequestException("Versioned pricing is disabled");
+    }
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { id: treatmentPlanId, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      select: { id: true, branchId: true, patientId: true, agreementId: true }
+    });
+    if (!plan) throw new NotFoundException("Treatment plan not found");
+    return this.pricing.catalog(actor, {
+      branchId: plan.branchId,
+      patientId: plan.patientId,
+      planId: plan.id,
+      agreementId: plan.agreementId ?? undefined,
+      clinicalDate
+    });
+  }
+
+  async repricePreview(actor: AuthUser, treatmentPlanId: string, dto: RepriceTreatmentPlanDto) {
+    if (!this.pricing || process.env.PRICE_LISTS_V2_ENABLED !== "true") {
+      throw new BadRequestException("Versioned pricing is disabled");
+    }
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { id: treatmentPlanId, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      include: {
+        items: {
+          where: {
+            status: { not: TreatmentPlanItemStatus.CANCELLED },
+            ...(dto.itemIds?.length ? { id: { in: dto.itemIds } } : {})
+          },
+          include: { paymentAllocations: true, budgetItems: { include: { budget: true } } }
+        }
+      }
+    });
+    if (!plan) throw new NotFoundException("Treatment plan not found");
+    const results = [];
+    for (const item of plan.items) {
+      try {
+        const price = await this.pricing.resolve(actor, {
+          branchId: plan.branchId,
+          patientId: plan.patientId,
+          planId: plan.id,
+          procedureId: item.procedureId,
+          clinicalDate: dto.clinicalDate,
+          agreementId: plan.agreementId ?? undefined,
+          currency: item.priceCurrency
+        });
+        const quantity = new Prisma.Decimal(item.quantity);
+        const newTotal = new Prisma.Decimal(price.finalPrice).mul(quantity).toDecimalPlaces(2);
+        results.push({
+          itemId: item.id,
+          procedureId: item.procedureId,
+          current: {
+            unitPrice: item.unitPrice.toFixed(2),
+            discount: item.discount.toFixed(2),
+            total: item.total.toFixed(2),
+            versionId: item.priceListVersionId,
+            versionNumber: item.priceListVersionNumber,
+            versionItemId: item.priceListVersionItemId
+          },
+          proposed: { ...price, quantity: quantity.toFixed(2), total: newTotal.toFixed(2) },
+          difference: newTotal.sub(item.total).toFixed(2),
+          hasFinancialDependencies:
+            item.paymentAllocations.length > 0 ||
+            item.budgetItems.some((budgetItem) => budgetItem.budget.status !== BudgetStatus.DRAFT),
+          error: null
+        });
+      } catch (error) {
+        results.push({
+          itemId: item.id,
+          procedureId: item.procedureId,
+          current: { unitPrice: item.unitPrice.toFixed(2), discount: item.discount.toFixed(2), total: item.total.toFixed(2) },
+          proposed: null,
+          difference: null,
+          hasFinancialDependencies: item.paymentAllocations.length > 0 || item.budgetItems.length > 0,
+          error: error instanceof Error ? error.message : "Price resolution failed"
+        });
+      }
+    }
+    return {
+      planId: plan.id,
+      status: plan.status,
+      canApply: plan.status === TreatmentPlanStatus.DRAFT && results.every((result) => !result.error && !result.hasFinancialDependencies),
+      requiresRevision: plan.status !== TreatmentPlanStatus.DRAFT,
+      items: results
+    };
+  }
+
+  async repriceApply(actor: AuthUser, treatmentPlanId: string, dto: RepriceTreatmentPlanDto) {
+    if (!dto.reason?.trim()) throw new BadRequestException("reason is required to update plan prices");
+    const reason = dto.reason.trim();
+    const preview = await this.repricePreview(actor, treatmentPlanId, dto);
+    if (preview.status !== TreatmentPlanStatus.DRAFT) {
+      throw new ConflictException("Accepted, started or completed plans require a revision or addendum; prices were not changed");
+    }
+    if (!preview.canApply) throw new ConflictException("Plan contains pricing errors or financial dependencies");
+    const pricedAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      for (const row of preview.items) {
+        if (!row.proposed) continue;
+        const quantity = new Prisma.Decimal(row.proposed.quantity);
+        const normalTotal = new Prisma.Decimal(row.proposed.basePrice).mul(quantity).toDecimalPlaces(2);
+        const finalTotal = new Prisma.Decimal(row.proposed.total);
+        const discountAmount = normalTotal.sub(finalTotal).toDecimalPlaces(2);
+        await tx.treatmentPlanItem.update({
+          where: { id: row.itemId },
+          data: {
+            unitPrice: new Prisma.Decimal(row.proposed.basePrice),
+            discount: discountAmount,
+            total: finalTotal,
+            originalPrice: normalTotal,
+            allowsDiscountSnapshot: row.proposed.allowDiscount,
+            discountType: discountAmount.gt(0) ? "AMOUNT" : null,
+            discountValue: discountAmount.gt(0) ? discountAmount : null,
+            discountAmount,
+            finalPrice: finalTotal,
+            discountAuthorizedBy: discountAmount.gt(0) ? actor.id : null,
+            discountedAt: discountAmount.gt(0) ? pricedAt : null,
+            priceListId: row.proposed.priceList.id,
+            priceListItemId: null,
+            priceListVersionId: row.proposed.version.id,
+            priceListVersionNumber: row.proposed.version.number,
+            priceListVersionItemId: row.proposed.version.itemId,
+            priceSource: TreatmentPriceSource.PRICE_LIST,
+            priceSnapshotName: row.proposed.priceList.name,
+            priceSnapshotCode: row.proposed.procedure.code,
+            priceSnapshotCategory: row.proposed.procedure.category,
+            procedureCodeSnapshot: row.proposed.procedure.code,
+            procedureNameSnapshot: row.proposed.procedure.name,
+            procedureCategorySnapshot: row.proposed.procedure.category,
+            priceListNameSnapshot: row.proposed.priceList.name,
+            priceResolvedAt: pricedAt,
+            priceCurrency: row.proposed.currency,
+            laboratoryCostSnapshot: new Prisma.Decimal(row.proposed.laboratoryCost),
+            internalCostSnapshot: new Prisma.Decimal(row.proposed.internalCost),
+            pricingRuleSnapshot: row.proposed.rule as Prisma.InputJsonValue,
+            pricedById: actor.id,
+            agreementId: row.proposed.agreement?.id,
+            agreementVersionId: row.proposed.agreement?.versionId,
+            agreementVersionNumber: row.proposed.agreement?.version,
+            agreementSnapshot: row.proposed.agreement
+              ? ({ ...row.proposed.agreement, rule: row.proposed.rule } as Prisma.InputJsonValue)
+              : undefined,
+            agreementNormalPrice: row.proposed.agreement ? new Prisma.Decimal(row.proposed.basePrice) : null,
+            agreementAppliedPrice: row.proposed.agreement ? new Prisma.Decimal(row.proposed.finalPrice) : null,
+            agreementDiscountAmount: row.proposed.agreement ? new Prisma.Decimal(row.proposed.discountAmount) : null,
+            agreementCoverage: new Prisma.Decimal(row.proposed.coverageAmount),
+            version: { increment: 1 }
+          }
+        });
+      }
+      await tx.pricingAuditEvent.create({
+        data: {
+          organizationId: actor.organizationId,
+          branchId: preview.items[0]?.proposed?.trace.branchId,
+          actorUserId: actor.id,
+          entity: "TreatmentPlan",
+          entityId: treatmentPlanId,
+          action: "treatment_plan.repriced",
+          reason,
+          oldValue: {
+            items: preview.items.map((item) => ({
+              itemId: item.itemId,
+              procedureId: item.procedureId,
+              ...item.current
+            }))
+          },
+          newValue: {
+            pricedAt,
+            items: preview.items.map((item) => ({
+              itemId: item.itemId,
+              procedureId: item.procedureId,
+              versionId: item.proposed?.version.id ?? null,
+              versionNumber: item.proposed?.version.number ?? null,
+              versionItemId: item.proposed?.version.itemId ?? null,
+              unitPrice: item.proposed?.basePrice ?? null,
+              discount: item.proposed?.discountAmount ?? null,
+              total: item.proposed?.total ?? null,
+              difference: item.difference
+            }))
+          },
+          metadata: {
+            priceListIds: [
+              ...new Set(
+                preview.items
+                  .map((item) => item.proposed?.priceList.id)
+                  .filter((id): id is string => Boolean(id))
+              )
+            ]
+          }
+        }
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: actor.organizationId,
+          aggregateType: "TreatmentPlan",
+          aggregateId: treatmentPlanId,
+          eventType: "treatment_plan.repriced",
+          payload: { itemIds: preview.items.map((item) => item.itemId), pricedAt, actorUserId: actor.id }
+        }
+      });
+    });
+    return this.getTreatmentPlan(actor, treatmentPlanId);
   }
 
   async getProcedures(actor: AuthUser, treatmentPlanId: string) {
@@ -869,10 +2435,14 @@ export class TreatmentPlansService {
         clinicalProgress,
         clinicalStatus: resolveTreatmentPlanClinicalStatus(plan.status, clinicalProgress),
         pendingCount: activeItems.filter(
-          (item) => item.status === TreatmentPlanItemStatus.PLANNED || item.status === TreatmentPlanItemStatus.ACCEPTED
+          (item) =>
+            item.status === TreatmentPlanItemStatus.PLANNED ||
+            item.status === TreatmentPlanItemStatus.ACCEPTED
         ).length,
-        inProgressCount: activeItems.filter((item) => item.status === TreatmentPlanItemStatus.IN_PROGRESS).length,
-        completedCount: activeItems.filter((item) => item.status === TreatmentPlanItemStatus.COMPLETED).length,
+        inProgressCount: activeItems.filter((item) => item.status === TreatmentPlanItemStatus.IN_PROGRESS)
+          .length,
+        completedCount: activeItems.filter((item) => item.status === TreatmentPlanItemStatus.COMPLETED)
+          .length,
         paidCount: activeItems.filter((item) => this.resolveProcedurePayment(item).status === "PAID").length,
         withDebtCount: activeItems.filter((item) => this.resolveProcedurePayment(item).balance.gt(0)).length
       },
@@ -881,12 +2451,15 @@ export class TreatmentPlansService {
       capabilities: {
         canAddSection: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status),
         canAddProcedure: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status),
-        canApplyBulkDiscount: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) && activeItems.length > 0
+        canApplyBulkDiscount:
+          !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) &&
+          activeItems.some((item) => item.allowsDiscountSnapshot)
       }
     };
   }
 
   async applyBulkDiscount(actor: AuthUser, treatmentPlanId: string, dto: BulkDiscountTreatmentPlanItemsDto) {
+    this.ensureCanApplyTreatmentDiscount(actor);
     const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
     this.ensureTreatmentPlanCanMutate(plan, "apply discounts to");
     const itemIds = [...new Set(dto.itemIds.map((id) => id.trim()).filter(Boolean))];
@@ -903,15 +2476,20 @@ export class TreatmentPlansService {
           budgetItems: { include: { budget: { include: { items: true } } } }
         }
       });
-      if (items.length !== itemIds.length) throw new BadRequestException("One or more procedures do not belong to this plan");
+      if (items.length !== itemIds.length)
+        throw new BadRequestException("One or more procedures do not belong to this plan");
+
+      const discountableItems = items.filter(
+        (item) => item.status !== TreatmentPlanItemStatus.CANCELLED && item.allowsDiscountSnapshot
+      );
+      if (!discountableItems.length) {
+        throw new BadRequestException("No selected procedures allow discounts");
+      }
 
       const touchedBudgetIds = new Set<string>();
       const budgetExtraDiscount = new Map<string, Prisma.Decimal>();
 
-      for (const item of items) {
-        if (item.status === TreatmentPlanItemStatus.CANCELLED) {
-          throw new BadRequestException("Cancelled procedures cannot receive discounts");
-        }
+      for (const item of discountableItems) {
         const payment = item.paymentAllocations.reduce(
           (sum, allocation) =>
             allocation.payment?.status === PaymentStatus.VOIDED ? sum : sum.plus(allocation.amount),
@@ -920,7 +2498,9 @@ export class TreatmentPlansService {
         if (item.status === TreatmentPlanItemStatus.PAID || payment.gte(item.total)) {
           throw new BadRequestException("Paid procedures cannot receive discounts");
         }
-        const nonDraftBudget = item.budgetItems.find((budgetItem) => budgetItem.budget.status !== BudgetStatus.DRAFT);
+        const nonDraftBudget = item.budgetItems.find(
+          (budgetItem) => budgetItem.budget.status !== BudgetStatus.DRAFT
+        );
         if (nonDraftBudget) {
           throw new BadRequestException("Cannot update discounts for procedures in sent or accepted budgets");
         }
@@ -938,12 +2518,30 @@ export class TreatmentPlansService {
         }
       }
 
-      for (const item of items) {
+      const discountableBase = discountableItems.reduce(
+        (sum, item) => sum.plus(new Prisma.Decimal(item.quantity).mul(item.unitPrice)),
+        new Prisma.Decimal(0)
+      );
+      const fixedDiscountTotal =
+        dto.discountType === "AMOUNT" ? new Prisma.Decimal(dto.value).toDecimalPlaces(2) : null;
+      if (fixedDiscountTotal?.gt(discountableBase)) {
+        throw new BadRequestException("Discount cannot exceed discountable subtotal");
+      }
+      let allocatedFixedDiscount = new Prisma.Decimal(0);
+
+      for (const [index, item] of discountableItems.entries()) {
         const base = new Prisma.Decimal(item.quantity).mul(item.unitPrice);
-        const discount =
-          dto.discountType === "PERCENTAGE"
-            ? base.mul(dto.value).div(100).toDecimalPlaces(2)
-            : new Prisma.Decimal(dto.value).toDecimalPlaces(2);
+        let discount: Prisma.Decimal;
+        if (dto.discountType === "PERCENTAGE") {
+          discount = base.mul(dto.value).div(100).toDecimalPlaces(2);
+        } else if (index === discountableItems.length - 1) {
+          discount = fixedDiscountTotal!.minus(allocatedFixedDiscount).toDecimalPlaces(2);
+        } else {
+          discount = fixedDiscountTotal!.mul(base).div(discountableBase).toDecimalPlaces(2);
+        }
+        if (dto.discountType === "AMOUNT" && index < discountableItems.length - 1) {
+          allocatedFixedDiscount = allocatedFixedDiscount.plus(discount);
+        }
         if (discount.gt(base)) throw new BadRequestException("Discount cannot exceed procedure subtotal");
         const total = base.minus(discount).toDecimalPlaces(2);
 
@@ -952,6 +2550,13 @@ export class TreatmentPlansService {
           data: {
             discount,
             total,
+            originalPrice: base.toDecimalPlaces(2),
+            discountType: discount.gt(0) ? dto.discountType : null,
+            discountValue: discount.gt(0) ? new Prisma.Decimal(dto.value).toDecimalPlaces(2) : null,
+            discountAmount: discount,
+            finalPrice: total,
+            discountAuthorizedBy: discount.gt(0) ? actor.id : null,
+            discountedAt: discount.gt(0) ? new Date() : null,
             version: { increment: 1 }
           }
         });
@@ -989,12 +2594,13 @@ export class TreatmentPlansService {
         });
       }
 
-      return items.map((item) => item.id);
+      return discountableItems.map((item) => item.id);
     });
 
     await this.audit(actor, "TreatmentPlanItem", null, "bulk_discount", {}, {
       treatmentPlanId,
       itemIds: updatedIds,
+      skippedItemIds: itemIds.filter((itemId) => !updatedIds.includes(itemId)),
       discountType: dto.discountType,
       value: dto.value
     } as Prisma.InputJsonValue);
@@ -1015,6 +2621,18 @@ export class TreatmentPlansService {
     if (!current) throw new NotFoundException("Treatment plan item not found");
 
     if (
+      plan.status === TreatmentPlanStatus.ACCEPTED &&
+      (dto.procedureId !== undefined ||
+        dto.quantity !== undefined ||
+        dto.unitPrice !== undefined ||
+        dto.discount !== undefined)
+    ) {
+      throw new ConflictException(
+        "Accepted treatment plan prices are immutable and keep their agreement snapshot"
+      );
+    }
+
+    if (
       current.status === TreatmentPlanItemStatus.PAID &&
       (dto.procedureId !== undefined ||
         dto.quantity !== undefined ||
@@ -1033,26 +2651,52 @@ export class TreatmentPlansService {
     const quantity = dto.quantity ?? Number(current.quantity);
     let unitPrice = dto.unitPrice ?? Number(current.unitPrice);
     let priceSnapshot = this.snapshotFromCurrentItem(current);
+    let agreementPricing: AgreementItemPricing | null = null;
+    const agreement = await this.resolveTreatmentAgreement(
+      actor,
+      plan.branchId,
+      plan.agreementId ?? plan.patient.agreement?.id
+    );
     if (
       dto.procedureId !== undefined ||
+      dto.quantity !== undefined ||
       (dto.unitPrice !== undefined && !this.sameMoney(dto.unitPrice, Number(current.unitPrice)))
     ) {
-      const resolvedPayload = await this.resolveItemPayload(actor, plan.branchId, plan.patient, {
-        ...dto,
-        procedureId: dto.procedureId ?? current.procedureId,
-        quantity,
-        unitPrice: dto.unitPrice,
-        discount: dto.discount ?? Number(current.discount)
-      });
+      const resolvedPayload = await this.resolveItemPayload(
+        actor,
+        plan.branchId,
+        plan.patient,
+        {
+          ...dto,
+          procedureId: dto.procedureId ?? current.procedureId,
+          quantity,
+          unitPrice: dto.unitPrice,
+          discount: dto.discount ?? Number(current.discount)
+        },
+        agreement
+      );
       unitPrice = resolvedPayload.unitPrice;
       priceSnapshot = this.snapshotFromResolvedPayload(resolvedPayload);
+      agreementPricing = resolvedPayload.agreementPricing ?? null;
+      if (!priceSnapshot.allowsDiscountSnapshot) agreementPricing = null;
     }
 
     let discount = dto.discount ?? Number(current.discount);
+    if (dto.discount !== undefined && !this.sameMoney(dto.discount, Number(current.discount))) {
+      this.ensureCanApplyTreatmentDiscount(actor);
+      if (current.status === TreatmentPlanItemStatus.CANCELLED && dto.discount > 0) {
+        throw new BadRequestException("Cancelled procedures cannot receive discounts");
+      }
+      if (!priceSnapshot.allowsDiscountSnapshot && dto.discount > 0) {
+        throw new BadRequestException("Procedure does not allow discounts according to its price list snapshot");
+      }
+    }
     let agreementCoverage = Number(current.agreementCoverage || 0);
-    const agreement = plan.patient.agreement;
-
-    if (dto.quantity !== undefined || dto.unitPrice !== undefined) {
+    if (agreementPricing) {
+      discount = (dto.discount ?? 0) + agreementPricing.discountAmount + agreementPricing.coverageAmount;
+      agreementCoverage = agreementPricing.coverageAmount;
+      unitPrice = agreementPricing.normalPrice;
+    } else if ((dto.quantity !== undefined || dto.unitPrice !== undefined) && priceSnapshot.allowsDiscountSnapshot) {
       if (agreement && agreement.isActive && Number(agreement.discountPercent) > 0) {
         agreementCoverage = Number(
           (quantity * unitPrice * (Number(agreement.discountPercent) / 100)).toFixed(2)
@@ -1060,8 +2704,13 @@ export class TreatmentPlansService {
         discount = Number(agreementCoverage.toFixed(2));
       }
     }
+    if (!priceSnapshot.allowsDiscountSnapshot && discount > 0) {
+      throw new BadRequestException("Procedure does not allow discounts according to its price list snapshot");
+    }
 
     const total = this.computeTotal(quantity, unitPrice, discount);
+    const originalPrice = this.roundMoney(quantity * unitPrice);
+    const discountAmount = this.roundMoney(discount);
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.treatmentPlanItem.update({
@@ -1072,11 +2721,21 @@ export class TreatmentPlansService {
           toothNumber: dto.toothNumber ?? current.toothNumber,
           surface: dto.surface ?? current.surface,
           odontogramSymbol:
-            dto.odontogramSymbol === undefined ? current.odontogramSymbol : dto.odontogramSymbol.trim() || null,
+            dto.odontogramSymbol === undefined
+              ? current.odontogramSymbol
+              : dto.odontogramSymbol.trim() || null,
           quantity: this.decimal(quantity),
           unitPrice: this.decimal(unitPrice),
           discount: this.decimal(discount),
           total: this.decimal(total),
+          originalPrice: this.decimal(originalPrice),
+          allowsDiscountSnapshot: priceSnapshot.allowsDiscountSnapshot ?? current.allowsDiscountSnapshot,
+          discountType: discountAmount > 0 ? "AMOUNT" : null,
+          discountValue: discountAmount > 0 ? this.decimal(discountAmount) : null,
+          discountAmount: this.decimal(discountAmount),
+          finalPrice: this.decimal(total),
+          discountAuthorizedBy: discountAmount > 0 ? actor.id : null,
+          discountedAt: discountAmount > 0 ? new Date() : null,
           priceListId: priceSnapshot.priceListId,
           priceListItemId: priceSnapshot.priceListItemId,
           priceSource: priceSnapshot.priceSource,
@@ -1084,10 +2743,34 @@ export class TreatmentPlansService {
           priceSnapshotCode: priceSnapshot.priceSnapshotCode,
           priceSnapshotCategory: priceSnapshot.priceSnapshotCategory,
           priceResolvedAt: priceSnapshot.priceResolvedAt,
+          priceListVersionId: priceSnapshot.priceListVersionId,
+          priceListVersionNumber: priceSnapshot.priceListVersionNumber,
+          priceListVersionItemId: priceSnapshot.priceListVersionItemId,
+          priceCurrency: priceSnapshot.priceCurrency,
+          laboratoryCostSnapshot: this.decimal(priceSnapshot.laboratoryCostSnapshot ?? 0),
+          internalCostSnapshot: this.decimal(priceSnapshot.internalCostSnapshot ?? 0),
+          pricingRuleSnapshot: priceSnapshot.pricingRuleSnapshot,
+          pricedById: priceSnapshot.pricedById,
+          procedureCodeSnapshot: priceSnapshot.priceSnapshotCode,
+          procedureNameSnapshot: priceSnapshot.procedureNameSnapshot,
+          procedureCategorySnapshot: priceSnapshot.priceSnapshotCategory,
+          priceListNameSnapshot: priceSnapshot.priceSnapshotName,
           notes: dto.notes ?? current.notes,
           plannedAt:
             dto.plannedAt === undefined ? current.plannedAt : dto.plannedAt ? new Date(dto.plannedAt) : null,
           agreementId: agreement?.id || null,
+          agreementVersionId: agreementPricing?.agreementVersionId ?? current.agreementVersionId,
+          agreementVersionNumber: agreementPricing?.agreementVersionNumber ?? current.agreementVersionNumber,
+          agreementSnapshot: agreementPricing?.snapshot ?? current.agreementSnapshot ?? undefined,
+          agreementNormalPrice: agreementPricing
+            ? this.decimal(agreementPricing.normalPrice)
+            : current.agreementNormalPrice,
+          agreementAppliedPrice: agreementPricing
+            ? this.decimal(agreementPricing.appliedPrice)
+            : current.agreementAppliedPrice,
+          agreementDiscountAmount: agreementPricing
+            ? this.decimal(agreementPricing.discountAmount)
+            : current.agreementDiscountAmount,
           agreementCoverage: this.decimal(agreementCoverage)
         }
       });
@@ -1150,7 +2833,9 @@ export class TreatmentPlansService {
     });
     if (!current) throw new NotFoundException("Treatment plan item not found");
     if (dto.expectedVersion !== undefined && current.version !== dto.expectedVersion) {
-      throw new BadRequestException("Treatment plan item was updated by another operation. Reload and try again.");
+      throw new BadRequestException(
+        "Treatment plan item was updated by another operation. Reload and try again."
+      );
     }
 
     if (dto.status === TreatmentPlanItemStatus.PAID && plan.isAlternative) {
@@ -1159,7 +2844,11 @@ export class TreatmentPlansService {
       );
     }
 
-    const completionPercentage = this.resolveItemCompletionPercentage(dto.status, current.completionPercentage, dto.completionPercentage);
+    const completionPercentage = this.resolveItemCompletionPercentage(
+      dto.status,
+      current.completionPercentage,
+      dto.completionPercentage
+    );
     const performedAmount = this.performedAmountForProgress(current.total, completionPercentage);
     const updated = await this.prisma.$transaction(async (tx) => {
       const updatedItem = await tx.treatmentPlanItem.update({
@@ -1472,14 +3161,103 @@ export class TreatmentPlansService {
     };
   }
 
-  async printTreatmentPlanDocument(actor: AuthUser, id: string, dto: PrintTreatmentPlanDocumentDto) {
+  async getTreatmentPlanPrintOptions(actor: AuthUser, id: string) {
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { id, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      select: {
+        id: true,
+        patientId: true,
+        branchId: true,
+        items: {
+          where: { status: { not: TreatmentPlanItemStatus.CANCELLED } },
+          select: { id: true },
+          take: 1
+        },
+        budgets: {
+          select: { id: true },
+          orderBy: { createdAt: "desc" },
+          take: 1
+        },
+        labOrders: {
+          where: { status: { not: LabOrderStatus.CANCELLED } },
+          select: { id: true },
+          orderBy: { createdAt: "desc" },
+          take: 1
+        }
+      }
+    });
+    if (!plan) throw new NotFoundException("Treatment plan not found");
+
+    const odontogramRecord = await this.prisma.odontogramRecord.findFirst({
+      where: { patientId: plan.patientId },
+      select: { id: true },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const hasItems = plan.items.length > 0;
+    const hasBudget = plan.budgets.length > 0;
+    const hasLabOrder = plan.labOrders.length > 0;
+    const hasOdontogram = Boolean(odontogramRecord);
+
+    return Object.keys(TREATMENT_PLAN_PRINT_PERMISSION_BY_TYPE).map((documentType) => {
+      const permission = TREATMENT_PLAN_PRINT_PERMISSION_BY_TYPE[documentType];
+      const permissionAllowed = this.hasAnyPermission(actor, [
+        permission,
+        ...this.legacyPrintPermissions(documentType)
+      ]);
+      let disabledReason: string | null = null;
+
+      if (!permissionAllowed) disabledReason = "No tienes permiso para generar este documento.";
+      else if (
+        documentType === "BUDGET_COMPLETE" ||
+        documentType === "BUDGET_TOTAL_ONLY" ||
+        documentType === "BUDGET_NO_DETAIL"
+      ) {
+        if (!hasBudget) disabledReason = "Primero genera un presupuesto.";
+      } else if (documentType === "LAB_ORDER") {
+        if (!hasLabOrder) disabledReason = "No hay una orden de laboratorio vinculada.";
+      } else if (documentType === "ODONTOGRAM") {
+        if (!hasOdontogram) disabledReason = "El paciente no tiene una version de odontograma.";
+      } else if (documentType === "CARE_PLAN" || documentType === "SECTIONS") {
+        if (!hasItems) disabledReason = "Agrega al menos una prestacion al plan.";
+      }
+
+      return {
+        visible: true,
+        enabled: disabledReason === null,
+        disabled_reason: disabledReason,
+        permission,
+        document_type: documentType,
+        label: TREATMENT_PLAN_PRINT_LABEL_BY_TYPE[documentType],
+        description: TREATMENT_PLAN_PRINT_DESCRIPTION_BY_TYPE[documentType],
+        context: {
+          budgetId: plan.budgets[0]?.id ?? null,
+          laboratoryOrderId: plan.labOrders[0]?.id ?? null,
+          odontogramVersionId: odontogramRecord?.id ?? null
+        }
+      };
+    });
+  }
+
+  async previewTreatmentPlanDocument(actor: AuthUser, id: string, dto: PrintTreatmentPlanDocumentDto) {
+    return this.printTreatmentPlanDocument(actor, id, dto, "preview");
+  }
+
+  async printTreatmentPlanDocument(
+    actor: AuthUser,
+    id: string,
+    dto: PrintTreatmentPlanDocumentDto,
+    mode: "preview" | "generate" = "generate"
+  ) {
+    this.ensurePrintPermission(actor, dto.type);
     const plan = await this.prisma.treatmentPlan.findFirst({
       where: { id, organizationId: actor.organizationId, branchId: branchScope(actor) },
       include: {
-        organization: { select: { name: true, address: true, phone: true } },
+        organization: { select: { name: true, address: true, phone: true, logoUrl: true } },
         branch: {
           select: {
             name: true,
+            brand: { select: { name: true, logoUrl: true } },
             address: true,
             exteriorNumber: true,
             interiorNumber: true,
@@ -1533,6 +3311,15 @@ export class TreatmentPlansService {
           orderBy: { createdAt: "desc" },
           take: 1
         },
+        labOrders: {
+          where: { status: { not: LabOrderStatus.CANCELLED } },
+          include: {
+            labProvider: { select: { name: true } },
+            items: true
+          },
+          orderBy: { createdAt: "desc" },
+          take: 1
+        },
         clinicalEvolutions: {
           where: { annulledAt: null },
           include: {
@@ -1544,16 +3331,52 @@ export class TreatmentPlansService {
       }
     });
     if (!plan) throw new NotFoundException("Treatment plan not found");
-    if (!plan.items.length) {
+    if (dto.type === "LAB_ORDER" && !plan.labOrders.length) {
+      throw new BadRequestException("No hay una orden de laboratorio vinculada.");
+    }
+    if (dto.type !== "LAB_ORDER" && dto.type !== "ODONTOGRAM" && !plan.items.length) {
       throw new BadRequestException("Treatment plan requires at least one active item to print documents");
     }
     if (dto.budgetId && !plan.budgets.length) throw new NotFoundException("Budget not found");
+    if (
+      (dto.type === "BUDGET_COMPLETE" ||
+        dto.type === "BUDGET_TOTAL_ONLY" ||
+        dto.type === "BUDGET_NO_DETAIL") &&
+      !plan.budgets.length
+    ) {
+      throw new BadRequestException("Primero genera un presupuesto.");
+    }
 
-    const input = this.buildTreatmentPlanDocumentInput(plan, dto);
-    return buildTreatmentPlanDocumentPdf(input);
+    const [logoImage, odontogram] = await Promise.all([
+      this.resolveTreatmentPlanDocumentLogo(plan),
+      dto.type === "ODONTOGRAM"
+        ? this.buildTreatmentPlanDocumentOdontogram(plan.patientId)
+        : Promise.resolve(null)
+    ]);
+    if (dto.type === "ODONTOGRAM" && !odontogram?.records.length) {
+      throw new BadRequestException("El paciente no tiene registros de odontograma.");
+    }
+
+    const input = this.buildTreatmentPlanDocumentInput(plan, dto, { logoImage, odontogram });
+    const document = await buildTreatmentPlanDocumentPdf(input);
+    await this.audit(actor, "TreatmentPlanDocument", id, mode === "preview" ? "preview" : "generate", {}, {
+      treatmentPlanId: id,
+      documentType: dto.type,
+      budgetId: dto.budgetId ?? plan.budgets[0]?.id ?? null,
+      branchId: plan.branchId,
+      patientId: plan.patientId
+    } as Prisma.InputJsonValue);
+    return document;
   }
 
-  private buildTreatmentPlanDocumentInput(plan: any, dto: PrintTreatmentPlanDocumentDto): TreatmentPlanDocumentInput {
+  private buildTreatmentPlanDocumentInput(
+    plan: any,
+    dto: PrintTreatmentPlanDocumentDto,
+    extras: {
+      logoImage?: TreatmentPlanDocumentImage | null;
+      odontogram?: TreatmentPlanDocumentOdontogram | null;
+    } = {}
+  ): TreatmentPlanDocumentInput {
     const items = plan.items.map((item: any) => this.mapTreatmentPlanDocumentItem(item));
     const subtotal = items.reduce((sum: number, item: TreatmentPlanDocumentItem) => sum + item.subtotal, 0);
     const discount = items.reduce((sum: number, item: TreatmentPlanDocumentItem) => sum + item.discount, 0);
@@ -1583,6 +3406,7 @@ export class TreatmentPlansService {
       clinicName: plan.organization.name,
       clinicAddress: clinicAddress || plan.organization.address || plan.branch.name,
       clinicPhone: plan.branch.phone || plan.organization.phone || "",
+      logoImage: extras.logoImage ?? null,
       patient: {
         id: this.documentNumericId(plan.patient.id),
         name: `${plan.patient.firstName} ${plan.patient.lastName}`.trim(),
@@ -1596,12 +3420,17 @@ export class TreatmentPlansService {
       },
       professional: {
         name: `${plan.professional.firstName} ${plan.professional.lastName}`.trim(),
-        specialty: plan.specialtySnapshotName || plan.specialty?.name || plan.professional.specialties?.[0]?.specialty?.name || "General",
+        specialty:
+          plan.specialtySnapshotName ||
+          plan.specialty?.name ||
+          plan.professional.specialties?.[0]?.specialty?.name ||
+          "General",
         licenseNumber: plan.professional.licenseNumber || "-"
       },
       branchName: plan.branch.name,
       agreementName: plan.patient.agreement?.name || "Sin convenio",
       items,
+      odontogram: extras.odontogram ?? null,
       clinicalEvolutions: plan.clinicalEvolutions.map((evolution: any) => ({
         createdAt: evolution.createdAt,
         professionalName: `${evolution.professional.firstName} ${evolution.professional.lastName}`.trim(),
@@ -1612,6 +3441,24 @@ export class TreatmentPlansService {
           this.plainText(evolution.plan) ||
           this.plainText(evolution.subjective)
       })),
+      labOrder: plan.labOrders?.[0]
+        ? {
+            id: this.documentNumericId(plan.labOrders[0].id),
+            status: plan.labOrders[0].status,
+            labProviderName: plan.labOrders[0].labProvider?.name ?? "Laboratorio sin nombre",
+            sentAt: plan.labOrders[0].sentAt,
+            expectedAt: plan.labOrders[0].expectedAt,
+            receivedAt: plan.labOrders[0].receivedAt,
+            notes: plan.labOrders[0].notes,
+            items: (plan.labOrders[0].items ?? []).map((item: any) => ({
+              toothNumber: item.toothNumber ? this.toothPrintLabel(item.toothNumber, null) : null,
+              workType: item.description,
+              material: null,
+              shade: null,
+              instructions: item.notes
+            }))
+          }
+        : null,
       totals: {
         subtotal,
         discount,
@@ -1620,6 +3467,143 @@ export class TreatmentPlansService {
         balance: Math.max(total - paid, 0)
       }
     };
+  }
+
+  private async buildTreatmentPlanDocumentOdontogram(
+    patientId: string
+  ): Promise<TreatmentPlanDocumentOdontogram> {
+    const records = await this.prisma.odontogramRecord.findMany({
+      where: {
+        patientId,
+        status: { not: ToothProcedureStatus.CANCELLED }
+      },
+      include: {
+        professional: { select: { firstName: true, lastName: true } },
+        procedure: { select: { code: true, name: true } }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+    const mappedRecords = records.map((record: any) => this.mapTreatmentPlanDocumentOdontogramRecord(record));
+    const hasTemporalOnly =
+      mappedRecords.length > 0 &&
+      mappedRecords.every((record) => ["5", "6", "7", "8"].includes(record.toothNumber[0]));
+
+    return {
+      dentition: hasTemporalOnly ? "temporal" : "permanent",
+      recordedAt: mappedRecords[0]?.createdAt ?? null,
+      records: mappedRecords
+    };
+  }
+
+  private mapTreatmentPlanDocumentOdontogramRecord(record: any): TreatmentPlanDocumentOdontogramRecord {
+    return {
+      id: record.id,
+      createdAt: record.createdAt,
+      toothNumber: record.toothNumber,
+      toothLabel: this.toothPrintLabel(record.toothNumber, null),
+      surface: record.surface,
+      surfaceLabel: this.surfacePrintLabel(record.surface),
+      condition: record.condition,
+      diagnosis: record.diagnosis,
+      odontogramSymbol: record.odontogramSymbol,
+      status: record.status,
+      procedureCode: record.procedure?.code ?? null,
+      procedureName: record.procedure?.name ?? null,
+      professionalName:
+        `${record.professional?.firstName ?? ""} ${record.professional?.lastName ?? ""}`.trim() || "-"
+    };
+  }
+
+  private async resolveTreatmentPlanDocumentLogo(plan: any): Promise<TreatmentPlanDocumentImage | null> {
+    const logoUrl = plan.branch?.brand?.logoUrl || plan.organization?.logoUrl;
+    if (!logoUrl) return null;
+    return this.loadTreatmentPlanDocumentImage(logoUrl);
+  }
+
+  private async loadTreatmentPlanDocumentImage(value: string): Promise<TreatmentPlanDocumentImage | null> {
+    const source = value.trim();
+    if (!source) return null;
+
+    const dataMatch = source.match(/^data:(image\/(?:png|jpe?g));base64,(.+)$/i);
+    if (dataMatch) {
+      return {
+        mimeType: this.normalizeDocumentImageMime(dataMatch[1]),
+        base64: dataMatch[2]
+      };
+    }
+
+    if (source.startsWith("/")) {
+      const localPath = this.resolveTreatmentPlanDocumentPublicAssetPath(source);
+      return this.readTreatmentPlanDocumentImage(localPath, source);
+    }
+
+    if (/^https?:\/\//i.test(source)) {
+      try {
+        const response = await fetch(source);
+        if (!response.ok) return null;
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!/^image\/(?:png|jpe?g)/i.test(contentType)) return null;
+        return {
+          mimeType: this.normalizeDocumentImageMime(contentType),
+          base64: Buffer.from(await response.arrayBuffer()).toString("base64")
+        };
+      } catch {
+        return null;
+      }
+    }
+
+    return this.readTreatmentPlanDocumentImage(path.resolve(process.cwd(), source), source);
+  }
+
+  private resolveTreatmentPlanDocumentPublicAssetPath(source: string) {
+    const relativePath = path.join("apps", "web", "public", source.replace(/^\/+/, ""));
+    const candidates = [
+      path.resolve(process.cwd(), relativePath),
+      path.resolve(process.cwd(), "..", "..", relativePath),
+      path.resolve(__dirname, "..", "..", "..", "..", "..", relativePath)
+    ];
+    return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0];
+  }
+
+  private async readTreatmentPlanDocumentImage(
+    localPath: string,
+    source: string
+  ): Promise<TreatmentPlanDocumentImage | null> {
+    try {
+      const bytes = await readFile(localPath);
+      const extension = path.extname(source).toLowerCase();
+      if (extension !== ".png" && extension !== ".jpg" && extension !== ".jpeg") return null;
+      return {
+        mimeType: extension === ".png" ? "image/png" : "image/jpeg",
+        base64: bytes.toString("base64")
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private normalizeDocumentImageMime(value: string): "image/png" | "image/jpeg" {
+    return value.toLowerCase().includes("png") ? "image/png" : "image/jpeg";
+  }
+
+  private ensurePrintPermission(actor: AuthUser, documentType: string) {
+    const permission = TREATMENT_PLAN_PRINT_PERMISSION_BY_TYPE[documentType];
+    if (!permission) throw new BadRequestException("Unsupported treatment plan document type");
+    if (!this.hasAnyPermission(actor, [permission, ...this.legacyPrintPermissions(documentType)])) {
+      throw new ForbiddenException("Insufficient permissions");
+    }
+  }
+
+  private hasAnyPermission(actor: AuthUser, permissions: string[]) {
+    if (actor.permissions.includes("system.manage_all")) return true;
+    return permissions.some((permission) => actor.permissions.includes(permission));
+  }
+
+  private legacyPrintPermissions(documentType: string) {
+    if (documentType === "ODONTOGRAM") return ["clinical.odontogram.read"];
+    if (documentType === "CLINICAL_HISTORY") return ["clinical.read"];
+    if (documentType === "LAB_ORDER") return ["lab_orders.read"];
+    return ["budgets.print"];
   }
 
   private mapTreatmentPlanDocumentItem(item: any): TreatmentPlanDocumentItem {
@@ -1732,18 +3716,26 @@ export class TreatmentPlansService {
         name: `${plan.professional.firstName} ${plan.professional.lastName}`.trim()
       },
       dentalScope: {
-        type: item.toothNumber ? (item.surface && item.surface !== "ALL" ? "SURFACES" : "WHOLE_TOOTH") : "GENERAL",
+        type: item.toothNumber
+          ? item.surface && item.surface !== "ALL"
+            ? "SURFACES"
+            : "WHOLE_TOOTH"
+          : "GENERAL",
         toothNumber: item.toothNumber,
-        surfaces: item.surface && item.surface !== "ALL" ? item.surface.split(",").map((surface: string) => surface.trim()) : []
+        surfaces:
+          item.surface && item.surface !== "ALL"
+            ? item.surface.split(",").map((surface: string) => surface.trim())
+            : []
       },
       discount: {
-        type: "AMOUNT",
-        value: item.discount.toString(),
-        amount: item.discount.toString()
+        type: item.discountType ?? "AMOUNT",
+        value: (item.discountValue ?? item.discount).toString(),
+        amount: (item.discountAmount ?? item.discount).toString()
       },
       pricing: {
-        basePrice: basePrice.toString(),
-        finalPrice: item.total.toString(),
+        basePrice: (item.originalPrice ?? basePrice).toString(),
+        finalPrice: (item.finalPrice ?? item.total).toString(),
+        allowsDiscount: item.allowsDiscountSnapshot ?? true,
         currency: "MXN"
       },
       payment: {
@@ -1764,8 +3756,11 @@ export class TreatmentPlansService {
       status: item.status,
       capabilities: {
         canEdit: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) && payment.paidAmount.lt(item.total),
-        canEvolve: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) && item.status !== TreatmentPlanItemStatus.COMPLETED,
-        canUnperform: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) && item.status !== TreatmentPlanItemStatus.PLANNED,
+        canEvolve:
+          !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) &&
+          item.status !== TreatmentPlanItemStatus.COMPLETED,
+        canUnperform:
+          !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) && item.status !== TreatmentPlanItemStatus.PLANNED,
         canCollect: payment.balance.gt(0),
         canDelete:
           !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) &&
@@ -1798,17 +3793,28 @@ export class TreatmentPlansService {
   private buildItemData(
     treatmentPlanId: string,
     dto: TreatmentPlanItemBuildInput,
-    agreement: TreatmentAgreementSnapshot = null
+    agreement: TreatmentAgreementSnapshot = null,
+    discountedById?: string
   ): Prisma.TreatmentPlanItemUncheckedCreateInput {
+    const allowsDiscount = dto.allowsDiscountSnapshot ?? true;
+    if (!allowsDiscount && dto.discount > 0) {
+      throw new BadRequestException("Procedure does not allow discounts according to its price list snapshot");
+    }
     let finalDiscount = dto.discount;
     let agreementCoverage = 0;
-    if (agreement && agreement.isActive && Number(agreement.discountPercent) > 0) {
+    if (allowsDiscount && dto.agreementPricing) {
+      finalDiscount =
+        finalDiscount + dto.agreementPricing.discountAmount + dto.agreementPricing.coverageAmount;
+      agreementCoverage = dto.agreementPricing.coverageAmount;
+    } else if (allowsDiscount && agreement && agreement.isActive && Number(agreement.discountPercent) > 0) {
       agreementCoverage = Number(
         (dto.quantity * dto.unitPrice * (Number(agreement.discountPercent) / 100)).toFixed(2)
       );
       finalDiscount = finalDiscount + agreementCoverage;
     }
     const total = this.computeTotal(dto.quantity, dto.unitPrice, finalDiscount);
+    const originalPrice = this.roundMoney(dto.quantity * (dto.agreementPricing?.normalPrice ?? dto.unitPrice));
+    const discountAmount = this.roundMoney(finalDiscount);
     return {
       treatmentPlanId,
       sectionId: dto.sectionId,
@@ -1817,9 +3823,17 @@ export class TreatmentPlansService {
       surface: dto.surface?.trim().toUpperCase(),
       odontogramSymbol: dto.odontogramSymbol?.trim() || null,
       quantity: this.decimal(dto.quantity),
-      unitPrice: this.decimal(dto.unitPrice),
+      unitPrice: this.decimal(dto.agreementPricing?.normalPrice ?? dto.unitPrice),
       discount: this.decimal(finalDiscount),
       total: this.decimal(total),
+      originalPrice: this.decimal(originalPrice),
+      allowsDiscountSnapshot: allowsDiscount,
+      discountType: discountAmount > 0 ? "AMOUNT" : null,
+      discountValue: discountAmount > 0 ? this.decimal(discountAmount) : null,
+      discountAmount: this.decimal(discountAmount),
+      finalPrice: this.decimal(total),
+      discountAuthorizedBy: discountAmount > 0 ? discountedById ?? null : null,
+      discountedAt: discountAmount > 0 ? new Date() : null,
       status: TreatmentPlanItemStatus.PLANNED,
       priceListId: dto.priceListId,
       priceListItemId: dto.priceListItemId,
@@ -1828,9 +3842,29 @@ export class TreatmentPlansService {
       priceSnapshotCode: dto.priceSnapshotCode,
       priceSnapshotCategory: dto.priceSnapshotCategory,
       priceResolvedAt: dto.priceResolvedAt,
+      priceListVersionId: dto.priceListVersionId,
+      priceListVersionNumber: dto.priceListVersionNumber,
+      priceListVersionItemId: dto.priceListVersionItemId,
+      priceCurrency: dto.priceCurrency,
+      laboratoryCostSnapshot: this.decimal(dto.laboratoryCostSnapshot ?? 0),
+      internalCostSnapshot: this.decimal(dto.internalCostSnapshot ?? 0),
+      pricingRuleSnapshot: dto.pricingRuleSnapshot,
+      pricedById: dto.pricedById,
+      procedureCodeSnapshot: dto.priceSnapshotCode,
+      procedureNameSnapshot: dto.procedureNameSnapshot,
+      procedureCategorySnapshot: dto.priceSnapshotCategory,
+      priceListNameSnapshot: dto.priceSnapshotName,
       notes: dto.notes?.trim(),
       plannedAt: dto.plannedAt ? new Date(dto.plannedAt) : null,
-      agreementId: agreement?.id || null,
+      agreementId: dto.agreementPricing?.agreementId ?? agreement?.id ?? null,
+      agreementVersionId: dto.agreementPricing?.agreementVersionId ?? null,
+      agreementVersionNumber: dto.agreementPricing?.agreementVersionNumber ?? null,
+      agreementSnapshot: dto.agreementPricing?.snapshot,
+      agreementNormalPrice: dto.agreementPricing ? this.decimal(dto.agreementPricing.normalPrice) : null,
+      agreementAppliedPrice: dto.agreementPricing ? this.decimal(dto.agreementPricing.appliedPrice) : null,
+      agreementDiscountAmount: dto.agreementPricing
+        ? this.decimal(dto.agreementPricing.discountAmount)
+        : null,
       agreementCoverage: this.decimal(agreementCoverage)
     };
   }
@@ -1873,11 +3907,20 @@ export class TreatmentPlansService {
     actor: AuthUser,
     branchId: string,
     patient: TreatmentPatientForPricing,
-    dto: UpdateTreatmentPlanItemDto & { procedureId: string }
+    dto: UpdateTreatmentPlanItemDto & { procedureId: string },
+    agreement: TreatmentAgreementSnapshot = null
   ): Promise<TreatmentPlanItemBuildInput> {
     const quantity = dto.quantity ?? 1;
     const discount = dto.discount ?? 0;
-    const resolved = await this.resolveProcedurePriceSnapshot(actor, branchId, patient, dto.procedureId);
+    if (discount > 0) {
+      this.ensureCanApplyTreatmentDiscount(actor);
+    }
+    const resolved = await this.resolveProcedurePriceSnapshot(
+      actor,
+      branchId,
+      agreement ? { agreement } : patient,
+      dto.procedureId
+    );
     let unitPrice = resolved.unitPrice;
     let priceSource = resolved.priceSource;
 
@@ -1895,11 +3938,22 @@ export class TreatmentPlansService {
       }
     }
 
+    const agreementPricing = await this.resolveAgreementItemPricing(
+      actor,
+      branchId,
+      dto.procedureId,
+      quantity,
+      unitPrice,
+      agreement
+    );
+    if (!resolved.allowsDiscountSnapshot && discount > 0) {
+      throw new BadRequestException("Procedure does not allow discounts according to its price list snapshot");
+    }
     return {
       ...dto,
       procedureId: dto.procedureId,
       quantity,
-      unitPrice,
+      unitPrice: agreementPricing?.normalPrice ?? unitPrice,
       discount,
       priceListId: resolved.priceListId,
       priceListItemId: resolved.priceListItemId,
@@ -1907,7 +3961,18 @@ export class TreatmentPlansService {
       priceSnapshotName: resolved.priceSnapshotName,
       priceSnapshotCode: resolved.priceSnapshotCode,
       priceSnapshotCategory: resolved.priceSnapshotCategory,
-      priceResolvedAt: resolved.priceResolvedAt
+      priceResolvedAt: resolved.priceResolvedAt,
+      priceListVersionId: resolved.priceListVersionId,
+      priceListVersionNumber: resolved.priceListVersionNumber,
+      priceListVersionItemId: resolved.priceListVersionItemId,
+      priceCurrency: resolved.priceCurrency,
+      laboratoryCostSnapshot: resolved.laboratoryCostSnapshot,
+      internalCostSnapshot: resolved.internalCostSnapshot,
+      pricingRuleSnapshot: resolved.pricingRuleSnapshot,
+      pricedById: resolved.pricedById,
+      procedureNameSnapshot: resolved.procedureNameSnapshot,
+      allowsDiscountSnapshot: resolved.allowsDiscountSnapshot,
+      agreementPricing
     };
   }
 
@@ -1917,6 +3982,34 @@ export class TreatmentPlansService {
     patient: TreatmentPatientForPricing,
     procedureId: string
   ): Promise<ProcedurePriceSnapshot> {
+    if (process.env.PRICE_LISTS_V2_ENABLED === "true" && this.pricing) {
+      const result = await this.pricing.resolve(actor, {
+        branchId,
+        procedureId,
+        agreementId: patient.agreement?.id ?? undefined,
+        currency: "MXN"
+      });
+      return {
+        unitPrice: Number(result.basePrice),
+        priceListId: result.priceList.id,
+        priceListItemId: null,
+        priceListVersionId: result.version.id,
+        priceListVersionNumber: result.version.number,
+        priceListVersionItemId: result.version.itemId,
+        priceSource: result.rule.source === "MANUAL" ? TreatmentPriceSource.MANUAL : TreatmentPriceSource.PRICE_LIST,
+        priceSnapshotName: result.priceList.name,
+        priceSnapshotCode: result.procedure.code,
+        priceSnapshotCategory: result.procedure.category,
+        procedureNameSnapshot: result.procedure.name,
+        priceResolvedAt: result.pricedAt,
+        priceCurrency: result.currency,
+        laboratoryCostSnapshot: Number(result.laboratoryCost),
+        internalCostSnapshot: Number(result.internalCost),
+        pricingRuleSnapshot: result.rule as Prisma.InputJsonValue,
+        pricedById: result.pricedById,
+        allowsDiscountSnapshot: result.allowDiscount
+      };
+    }
     const preferredPriceListId = patient.agreement?.priceListId;
     const hasBranchScopedLists = await this.prisma.branchPriceList.count({
       where: {
@@ -1996,7 +4089,8 @@ export class TreatmentPlansService {
       priceSnapshotName: null,
       priceSnapshotCode: procedure.code,
       priceSnapshotCategory: procedure.category?.name ?? null,
-      priceResolvedAt: new Date()
+      priceResolvedAt: new Date(),
+      allowsDiscountSnapshot: true
     };
   }
 
@@ -2019,7 +4113,77 @@ export class TreatmentPlansService {
       priceSnapshotName: row.priceList.name,
       priceSnapshotCode: row.procedure.code,
       priceSnapshotCategory: row.priceListCategory?.name ?? row.procedure.category.name,
-      priceResolvedAt: new Date()
+      priceResolvedAt: new Date(),
+      allowsDiscountSnapshot: row.allowsDiscount
+    };
+  }
+
+  private async resolveAgreementItemPricing(
+    actor: AuthUser,
+    branchId: string,
+    procedureId: string,
+    quantity: number,
+    normalPrice: number,
+    agreement: TreatmentAgreementSnapshot
+  ): Promise<AgreementItemPricing | null> {
+    if (!agreement?.id || !agreement.version) return null;
+    const now = new Date();
+    if (!agreement.isActive || agreement.status !== "ACTIVE") return null;
+    if ((agreement.startsAt && agreement.startsAt > now) || (agreement.endsAt && agreement.endsAt < now))
+      return null;
+    const version = await this.prisma.agreementVersion.findFirst({
+      where: { agreementId: agreement.id, organizationId: actor.organizationId, version: agreement.version },
+      include: { branches: true, categoryRules: true, procedureRules: true }
+    });
+    if (!version) return null;
+    if (!version.branches.some((branch) => branch.branchId === branchId)) {
+      throw new BadRequestException("Agreement is not valid for this branch");
+    }
+    const procedure = await this.prisma.procedure.findFirst({
+      where: { id: procedureId, organizationId: actor.organizationId, isActive: true },
+      select: { categoryId: true }
+    });
+    if (!procedure) return null;
+    const procedureRule = version.procedureRules.find((row) => row.procedureId === procedureId);
+    const categoryRule = version.categoryRules.find((row) => row.procedureCategoryId === procedure.categoryId);
+    const rule = procedureRule ?? categoryRule;
+    if (version.categoryRules.length && !categoryRule && !procedureRule)
+      throw new BadRequestException("Procedure category is not eligible for this agreement");
+    if (rule && !rule.isEligible)
+      throw new BadRequestException("Procedure is not eligible for this agreement");
+    const preferredPrice =
+      rule?.preferredPrice === null || rule?.preferredPrice === undefined
+        ? normalPrice
+        : Number(rule.preferredPrice);
+    const discountPercent = Number(rule?.discountPercent ?? version.discountPercent);
+    const appliedPrice = Number((preferredPrice * (1 - discountPercent / 100)).toFixed(2));
+    const coveragePercent = Number(rule?.coveragePercent ?? version.coveragePercent);
+    const copayAmount = Number(rule?.copayAmount ?? version.copayAmount);
+    const rawCoverage = Number(
+      (Math.max(0, appliedPrice * quantity - copayAmount) * (coveragePercent / 100)).toFixed(2)
+    );
+    const coverageLimit = rule?.coverageLimitAmount ?? version.coverageLimitAmount;
+    const coverageAmount = coverageLimit ? Math.min(rawCoverage, Number(coverageLimit)) : rawCoverage;
+    const discountAmount = Number(((normalPrice - appliedPrice) * quantity).toFixed(2));
+    return {
+      agreementId: agreement.id,
+      agreementVersionId: version.id,
+      agreementVersionNumber: version.version,
+      snapshot: {
+        agreementId: agreement.id,
+        agreementVersionId: version.id,
+        agreementVersion: version.version,
+        normalPrice,
+        appliedPrice,
+        discountAmount,
+        coverageAmount,
+        copayAmount,
+        coverageRules: rule?.coverageRules ?? version.coverageRules ?? null
+      } as Prisma.InputJsonValue,
+      normalPrice,
+      appliedPrice,
+      discountAmount,
+      coverageAmount: Number(coverageAmount.toFixed(2))
     };
   }
 
@@ -2031,6 +4195,7 @@ export class TreatmentPlansService {
     priceSnapshotCode?: string | null;
     priceSnapshotCategory?: string | null;
     priceResolvedAt?: Date | null;
+    allowsDiscountSnapshot?: boolean | null;
   }): ProcedurePriceSnapshot {
     return {
       unitPrice: 0,
@@ -2040,7 +4205,8 @@ export class TreatmentPlansService {
       priceSnapshotName: item.priceSnapshotName ?? null,
       priceSnapshotCode: item.priceSnapshotCode ?? null,
       priceSnapshotCategory: item.priceSnapshotCategory ?? null,
-      priceResolvedAt: item.priceResolvedAt ?? null
+      priceResolvedAt: item.priceResolvedAt ?? null,
+      allowsDiscountSnapshot: item.allowsDiscountSnapshot ?? true
     };
   }
 
@@ -2053,8 +4219,29 @@ export class TreatmentPlansService {
       priceSnapshotName: payload.priceSnapshotName,
       priceSnapshotCode: payload.priceSnapshotCode,
       priceSnapshotCategory: payload.priceSnapshotCategory,
-      priceResolvedAt: payload.priceResolvedAt
+      priceResolvedAt: payload.priceResolvedAt,
+      priceListVersionId: payload.priceListVersionId,
+      priceListVersionNumber: payload.priceListVersionNumber,
+      priceListVersionItemId: payload.priceListVersionItemId,
+      priceCurrency: payload.priceCurrency,
+      laboratoryCostSnapshot: payload.laboratoryCostSnapshot,
+      internalCostSnapshot: payload.internalCostSnapshot,
+      pricingRuleSnapshot: payload.pricingRuleSnapshot,
+      pricedById: payload.pricedById,
+      procedureNameSnapshot: payload.procedureNameSnapshot,
+      allowsDiscountSnapshot: payload.allowsDiscountSnapshot
     };
+  }
+
+  private ensureCanApplyTreatmentDiscount(actor: AuthUser) {
+    if (
+      actor.permissions.includes("system.manage_all") ||
+      actor.permissions.includes("treatment_discount.apply") ||
+      actor.permissions.includes("treatment_discount.override")
+    ) {
+      return;
+    }
+    throw new ForbiddenException("Insufficient permissions to apply treatment discounts");
   }
 
   private canOverrideManualPrices(actor: AuthUser) {
@@ -2111,10 +4298,15 @@ export class TreatmentPlansService {
     return ToothProcedureStatus.PLANNED;
   }
 
-  private mapItemProgressToToothProcedureStatus(status: TreatmentPlanItemStatus, completionPercentage?: number) {
+  private mapItemProgressToToothProcedureStatus(
+    status: TreatmentPlanItemStatus,
+    completionPercentage?: number
+  ) {
     if (status === TreatmentPlanItemStatus.CANCELLED) return ToothProcedureStatus.CANCELLED;
-    if (completionPercentage === 100 || status === TreatmentPlanItemStatus.COMPLETED) return ToothProcedureStatus.COMPLETED;
-    if ((completionPercentage ?? 0) > 0 || status === TreatmentPlanItemStatus.IN_PROGRESS) return ToothProcedureStatus.IN_PROGRESS;
+    if (completionPercentage === 100 || status === TreatmentPlanItemStatus.COMPLETED)
+      return ToothProcedureStatus.COMPLETED;
+    if ((completionPercentage ?? 0) > 0 || status === TreatmentPlanItemStatus.IN_PROGRESS)
+      return ToothProcedureStatus.IN_PROGRESS;
     return this.mapItemStatusToToothProcedureStatus(status);
   }
 
@@ -2268,28 +4460,60 @@ export class TreatmentPlansService {
     const evolutions = plan.clinicalEvolutions ?? [];
     const now = new Date();
     const calendar = this.resolveOrthodonticCalendar(plan, now);
-    const hygieneSeries = evolutions
-      .map((evolution: any) => {
-        const score = this.fieldInt(evolution, "higiene");
-        if (!score || score < 1 || score > 7) return null;
-        return {
-          evolutionId: evolution.id,
-          date: evolution.createdAt,
-          score,
-          professionalName: this.professionalName(evolution.professional),
-          comment: this.plainEvolutionComment(evolution)
-        };
-      })
-      .filter(Boolean)
-      .reverse();
-    const hygieneScores = hygieneSeries.map((item: any) => item.score);
+    const controls = plan.orthodonticControls ?? [];
+    const hygieneSeries = this.resolveOrthodonticHygieneSeries(plan, evolutions);
+    const hygieneScores = hygieneSeries.map((item: any) => Number(item.score));
     const latestHygiene = hygieneSeries[hygieneSeries.length - 1] ?? null;
     const latestEvolution = evolutions[0] ? this.mapOrthodonticEvolution(evolutions[0]) : null;
-    const completedControls = evolutions.length;
+    const completedControls = controls.length || this.legacyCompletedOrthodonticControls(evolutions);
     const plannedControls = profile?.estimatedControls ?? profile?.estimatedMonths ?? 0;
-    const realPercentage = plannedControls ? Math.min(100, (completedControls / plannedControls) * 100) : 0;
+    const realPercentage = plannedControls ? (completedControls / plannedControls) * 100 : 0;
+    const nextAppointment = plan.appointments?.[0] ?? null;
+    const financialSummary = this.resolveOrthodonticFinancialSummary(plan.items ?? []);
+    const deviations = this.resolveOrthodonticDeviation(
+      calendar,
+      realPercentage,
+      completedControls,
+      plannedControls,
+      profile
+    );
 
     return {
+      treatmentPlanId: plan.id,
+      status: calendar.status,
+      startedAt: profile?.startDate ?? null,
+      completedAt: profile?.actualEndDate ?? plan.completedAt ?? null,
+      calendarProgress: calendar,
+      calendarProgressPercent: calendar.percentage,
+      calendarProgressLabel: calendar.label,
+      elapsedActiveDays: calendar.activeDays,
+      elapsedPausedDays: calendar.pausedDays,
+      elapsedMonths: calendar.elapsedMonths,
+      estimatedEndAt: calendar.estimatedEndAt,
+      monthsExceeded: calendar.monthsExceeded,
+      realProgress: {
+        percentage: realPercentage,
+        displayPercentage: Math.min(100, Math.max(0, realPercentage)),
+        completedControls,
+        plannedControls,
+        status: deviations.status,
+        label: deviations.label,
+        calculationMethod: plannedControls ? "COMPLETED_ORTHODONTIC_CONTROLS" : "INSUFFICIENT_PLANNING",
+        additionalControls: plannedControls ? Math.max(0, completedControls - plannedControls) : 0,
+        deviationPercentage: deviations.percentage
+      },
+      realProgressPercent: realPercentage,
+      realProgressLabel: this.resolveControlsProgressLabel(
+        realPercentage,
+        completedControls,
+        plannedControls
+      ),
+      realProgressStatus: deviations.status,
+      realControlsCount: completedControls,
+      estimatedControls: plannedControls || null,
+      estimatedMonths: profile?.estimatedMonths ?? null,
+      isPaused: calendar.status === "PAUSED",
+      pauseStartDate: calendar.pauseStartDate,
       plan: {
         id: plan.id,
         patientId: plan.patientId,
@@ -2305,33 +4529,56 @@ export class TreatmentPlansService {
         },
         branch: plan.branch
       },
-      calendarProgress: calendar,
-      realProgress: {
-        percentage: realPercentage,
-        completedControls,
-        plannedControls,
-        status: this.resolveRealProgressStatus(realPercentage, calendar.percentage, plannedControls),
-        label: this.resolveRealProgressLabel(realPercentage, calendar.percentage, plannedControls),
-        calculationMethod: plannedControls ? "COMPLETED_CONTROLS" : "INSUFFICIENT_PLANNING"
-      },
       planning: {
         plannedMonths: profile?.estimatedMonths ?? null,
         plannedControls: plannedControls || null,
-        completedControls
+        completedControls,
+        controlFrequencyValue: profile?.controlFrequencyValue ?? null,
+        controlFrequencyUnit: profile?.controlFrequencyUnit ?? null
       },
       currentClinicalState: this.resolveLatestOrthodonticClinicalState(evolutions),
       hygiene: {
         latestScore: latestHygiene?.score ?? null,
-        maximumScore: 7,
+        maximumScore: latestHygiene?.maximumScore ?? 7,
         latestRecordedAt: latestHygiene?.date ?? null,
         average: hygieneScores.length
-          ? Number((hygieneScores.reduce((sum: number, score: number) => sum + score, 0) / hygieneScores.length).toFixed(2))
+          ? Number(
+              (
+                hygieneScores.reduce((sum: number, score: number) => sum + score, 0) / hygieneScores.length
+              ).toFixed(2)
+            )
           : null,
-        trend: this.resolveHygieneTrend(hygieneScores),
-        series: hygieneSeries
+        trend: this.resolveHygieneTrend(hygieneScores, latestHygiene?.higherIsBetter ?? true),
+        series: hygieneSeries,
+        points: hygieneSeries.map((point: any) => ({
+          evolutionId: point.evolutionId,
+          value: point.score,
+          maximumScore: point.maximumScore ?? 7,
+          minimumScore: point.minimumScore ?? 1,
+          recordedAt: point.date,
+          professionalName: point.professionalName,
+          label: point.label ?? null,
+          controlId: point.controlId ?? null
+        }))
       },
+      appointment: nextAppointment
+        ? {
+            id: nextAppointment.id,
+            startAt: nextAppointment.startAt,
+            endAt: nextAppointment.endAt,
+            status: nextAppointment.status,
+            professional: {
+              id: nextAppointment.professional?.id ?? nextAppointment.professionalId,
+              name: this.professionalName(nextAppointment.professional)
+            }
+          }
+        : null,
+      milestones: this.resolveOrthodonticMilestones(plan.orthodonticMilestones ?? [], now),
+      finances: financialSummary,
       latestEvolution,
-      recentEvolutions: evolutions.slice(0, 5).map((evolution: any) => this.mapOrthodonticEvolution(evolution)),
+      recentEvolutions: evolutions
+        .slice(0, 5)
+        .map((evolution: any) => this.mapOrthodonticEvolution(evolution)),
       capabilities: {
         canStart: !profile?.startDate && !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status),
         canPause: Boolean(profile?.startDate) && calendar.status === "ACTIVE",
@@ -2359,36 +4606,65 @@ export class TreatmentPlansService {
         estimatedEndAt: null,
         activeDays: 0,
         pausedDays: 0,
-        pauseStartDate: null
+        pauseStartDate: null,
+        elapsedMonths: 0,
+        estimatedMonths,
+        monthsExceeded: 0,
+        displayPercentage: 0
       };
     }
 
+    const finishedAt = profile?.actualEndDate ?? plan.completedAt ?? null;
+    const evaluationDate = finishedAt ?? activePause?.startDate ?? now;
     let pausedDays = 0;
     for (const pause of plan.pauses ?? []) {
-      const pauseEnd = pause.endDate ?? now;
+      const pauseEnd = pause.endDate ?? evaluationDate;
       pausedDays += Math.max(0, Math.floor((pauseEnd.getTime() - pause.startDate.getTime()) / 86400000));
     }
-    const activeDays = Math.max(0, Math.floor((now.getTime() - startDate.getTime()) / 86400000) - pausedDays);
-    const totalPlannedDays = estimatedMonths ? estimatedMonths * 30.436875 : 0;
-    const percentage = totalPlannedDays ? Math.min(100, (activeDays / totalPlannedDays) * 100) : 0;
-    const estimatedEndAt = estimatedMonths ? new Date(startDate) : null;
-    if (estimatedEndAt) estimatedEndAt.setMonth(estimatedEndAt.getMonth() + estimatedMonths);
+    const activeDays = Math.max(
+      0,
+      Math.floor((evaluationDate.getTime() - startDate.getTime()) / 86400000) - pausedDays
+    );
+    const elapsedMonths = this.completeMonthsBetween(startDate, evaluationDate);
+    const percentage = estimatedMonths && estimatedMonths > 0 ? (elapsedMonths / estimatedMonths) * 100 : 0;
+    const estimatedEndAt = estimatedMonths ? this.addMonths(startDate, estimatedMonths) : null;
+    const monthsExceeded = estimatedMonths ? Math.max(0, elapsedMonths - estimatedMonths) : 0;
+    const status =
+      plan.status === TreatmentPlanStatus.COMPLETED ? "COMPLETED" : activePause ? "PAUSED" : "ACTIVE";
 
     return {
       percentage,
-      status:
-        plan.status === TreatmentPlanStatus.COMPLETED
-          ? "COMPLETED"
+      displayPercentage: Math.min(100, Math.max(0, percentage)),
+      status,
+      label:
+        monthsExceeded > 0
+          ? `Plazo estimado superado por ${monthsExceeded} ${monthsExceeded === 1 ? "mes" : "meses"}`
           : activePause
-            ? "PAUSED"
-            : "ACTIVE",
-      label: activePause ? "Calendario detenido" : "Calendario corriendo",
+            ? "Calendario detenido"
+            : `${elapsedMonths} de ${estimatedMonths ?? 0} meses transcurridos`,
       startedAt: startDate,
       estimatedEndAt,
       activeDays,
       pausedDays,
-      pauseStartDate: activePause?.startDate ?? null
+      pauseStartDate: activePause?.startDate ?? null,
+      elapsedMonths,
+      estimatedMonths,
+      monthsExceeded
     };
+  }
+
+  private completeMonthsBetween(startDate: Date, endDate: Date) {
+    if (endDate <= startDate) return 0;
+    let months =
+      (endDate.getFullYear() - startDate.getFullYear()) * 12 + endDate.getMonth() - startDate.getMonth();
+    if (endDate.getDate() < startDate.getDate()) months -= 1;
+    return Math.max(0, months);
+  }
+
+  private addMonths(startDate: Date, months: number) {
+    const target = new Date(startDate);
+    target.setMonth(target.getMonth() + months);
+    return target;
   }
 
   private resolveLatestOrthodonticClinicalState(evolutions: any[]) {
@@ -2400,6 +4676,8 @@ export class TreatmentPlansService {
       lowerArchSize: source("arco inferior tamano"),
       upperAligner: source("alineador superior"),
       lowerAligner: source("alineador inferior"),
+      elasticsType: source("tipo de elasticos"),
+      elasticsConfig: source("configuracion elasticos"),
       elasticType: source("tipo de elasticos"),
       elasticConfiguration: source("configuracion elasticos"),
       nextControl: source("proximo control"),
@@ -2427,15 +4705,29 @@ export class TreatmentPlansService {
   }
 
   private mapOrthodonticEvolution(evolution: any) {
+    const professionalName = this.professionalName(evolution.professional);
+    const plainText = this.plainEvolutionComment(evolution);
     return {
       id: evolution.id,
+      createdAt: evolution.createdAt,
       recordedAt: evolution.createdAt,
+      professionalName,
+      createdByName: evolution.createdBy ? this.userName(evolution.createdBy) : null,
+      notes: evolution.notes,
+      plainText,
       professional: {
         id: evolution.professional?.id,
-        name: this.professionalName(evolution.professional)
+        name: professionalName
       },
-      comment: this.plainEvolutionComment(evolution),
+      comment: plainText,
       isPrivate: evolution.isPrivate,
+      fields: (evolution.fields ?? []).map((field: any) => ({
+        label: field.label,
+        value: field.value,
+        group: field.group ?? null,
+        sortOrder: field.sortOrder ?? 0
+      })),
+      hygiene: this.fieldInt(evolution, "higiene"),
       orthodonticControl: {
         radiographicControl: this.fieldBoolean(evolution, "control radiografico"),
         intraoralPhotos: this.fieldBoolean(evolution, "fotografias intraorales"),
@@ -2467,7 +4759,9 @@ export class TreatmentPlansService {
 
   private findEvolutionField(evolution: any, label: string) {
     const target = this.normalizeClinicalFieldLabel(label);
-    return (evolution.fields ?? []).find((field: any) => this.normalizeClinicalFieldLabel(field.label).includes(target));
+    return (evolution.fields ?? []).find((field: any) =>
+      this.normalizeClinicalFieldLabel(field.label).includes(target)
+    );
   }
 
   private fieldValue(evolution: any, label: string) {
@@ -2487,30 +4781,186 @@ export class TreatmentPlansService {
     return Number.isInteger(parsed) ? parsed : null;
   }
 
-  private resolveHygieneTrend(scores: number[]) {
+  private resolveOrthodonticHygieneSeries(plan: any, evolutions: any[]) {
+    const assessments = plan.orthodonticHygieneAssessments ?? [];
+    if (assessments.length) {
+      return assessments
+        .filter(
+          (assessment: any) => assessment.numericValue !== null && assessment.numericValue !== undefined
+        )
+        .map((assessment: any) => ({
+          assessmentId: assessment.id,
+          evolutionId: assessment.evolutionId ?? null,
+          controlId: assessment.controlId ?? null,
+          date: assessment.clinicalDate,
+          score: Number(assessment.numericValue),
+          maximumScore: assessment.scale?.maxValue ?? null,
+          minimumScore: assessment.scale?.minValue ?? null,
+          higherIsBetter: assessment.scale?.higherIsBetter ?? true,
+          label: assessment.option?.label ?? null,
+          professionalName: null,
+          observations: assessment.observations ?? null,
+          recommendations: assessment.recommendations ?? null
+        }));
+    }
+
+    return evolutions
+      .slice()
+      .reverse()
+      .map((evolution: any) => {
+        const score = this.fieldInt(evolution, "higiene");
+        if (score === null) return null;
+        return {
+          assessmentId: null,
+          evolutionId: evolution.id,
+          controlId: null,
+          date: evolution.createdAt,
+          score,
+          maximumScore: 7,
+          minimumScore: 1,
+          higherIsBetter: true,
+          label: null,
+          professionalName: this.professionalName(evolution.professional),
+          observations: null,
+          recommendations: null
+        };
+      })
+      .filter(Boolean);
+  }
+
+  private legacyCompletedOrthodonticControls(evolutions: any[]) {
+    return evolutions.filter((evolution) => {
+      return Boolean(
+        this.fieldBoolean(evolution, "control realizado") ||
+        this.fieldValue(evolution, "higiene") ||
+        this.fieldValue(evolution, "arco superior") ||
+        this.fieldValue(evolution, "arco inferior") ||
+        this.fieldValue(evolution, "tipo de elasticos") ||
+        this.fieldValue(evolution, "configuracion elasticos")
+      );
+    }).length;
+  }
+
+  private resolveOrthodonticFinancialSummary(items: any[]) {
+    return items.reduce(
+      (summary, item) => {
+        if (item.status === TreatmentPlanItemStatus.CANCELLED) return summary;
+        const total = new Prisma.Decimal(item.total ?? 0);
+        const discount = new Prisma.Decimal(item.discount ?? 0);
+        const paid = (item.paymentAllocations ?? []).reduce((sum: Prisma.Decimal, allocation: any) => {
+          if (allocation.payment?.status === PaymentStatus.VOIDED) return sum;
+          return sum.plus(allocation.amount ?? 0);
+        }, new Prisma.Decimal(0));
+        const completionPercentage = Math.min(100, Math.max(0, Number(item.completionPercentage ?? 0)));
+        const performed = total.mul(completionPercentage).div(100);
+        summary.budgetTotal = summary.budgetTotal.plus(total);
+        summary.discountTotal = summary.discountTotal.plus(discount);
+        summary.performedTotal = summary.performedTotal.plus(performed);
+        summary.paidTotal = summary.paidTotal.plus(paid);
+        summary.balance = summary.balance.plus(Prisma.Decimal.max(new Prisma.Decimal(0), total.minus(paid)));
+        return summary;
+      },
+      {
+        budgetTotal: new Prisma.Decimal(0),
+        discountTotal: new Prisma.Decimal(0),
+        performedTotal: new Prisma.Decimal(0),
+        paidTotal: new Prisma.Decimal(0),
+        balance: new Prisma.Decimal(0)
+      }
+    );
+  }
+
+  private resolveOrthodonticDeviation(
+    calendar: { percentage: number; monthsExceeded?: number },
+    realPercentage: number,
+    completedControls: number,
+    plannedControls: number,
+    profile: any
+  ) {
+    if (!profile?.startDate || !profile?.estimatedMonths || !plannedControls) {
+      return {
+        status: "SIN_DATOS_SUFICIENTES",
+        percentage: 0,
+        label: "Sin datos suficientes para comparar calendario y controles"
+      };
+    }
+    if ((calendar.monthsExceeded ?? 0) > 0 && realPercentage < 100) {
+      return {
+        status: "PLAZO_EXCEDIDO",
+        percentage: realPercentage - calendar.percentage,
+        label: `Plazo estimado superado por ${calendar.monthsExceeded} ${calendar.monthsExceeded === 1 ? "mes" : "meses"}`
+      };
+    }
+    const percentage = realPercentage - calendar.percentage;
+    if (percentage < -15) {
+      return {
+        status: "POR_DEBAJO_DEL_RITMO",
+        percentage,
+        label: `Seguimiento ${Math.abs(Math.round(percentage))} puntos por debajo del calendario`
+      };
+    }
+    if (percentage > 15) {
+      const additional = Math.max(0, completedControls - plannedControls);
+      return {
+        status: "POR_ENCIMA_DEL_RITMO",
+        percentage,
+        label: additional
+          ? `${additional} ${additional === 1 ? "control adicional" : "controles adicionales"} sobre la planificacion`
+          : `Seguimiento ${Math.round(percentage)} puntos por encima del calendario`
+      };
+    }
+    return {
+      status: "EN_RITMO",
+      percentage,
+      label: "Seguimiento en ritmo operativo"
+    };
+  }
+
+  private resolveControlsProgressLabel(
+    realProgress: number,
+    completedControls: number,
+    plannedControls: number
+  ) {
+    if (!plannedControls) return "Sin controles planificados";
+    const additional = Math.max(0, completedControls - plannedControls);
+    if (additional > 0) {
+      return `${additional} ${additional === 1 ? "control adicional" : "controles adicionales"}`;
+    }
+    return `${completedControls} de ${plannedControls} controles realizados (${Math.round(realProgress)}%)`;
+  }
+
+  private resolveOrthodonticMilestones(milestones: any[], now: Date) {
+    return milestones.map((milestone) => {
+      let status = milestone.status;
+      if (status === OrthodonticMilestoneStatus.PENDING) {
+        const daysUntil = Math.ceil((milestone.plannedAt.getTime() - now.getTime()) / 86400000);
+        if (daysUntil < 0) status = OrthodonticMilestoneStatus.OVERDUE;
+        else if (daysUntil <= 14) status = OrthodonticMilestoneStatus.UPCOMING;
+      }
+      return {
+        id: milestone.id,
+        type: milestone.type,
+        label: milestone.label,
+        plannedAt: milestone.plannedAt,
+        completedAt: milestone.completedAt,
+        status,
+        professionalId: milestone.professionalId,
+        evolutionId: milestone.evolutionId,
+        fileAttachmentId: milestone.fileAttachmentId,
+        notes: milestone.notes,
+        findings: milestone.findings
+      };
+    });
+  }
+
+  private resolveHygieneTrend(scores: number[], higherIsBetter = true) {
     if (scores.length < 2) return "INSUFFICIENT_DATA";
     const first = scores[0];
     const last = scores[scores.length - 1];
-    if (last > first) return "IMPROVING";
-    if (last < first) return "DECLINING";
-    return "STABLE";
-  }
-
-  private resolveRealProgressStatus(realProgress: number, calendarProgress: number, plannedControls: number) {
-    if (!plannedControls) return "INSUFFICIENT_PLANNING";
-    if (realProgress === 0) return "NO_ACTIVITY";
-    if (realProgress > calendarProgress + 15) return "AHEAD";
-    if (realProgress < calendarProgress - 15) return "DELAYED";
-    return "ON_TRACK";
-  }
-
-  private resolveRealProgressLabel(realProgress: number, calendarProgress: number, plannedControls: number) {
-    const status = this.resolveRealProgressStatus(realProgress, calendarProgress, plannedControls);
-    if (status === "INSUFFICIENT_PLANNING") return "Sin planificacion suficiente";
-    if (status === "NO_ACTIVITY") return "Sin actividad";
-    if (status === "AHEAD") return "Adelantado";
-    if (status === "DELAYED") return "Atrasado";
-    return "Evolucion al dia";
+    if (last === first) return "STABLE";
+    const improved = higherIsBetter ? last > first : last < first;
+    if (improved) return "IMPROVING";
+    return "DECLINING";
   }
 
   private plainEvolutionComment(evolution: any) {
@@ -2542,9 +4992,8 @@ export class TreatmentPlansService {
     const row = await this.prisma.treatmentPlan.findFirst({
       where: { id: treatmentPlanId, organizationId: actor.organizationId, branchId: branchScope(actor) },
       include: {
-        patient: {
-          include: { agreement: true }
-        }
+        agreement: true,
+        patient: { include: { agreement: true } }
       }
     });
     if (!row) throw new NotFoundException("Treatment plan not found");
@@ -2628,6 +5077,7 @@ export class TreatmentPlansService {
       assessment: string | null;
       plan: string | null;
     }>;
+    orthodonticControls?: Array<{ id: string }>;
     pauses?: Array<{ startDate: Date; endDate: Date | null }>;
   }) {
     if (plan.kind !== TreatmentPlanKind.ORTHODONTICS) return null;
@@ -2665,13 +5115,13 @@ export class TreatmentPlansService {
       const effectiveElapsedDays = Math.max(0, totalElapsedDays - totalPauseDays);
       const effectiveElapsedMonths = effectiveElapsedDays / 30.436875; // Average days in month
 
-      calendarProgress = Math.min(100, (effectiveElapsedMonths / estimatedMonths) * 100);
+      calendarProgress = (effectiveElapsedMonths / estimatedMonths) * 100;
     }
 
-    const realControlsCount = plan.clinicalEvolutions?.length ?? 0;
+    const realControlsCount = plan.orthodonticControls?.length ?? plan.clinicalEvolutions?.length ?? 0;
     let realProgress = 0;
     if (estimatedControls > 0) {
-      realProgress = Math.min(100, (realControlsCount / estimatedControls) * 100);
+      realProgress = (realControlsCount / estimatedControls) * 100;
     }
 
     return {
@@ -2683,6 +5133,681 @@ export class TreatmentPlansService {
       pauseStartDate,
       latestEvolution: plan.clinicalEvolutions?.[0] ?? null
     };
+  }
+
+  private orthodonticProfileCatalogInclude() {
+    return {
+      fieldValues: {
+        include: {
+          field: true,
+          option: true
+        }
+      },
+      optionValues: {
+        include: {
+          field: true,
+          option: true
+        },
+        orderBy: { createdAt: "asc" as const }
+      }
+    };
+  }
+
+  private orthodonticDiagnosisInclude() {
+    return {
+      fieldValues: {
+        include: {
+          field: { include: { section: true } },
+          option: true
+        },
+        orderBy: { createdAt: "asc" as const }
+      },
+      multiOptionValues: {
+        include: {
+          field: { include: { section: true } },
+          option: true
+        },
+        orderBy: { createdAt: "asc" as const }
+      }
+    };
+  }
+
+  private async ensureOrthodonticDiagnosisCatalogSeed(actorId?: string) {
+    await this.prisma.$transaction(async (tx) => {
+      for (const sectionSeed of ORTHODONTIC_DIAGNOSIS_SECTION_SEEDS) {
+        const section = await (tx as any).orthodonticDiagnosisSection.upsert({
+          where: { code: sectionSeed.code },
+          create: {
+            code: sectionSeed.code,
+            name: sectionSeed.name,
+            sortOrder: sectionSeed.sortOrder,
+            isActive: true
+          },
+          update: {
+            name: sectionSeed.name,
+            sortOrder: sectionSeed.sortOrder,
+            isActive: true
+          }
+        });
+        for (const [fieldIndex, fieldSeed] of sectionSeed.fields.entries()) {
+          const field = await (tx as any).orthodonticDiagnosisField.upsert({
+            where: { sectionId_code: { sectionId: section.id, code: fieldSeed.code } },
+            create: {
+              sectionId: section.id,
+              code: fieldSeed.code,
+              name: fieldSeed.name,
+              inputType: fieldSeed.inputType,
+              allowsMultiple: Boolean(fieldSeed.allowsMultiple),
+              isRequired: false,
+              isHighlighted: Boolean(fieldSeed.isHighlighted),
+              isFavorite: false,
+              includeInSummary: Boolean(fieldSeed.includeInSummary),
+              unitType: fieldSeed.unitType,
+              sortOrder: fieldIndex,
+              isConfigurable: Boolean(fieldSeed.options?.length),
+              isActive: true
+            },
+            update: {
+              name: fieldSeed.name,
+              inputType: fieldSeed.inputType,
+              allowsMultiple: Boolean(fieldSeed.allowsMultiple),
+              isHighlighted: Boolean(fieldSeed.isHighlighted),
+              includeInSummary: Boolean(fieldSeed.includeInSummary),
+              unitType: fieldSeed.unitType,
+              sortOrder: fieldIndex,
+              isConfigurable: Boolean(fieldSeed.options?.length),
+              isActive: true
+            }
+          });
+          for (const [optionIndex, label] of (fieldSeed.options ?? []).entries()) {
+            const normalizedLabel = this.normalizeOptionLabel(label);
+            await (tx as any).orthodonticDiagnosisFieldOption.upsert({
+              where: { fieldId_normalizedLabel: { fieldId: field.id, normalizedLabel } },
+              create: {
+                fieldId: field.id,
+                code: `${fieldSeed.code}_${this.optionCode(label) || optionIndex}`,
+                label,
+                normalizedLabel,
+                sortOrder: optionIndex,
+                createdById: actorId,
+                updatedById: actorId
+              },
+              update: {
+                sortOrder: optionIndex,
+                updatedById: actorId
+              }
+            });
+          }
+        }
+      }
+    });
+  }
+
+  private async findOrthodonticDiagnosisCatalog(includeInactive: boolean) {
+    const sections = await (this.prisma as any).orthodonticDiagnosisSection.findMany({
+      where: { isActive: true },
+      include: {
+        fields: {
+          where: { isActive: true },
+          include: {
+            options: {
+              where: includeInactive ? {} : { isActive: true },
+              orderBy: [{ sortOrder: "asc" }, { label: "asc" }]
+            }
+          },
+          orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
+        }
+      },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }]
+    });
+    return sections.map((section: any) => ({
+      id: section.id,
+      code: section.code,
+      name: section.name,
+      sortOrder: section.sortOrder,
+      fields: section.fields.map((field: any) => ({
+        id: field.id,
+        sectionId: field.sectionId,
+        code: field.code,
+        name: field.name,
+        inputType: field.inputType,
+        allowsMultiple: field.allowsMultiple,
+        isRequired: field.isRequired,
+        isHighlighted: field.isHighlighted,
+        isFavorite: field.isFavorite,
+        includeInSummary: field.includeInSummary,
+        unitType: field.unitType,
+        sortOrder: field.sortOrder,
+        isConfigurable: field.isConfigurable,
+        isActive: field.isActive,
+        options: field.options.map((option: any) => ({
+          id: option.id,
+          code: option.code,
+          label: option.label,
+          sortOrder: option.sortOrder,
+          isActive: option.isActive,
+          usageCount: option.usageCount,
+          version: option.version
+        }))
+      }))
+    }));
+  }
+
+  private async findCurrentOrthodonticDiagnosis(treatmentPlanId: string) {
+    const draft = await (this.prisma as any).orthodonticDiagnosis.findFirst({
+      where: { treatmentPlanId, status: OrthodonticDiagnosisStatus.DRAFT },
+      include: this.orthodonticDiagnosisInclude(),
+      orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }]
+    });
+    if (draft) return draft;
+    return (this.prisma as any).orthodonticDiagnosis.findFirst({
+      where: { treatmentPlanId, status: OrthodonticDiagnosisStatus.ACTIVE },
+      include: this.orthodonticDiagnosisInclude(),
+      orderBy: [{ versionNumber: "desc" }, { activatedAt: "desc" }]
+    });
+  }
+
+  private hasOrthodonticDiagnosisResponses(diagnosis: any) {
+    return Boolean(
+      (diagnosis?.fieldValues?.length ?? 0) > 0 || (diagnosis?.multiOptionValues?.length ?? 0) > 0
+    );
+  }
+
+  private mapOrthodonticDiagnosisResult(plan: any, diagnosis: any) {
+    if (!diagnosis || !this.hasOrthodonticDiagnosisResponses(diagnosis)) {
+      return {
+        treatmentPlanId: plan.id,
+        status: "EMPTY",
+        diagnosis: null,
+        summaryItems: [],
+        sectionsWithData: []
+      };
+    }
+    const summaryItems: Array<{ fieldCode: string; fieldName: string; sectionName: string; value: string }> =
+      [];
+    const sectionsWithData = new Map<string, { code: string; name: string; count: number }>();
+    const valueRows = diagnosis.fieldValues ?? [];
+    for (const value of valueRows) {
+      const field = value.field;
+      const section = field?.section;
+      const displayValue = this.formatOrthodonticDiagnosisValue(value);
+      if (!displayValue) continue;
+      if (section) {
+        const current = sectionsWithData.get(section.code) ?? {
+          code: section.code,
+          name: section.name,
+          count: 0
+        };
+        current.count += 1;
+        sectionsWithData.set(section.code, current);
+      }
+      if (field?.includeInSummary) {
+        summaryItems.push({
+          fieldCode: field.code,
+          fieldName: field.name,
+          sectionName: section?.name ?? "",
+          value: displayValue
+        });
+      }
+    }
+    const groupedMulti = new Map<string, any[]>();
+    for (const row of diagnosis.multiOptionValues ?? []) {
+      groupedMulti.set(row.fieldId, [...(groupedMulti.get(row.fieldId) ?? []), row]);
+    }
+    for (const rows of groupedMulti.values()) {
+      const first = rows[0];
+      const field = first.field;
+      const section = field?.section;
+      const displayValue = rows
+        .map((row) => row.optionLabelSnapshot ?? row.option?.label)
+        .filter(Boolean)
+        .join(", ");
+      if (!displayValue) continue;
+      if (section) {
+        const current = sectionsWithData.get(section.code) ?? {
+          code: section.code,
+          name: section.name,
+          count: 0
+        };
+        current.count += 1;
+        sectionsWithData.set(section.code, current);
+      }
+      if (field?.includeInSummary) {
+        summaryItems.push({
+          fieldCode: field.code,
+          fieldName: field.name,
+          sectionName: section?.name ?? "",
+          value: displayValue
+        });
+      }
+    }
+    return {
+      treatmentPlanId: plan.id,
+      status: diagnosis.status,
+      diagnosis: {
+        id: diagnosis.id,
+        status: diagnosis.status,
+        versionNumber: diagnosis.versionNumber,
+        previousVersionId: diagnosis.previousVersionId,
+        clinicalDate: diagnosis.clinicalDate,
+        activatedAt: diagnosis.activatedAt,
+        changeReason: diagnosis.changeReason,
+        values: [
+          ...valueRows.map((value: any) => ({
+            fieldCode: value.field?.code,
+            fieldId: value.fieldId,
+            valueText: value.valueText,
+            valueNumber: value.valueNumber,
+            valueDate: value.valueDate,
+            valueBoolean: value.valueBoolean,
+            unitId: value.unitId,
+            optionId: value.optionId,
+            optionLabelSnapshot: value.optionLabelSnapshot
+          })),
+          ...Array.from(groupedMulti.values()).map((rows: any[]) => ({
+            fieldCode: rows[0]?.field?.code,
+            fieldId: rows[0]?.fieldId,
+            optionIds: rows.map((row) => row.optionId).filter(Boolean),
+            optionLabelsSnapshot: rows
+              .map((row) => row.optionLabelSnapshot ?? row.option?.label)
+              .filter(Boolean)
+          }))
+        ]
+      },
+      summaryItems,
+      sectionsWithData: Array.from(sectionsWithData.values())
+    };
+  }
+
+  private formatOrthodonticDiagnosisValue(value: any) {
+    if (value.optionLabelSnapshot || value.option?.label)
+      return value.optionLabelSnapshot ?? value.option?.label;
+    if (value.valueText) return String(value.valueText);
+    if (value.valueNumber !== null && value.valueNumber !== undefined) return String(value.valueNumber);
+    if (value.valueDate) return new Date(value.valueDate).toISOString();
+    if (value.valueBoolean !== null && value.valueBoolean !== undefined)
+      return value.valueBoolean ? "Si" : "No";
+    return "";
+  }
+
+  private async saveOrthodonticDiagnosisWorkflow(
+    actor: AuthUser,
+    id: string,
+    dto: SaveOrthodonticDiagnosisDto,
+    targetStatus: "DRAFT" | "ACTIVE"
+  ) {
+    const plan = await this.ensureOrthodonticTreatmentPlan(actor, id);
+    this.ensureTreatmentPlanCanMutate(plan, "save orthodontic diagnosis for");
+    await this.ensureOrthodonticDiagnosisCatalogSeed(actor.id);
+
+    const cleanValues = this.cleanOrthodonticDiagnosisValues(dto.values ?? []);
+    if (targetStatus === OrthodonticDiagnosisStatus.ACTIVE && cleanValues.length === 0) {
+      throw new BadRequestException("Cannot activate an empty orthodontic diagnosis");
+    }
+
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const fields = await (tx as any).orthodonticDiagnosisField.findMany({
+        where: { code: { in: cleanValues.map((value) => value.fieldCode) }, isActive: true },
+        include: { options: true, section: true }
+      });
+      const fieldsByCode = new Map<string, any>(fields.map((field: any) => [field.code, field]));
+      for (const value of cleanValues) {
+        if (!fieldsByCode.has(value.fieldCode)) {
+          throw new BadRequestException(`Unknown orthodontic diagnosis field: ${value.fieldCode}`);
+        }
+      }
+
+      let diagnosis = await (tx as any).orthodonticDiagnosis.findFirst({
+        where: { treatmentPlanId: plan.id, status: OrthodonticDiagnosisStatus.DRAFT },
+        orderBy: [{ versionNumber: "desc" }, { createdAt: "desc" }]
+      });
+      const activeDiagnosis = await (tx as any).orthodonticDiagnosis.findFirst({
+        where: { treatmentPlanId: plan.id, status: OrthodonticDiagnosisStatus.ACTIVE },
+        orderBy: [{ versionNumber: "desc" }, { activatedAt: "desc" }]
+      });
+
+      if (!diagnosis || targetStatus === OrthodonticDiagnosisStatus.ACTIVE) {
+        if (targetStatus === OrthodonticDiagnosisStatus.ACTIVE && diagnosis) {
+          await (tx as any).orthodonticDiagnosis.update({
+            where: { id: diagnosis.id },
+            data: { status: OrthodonticDiagnosisStatus.VOIDED, voidedById: actor.id, voidedAt: new Date() }
+          });
+          diagnosis = null;
+        }
+        if (!diagnosis) {
+          diagnosis = await (tx as any).orthodonticDiagnosis.create({
+            data: {
+              treatmentPlanId: plan.id,
+              patientId: plan.patientId,
+              professionalId: plan.professionalId,
+              branchId: plan.branchId,
+              status: targetStatus,
+              versionNumber: activeDiagnosis ? activeDiagnosis.versionNumber + 1 : 1,
+              previousVersionId: activeDiagnosis?.id ?? null,
+              clinicalDate: this.optionalDate(dto.clinicalDate) ?? null,
+              changeReason: this.optionalString(dto.changeReason),
+              createdById: actor.id,
+              activatedById: targetStatus === OrthodonticDiagnosisStatus.ACTIVE ? actor.id : null,
+              activatedAt: targetStatus === OrthodonticDiagnosisStatus.ACTIVE ? new Date() : null
+            }
+          });
+        }
+      }
+
+      await (tx as any).orthodonticDiagnosisFieldValue.deleteMany({ where: { diagnosisId: diagnosis.id } });
+      await (tx as any).orthodonticDiagnosisMultiOptionValue.deleteMany({
+        where: { diagnosisId: diagnosis.id }
+      });
+
+      for (const value of cleanValues) {
+        const field = fieldsByCode.get(value.fieldCode);
+        const optionsById = new Map<string, { id: string; label: string }>(
+          (field.options ?? []).map((option: any) => [option.id, option])
+        );
+        if (field.allowsMultiple) {
+          const optionIds = [...new Set(value.optionIds ?? [])];
+          if (optionIds.length === 0) continue;
+          const options = optionIds.map((optionId) => optionsById.get(optionId));
+          if (options.some((option) => !option))
+            throw new BadRequestException(`Invalid option for ${field.name}`);
+          await (tx as any).orthodonticDiagnosisMultiOptionValue.createMany({
+            data: options.map((option: any) => ({
+              diagnosisId: diagnosis.id,
+              fieldId: field.id,
+              optionId: option.id,
+              optionLabelSnapshot: option.label
+            })),
+            skipDuplicates: true
+          });
+          continue;
+        }
+
+        const option = value.optionId ? optionsById.get(value.optionId) : null;
+        if (value.optionId && !option) throw new BadRequestException(`Invalid option for ${field.name}`);
+        await (tx as any).orthodonticDiagnosisFieldValue.create({
+          data: {
+            diagnosisId: diagnosis.id,
+            fieldId: field.id,
+            valueText: value.valueText ?? null,
+            valueNumber: value.valueNumber ?? null,
+            valueDate: value.valueDate ? new Date(value.valueDate) : null,
+            valueBoolean: value.valueBoolean ?? null,
+            unitId: value.unitId ?? null,
+            optionId: option?.id ?? null,
+            optionLabelSnapshot: option?.label ?? null
+          }
+        });
+      }
+
+      if (targetStatus === OrthodonticDiagnosisStatus.ACTIVE) {
+        if (activeDiagnosis) {
+          await (tx as any).orthodonticDiagnosis.update({
+            where: { id: activeDiagnosis.id },
+            data: { status: OrthodonticDiagnosisStatus.AMENDED }
+          });
+        }
+        await (tx as any).orthodonticDiagnosis.update({
+          where: { id: diagnosis.id },
+          data: {
+            status: OrthodonticDiagnosisStatus.ACTIVE,
+            activatedById: actor.id,
+            activatedAt: new Date(),
+            clinicalDate: this.optionalDate(dto.clinicalDate) ?? new Date(),
+            changeReason: this.optionalString(dto.changeReason),
+            version: { increment: 1 }
+          }
+        });
+      } else {
+        await (tx as any).orthodonticDiagnosis.update({
+          where: { id: diagnosis.id },
+          data: {
+            clinicalDate: this.optionalDate(dto.clinicalDate) ?? undefined,
+            changeReason: this.optionalString(dto.changeReason),
+            version: { increment: 1 }
+          }
+        });
+      }
+
+      return (tx as any).orthodonticDiagnosis.findUnique({
+        where: { id: diagnosis.id },
+        include: this.orthodonticDiagnosisInclude()
+      });
+    });
+
+    await this.audit(
+      actor,
+      "OrthodonticDiagnosis",
+      saved.id,
+      targetStatus === "ACTIVE" ? "activate" : "save_draft",
+      {},
+      {
+        treatmentPlanId: plan.id,
+        status: targetStatus,
+        valueCount: cleanValues.length
+      } as Prisma.InputJsonValue
+    );
+    return this.mapOrthodonticDiagnosisResult(plan, saved);
+  }
+
+  private cleanOrthodonticDiagnosisValues(values: SaveOrthodonticDiagnosisDto["values"]) {
+    return (values ?? [])
+      .map((value) => ({
+        fieldCode: value.fieldCode,
+        valueText: this.optionalString(value.valueText),
+        valueNumber:
+          value.valueNumber === null || value.valueNumber === undefined ? null : Number(value.valueNumber),
+        valueDate: value.valueDate || null,
+        valueBoolean: value.valueBoolean ?? null,
+        unitId: this.optionalString(value.unitId),
+        optionId: this.optionalString(value.optionId),
+        optionIds: [...new Set((value.optionIds ?? []).filter(Boolean))]
+      }))
+      .filter((value) => {
+        if (!value.fieldCode) return false;
+        if (value.valueText) return true;
+        if (value.valueNumber !== null && !Number.isNaN(value.valueNumber)) return true;
+        if (value.valueDate) return true;
+        if (value.valueBoolean !== null) return true;
+        if (value.optionId) return true;
+        return value.optionIds.length > 0;
+      });
+  }
+
+  private async findOrthodonticDiagnosisOption(optionId: string) {
+    const option = await (this.prisma as any).orthodonticDiagnosisFieldOption.findUnique({
+      where: { id: optionId },
+      include: { field: true }
+    });
+    if (!option) throw new NotFoundException("Orthodontic diagnosis option not found");
+    return option;
+  }
+
+  private async countOrthodonticDiagnosisOptionUsage(optionId: string) {
+    const [singleCount, multipleCount] = await Promise.all([
+      (this.prisma as any).orthodonticDiagnosisFieldValue.count({ where: { optionId } }),
+      (this.prisma as any).orthodonticDiagnosisMultiOptionValue.count({ where: { optionId } })
+    ]);
+    return singleCount + multipleCount;
+  }
+
+  private async ensureOrthodonticCatalogSeed(organizationId: string, actorId?: string) {
+    const existing = await (this.prisma as any).orthodonticOptionField.count({ where: { organizationId } });
+    if (existing > 0) return;
+    await this.prisma.$transaction(async (tx) => {
+      for (const [fieldIndex, seed] of ORTHODONTIC_PLAN_FIELD_SEEDS.entries()) {
+        const field = await (tx as any).orthodonticOptionField.upsert({
+          where: { organizationId_code: { organizationId, code: seed.code } },
+          create: {
+            organizationId,
+            code: seed.code,
+            name: seed.name,
+            inputType: seed.inputType,
+            allowsMultiple: seed.allowsMultiple,
+            isConfigurable: true,
+            isActive: true
+          },
+          update: {
+            name: seed.name,
+            inputType: seed.inputType,
+            allowsMultiple: seed.allowsMultiple,
+            isActive: true
+          }
+        });
+        for (const [optionIndex, label] of seed.options.entries()) {
+          const normalizedLabel = this.normalizeOptionLabel(label);
+          await (tx as any).orthodonticFieldOption.upsert({
+            where: { fieldId_normalizedLabel: { fieldId: field.id, normalizedLabel } },
+            create: {
+              fieldId: field.id,
+              code: `${seed.code}_${this.optionCode(label) || fieldIndex}_${optionIndex}`,
+              label,
+              normalizedLabel,
+              sortOrder: optionIndex,
+              createdById: actorId,
+              updatedById: actorId
+            },
+            update: {
+              sortOrder: optionIndex
+            }
+          });
+        }
+      }
+    });
+  }
+
+  private async findOrthodonticOptionFields(organizationId: string, includeInactive: boolean) {
+    const fields = await (this.prisma as any).orthodonticOptionField.findMany({
+      where: { organizationId, isActive: true },
+      include: {
+        options: {
+          where: includeInactive ? {} : { isActive: true },
+          orderBy: [{ sortOrder: "asc" }, { label: "asc" }]
+        }
+      },
+      orderBy: { name: "asc" }
+    });
+    return fields.map((field: OrthodonticCatalogFieldRow) => ({
+      id: field.id,
+      code: field.code,
+      name: field.name,
+      inputType: field.inputType,
+      allowsMultiple: field.allowsMultiple,
+      isConfigurable: field.isConfigurable,
+      isActive: field.isActive,
+      options: field.options.map((option) => ({
+        id: option.id,
+        code: option.code,
+        label: option.label,
+        sortOrder: option.sortOrder,
+        isActive: option.isActive,
+        version: option.version
+      }))
+    }));
+  }
+
+  private async findOrthodonticOptionForActor(actor: AuthUser, optionId: string) {
+    const option = await (this.prisma as any).orthodonticFieldOption.findFirst({
+      where: { id: optionId, field: { organizationId: actor.organizationId } },
+      include: { field: true }
+    });
+    if (!option) throw new NotFoundException("Orthodontic option not found");
+    return option;
+  }
+
+  private async countOrthodonticOptionUsage(optionId: string) {
+    const [singleCount, multipleCount] = await Promise.all([
+      (this.prisma as any).orthodonticPlanFieldValue.count({ where: { optionId } }),
+      (this.prisma as any).orthodonticPlanOptionValue.count({ where: { optionId } })
+    ]);
+    return singleCount + multipleCount;
+  }
+
+  private async replaceOrthodonticCatalogSelections(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    profileId: string,
+    selections: Record<string, string[]>
+  ) {
+    const fields: Array<{
+      id: string;
+      code: string;
+      allowsMultiple: boolean;
+      options: Array<{ id: string; label: string }>;
+    }> = await (tx as any).orthodonticOptionField.findMany({
+      where: { organizationId: actor.organizationId, code: { in: Object.keys(selections) } },
+      include: { options: true }
+    });
+    const fieldsByCode = new Map<string, (typeof fields)[number]>(fields.map((field) => [field.code, field]));
+
+    for (const [fieldCode, rawOptionIds] of Object.entries(selections)) {
+      const field = fieldsByCode.get(fieldCode);
+      if (!field) throw new BadRequestException(`Unknown orthodontic field: ${fieldCode}`);
+      const optionIds = [...new Set((rawOptionIds ?? []).filter(Boolean))];
+      const options = field.options.filter((option: any) => optionIds.includes(option.id));
+      if (options.length !== optionIds.length) {
+        throw new BadRequestException(`Invalid option for orthodontic field: ${fieldCode}`);
+      }
+
+      if (field.allowsMultiple) {
+        await (tx as any).orthodonticPlanOptionValue.deleteMany({
+          where: { orthodonticProfileId: profileId, fieldId: field.id }
+        });
+        if (options.length) {
+          await (tx as any).orthodonticPlanOptionValue.createMany({
+            data: options.map((option: any) => ({
+              orthodonticProfileId: profileId,
+              fieldId: field.id,
+              optionId: option.id,
+              optionLabelSnapshot: option.label
+            })),
+            skipDuplicates: true
+          });
+        }
+        continue;
+      }
+
+      const option = options[0] ?? null;
+      if (!option) {
+        await (tx as any).orthodonticPlanFieldValue.deleteMany({
+          where: { orthodonticProfileId: profileId, fieldId: field.id }
+        });
+      } else {
+        await (tx as any).orthodonticPlanFieldValue.upsert({
+          where: { orthodonticProfileId_fieldId: { orthodonticProfileId: profileId, fieldId: field.id } },
+          create: {
+            orthodonticProfileId: profileId,
+            fieldId: field.id,
+            optionId: option.id,
+            optionLabelSnapshot: option.label
+          },
+          update: {
+            optionId: option.id,
+            optionLabelSnapshot: option.label
+          }
+        });
+      }
+    }
+  }
+
+  private cleanOptionLabel(label: string) {
+    const cleaned = label.trim().replace(/\s+/g, " ");
+    if (!cleaned) throw new BadRequestException("Option label is required");
+    if (cleaned.length > 120) throw new BadRequestException("Option label is too long");
+    return cleaned;
+  }
+
+  private normalizeOptionLabel(label: string) {
+    return this.cleanOptionLabel(label)
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase();
+  }
+
+  private optionCode(label: string) {
+    return this.normalizeOptionLabel(label)
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 80);
   }
 
   private optionalDate(value?: string | null) {
@@ -2723,6 +5848,46 @@ export class TreatmentPlansService {
     });
     if (!row) throw new BadRequestException("Invalid patientId");
     return row;
+  }
+
+  private async resolveTreatmentAgreement(actor: AuthUser, branchId: string, agreementId?: string | null) {
+    if (!agreementId) return null;
+    const agreement = await this.prisma.agreement.findFirst({
+      where: { id: agreementId, organizationId: actor.organizationId },
+      include: {
+        priceList: { select: { id: true, name: true, isDefault: true } },
+        versions: { include: { branches: true } }
+      }
+    });
+    if (!agreement) throw new BadRequestException("Invalid agreementId");
+    const now = new Date();
+    if (!agreement.isActive || agreement.status !== "ACTIVE") {
+      throw new BadRequestException("Agreement is not active");
+    }
+    if ((agreement.startsAt && agreement.startsAt > now) || (agreement.endsAt && agreement.endsAt < now)) {
+      throw new BadRequestException("Agreement is outside its validity period");
+    }
+    const version = agreement.versions.find((row) => row.version === agreement.version);
+    if (!version || !version.branches.some((branch) => branch.branchId === branchId)) {
+      throw new BadRequestException("Agreement is not valid for this branch");
+    }
+    return agreement;
+  }
+
+  private treatmentAgreementSnapshot(agreement: {
+    id: string;
+    name: string;
+    version: number;
+    priceListId?: string | null;
+    priceList?: { id: string; name: string } | null;
+  }) {
+    return {
+      agreementId: agreement.id,
+      agreementName: agreement.name,
+      agreementVersion: agreement.version,
+      priceListId: agreement.priceListId ?? agreement.priceList?.id ?? null,
+      priceListName: agreement.priceList?.name ?? null
+    } as Prisma.InputJsonValue;
   }
 
   private async validateProfessional(actor: AuthUser, professionalId: string, branchId?: string) {

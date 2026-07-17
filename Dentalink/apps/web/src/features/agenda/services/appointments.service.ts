@@ -28,6 +28,9 @@ export type Appointment = {
   patientId?: string | null;
   professionalId: string;
   chairId?: string | null;
+  chairIndex?: number;
+  isOverbooking?: boolean;
+  attendanceMode?: AttendanceMode;
   specialtyId?: string | null;
   treatmentPlanId?: string | null;
   title: string;
@@ -60,6 +63,8 @@ export type Appointment = {
   reminders?: AppointmentReminder[];
   _count?: { appointmentNotes?: number };
 };
+
+export type AttendanceMode = "PRESENTIAL" | "TELECONSULTATION" | "BOTH";
 
 export type AppointmentStatusHistory = {
   id: string;
@@ -129,6 +134,8 @@ export type RescheduleAppointmentPayload = {
   branchId?: string;
   professionalId?: string;
   chairId?: string;
+  chairIndex?: number;
+  attendanceMode?: AttendanceMode;
   specialtyId?: string;
   startAt: string;
   endAt: string;
@@ -142,6 +149,8 @@ export type AppointmentPayload = {
   patientId?: string;
   professionalId: string;
   chairId?: string;
+  chairIndex?: number;
+  attendanceMode?: AttendanceMode;
   specialtyId?: string;
   treatmentPlanId?: string;
   title: string;
@@ -168,6 +177,8 @@ export type AppointmentQuery = {
   patientId?: string;
   professionalId?: string;
   chairId?: string;
+  chairIndex?: string;
+  overbooking?: string;
   status?: string;
   search?: string;
 };
@@ -176,6 +187,7 @@ export type AvailabilitySlot = {
   startAt: string;
   endAt: string;
   available: boolean;
+  chairIndex?: number;
 };
 
 export async function listAppointments(params?: AppointmentQuery) {
@@ -287,6 +299,7 @@ export async function getAvailability(params: {
   branchId: string;
   professionalId: string;
   chairId?: string;
+  chairIndex?: string;
   date: string;
   durationMinutes?: string;
   excludeAppointmentId?: string;

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
-import { AppointmentStatus, Prisma, ProfessionalBranchStatus, TreatmentPlanStatus } from "@prisma/client";
+import { AppointmentStatus, AttendanceMode, Prisma, ProfessionalBranchStatus, TreatmentPlanStatus } from "@prisma/client";
 import { EmailService, AppointmentEmailData } from "../notifications/email.service";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
@@ -213,6 +213,9 @@ type PreparedAppointmentCreate = {
   endAt: Date;
   durationMinutes: number;
   chairId?: string;
+  chairIndex: number;
+  isOverbooking: boolean;
+  attendanceMode: AttendanceMode;
 };
 
 @Injectable()
@@ -336,6 +339,8 @@ export class AppointmentsService {
       ...(query.patientId ? { patientId: query.patientId } : {}),
       ...(query.professionalId ? { professionalId: query.professionalId } : {}),
       ...(query.chairId ? { chairId: query.chairId } : {}),
+      ...(query.chairIndex ? { chairIndex: Number(query.chairIndex) } : {}),
+      ...(query.overbooking !== undefined ? { isOverbooking: query.overbooking === "true" } : {}),
       ...(query.status
         ? { status: query.status as AppointmentStatus }
         : query.patientId
@@ -505,6 +510,9 @@ export class AppointmentsService {
     const chairId =
       dto.chairId ??
       (keepCurrentChair ? current.chairId ?? undefined : await this.defaultChairForSchedule(actor, branchId, professionalId, startAt));
+    const chairIndex = dto.chairIndex ?? current.chairIndex;
+    const isOverbooking = dto.allowOverbooking ?? current.isOverbooking;
+    const attendanceMode = dto.attendanceMode ?? current.attendanceMode;
     assertBranchAccess(actor, branchId);
     if (status !== current.status && this.isCancellationStatus(status)) {
       throw new BadRequestException("Usa el flujo de cancelación para cancelar una cita");
@@ -515,6 +523,7 @@ export class AppointmentsService {
     this.assertStatusTransition(current.status, status);
 
     this.validateDates(startAt, endAt, durationMinutes);
+    this.validateChairIndex(chairIndex);
     await this.validateDurationSlotEnforcement(actor, branchId, professionalId, durationMinutes, startAt);
     await this.validateReferences(actor, {
       branchId,
@@ -532,6 +541,9 @@ export class AppointmentsService {
         branchId,
         professionalId,
         chairId,
+        chairIndex,
+        allowOverbooking: isOverbooking,
+        attendanceMode,
         startAt,
         endAt,
         status
@@ -560,6 +572,9 @@ export class AppointmentsService {
           patientId: dto.patientId,
           professionalId: dto.professionalId,
           chairId,
+          chairIndex,
+          isOverbooking,
+          attendanceMode,
           specialtyId: dto.specialtyId,
           treatmentPlanId: dto.treatmentPlanId,
           title: dto.title?.trim(),
@@ -639,11 +654,15 @@ export class AppointmentsService {
     const chairId =
       dto.chairId ??
       (keepCurrentChair ? current.chairId ?? undefined : await this.defaultChairForSchedule(actor, branchId, professionalId, startAt));
+    const chairIndex = dto.chairIndex ?? current.chairIndex;
+    const isOverbooking = dto.allowOverbooking ?? current.isOverbooking;
+    const attendanceMode = dto.attendanceMode ?? current.attendanceMode;
     const specialtyId = dto.specialtyId ?? current.specialtyId ?? undefined;
 
     assertBranchAccess(actor, branchId);
     this.assertStatusTransition(current.status, AppointmentStatus.RESCHEDULED);
     this.validateDates(startAt, endAt, durationMinutes);
+    this.validateChairIndex(chairIndex);
     await this.validateDurationSlotEnforcement(actor, branchId, professionalId, durationMinutes, startAt);
     await this.validateReferences(actor, {
       branchId,
@@ -660,6 +679,9 @@ export class AppointmentsService {
         branchId,
         professionalId,
         chairId,
+        chairIndex,
+        allowOverbooking: isOverbooking,
+        attendanceMode,
         startAt,
         endAt,
         status: AppointmentStatus.SCHEDULED
@@ -683,6 +705,9 @@ export class AppointmentsService {
           branchId,
           professionalId,
           chairId: chairId ?? null,
+          chairIndex,
+          isOverbooking,
+          attendanceMode,
           specialtyId,
           startAt,
           endAt,
@@ -740,39 +765,36 @@ export class AppointmentsService {
       startAt: date
     });
 
-    const dayOfWeek = date.getDay();
-    const schedule = await this.prisma.professionalSchedule.findFirst({
-      where: {
-        professionalId: query.professionalId,
-        branchId: query.branchId,
-        dayOfWeek,
-        isActive: true,
-        professional: { organizationId: actor.organizationId }
-      }
-    });
-
-    if (!schedule) return { slots: [] };
-
-    const scheduleStart = this.atTime(date, schedule.startTime);
-    const scheduleEnd = this.atTime(date, schedule.endTime);
+    const chairIndex = query.chairIndex ? Number(query.chairIndex) : 1;
+    this.validateChairIndex(chairIndex);
     const branchStart = this.atTime(date, `${String(agendaConfig.agendaStartHour).padStart(2, "0")}:00`);
     const branchEnd = this.atTime(date, `${String(agendaConfig.agendaEndHour).padStart(2, "0")}:00`);
-    const dayStart = new Date(Math.max(scheduleStart.getTime(), branchStart.getTime()));
-    const dayEnd = new Date(Math.min(scheduleEnd.getTime(), branchEnd.getTime()));
-    if (dayStart >= dayEnd) return { slots: [] };
-    const busy = await this.busyAppointments(actor, {
-      professionalId: query.professionalId,
-      chairId: query.chairId,
-      startAt: dayStart,
-      endAt: dayEnd
-    });
+    const schedules = await this.effectiveSchedulesForDate(actor, query.branchId, query.professionalId, date);
 
-    const slots: { startAt: Date; endAt: Date; available: boolean }[] = [];
-    for (let cursor = new Date(dayStart); cursor.getTime() + duration * 60000 <= dayEnd.getTime(); cursor = new Date(cursor.getTime() + slotMinutes * 60000)) {
-      const endAt = new Date(cursor.getTime() + duration * 60000);
-      const inBreak = this.isInsideBreak(cursor, endAt, date, schedule.breakStartTime, schedule.breakEndTime);
-      const overlaps = busy.some((item) => this.overlaps(cursor, endAt, item.startAt, item.endAt));
-      slots.push({ startAt: new Date(cursor), endAt, available: !inBreak && !overlaps });
+    const slots: { startAt: Date; endAt: Date; available: boolean; chairIndex: number }[] = [];
+    for (const schedule of schedules) {
+      if (chairIndex > (schedule.simultaneousChairs ?? 1)) continue;
+
+      const scheduleStart = this.atTime(date, schedule.startTime);
+      const scheduleEnd = this.atTime(date, schedule.endTime);
+      const dayStart = new Date(Math.max(scheduleStart.getTime(), branchStart.getTime()));
+      const dayEnd = new Date(Math.min(scheduleEnd.getTime(), branchEnd.getTime()));
+      if (dayStart >= dayEnd) continue;
+      const busy = await this.busyAppointments(actor, {
+        professionalId: query.professionalId,
+        chairId: query.chairId,
+        chairIndex,
+        startAt: dayStart,
+        endAt: dayEnd,
+        excludeId: query.excludeAppointmentId
+      });
+
+      for (let cursor = new Date(dayStart); cursor.getTime() + duration * 60000 <= dayEnd.getTime(); cursor = new Date(cursor.getTime() + slotMinutes * 60000)) {
+        const endAt = new Date(cursor.getTime() + duration * 60000);
+        const inBreak = this.isInsideBreak(cursor, endAt, date, schedule.breakStartTime, schedule.breakEndTime);
+        const overlaps = busy.some((item) => this.overlaps(cursor, endAt, item.startAt, item.endAt));
+        slots.push({ startAt: new Date(cursor), endAt, available: !inBreak && !overlaps, chairIndex });
+      }
     }
 
     return { slots };
@@ -961,8 +983,12 @@ export class AppointmentsService {
     const endAt = new Date(dto.endAt);
     const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
     const chairId = dto.chairId ?? (await this.defaultChairForSchedule(actor, dto.branchId, dto.professionalId, startAt));
+    const chairIndex = dto.chairIndex ?? 1;
+    const isOverbooking = dto.allowOverbooking === true;
+    const attendanceMode = dto.attendanceMode ?? AttendanceMode.PRESENTIAL;
 
     this.validateDates(startAt, endAt, durationMinutes);
+    this.validateChairIndex(chairIndex);
     await this.validateDurationSlotEnforcement(actor, dto.branchId, dto.professionalId, durationMinutes, startAt);
     await this.validateReferences(actor, {
       branchId: dto.branchId,
@@ -978,12 +1004,15 @@ export class AppointmentsService {
       branchId: dto.branchId,
       professionalId: dto.professionalId,
       chairId,
+      chairIndex,
+      allowOverbooking: dto.allowOverbooking,
+      attendanceMode,
       startAt,
       endAt,
       status
     });
 
-    return { dto, status, startAt, endAt, durationMinutes, chairId };
+    return { dto, status, startAt, endAt, durationMinutes, chairId, chairIndex, isOverbooking, attendanceMode };
   }
 
   private async createAppointmentInTransaction(
@@ -992,7 +1021,7 @@ export class AppointmentsService {
     prepared: PreparedAppointmentCreate,
     treatmentPlanId?: string
   ) {
-    const { dto, status, startAt, endAt, durationMinutes, chairId } = prepared;
+    const { dto, status, startAt, endAt, durationMinutes, chairId, chairIndex, isOverbooking, attendanceMode } = prepared;
     const appointment = await tx.appointment.create({
       data: {
         organizationId: actor.organizationId,
@@ -1000,6 +1029,9 @@ export class AppointmentsService {
         patientId: dto.patientId,
         professionalId: dto.professionalId,
         chairId,
+        chairIndex,
+        isOverbooking,
+        attendanceMode,
         specialtyId: dto.specialtyId,
         treatmentPlanId,
         title: dto.title.trim(),
@@ -1032,12 +1064,23 @@ export class AppointmentsService {
         const overlaps = this.overlaps(current.startAt, current.endAt, next.startAt, next.endAt);
         if (!overlaps) continue;
 
-        if (!canOverbook && current.dto.professionalId === next.dto.professionalId) {
-          throw new BadRequestException("Overlapping appointment for professional");
+        if (current.dto.professionalId === next.dto.professionalId) {
+          const currentOverbooking = this.isPreparedOverbooking(current);
+          const nextOverbooking = this.isPreparedOverbooking(next);
+          const sameNormalChair = (current.chairIndex ?? 1) === (next.chairIndex ?? 1) && !currentOverbooking && !nextOverbooking;
+          const invalidOverbooking = (currentOverbooking || nextOverbooking) && (!currentOverbooking || !nextOverbooking || !canOverbook);
+          if (sameNormalChair || invalidOverbooking) {
+            throw new BadRequestException("La cita empalma con otra cita del profesional");
+          }
         }
 
-        if (current.chairId && current.chairId === next.chairId) {
-          throw new BadRequestException("Overlapping appointment for chair");
+        if (
+          current.chairId &&
+          current.chairId === next.chairId &&
+          this.requiresPhysicalChair(current.attendanceMode) &&
+          this.requiresPhysicalChair(next.attendanceMode)
+        ) {
+          throw new BadRequestException("La cita empalma con otra cita en el box seleccionado");
         }
       }
     }
@@ -1083,6 +1126,9 @@ export class AppointmentsService {
     if (left.dto.patientId !== right.dto.patientId) return false;
     if (left.dto.professionalId !== right.dto.professionalId) return false;
     if ((left.chairId ?? "") !== (right.chairId ?? "")) return false;
+    if ((left.chairIndex ?? 1) !== (right.chairIndex ?? 1)) return false;
+    if (this.isPreparedOverbooking(left) !== this.isPreparedOverbooking(right)) return false;
+    if (left.attendanceMode !== right.attendanceMode) return false;
     if ((left.dto.specialtyId ?? "") !== (right.dto.specialtyId ?? "")) return false;
     if ((left.dto.treatmentPlanId ?? "") !== (right.dto.treatmentPlanId ?? "")) return false;
     if ((left.dto.reason?.trim() ?? "") !== (right.dto.reason?.trim() ?? "")) return false;
@@ -1090,6 +1136,10 @@ export class AppointmentsService {
     if ((left.dto.notes?.trim() ?? "") !== (right.dto.notes?.trim() ?? "")) return false;
     if (this.clinicDayKey(left.startAt) !== this.clinicDayKey(right.startAt)) return false;
     return right.startAt <= left.endAt && right.endAt >= left.startAt;
+  }
+
+  private isPreparedOverbooking(appointment: PreparedAppointmentCreate) {
+    return appointment.isOverbooking === true || appointment.dto.allowOverbooking === true;
   }
 
   private enforceBatchPatientDailyLimit(appointments: PreparedAppointmentCreate[]) {
@@ -1278,6 +1328,9 @@ export class AppointmentsService {
       branchId: string;
       professionalId: string;
       chairId?: string;
+      chairIndex: number;
+      allowOverbooking?: boolean;
+      attendanceMode?: AttendanceMode;
       startAt: Date;
       endAt: Date;
       status: AppointmentStatus;
@@ -1286,12 +1339,18 @@ export class AppointmentsService {
   ) {
     if (FREE_STATUSES.includes(input.status)) return;
 
-    const canOverbook = actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
+    const hasOverbookingPermission = actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
+    const canOverbook = input.allowOverbooking === true && hasOverbookingPermission;
+    if (input.allowOverbooking && !hasOverbookingPermission) {
+      throw new BadRequestException("Overbooking permission is required");
+    }
     if (!canOverbook) {
       await this.ensureInsideProfessionalSchedule(actor, input);
       const professionalOverlap = await this.prisma.appointment.findFirst({
         where: {
           professionalId: input.professionalId,
+          chairIndex: input.chairIndex,
+          isOverbooking: false,
           organizationId: actor.organizationId,
           status: { notIn: FREE_STATUSES },
           ...(excludeId ? { id: { not: excludeId } } : {}),
@@ -1299,13 +1358,14 @@ export class AppointmentsService {
           endAt: { gt: input.startAt }
         }
       });
-      if (professionalOverlap) throw new BadRequestException("Overlapping appointment for professional");
+      if (professionalOverlap) throw new BadRequestException("La cita empalma con otra cita del profesional");
     }
 
-    if (input.chairId) {
+    if (input.chairId && this.requiresPhysicalChair(input.attendanceMode ?? AttendanceMode.PRESENTIAL)) {
       const chairOverlap = await this.prisma.appointment.findFirst({
         where: {
           chairId: input.chairId,
+          attendanceMode: { in: [AttendanceMode.PRESENTIAL, AttendanceMode.BOTH] },
           organizationId: actor.organizationId,
           status: { notIn: FREE_STATUSES },
           ...(excludeId ? { id: { not: excludeId } } : {}),
@@ -1313,31 +1373,20 @@ export class AppointmentsService {
           endAt: { gt: input.startAt }
         }
       });
-      if (chairOverlap) throw new BadRequestException("Overlapping appointment for chair");
+      if (chairOverlap) throw new BadRequestException("La cita empalma con otra cita en el box seleccionado");
     }
   }
 
   private async ensureInsideProfessionalSchedule(
     actor: AuthUser,
-    input: { branchId: string; professionalId: string; startAt: Date; endAt: Date }
+    input: { branchId: string; professionalId: string; chairIndex?: number; allowOverbooking?: boolean; startAt: Date; endAt: Date; status?: AppointmentStatus }
   ) {
     if (input.startAt.toDateString() !== input.endAt.toDateString()) {
       throw new BadRequestException("Appointment must start and end on the same day");
     }
 
-    const schedule = await this.prisma.professionalSchedule.findFirst({
-      where: {
-        professionalId: input.professionalId,
-        branchId: input.branchId,
-        dayOfWeek: input.startAt.getDay(),
-        isActive: true,
-        professional: { organizationId: actor.organizationId }
-      }
-    });
-    if (!schedule) throw new BadRequestException("Professional has no active schedule for this day and branch");
-
-    const scheduleStart = this.atTime(input.startAt, schedule.startTime);
-    const scheduleEnd = this.atTime(input.startAt, schedule.endTime);
+    const schedules = await this.effectiveSchedulesForDate(actor, input.branchId, input.professionalId, input.startAt);
+    if (!schedules.length) throw new BadRequestException("Professional has no active schedule for this day and branch");
     const agendaConfig = await this.resolveAgendaConfig(actor, input.branchId, input.professionalId, input.startAt);
     const branchStart = this.atTime(input.startAt, `${String(agendaConfig.agendaStartHour).padStart(2, "0")}:00`);
     const branchEnd = this.atTime(input.startAt, `${String(agendaConfig.agendaEndHour).padStart(2, "0")}:00`);
@@ -1345,15 +1394,25 @@ export class AppointmentsService {
       throw new BadRequestException("Appointment is outside branch agenda hours");
     }
 
-    if (input.startAt < scheduleStart || input.endAt > scheduleEnd) {
-      throw new BadRequestException("Appointment is outside professional schedule");
+    const chairIndex = input.chairIndex ?? 1;
+    const matchingSchedule = schedules.find((schedule) => {
+      const scheduleStart = this.atTime(input.startAt, schedule.startTime);
+      const scheduleEnd = this.atTime(input.startAt, schedule.endTime);
+      return input.startAt >= scheduleStart && input.endAt <= scheduleEnd;
+    });
+    if (!matchingSchedule) throw new BadRequestException("Appointment is outside professional schedule");
+    if (!input.allowOverbooking && chairIndex > (matchingSchedule.simultaneousChairs ?? 1)) {
+      throw new BadRequestException("chairIndex exceeds configured simultaneous chairs for this day");
     }
 
-    if (this.isInsideBreak(input.startAt, input.endAt, input.startAt, schedule.breakStartTime, schedule.breakEndTime)) {
-      throw new BadRequestException("Appointment overlaps professional break");
+    if (
+      input.status !== AppointmentStatus.BLOCKED &&
+      this.isInsideBreak(input.startAt, input.endAt, input.startAt, matchingSchedule.breakStartTime, matchingSchedule.breakEndTime)
+    ) {
+      throw new BadRequestException("La cita se superpone con el horario de descanso del profesional");
     }
 
-    const minutesFromScheduleStart = this.diffMinutes(scheduleStart, input.startAt);
+    const minutesFromScheduleStart = this.diffMinutes(this.atTime(input.startAt, matchingSchedule.startTime), input.startAt);
     if (minutesFromScheduleStart % agendaConfig.agendaSlotMinutes !== 0) {
       throw new BadRequestException(`Appointment startAt must align to professional slot minutes (${agendaConfig.agendaSlotMinutes} minutes)`);
     }
@@ -1361,17 +1420,45 @@ export class AppointmentsService {
 
   private async busyAppointments(
     actor: AuthUser,
-    input: { professionalId: string; chairId?: string; startAt: Date; endAt: Date }
+    input: { professionalId: string; chairId?: string; chairIndex?: number; startAt: Date; endAt: Date; excludeId?: string }
   ) {
     return this.prisma.appointment.findMany({
       where: {
         organizationId: actor.organizationId,
         status: { notIn: FREE_STATUSES },
+        ...(input.excludeId ? { id: { not: input.excludeId } } : {}),
         startAt: { lt: input.endAt },
         endAt: { gt: input.startAt },
-        OR: [{ professionalId: input.professionalId }, ...(input.chairId ? [{ chairId: input.chairId }] : [])]
+        OR: [
+          { professionalId: input.professionalId, chairIndex: input.chairIndex ?? 1, isOverbooking: false },
+          ...(input.chairId ? [{ chairId: input.chairId, attendanceMode: { in: [AttendanceMode.PRESENTIAL, AttendanceMode.BOTH] } }] : [])
+        ]
       },
       select: { startAt: true, endAt: true }
+    });
+  }
+
+  private async effectiveSchedulesForDate(actor: AuthUser, branchId: string, professionalId: string, date: Date) {
+    const dateKey = this.clinicDayKey(date);
+    const specialSchedules = await this.prisma.professionalSpecialSchedule.findMany({
+      where: {
+        professionalId,
+        branchId,
+        date: dateKey,
+        isActive: true,
+        professional: { organizationId: actor.organizationId }
+      }
+    });
+    if (specialSchedules.length) return specialSchedules;
+
+    return this.prisma.professionalSchedule.findMany({
+      where: {
+        professionalId,
+        branchId,
+        dayOfWeek: date.getDay(),
+        isActive: true,
+        professional: { organizationId: actor.organizationId }
+      }
     });
   }
 
@@ -1407,6 +1494,16 @@ export class AppointmentsService {
     if (durationMinutes !== this.diffMinutes(startAt, endAt)) {
       throw new BadRequestException("durationMinutes must match startAt/endAt");
     }
+  }
+
+  private validateChairIndex(value: number) {
+    if (!Number.isInteger(value) || value < 1) {
+      throw new BadRequestException("chairIndex must be a positive integer");
+    }
+  }
+
+  private requiresPhysicalChair(mode: AttendanceMode) {
+    return mode === AttendanceMode.PRESENTIAL || mode === AttendanceMode.BOTH;
   }
 
   private resolveRange(query: AppointmentQueryDto) {

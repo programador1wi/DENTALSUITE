@@ -1,6 +1,8 @@
 import { Type } from "class-transformer";
 import {
   BudgetStatus,
+  CurrencyCode,
+  OrthodonticDiagnosisStatus,
   TreatmentPlanItemStatus,
   TreatmentPlanKind,
   TreatmentPlanStatus
@@ -17,11 +19,40 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  Max,
   Min,
   ValidateNested
 } from "class-validator";
 import { PaginationQueryDto } from "../../../common/dto/pagination-query.dto";
 import { TREATMENT_PLAN_DOCUMENT_TYPES, type TreatmentPlanDocumentType } from "../treatment-plan-documents";
+
+export class TreatmentPlanPricePreviewDto {
+  @IsString()
+  procedureId!: string;
+
+  @IsOptional()
+  @IsDateString()
+  clinicalDate?: string;
+
+  @IsOptional()
+  @IsEnum(CurrencyCode)
+  currency?: CurrencyCode;
+}
+
+export class RepriceTreatmentPlanDto {
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  itemIds?: string[];
+
+  @IsOptional()
+  @IsDateString()
+  clinicalDate?: string;
+
+  @IsOptional()
+  @IsString()
+  reason?: string;
+}
 
 export class TreatmentPlanSectionInputDto {
   @IsString()
@@ -90,6 +121,10 @@ export class CreateTreatmentPlanDto {
   @IsString()
   patientId!: string;
 
+  @IsOptional()
+  @IsString()
+  agreementId?: string;
+
   @IsString()
   professionalId!: string;
 
@@ -153,6 +188,10 @@ export class UpdateTreatmentPlanDto {
 
 export class UpdateOrthodonticProfileDto {
   @IsOptional()
+  @IsString()
+  technicalDescription?: string | null;
+
+  @IsOptional()
   @IsDateString()
   startDate?: string | null;
 
@@ -167,6 +206,32 @@ export class UpdateOrthodonticProfileDto {
   @IsInt()
   @Min(1)
   estimatedControls?: number | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  totalAligners?: number | null;
+
+  @IsOptional()
+  @IsString()
+  indicatedExtractions?: string | null;
+
+  @IsOptional()
+  @IsString()
+  performedExtractions?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  reevaluationDate?: string | null;
+
+  @IsOptional()
+  @IsString()
+  interconsultations?: string | null;
+
+  @IsOptional()
+  @IsObject()
+  catalogSelections?: Record<string, string[]>;
 
   @IsOptional()
   @IsString()
@@ -210,10 +275,125 @@ export class UpdateOrthodonticDiagnosisDto {
   diagnosis!: Record<string, unknown>;
 }
 
+export class OrthodonticDiagnosisFieldValueDto {
+  @IsString()
+  fieldCode!: string;
+
+  @IsOptional()
+  @IsString()
+  valueText?: string | null;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  valueNumber?: number | null;
+
+  @IsOptional()
+  @IsDateString()
+  valueDate?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  valueBoolean?: boolean | null;
+
+  @IsOptional()
+  @IsString()
+  unitId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  optionId?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  optionIds?: string[];
+}
+
+export class SaveOrthodonticDiagnosisDto {
+  @IsOptional()
+  @IsEnum(OrthodonticDiagnosisStatus)
+  status?: OrthodonticDiagnosisStatus;
+
+  @IsOptional()
+  @IsDateString()
+  clinicalDate?: string | null;
+
+  @IsOptional()
+  @IsString()
+  changeReason?: string | null;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrthodonticDiagnosisFieldValueDto)
+  values!: OrthodonticDiagnosisFieldValueDto[];
+}
+
+export class CreateOrthodonticDiagnosisOptionDto {
+  @IsString()
+  label!: string;
+}
+
+export class UpdateOrthodonticDiagnosisOptionDto {
+  @IsOptional()
+  @IsString()
+  label?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+
+  @IsOptional()
+  @IsString()
+  deactivationReason?: string;
+}
+
+export class SortOrthodonticDiagnosisOptionsDto {
+  @IsArray()
+  @IsString({ each: true })
+  optionIds!: string[];
+}
+
+export class CreateOrthodonticOptionDto {
+  @IsString()
+  label!: string;
+}
+
+export class UpdateOrthodonticOptionDto {
+  @IsOptional()
+  @IsString()
+  label?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  sortOrder?: number;
+
+  @IsOptional()
+  @IsString()
+  deactivationReason?: string;
+}
+
+export class SortOrthodonticOptionsDto {
+  @IsArray()
+  @IsString({ each: true })
+  optionIds!: string[];
+}
+
 export class StartOrthodonticTreatmentDto {
   @IsOptional()
   @IsDateString()
   startDate?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(3)
+  @Max(36)
+  durationMonths?: number;
 }
 
 export class OrthodonticEvolutionsQueryDto extends PaginationQueryDto {

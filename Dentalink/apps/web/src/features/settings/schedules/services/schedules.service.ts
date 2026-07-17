@@ -10,6 +10,8 @@ export type Schedule = {
   endTime: string;
   breakStartTime?: string | null;
   breakEndTime?: string | null;
+  simultaneousChairs: number;
+  attendanceMode: AttendanceMode;
   isActive: boolean;
   professional: { firstName: string; lastName: string };
   branch: { name: string };
@@ -25,7 +27,11 @@ export type SchedulePayload = {
   endTime: string;
   breakStartTime?: string | null;
   breakEndTime?: string | null;
+  simultaneousChairs?: number;
+  attendanceMode?: AttendanceMode;
 };
+
+export type AttendanceMode = "PRESENTIAL" | "TELECONSULTATION" | "BOTH";
 
 export type SpecialSchedule = {
   id: string;
@@ -37,6 +43,8 @@ export type SpecialSchedule = {
   endTime: string;
   breakStartTime?: string | null;
   breakEndTime?: string | null;
+  simultaneousChairs: number;
+  attendanceMode: AttendanceMode;
   isActive: boolean;
   professional: { firstName: string; lastName: string };
   branch: { name: string };
@@ -52,6 +60,8 @@ export type SpecialSchedulePayload = {
   endTime: string;
   breakStartTime?: string | null;
   breakEndTime?: string | null;
+  simultaneousChairs?: number;
+  attendanceMode?: AttendanceMode;
 };
 
 export type ScheduleBlockStatus =

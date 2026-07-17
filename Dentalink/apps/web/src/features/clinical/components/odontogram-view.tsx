@@ -12,8 +12,8 @@ const PERMANENT_LOWER = ["48", "47", "46", "45", "44", "43", "42", "41", "31", "
 const TEMPORAL_UPPER = ["55", "54", "53", "52", "51", "61", "62", "63", "64", "65"];
 const TEMPORAL_LOWER = ["85", "84", "83", "82", "81", "71", "72", "73", "74", "75"];
 
-const PERMANENT_FACE_OFFSETS = [0, 74, 146, 218, 290, 362, 434, 506, 578, 650, 722, 794, 866, 938, 1010, 1080];
-const TEMPORAL_FACE_OFFSETS = [0, 72, 144, 215, 287, 359, 431, 503, 569, 642];
+const PERMANENT_FACE_OFFSETS = [0, 74, 146, 218, 291, 363, 434, 506, 578, 649, 718, 788, 862, 936, 1009, 1080];
+const TEMPORAL_FACE_OFFSETS = [0, 72, 144, 215, 287, 359, 430, 499, 569, 642];
 const FACE_START_X = 25;
 const UPPER_FACE_Y = { permanent: 221, temporal: 220 } as const;
 const LOWER_FACE_Y = { permanent: 320, temporal: 319 } as const;

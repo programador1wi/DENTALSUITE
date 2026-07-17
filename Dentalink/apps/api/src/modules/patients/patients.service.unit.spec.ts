@@ -221,3 +221,43 @@ describe("PatientsService exact duplicate guard", () => {
     );
   });
 });
+
+describe("PatientsService shared phone boundary", () => {
+  const actor: AuthUser = {
+    id: "user-1",
+    organizationId: "org-1",
+    email: "user@example.com",
+    firstName: "User",
+    lastName: "One",
+    roleIds: [],
+    roleNames: [],
+    branchIds: ["branch-1"],
+    permissions: []
+  };
+
+  it("rejects an ordinary patient creation when the normalized phone belongs to another patient", async () => {
+    const prisma = {
+      branch: { findFirst: jest.fn().mockResolvedValue({ id: "branch-1" }) },
+      contactPoint: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "contact-1",
+          patientLinks: [{ id: "link-existing" }]
+        })
+      },
+      patient: { findFirst: jest.fn().mockResolvedValue(null) },
+      $transaction: jest.fn()
+    };
+    const identity = {
+      normalizePhone: jest.fn().mockResolvedValue({ normalizedValue: "+529612222222" })
+    };
+    const service = new PatientsService(prisma as never, undefined, undefined, identity as never);
+
+    await expect(service.create(actor, {
+      branchId: "branch-1",
+      firstName: "Otro",
+      lastName: "Paciente",
+      phone: "961 222 2222"
+    })).rejects.toThrow("grupo familiar");
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});

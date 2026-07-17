@@ -1,6 +1,13 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException
+} from "@nestjs/common";
 import { extname } from "node:path";
 import {
+  AgreementStatus,
   AppointmentStatus,
   BudgetStatus,
   CommunicationChannel,
@@ -8,6 +15,8 @@ import {
   InstallmentStatus,
   MessageDeliveryStatus,
   PaymentStatus,
+  PatientBenefitCoverageStatus,
+  PatientBenefitCoverageType,
   PatientTaskStatus,
   Prisma,
   TreatmentPlanItemStatus,
@@ -20,9 +29,19 @@ import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import { DocumentsService } from "../documents/documents.service";
 import { EmailService } from "../notifications/email.service";
+import { PatientIdentityService } from "../patient-identity/patient-identity.service";
 import { AddPatientAlertDto } from "./dto/add-patient-alert.dto";
 import { AddPatientNoteDto } from "./dto/add-patient-note.dto";
 import { CreatePatientDto } from "./dto/create-patient.dto";
+import {
+  AttachPatientCoverageDocumentDto,
+  CoverageNormalizedResultDto,
+  CreatePatientBenefitCoverageDto,
+  PatientBenefitCoverageStatusDto,
+  PatientEligibleCoveragesQueryDto,
+  UpdatePatientBenefitCoverageDto,
+  ValidatePatientInsuranceDto
+} from "./dto/patient-benefit-coverage.dto";
 import { PatientAnalysisQueryDto } from "./dto/patient-analysis-query.dto";
 import { ListPatientEmailsQueryDto, SendPatientEmailDto } from "./dto/patient-email.dto";
 import { PatientQueryDto } from "./dto/patient-query.dto";
@@ -55,7 +74,18 @@ const EXACT_PATIENT_DUPLICATE_MESSAGE =
 const PATIENT_EMAIL_TEMPLATE_KEY = "PATIENT_EMAIL";
 const PATIENT_EMAIL_MAX_ATTACHMENTS = 3;
 const PATIENT_EMAIL_MAX_TOTAL_BYTES = 25 * 1024 * 1024;
-const PATIENT_EMAIL_ALLOWED_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx"]);
+const PATIENT_EMAIL_ALLOWED_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".pdf",
+  ".doc",
+  ".docx",
+  ".xls",
+  ".xlsx",
+  ".ppt",
+  ".pptx"
+]);
 const PATIENT_EMAIL_ALLOWED_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -74,7 +104,8 @@ export class PatientsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService?: EmailService,
-    private readonly documentsService?: DocumentsService
+    private readonly documentsService?: DocumentsService,
+    private readonly patientIdentityService?: PatientIdentityService
   ) {}
 
   async findAll(actor: AuthUser, query: PatientQueryDto) {
@@ -541,6 +572,8 @@ export class PatientsService {
             id: true,
             name: true,
             discountPercent: true,
+            payrollDiscount: true,
+            isActive: true,
             priceList: { select: { id: true, name: true, isDefault: true } }
           }
         },
@@ -556,7 +589,7 @@ export class PatientsService {
 
     if (!patient) throw new NotFoundException("Patient not found");
 
-    const [timeline, nextAppointment, lastAppointment, financialSummary, activeTreatments] =
+    const [timeline, nextAppointment, lastAppointment, financialSummary, activeTreatments, benefitsSummary] =
       await Promise.all([
         this.getTimelineInternal(actor, id),
         this.prisma.appointment.findFirst({
@@ -585,7 +618,8 @@ export class PatientsService {
             isAlternative: false,
             status: { in: [TreatmentPlanStatus.ACCEPTED, TreatmentPlanStatus.IN_PROGRESS] }
           }
-        })
+        }),
+        this.getPatientBenefitsSummary(actor, id)
       ]);
 
     return {
@@ -598,12 +632,368 @@ export class PatientsService {
             ? financialSummary.outstandingAmount
             : -financialSummary.unallocatedCredit,
         activeTreatments,
+        activeBenefits: benefitsSummary.activeBenefits,
+        coverageExpiringSoon: benefitsSummary.coverageExpiringSoon,
         hasCriticalAlert: patient.medicalAlerts.some((alert) =>
           ["HIGH", "CRITICAL"].includes(alert.severity.toUpperCase())
         )
       },
       timeline
     };
+  }
+
+  async listBenefitCoverages(actor: AuthUser, patientId: string) {
+    await this.getPatientForBenefitCoverage(actor, patientId);
+    const coverages = await this.prisma.patientBenefitCoverage.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        patientId,
+        branchId: { in: actor.branchIds }
+      },
+      include: this.patientBenefitCoverageInclude(),
+      orderBy: [{ status: "asc" }, { updatedAt: "desc" }]
+    });
+    return this.buildBenefitCoverageResponse(coverages);
+  }
+
+  async createBenefitCoverage(
+    actor: AuthUser,
+    patientId: string,
+    dto: CreatePatientBenefitCoverageDto,
+    idempotencyKey?: string
+  ) {
+    const patient = await this.getPatientForBenefitCoverage(actor, patientId);
+    const normalized = this.normalizeBenefitCoverageInput(dto);
+    const branchId = normalized.branchId ?? patient.branchId;
+    await this.validateBranch(actor, branchId);
+    if (normalized.agreementId) await this.validateAgreement(actor, normalized.agreementId);
+    this.validateBenefitCoverageDates(normalized.startsAt, normalized.endsAt);
+
+    const existingIdempotent = await this.findIdempotentBenefitCoverage(actor, patientId, idempotencyKey);
+    if (existingIdempotent) return this.serializeBenefitCoverage(existingIdempotent);
+
+    await this.assertNoDuplicateBenefitCoverage(
+      actor,
+      patientId,
+      normalized.providerName,
+      normalized.policyNumber,
+      normalized.affiliateNumber
+    );
+    const status = (normalized.status ?? PatientBenefitCoverageStatus.DRAFT) as PatientBenefitCoverageStatus;
+
+    const coverage = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.patientBenefitCoverage.create({
+        data: {
+          organizationId: actor.organizationId,
+          branchId,
+          patientId,
+          type: normalized.type as PatientBenefitCoverageType,
+          status,
+          providerName: normalized.providerName,
+          agreementId: normalized.agreementId,
+          planName: normalized.planName,
+          policyNumber: normalized.policyNumber,
+          affiliateNumber: normalized.affiliateNumber,
+          certificateNumber: normalized.certificateNumber,
+          employeeNumber: normalized.employeeNumber,
+          holderName: normalized.holderName,
+          holderDocument: normalized.holderDocument,
+          relationshipToPatient: normalized.relationshipToPatient,
+          startsAt: this.dateOrNull(normalized.startsAt),
+          endsAt: this.dateOrNull(normalized.endsAt),
+          coveragePercent: this.numberOrUndefined(normalized.coveragePercent),
+          copayAmount: this.numberOrUndefined(normalized.copayAmount),
+          deductibleAmount: this.numberOrUndefined(normalized.deductibleAmount),
+          annualLimitAmount: this.numberOrUndefined(normalized.annualLimitAmount),
+          requiresAuthorization: normalized.requiresAuthorization ?? false,
+          notes: normalized.notes,
+          externalReference: normalized.externalReference,
+          createdById: actor.id,
+          updatedById: actor.id,
+          metadata: idempotencyKey ? { idempotencyKey } : undefined
+        },
+        include: this.patientBenefitCoverageInclude()
+      });
+
+      await tx.patientBenefitCoverageAudit.create({
+        data: {
+          coverageId: created.id,
+          organizationId: actor.organizationId,
+          branchId,
+          patientId,
+          action: "create",
+          after: this.auditJson(created),
+          correlationId: idempotencyKey,
+          actorUserId: actor.id
+        }
+      });
+
+      if (created.agreementId && created.status === PatientBenefitCoverageStatus.ACTIVE) {
+        await tx.patient.update({ where: { id: patientId }, data: { agreementId: created.agreementId } });
+      }
+
+      return created;
+    });
+
+    return this.serializeBenefitCoverage(coverage);
+  }
+
+  async updateBenefitCoverage(
+    actor: AuthUser,
+    patientId: string,
+    coverageId: string,
+    dto: UpdatePatientBenefitCoverageDto
+  ) {
+    await this.getPatientForBenefitCoverage(actor, patientId);
+    const current = await this.getBenefitCoverageOrThrow(actor, patientId, coverageId);
+    if (dto.expectedVersion !== undefined && dto.expectedVersion !== current.version) {
+      throw new ConflictException(
+        "La cobertura fue modificada por otro usuario. Recarga la ficha antes de guardar."
+      );
+    }
+
+    const normalized = this.normalizeBenefitCoverageInput(dto);
+    const branchId = normalized.branchId ?? current.branchId;
+    await this.validateBranch(actor, branchId);
+    if (normalized.agreementId) await this.validateAgreement(actor, normalized.agreementId);
+    this.validateBenefitCoverageDates(normalized.startsAt, normalized.endsAt);
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.patientBenefitCoverage.update({
+        where: { id: coverageId },
+        data: {
+          branchId,
+          type: normalized.type ? (normalized.type as PatientBenefitCoverageType) : undefined,
+          status: normalized.status ? (normalized.status as PatientBenefitCoverageStatus) : undefined,
+          providerName: normalized.providerName,
+          agreementId: normalized.agreementId === undefined ? undefined : normalized.agreementId,
+          planName: normalized.planName,
+          policyNumber: normalized.policyNumber,
+          affiliateNumber: normalized.affiliateNumber,
+          certificateNumber: normalized.certificateNumber,
+          employeeNumber: normalized.employeeNumber,
+          holderName: normalized.holderName,
+          holderDocument: normalized.holderDocument,
+          relationshipToPatient: normalized.relationshipToPatient,
+          startsAt: normalized.startsAt === undefined ? undefined : this.dateOrNull(normalized.startsAt),
+          endsAt: normalized.endsAt === undefined ? undefined : this.dateOrNull(normalized.endsAt),
+          coveragePercent: this.numberOrUndefined(normalized.coveragePercent),
+          copayAmount: this.numberOrUndefined(normalized.copayAmount),
+          deductibleAmount: this.numberOrUndefined(normalized.deductibleAmount),
+          annualLimitAmount: this.numberOrUndefined(normalized.annualLimitAmount),
+          requiresAuthorization: normalized.requiresAuthorization,
+          notes: normalized.notes,
+          externalReference: normalized.externalReference,
+          updatedById: actor.id,
+          version: { increment: 1 }
+        },
+        include: this.patientBenefitCoverageInclude()
+      });
+
+      await tx.patientBenefitCoverageAudit.create({
+        data: {
+          coverageId,
+          organizationId: actor.organizationId,
+          branchId: result.branchId,
+          patientId,
+          action: "update",
+          before: this.auditJson(current),
+          after: this.auditJson(result),
+          actorUserId: actor.id
+        }
+      });
+
+      if (result.agreementId && result.status === PatientBenefitCoverageStatus.ACTIVE) {
+        await tx.patient.update({ where: { id: patientId }, data: { agreementId: result.agreementId } });
+      }
+
+      return result;
+    });
+
+    return this.serializeBenefitCoverage(updated);
+  }
+
+  async changeBenefitCoverageStatus(
+    actor: AuthUser,
+    patientId: string,
+    coverageId: string,
+    status: PatientBenefitCoverageStatusDto,
+    reason?: string
+  ) {
+    await this.getPatientForBenefitCoverage(actor, patientId);
+    const current = await this.getBenefitCoverageOrThrow(actor, patientId, coverageId);
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.patientBenefitCoverage.update({
+        where: { id: coverageId },
+        data: {
+          status: status as PatientBenefitCoverageStatus,
+          updatedById: actor.id,
+          version: { increment: 1 }
+        },
+        include: this.patientBenefitCoverageInclude()
+      });
+
+      await tx.patientBenefitCoverageAudit.create({
+        data: {
+          coverageId,
+          organizationId: actor.organizationId,
+          branchId: result.branchId,
+          patientId,
+          action: status.toLowerCase(),
+          before: this.auditJson(current),
+          after: this.auditJson(result),
+          reason: this.cleanString(reason),
+          actorUserId: actor.id
+        }
+      });
+
+      if (result.agreementId && result.status === PatientBenefitCoverageStatus.ACTIVE) {
+        await tx.patient.update({ where: { id: patientId }, data: { agreementId: result.agreementId } });
+      }
+
+      return result;
+    });
+    return this.serializeBenefitCoverage(updated);
+  }
+
+  async validateInsurance(actor: AuthUser, patientId: string, dto: ValidatePatientInsuranceDto) {
+    await this.getPatientForBenefitCoverage(actor, patientId);
+    const current = await this.getBenefitCoverageOrThrow(actor, patientId, dto.coverageId);
+    const normalizedResult: Partial<CoverageNormalizedResultDto> = dto.normalizedResult ?? {};
+    const nextStatus = (dto.status ??
+      (dto.errorMessage ? "INTEGRATION_ERROR" : "ACTIVE")) as PatientBenefitCoverageStatus;
+    const validation = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.patientBenefitCoverageValidation.create({
+        data: {
+          coverageId: current.id,
+          organizationId: actor.organizationId,
+          branchId: current.branchId,
+          patientId,
+          mode: dto.mode ?? "MANUAL",
+          status: nextStatus,
+          providerName: this.cleanString(dto.providerName) ?? current.providerName,
+          externalIdentifier: this.cleanString(dto.externalIdentifier),
+          requestSnapshot: this.inputJson(dto.requestSnapshot),
+          responseSnapshot: this.inputJson(dto.responseSnapshot),
+          normalizedResult: Object.keys(normalizedResult).length
+            ? this.inputJson(normalizedResult)
+            : undefined,
+          errorMessage: this.cleanString(dto.errorMessage),
+          validatedAt: new Date(),
+          createdById: actor.id
+        }
+      });
+
+      const updated = await tx.patientBenefitCoverage.update({
+        where: { id: current.id },
+        data: {
+          status: nextStatus,
+          coveragePercent: this.numberOrUndefined(normalizedResult.coveragePercent),
+          copayAmount: this.numberOrUndefined(normalizedResult.copayAmount),
+          deductibleAmount: this.numberOrUndefined(normalizedResult.deductibleAmount),
+          annualLimitAmount: this.numberOrUndefined(normalizedResult.annualLimitAmount),
+          requiresAuthorization: normalizedResult.requiresAuthorization,
+          holderName: this.cleanString(normalizedResult.holderName) ?? undefined,
+          endsAt: normalizedResult.validUntil ? this.dateOrNull(normalizedResult.validUntil) : undefined,
+          lastValidatedAt: created.validatedAt,
+          lastValidationStatus: nextStatus,
+          lastValidationSummary:
+            this.cleanString(dto.errorMessage) ??
+            this.coverageValidationSummary(normalizedResult, nextStatus),
+          updatedById: actor.id,
+          version: { increment: 1 }
+        },
+        include: this.patientBenefitCoverageInclude()
+      });
+
+      await tx.patientBenefitCoverageAudit.create({
+        data: {
+          coverageId: current.id,
+          organizationId: actor.organizationId,
+          branchId: current.branchId,
+          patientId,
+          action: "validate",
+          before: this.auditJson(current),
+          after: this.auditJson(updated),
+          reason: this.cleanString(dto.errorMessage),
+          actorUserId: actor.id
+        }
+      });
+
+      if (updated.agreementId && updated.status === PatientBenefitCoverageStatus.ACTIVE) {
+        await tx.patient.update({ where: { id: patientId }, data: { agreementId: updated.agreementId } });
+      }
+
+      return created;
+    });
+
+    return validation;
+  }
+
+  async attachCoverageDocument(
+    actor: AuthUser,
+    patientId: string,
+    coverageId: string,
+    dto: AttachPatientCoverageDocumentDto
+  ) {
+    await this.getPatientForBenefitCoverage(actor, patientId);
+    const coverage = await this.getBenefitCoverageOrThrow(actor, patientId, coverageId);
+    const file = await this.prisma.fileAttachment.findFirst({
+      where: {
+        id: dto.fileAttachmentId,
+        organizationId: actor.organizationId,
+        patientId,
+        deletedAt: null
+      },
+      select: { id: true }
+    });
+    if (!file) throw new BadRequestException("Invalid fileAttachmentId");
+
+    const document = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.patientBenefitCoverageDocument.create({
+        data: {
+          coverageId,
+          organizationId: actor.organizationId,
+          branchId: coverage.branchId,
+          patientId,
+          fileAttachmentId: file.id,
+          category: dto.category.trim(),
+          notes: this.cleanString(dto.notes),
+          uploadedById: actor.id
+        },
+        include: { fileAttachment: true }
+      });
+      await tx.patientBenefitCoverageAudit.create({
+        data: {
+          coverageId,
+          organizationId: actor.organizationId,
+          branchId: coverage.branchId,
+          patientId,
+          action: "document_added",
+          after: this.auditJson(created),
+          actorUserId: actor.id
+        }
+      });
+      return created;
+    });
+    return document;
+  }
+
+  async listEligibleCoverages(actor: AuthUser, patientId: string, _query: PatientEligibleCoveragesQueryDto) {
+    await this.getPatientForBenefitCoverage(actor, patientId);
+    const now = new Date();
+    const coverages = await this.prisma.patientBenefitCoverage.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        patientId,
+        branchId: { in: actor.branchIds },
+        status: PatientBenefitCoverageStatus.ACTIVE,
+        OR: [{ endsAt: null }, { endsAt: { gte: now } }]
+      },
+      include: this.patientBenefitCoverageInclude(),
+      orderBy: [{ endsAt: "asc" }, { updatedAt: "desc" }]
+    });
+    return this.buildBenefitCoverageResponse(coverages);
   }
 
   async listEmails(actor: AuthUser, patientId: string, query: ListPatientEmailsQueryDto) {
@@ -649,7 +1039,11 @@ export class PatientsService {
 
   async sendEmail(actor: AuthUser, patientId: string, dto: SendPatientEmailDto, idempotencyKey?: string) {
     const patient = await this.getPatientForEmail(actor, patientId);
-    const normalizedPatientEmail = this.normalizeRequiredEmail(patient.email, "El paciente no tiene un correo electrónico registrado.", "El correo del paciente no tiene un formato válido.");
+    const normalizedPatientEmail = this.normalizeRequiredEmail(
+      patient.email,
+      "El paciente no tiene un correo electrónico registrado.",
+      "El correo del paciente no tiene un formato válido."
+    );
     const subject = this.normalizeEmailSubject(dto.subject);
     const decodedHtml = this.decodeEmailHtml(dto.bodyHtmlBase64);
     const sanitizedContent = this.sanitizeEmailHtml(decodedHtml);
@@ -663,10 +1057,18 @@ export class PatientsService {
     }
 
     const copyAddress = dto.copyToSender
-      ? this.normalizeRequiredEmail(actor.email, "El usuario autenticado no tiene correo registrado.", "El correo del usuario autenticado no tiene un formato válido.")
+      ? this.normalizeRequiredEmail(
+          actor.email,
+          "El usuario autenticado no tiene correo registrado.",
+          "El correo del usuario autenticado no tiene un formato válido."
+        )
       : undefined;
     const sender = this.getEmailSender();
-    const attachments = await this.resolvePatientEmailAttachments(actor, patientId, dto.fileAttachmentIds ?? []);
+    const attachments = await this.resolvePatientEmailAttachments(
+      actor,
+      patientId,
+      dto.fileAttachmentIds ?? []
+    );
     const replyTo = this.firstValidEmail(patient.branch.email, patient.organization.email);
     const toName = `${patient.firstName} ${patient.lastName}`.trim();
     const htmlBody = this.renderPatientEmailTemplate({
@@ -752,10 +1154,14 @@ export class PatientsService {
     });
 
     try {
-      if (!this.emailService) throw new ServiceUnavailableException("El servicio de correo no está configurado para esta organización.");
+      if (!this.emailService)
+        throw new ServiceUnavailableException(
+          "El servicio de correo no está configurado para esta organización."
+        );
       const emailAttachments = await Promise.all(
         attachments.map(async (attachment) => {
-          if (!this.documentsService) throw new ServiceUnavailableException("El servicio de archivos no está disponible.");
+          if (!this.documentsService)
+            throw new ServiceUnavailableException("El servicio de archivos no está disponible.");
           const file = await this.documentsService.getPatientFileContent(actor, patientId, attachment.id);
           return {
             filename: file.downloadName,
@@ -819,7 +1225,8 @@ export class PatientsService {
 
       return this.serializePatientEmail(updated, true);
     } catch (error) {
-      const safeMessage = error instanceof Error ? error.message.slice(0, 500) : "Unknown email provider error";
+      const safeMessage =
+        error instanceof Error ? error.message.slice(0, 500) : "Unknown email provider error";
       const failed = await this.prisma.$transaction(async (tx) => {
         const row = await tx.communicationJob.update({
           where: { id: queued.id },
@@ -856,22 +1263,43 @@ export class PatientsService {
       });
 
       if (error instanceof ServiceUnavailableException) throw error;
-      throw new ServiceUnavailableException(failed.errorMessage || "No fue posible enviar el correo. Intenta nuevamente.");
+      throw new ServiceUnavailableException(
+        failed.errorMessage || "No fue posible enviar el correo. Intenta nuevamente."
+      );
     }
   }
 
   async create(actor: AuthUser, dto: CreatePatientDto) {
     await this.validateBranch(actor, dto.branchId);
+    this.validateBirthDate(dto.birthDate);
+    const normalizedPhone =
+      dto.phone && this.patientIdentityService
+        ? await this.patientIdentityService.normalizePhone(actor.organizationId, dto.phone)
+        : undefined;
+    const normalizedAlternatePhone =
+      dto.alternatePhone && this.patientIdentityService
+        ? await this.patientIdentityService.normalizePhone(actor.organizationId, dto.alternatePhone)
+        : undefined;
+    const phoneForStorage =
+      normalizedPhone?.normalizedValue.replace(/^\+/, "") ?? this.normalizePhoneForStorage(dto.phone);
+    const alternatePhoneForStorage =
+      normalizedAlternatePhone?.normalizedValue.replace(/^\+/, "") ??
+      this.normalizePhoneForStorage(dto.alternatePhone);
+
+    if (normalizedPhone) await this.ensurePhoneAvailableForStandalonePatient(actor, normalizedPhone.normalizedValue);
+    if (normalizedAlternatePhone) {
+      await this.ensurePhoneAvailableForStandalonePatient(actor, normalizedAlternatePhone.normalizedValue);
+    }
 
     await this.ensureNoExactPatientDuplicate(actor, {
       firstName: dto.firstName,
       lastName: dto.lastName,
-      phone: dto.phone,
+      phone: phoneForStorage,
       email: dto.email
     });
 
     const potentialDuplicates = await this.findPotentialDuplicates(actor, {
-      phone: dto.phone,
+      phone: phoneForStorage,
       email: dto.email,
       documentNumber: dto.documentNumber
     });
@@ -888,8 +1316,8 @@ export class PatientsService {
           documentType: dto.documentType?.trim(),
           documentNumber: dto.documentNumber?.trim(),
           email: this.normalizeEmail(dto.email) || undefined,
-          phone: this.normalizePhoneForStorage(dto.phone) || undefined,
-          alternatePhone: dto.alternatePhone?.trim(),
+          phone: phoneForStorage || undefined,
+          alternatePhone: alternatePhoneForStorage || undefined,
           occupation: dto.occupation?.trim(),
           referredBy: dto.referredBy?.trim(),
           source: dto.source?.trim(),
@@ -955,6 +1383,17 @@ export class PatientsService {
       return created;
     });
 
+    if (this.patientIdentityService && (dto.phone || dto.alternatePhone)) {
+      await this.patientIdentityService.syncPatientPhones(
+        actor,
+        patient.id,
+        normalizedPhone?.normalizedValue,
+        normalizedAlternatePhone?.normalizedValue
+      );
+    }
+    if (this.patientIdentityService)
+      await this.patientIdentityService.recordDuplicateCandidates(actor, patient.id);
+
     return {
       patient: await this.findOne(actor, patient.id),
       potentialDuplicates
@@ -970,13 +1409,36 @@ export class PatientsService {
     if (!current) throw new NotFoundException("Patient not found");
     if (dto.branchId) await this.validateBranch(actor, dto.branchId);
     if (dto.agreementId) await this.validateAgreement(actor, dto.agreementId);
+    this.validateBirthDate(dto.birthDate);
+    const normalizedPhone =
+      dto.phone !== undefined && dto.phone && this.patientIdentityService
+        ? await this.patientIdentityService.normalizePhone(actor.organizationId, dto.phone)
+        : undefined;
+    const normalizedAlternatePhone =
+      dto.alternatePhone !== undefined && dto.alternatePhone && this.patientIdentityService
+        ? await this.patientIdentityService.normalizePhone(actor.organizationId, dto.alternatePhone)
+        : undefined;
+    const nextPhone =
+      dto.phone === undefined
+        ? current.phone
+        : (normalizedPhone?.normalizedValue.replace(/^\+/, "") ?? this.normalizePhoneForStorage(dto.phone));
+    const nextAlternatePhone =
+      dto.alternatePhone === undefined
+        ? current.alternatePhone
+        : (normalizedAlternatePhone?.normalizedValue.replace(/^\+/, "") ??
+          this.normalizePhoneForStorage(dto.alternatePhone));
+
+    if (normalizedPhone) await this.ensurePhoneAvailableForStandalonePatient(actor, normalizedPhone.normalizedValue, id);
+    if (normalizedAlternatePhone) {
+      await this.ensurePhoneAvailableForStandalonePatient(actor, normalizedAlternatePhone.normalizedValue, id);
+    }
 
     await this.ensureNoExactPatientDuplicate(
       actor,
       {
         firstName: dto.firstName ?? current.firstName,
         lastName: dto.lastName ?? current.lastName,
-        phone: dto.phone ?? current.phone ?? undefined,
+        phone: nextPhone ?? undefined,
         email: dto.email ?? current.email ?? undefined
       },
       id
@@ -985,7 +1447,7 @@ export class PatientsService {
     const potentialDuplicates = await this.findPotentialDuplicates(
       actor,
       {
-        phone: dto.phone ?? current.phone ?? undefined,
+        phone: nextPhone ?? undefined,
         email: dto.email ?? current.email ?? undefined,
         documentNumber: dto.documentNumber ?? current.documentNumber ?? undefined
       },
@@ -1005,8 +1467,8 @@ export class PatientsService {
           documentType: dto.documentType?.trim(),
           documentNumber: dto.documentNumber?.trim(),
           email: dto.email === undefined ? undefined : this.normalizeEmail(dto.email) || null,
-          phone: dto.phone === undefined ? undefined : this.normalizePhoneForStorage(dto.phone) || null,
-          alternatePhone: dto.alternatePhone?.trim(),
+          phone: dto.phone === undefined ? undefined : nextPhone || null,
+          alternatePhone: dto.alternatePhone === undefined ? undefined : nextAlternatePhone || null,
           occupation: dto.occupation?.trim(),
           referredBy: dto.referredBy?.trim(),
           source: dto.source?.trim(),
@@ -1099,6 +1561,18 @@ export class PatientsService {
       });
     });
 
+    if (this.patientIdentityService && (dto.phone !== undefined || dto.alternatePhone !== undefined)) {
+      await this.patientIdentityService.syncPatientPhones(
+        actor,
+        id,
+        dto.phone === undefined ? this.phoneForParsing(current.phone) : normalizedPhone?.normalizedValue,
+        dto.alternatePhone === undefined
+          ? this.phoneForParsing(current.alternatePhone)
+          : normalizedAlternatePhone?.normalizedValue
+      );
+    }
+    if (this.patientIdentityService) await this.patientIdentityService.recordDuplicateCandidates(actor, id);
+
     return {
       patient: await this.findOne(actor, id),
       potentialDuplicates
@@ -1147,7 +1621,9 @@ export class PatientsService {
     const noteText = dto.note.trim();
     if (!noteText) throw new BadRequestException("Note is required");
 
-    const fileAttachmentIds = [...new Set((dto.fileAttachmentIds ?? []).map((id) => id.trim()).filter(Boolean))];
+    const fileAttachmentIds = [
+      ...new Set((dto.fileAttachmentIds ?? []).map((id) => id.trim()).filter(Boolean))
+    ];
     if (fileAttachmentIds.length) {
       const files = await this.prisma.fileAttachment.findMany({
         where: {
@@ -1462,7 +1938,10 @@ export class PatientsService {
         tx.collectionCase.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
         tx.patientTask.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
         tx.fileAttachment.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
-        tx.radiographyAnalysis.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
+        tx.radiographyAnalysis.updateMany({
+          where: { patientId: source.id },
+          data: { patientId: target.id }
+        }),
         tx.consent.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } }),
         tx.labOrder.updateMany({ where: { patientId: source.id }, data: { patientId: target.id } })
       ]);
@@ -1515,7 +1994,11 @@ export class PatientsService {
     return this.findOne(actor, target.id);
   }
 
-  private patientEmailWhere(actor: AuthUser, patientId: string, query: ListPatientEmailsQueryDto): Prisma.CommunicationJobWhereInput {
+  private patientEmailWhere(
+    actor: AuthUser,
+    patientId: string,
+    query: ListPatientEmailsQueryDto
+  ): Prisma.CommunicationJobWhereInput {
     const monthRange = this.parseEmailMonth(query.month);
     const status = this.resolveEmailStatusFilter(query);
     return {
@@ -1572,7 +2055,8 @@ export class PatientsService {
       ccAddress: this.stringOrNull(metadata.ccAddress),
       senderUser: email.createdBy,
       preview: (this.stringOrNull(metadata.textBody) ?? email.body).slice(0, 180),
-      attachmentCount: typeof metadata.attachmentCount === "number" ? metadata.attachmentCount : attachmentIds.length,
+      attachmentCount:
+        typeof metadata.attachmentCount === "number" ? metadata.attachmentCount : attachmentIds.length,
       attachmentIds,
       queuedAt: email.queuedAt,
       sentAt: email.sentAt,
@@ -1637,9 +2121,14 @@ export class PatientsService {
     });
   }
 
-  private async resolvePatientEmailAttachments(actor: AuthUser, patientId: string, fileAttachmentIds: string[]) {
+  private async resolvePatientEmailAttachments(
+    actor: AuthUser,
+    patientId: string,
+    fileAttachmentIds: string[]
+  ) {
     const uniqueIds = [...new Set(fileAttachmentIds.map((id) => id.trim()).filter(Boolean))];
-    if (uniqueIds.length > PATIENT_EMAIL_MAX_ATTACHMENTS) throw new BadRequestException("Solo puedes adjuntar hasta 3 archivos.");
+    if (uniqueIds.length > PATIENT_EMAIL_MAX_ATTACHMENTS)
+      throw new BadRequestException("Solo puedes adjuntar hasta 3 archivos.");
     if (!uniqueIds.length) return [];
 
     const files = await this.prisma.fileAttachment.findMany({
@@ -1652,15 +2141,20 @@ export class PatientsService {
       },
       select: { id: true, originalName: true, mimeType: true, size: true }
     });
-    if (files.length !== uniqueIds.length) throw new BadRequestException("Uno o más archivos no pertenecen a este paciente.");
+    if (files.length !== uniqueIds.length)
+      throw new BadRequestException("Uno o más archivos no pertenecen a este paciente.");
 
     const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-    if (totalSize > PATIENT_EMAIL_MAX_TOTAL_BYTES) throw new BadRequestException("Los archivos no deben superar 25 MB en total.");
+    if (totalSize > PATIENT_EMAIL_MAX_TOTAL_BYTES)
+      throw new BadRequestException("Los archivos no deben superar 25 MB en total.");
 
     for (const file of files) {
       if (file.size <= 0) throw new BadRequestException("No se pueden adjuntar archivos vacíos.");
       const extension = extname(file.originalName).toLowerCase();
-      if (!PATIENT_EMAIL_ALLOWED_EXTENSIONS.has(extension) || !PATIENT_EMAIL_ALLOWED_MIME_TYPES.has(file.mimeType)) {
+      if (
+        !PATIENT_EMAIL_ALLOWED_EXTENSIONS.has(extension) ||
+        !PATIENT_EMAIL_ALLOWED_MIME_TYPES.has(file.mimeType)
+      ) {
         throw new BadRequestException("Archivo no permitido.");
       }
     }
@@ -1691,10 +2185,15 @@ export class PatientsService {
     };
   }
 
-  private normalizeRequiredEmail(value: string | null | undefined, missingMessage: string, invalidMessage: string) {
+  private normalizeRequiredEmail(
+    value: string | null | undefined,
+    missingMessage: string,
+    invalidMessage: string
+  ) {
     const email = value?.trim().toLowerCase();
     if (!email) throw new BadRequestException(missingMessage);
-    if (this.hasHeaderInjection(email) || !EMAIL_REGEX.test(email)) throw new BadRequestException(invalidMessage);
+    if (this.hasHeaderInjection(email) || !EMAIL_REGEX.test(email))
+      throw new BadRequestException(invalidMessage);
     return email;
   }
 
@@ -1733,7 +2232,22 @@ export class PatientsService {
 
     return html.replace(/<\/?([a-z0-9]+)(?:\s[^>]*)?>/gi, (tag, tagName: string) => {
       const normalized = tagName.toLowerCase();
-      const allowed = new Set(["p", "br", "strong", "b", "em", "i", "u", "ul", "ol", "li", "h1", "h2", "h3", "a"]);
+      const allowed = new Set([
+        "p",
+        "br",
+        "strong",
+        "b",
+        "em",
+        "i",
+        "u",
+        "ul",
+        "ol",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "a"
+      ]);
       if (!allowed.has(normalized)) return "";
       if (normalized === "a" && /^<a\b/i.test(tag)) return tag;
       return tag.startsWith("</") ? `</${normalized}>` : `<${normalized}>`;
@@ -1847,7 +2361,9 @@ export class PatientsService {
   }
 
   private emailMetadata(value: Prisma.JsonValue | null): Record<string, unknown> {
-    return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
   }
 
   private stringOrNull(value: unknown) {
@@ -1984,6 +2500,269 @@ export class PatientsService {
     };
   }
 
+  private async getPatientBenefitsSummary(actor: AuthUser, patientId: string) {
+    const now = new Date();
+    const soon = new Date(now);
+    soon.setDate(soon.getDate() + 30);
+    const [activeBenefits, expiring] = await Promise.all([
+      this.prisma.patientBenefitCoverage.count({
+        where: {
+          organizationId: actor.organizationId,
+          patientId,
+          branchId: { in: actor.branchIds },
+          status: PatientBenefitCoverageStatus.ACTIVE,
+          OR: [{ endsAt: null }, { endsAt: { gte: now } }]
+        }
+      }),
+      this.prisma.patientBenefitCoverage.findFirst({
+        where: {
+          organizationId: actor.organizationId,
+          patientId,
+          branchId: { in: actor.branchIds },
+          status: PatientBenefitCoverageStatus.ACTIVE,
+          endsAt: { gte: now, lte: soon }
+        },
+        orderBy: { endsAt: "asc" },
+        select: { providerName: true, endsAt: true }
+      })
+    ]);
+    return {
+      activeBenefits,
+      coverageExpiringSoon: expiring ? { providerName: expiring.providerName, endsAt: expiring.endsAt } : null
+    };
+  }
+
+  private patientBenefitCoverageInclude() {
+    return {
+      branch: { select: { id: true, name: true, timezone: true } },
+      agreement: {
+        select: {
+          id: true,
+          name: true,
+          discountPercent: true,
+          payrollDiscount: true,
+          isActive: true,
+          priceList: { select: { id: true, name: true, isDefault: true } }
+        }
+      },
+      validations: { orderBy: { createdAt: "desc" as const }, take: 6 },
+      documents: {
+        include: {
+          fileAttachment: {
+            select: {
+              id: true,
+              originalName: true,
+              mimeType: true,
+              size: true,
+              url: true,
+              category: true,
+              createdAt: true
+            }
+          }
+        },
+        orderBy: { createdAt: "desc" as const }
+      },
+      audits: { orderBy: { createdAt: "desc" as const }, take: 10 }
+    };
+  }
+
+  private buildBenefitCoverageResponse(coverages: any[]) {
+    const now = new Date();
+    const active = coverages.filter(
+      (coverage) =>
+        coverage.status === PatientBenefitCoverageStatus.ACTIVE &&
+        (!coverage.endsAt || coverage.endsAt >= now)
+    );
+    const pending = coverages.filter((coverage) =>
+      [
+        PatientBenefitCoverageStatus.PENDING_VALIDATION,
+        PatientBenefitCoverageStatus.VALIDATING,
+        PatientBenefitCoverageStatus.REQUIRES_DOCUMENTS
+      ].includes(coverage.status)
+    );
+    const nextExpiration = active
+      .filter((coverage) => coverage.endsAt)
+      .sort((left, right) => left.endsAt.getTime() - right.endsAt.getTime())[0];
+    return {
+      summary: {
+        total: coverages.length,
+        active: active.length,
+        pendingValidation: pending.length,
+        documents: coverages.reduce((sum, coverage) => sum + (coverage.documents?.length ?? 0), 0),
+        nextExpiration: nextExpiration
+          ? { providerName: nextExpiration.providerName, endsAt: nextExpiration.endsAt }
+          : null
+      },
+      items: coverages.map((coverage) => this.serializeBenefitCoverage(coverage))
+    };
+  }
+
+  private serializeBenefitCoverage(coverage: any) {
+    return {
+      ...coverage,
+      coveragePercent: this.nullableNumber(coverage.coveragePercent),
+      copayAmount: this.nullableNumber(coverage.copayAmount),
+      deductibleAmount: this.nullableNumber(coverage.deductibleAmount),
+      annualLimitAmount: this.nullableNumber(coverage.annualLimitAmount),
+      validations:
+        coverage.validations?.map((validation: any) => ({
+          ...validation,
+          retryCount: Number(validation.retryCount ?? 0)
+        })) ?? [],
+      documents: coverage.documents ?? [],
+      audits: coverage.audits ?? []
+    };
+  }
+
+  private async getPatientForBenefitCoverage(actor: AuthUser, patientId: string) {
+    const patient = await this.prisma.patient.findFirst({
+      where: {
+        id: patientId,
+        organizationId: actor.organizationId,
+        branchId: { in: actor.branchIds },
+        deletedAt: null
+      },
+      select: { id: true, branchId: true, agreementId: true }
+    });
+    if (!patient) throw new NotFoundException("Patient not found");
+    return patient;
+  }
+
+  private async getBenefitCoverageOrThrow(actor: AuthUser, patientId: string, coverageId: string) {
+    const coverage = await this.prisma.patientBenefitCoverage.findFirst({
+      where: {
+        id: coverageId,
+        organizationId: actor.organizationId,
+        patientId,
+        branchId: { in: actor.branchIds }
+      },
+      include: this.patientBenefitCoverageInclude()
+    });
+    if (!coverage) throw new NotFoundException("Patient coverage not found");
+    return coverage;
+  }
+
+  private async findIdempotentBenefitCoverage(actor: AuthUser, patientId: string, idempotencyKey?: string) {
+    const normalized = this.cleanString(idempotencyKey);
+    if (!normalized) return null;
+    const audit = await this.prisma.patientBenefitCoverageAudit.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        patientId,
+        correlationId: normalized,
+        action: "create"
+      },
+      include: { coverage: { include: this.patientBenefitCoverageInclude() } },
+      orderBy: { createdAt: "desc" }
+    });
+    return audit?.coverage ?? null;
+  }
+
+  private async assertNoDuplicateBenefitCoverage(
+    actor: AuthUser,
+    patientId: string,
+    providerName: string,
+    policyNumber?: string | null,
+    affiliateNumber?: string | null
+  ) {
+    const identity: Prisma.PatientBenefitCoverageWhereInput[] = [];
+    if (policyNumber) identity.push({ policyNumber });
+    if (affiliateNumber) identity.push({ affiliateNumber });
+    if (!identity.length) return;
+    const duplicate = await this.prisma.patientBenefitCoverage.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        patientId,
+        providerName: { equals: providerName, mode: "insensitive" },
+        status: { notIn: [PatientBenefitCoverageStatus.CANCELLED, PatientBenefitCoverageStatus.INACTIVE] },
+        OR: identity
+      },
+      select: { id: true }
+    });
+    if (duplicate)
+      throw new ConflictException("Ya existe un beneficio o cobertura similar para este paciente.");
+  }
+
+  private normalizeBenefitCoverageInput(
+    dto: CreatePatientBenefitCoverageDto | UpdatePatientBenefitCoverageDto
+  ) {
+    const providerName = "providerName" in dto ? this.cleanString(dto.providerName) : undefined;
+    if ("providerName" in dto && dto.providerName !== undefined && !providerName) {
+      throw new BadRequestException("providerName is required");
+    }
+    return {
+      type: dto.type,
+      status: dto.status,
+      providerName: providerName as string,
+      branchId: this.cleanString(dto.branchId),
+      agreementId: dto.agreementId === null ? null : this.cleanString(dto.agreementId),
+      planName: this.cleanString(dto.planName),
+      policyNumber: this.cleanString(dto.policyNumber),
+      affiliateNumber: this.cleanString(dto.affiliateNumber),
+      certificateNumber: this.cleanString(dto.certificateNumber),
+      employeeNumber: this.cleanString(dto.employeeNumber),
+      holderName: this.cleanString(dto.holderName),
+      holderDocument: this.cleanString(dto.holderDocument),
+      relationshipToPatient: this.cleanString(dto.relationshipToPatient),
+      startsAt: dto.startsAt,
+      endsAt: dto.endsAt,
+      coveragePercent: dto.coveragePercent,
+      copayAmount: dto.copayAmount,
+      deductibleAmount: dto.deductibleAmount,
+      annualLimitAmount: dto.annualLimitAmount,
+      requiresAuthorization: dto.requiresAuthorization,
+      notes: this.cleanString(dto.notes),
+      externalReference: this.cleanString(dto.externalReference)
+    };
+  }
+
+  private validateBenefitCoverageDates(startsAt?: string, endsAt?: string) {
+    if (!startsAt || !endsAt) return;
+    if (new Date(startsAt).getTime() > new Date(endsAt).getTime()) {
+      throw new BadRequestException("La fecha de inicio no puede ser posterior a la fecha de termino.");
+    }
+  }
+
+  private coverageValidationSummary(
+    normalizedResult: Partial<CoverageNormalizedResultDto>,
+    status: PatientBenefitCoverageStatus
+  ) {
+    if (status === PatientBenefitCoverageStatus.ACTIVE) {
+      const coverage = normalizedResult.coveragePercent;
+      return typeof coverage === "number" ? `Cobertura activa al ${coverage}%` : "Cobertura activa";
+    }
+    if (status === PatientBenefitCoverageStatus.REQUIRES_DOCUMENTS) return "Requiere documentos";
+    if (status === PatientBenefitCoverageStatus.REJECTED) return "Validacion rechazada";
+    if (status === PatientBenefitCoverageStatus.INTEGRATION_ERROR) return "Error de integracion";
+    return "Validacion registrada";
+  }
+
+  private cleanString(value?: string | null) {
+    const trimmed = value?.trim();
+    return trimmed ? trimmed : null;
+  }
+
+  private dateOrNull(value?: string | null) {
+    return value ? new Date(value) : null;
+  }
+
+  private numberOrUndefined(value?: number | null) {
+    return value === undefined || value === null || Number.isNaN(value) ? undefined : value;
+  }
+
+  private nullableNumber(value: unknown) {
+    if (value === null || value === undefined) return null;
+    return Number(value);
+  }
+
+  private auditJson(value: unknown) {
+    return JSON.parse(JSON.stringify(value ?? null));
+  }
+
+  private inputJson(value: unknown): Prisma.InputJsonValue | undefined {
+    return value === undefined || value === null ? undefined : (value as Prisma.InputJsonValue);
+  }
+
   private async validateBranch(actor: AuthUser, branchId: string) {
     const branch = await this.prisma.branch.findFirst({
       where: {
@@ -1998,11 +2777,17 @@ export class PatientsService {
   }
 
   private async validateAgreement(actor: AuthUser, agreementId: string) {
+    const now = new Date();
     const agreement = await this.prisma.agreement.findFirst({
       where: {
         id: agreementId,
         organizationId: actor.organizationId,
-        isActive: true
+        isActive: true,
+        status: AgreementStatus.ACTIVE,
+        AND: [
+          { OR: [{ startsAt: null }, { startsAt: { lte: now } }] },
+          { OR: [{ endsAt: null }, { endsAt: { gte: now } }] }
+        ]
       }
     });
 
@@ -2072,6 +2857,52 @@ export class PatientsService {
     });
 
     if (!patient) throw new NotFoundException("Patient not found");
+  }
+
+  private async ensurePhoneAvailableForStandalonePatient(
+    actor: AuthUser,
+    normalizedValue: string,
+    excludePatientId?: string
+  ) {
+    const legacyValue = normalizedValue.replace(/^\+/, "");
+    const [contactPoint, legacyPatient] = await Promise.all([
+      this.prisma.contactPoint.findUnique({
+        where: {
+          organizationId_type_normalizedValue: {
+            organizationId: actor.organizationId,
+            type: "PHONE",
+            normalizedValue
+          }
+        },
+        include: {
+          patientLinks: {
+            where: {
+              ...(excludePatientId ? { patientId: { not: excludePatientId } } : {}),
+              OR: [{ validUntil: null }, { validUntil: { gt: new Date() } }],
+              patient: { deletedAt: null, status: { notIn: ["INACTIVE", "MERGED"] } }
+            },
+            select: { id: true },
+            take: 1
+          }
+        }
+      }),
+      this.prisma.patient.findFirst({
+        where: {
+          organizationId: actor.organizationId,
+          deletedAt: null,
+          status: { notIn: ["INACTIVE", "MERGED"] },
+          ...(excludePatientId ? { id: { not: excludePatientId } } : {}),
+          OR: [{ phone: legacyValue }, { alternatePhone: legacyValue }]
+        },
+        select: { id: true }
+      })
+    ]);
+    if (contactPoint?.patientLinks.length || legacyPatient) {
+      throw new ConflictException({
+        code: "PHONE_REQUIRES_FAMILY_GROUP",
+        message: "El teléfono ya pertenece a otra ficha. Usa el flujo de grupo familiar o registra otro número."
+      });
+    }
   }
 
   private async findPotentialDuplicates(
@@ -2198,6 +3029,21 @@ export class PatientsService {
 
   private normalizePhoneForStorage(value?: string | null) {
     return (value ?? "").replace(/\D/g, "");
+  }
+
+  private phoneForParsing(value?: string | null) {
+    const digits = this.normalizePhoneForStorage(value);
+    if (!digits) return undefined;
+    return digits.length > 10 ? `+${digits}` : digits;
+  }
+
+  private validateBirthDate(value?: string | null) {
+    if (!value) return;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) throw new BadRequestException("Fecha de nacimiento inválida");
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    if (date > today) throw new BadRequestException("La fecha de nacimiento no puede estar en el futuro");
   }
 
   private async resolveAnalysisFilters(
@@ -2385,11 +3231,13 @@ export class PatientsService {
   private patientStatusLabel(status: PatientStatus) {
     const labels: Record<PatientStatus, string> = {
       NEW: "Nuevo",
+      PROVISIONAL: "Provisional",
       ACTIVE: "Activo",
       IN_TREATMENT: "En tratamiento",
       INACTIVE: "Inactivo",
       DEBTOR: "Deudor",
-      COMPLETED: "Completado"
+      COMPLETED: "Completado",
+      MERGED: "Fusionado"
     };
     return labels[status];
   }

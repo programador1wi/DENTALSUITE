@@ -34,16 +34,94 @@ enum BranchPriceListType {
   ADICIONAL
 }
 
+enum AgreementStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  EXPIRED
+  INACTIVE
+  CANCELLED
+}
+
+enum AgreementType {
+  CORPORATE
+  INSURANCE
+  MEMBERSHIP
+  PAYROLL
+  OTHER
+}
+
 enum ProcedureType {
   CLINICAL
   LAB
   MIXED
 }
 
+enum ProcedureBehaviorType {
+  GENERAL
+  ORTHODONTIC_CONTROL
+  ORTHODONTIC_MONTHLY_FEE
+}
+
 enum TreatmentPriceSource {
   PRICE_LIST
   MANUAL
   UNPRICED
+}
+
+enum PriceListStatus {
+  DRAFT
+  SCHEDULED
+  ACTIVE
+  SUPERSEDED
+  INACTIVE
+  ARCHIVED
+}
+
+enum PriceListScopeType {
+  ORGANIZATION
+  BRANCH
+  SEGMENT
+  AGREEMENT
+  CHANNEL
+  SPECIALTY
+}
+
+enum PriceListItemStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProcedureItemType {
+  CLINICAL_SERVICE
+  PRODUCT
+  LABORATORY_SERVICE
+  PACKAGE
+}
+
+enum PriceTemplateStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum PriceImportStatus {
+  UPLOADED
+  VALIDATING
+  WITH_ERRORS
+  READY
+  APPLYING
+  APPLIED
+  PARTIALLY_APPLIED
+  REVERTED
+  FAILED
+}
+
+enum OutboxEventStatus {
+  PENDING
+  PUBLISHED
+  FAILED
 }
 
 enum PaymentMethodType {
@@ -64,11 +142,13 @@ enum CurrencyCode {
 
 enum PatientStatus {
   NEW
+  PROVISIONAL
   ACTIVE
   IN_TREATMENT
   INACTIVE
   DEBTOR
   COMPLETED
+  MERGED
 }
 
 enum PatientTaskStatus {
@@ -96,6 +176,12 @@ enum AppointmentStatus {
   NO_SHOW
   RESCHEDULED
   BLOCKED
+}
+
+enum AttendanceMode {
+  PRESENTIAL
+  TELECONSULTATION
+  BOTH
 }
 
 enum ToothProcedureStatus {
@@ -134,6 +220,81 @@ enum TreatmentPlanItemStatus {
   CANCELLED
 }
 
+enum OrthodonticControlStatus {
+  PLANNED
+  COMPLETED
+  ANNULLED
+}
+
+enum HygieneAssessmentStatus {
+  ACTIVE
+  ANNULLED
+}
+
+enum OrthodonticMilestoneType {
+  REEVALUATION
+  RADIOGRAPHY
+}
+
+enum OrthodonticMilestoneStatus {
+  PENDING
+  UPCOMING
+  OVERDUE
+  COMPLETED
+  CANCELLED
+}
+
+enum PhotographicSessionType {
+  INITIAL
+  FOLLOW_UP
+  REEVALUATION
+  FINAL
+  CUSTOM
+  IMPORTED
+}
+
+enum PhotographicSessionStatus {
+  DRAFT
+  INCOMPLETE
+  COMPLETE
+  ARCHIVED
+  VOIDED
+}
+
+enum PhotographicImageStatus {
+  PENDING
+  UPLOADING
+  PROCESSING
+  READY
+  ERROR
+  REPLACED
+  VOIDED
+}
+
+enum PhotographicLinkedEntityType {
+  APPOINTMENT
+  ORTHODONTIC_CONTROL
+  CLINICAL_EVOLUTION
+}
+
+enum PhotographicFrequency {
+  NONE
+  EVERY_CONTROL
+  EVERY_3_MONTHS
+  EVERY_6_MONTHS
+  EVERY_12_MONTHS
+  INITIAL_AND_FINAL
+  CUSTOM
+}
+
+enum PhotographicUploadSessionStatus {
+  ACTIVE
+  CLAIMED
+  COMPLETED
+  EXPIRED
+  REVOKED
+}
+
 enum BudgetStatus {
   DRAFT
   SENT
@@ -156,6 +317,28 @@ enum PaymentLinkStatus {
   PAID
   EXPIRED
   CANCELLED
+}
+
+enum PolicyModality {
+  INDIVIDUAL
+  DUAL
+  FAMILY
+}
+
+enum FamilyPolicyStatus {
+  DRAFT
+  PENDING_PAYMENT
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+}
+
+enum FamilyPolicyPaymentStatus {
+  PENDING
+  PARTIAL
+  PAID
+  REFUNDED
 }
 
 enum InstallmentFrequency {
@@ -400,7 +583,24 @@ model Organization {
   procedures                  Procedure[]
   priceLists                  PriceList[]
   priceListCategories         PriceListCategory[]
+  procedureVariants           ProcedureVariant[]
+  priceListVersionsV2         PriceListVersion[]
+  priceListScopes             PriceListScope[]
+  priceListVersionItems       PriceListVersionItem[]
+  priceTemplates              PriceTemplate[]
+  priceTemplateSections       PriceTemplateSection[]
+  priceTemplateItems          PriceTemplateItem[]
+  priceImportJobs             PriceImportJob[]
+  priceImportRows             PriceImportRow[]
+  priceImportErrors           PriceImportError[]
+  pricingAuditEvents          PricingAuditEvent[]
+  outboxEvents                OutboxEvent[]
   agreements                  Agreement[]
+  agreementVersions           AgreementVersion[]
+  agreementBranches           AgreementBranch[]
+  agreementProcedureRules     AgreementProcedureRule[]
+  agreementCategoryRules      AgreementCategoryRule[]
+  agreementPatientAssignments AgreementPatientAssignment[]
   expenseCategories           ExpenseCategory[]
   expenses                    Expense[]
   payrollLiquidations         PayrollLiquidation[]
@@ -421,6 +621,7 @@ model Organization {
   inventoryItems              InventoryItem[]
   orthodonticMaterials        OrthodonticMaterial[]
   orthodonticArchSizes        OrthodonticArchSize[]
+  orthodonticHygieneScales    OrthodonticHygieneScale[]
   inventoryWarehouses         InventoryWarehouse[]
   inventoryStocks             InventoryStock[]
   inventoryProductSales       InventoryProductSale[]
@@ -430,23 +631,48 @@ model Organization {
   updatedAt                   DateTime                     @updatedAt
   deletedAt                   DateTime?
 
-  onlineSchedulingConfigs          OnlineSchedulingConfig[]
-  onlineSchedulingCampaigns        OnlineSchedulingCampaign[]
-  onlineSchedulingEvents           OnlineSchedulingEvent[]
-  treatmentPlanReferrals           TreatmentPlanReferral[]
-  payrollDiscounts                 PayrollDiscount[]
-  procedureEvolutionFieldTemplates ProcedureEvolutionFieldTemplate[]
-  procedureInventoryTemplates      ProcedureInventoryTemplate[]
-  communicationJobs                CommunicationJob[]
-  surveys                          Survey[]
-  chatMessages                     ChatMessage[]
-  telemedicineSessions             TelemedicineSession[]
-  importJobs                       ImportJob[]
-  documentRequirements             DocumentRequirement[]
-  paymentWebhookEvents             PaymentWebhookEvent[]
-  aiRequests                       AiRequest[]
-  aiResults                        AiResult[]
-  paymentIdempotencies             PaymentIdempotency[]
+  onlineSchedulingConfigs           OnlineSchedulingConfig[]
+  onlineSchedulingCampaigns         OnlineSchedulingCampaign[]
+  onlineSchedulingEvents            OnlineSchedulingEvent[]
+  treatmentPlanReferrals            TreatmentPlanReferral[]
+  payrollDiscounts                  PayrollDiscount[]
+  procedureEvolutionFieldTemplates  ProcedureEvolutionFieldTemplate[]
+  procedureInventoryTemplates       ProcedureInventoryTemplate[]
+  communicationJobs                 CommunicationJob[]
+  surveys                           Survey[]
+  chatMessages                      ChatMessage[]
+  telemedicineSessions              TelemedicineSession[]
+  importJobs                        ImportJob[]
+  documentRequirements              DocumentRequirement[]
+  paymentWebhookEvents              PaymentWebhookEvent[]
+  aiRequests                        AiRequest[]
+  aiResults                         AiResult[]
+  paymentIdempotencies              PaymentIdempotency[]
+  patientLedgerEntries              PatientLedgerEntry[]
+  financialDocuments                FinancialDocument[]
+  coverageCases                     CoverageCase[]
+  patientBenefitCoverages           PatientBenefitCoverage[]
+  patientBenefitCoverageValidations PatientBenefitCoverageValidation[]
+  patientBenefitCoverageAudits      PatientBenefitCoverageAudit[]
+  patientBenefitCoverageDocuments   PatientBenefitCoverageDocument[]
+  patientIdentityConfig             PatientIdentityConfig?
+  contactPoints                     ContactPoint[]
+  patientContactLinks               PatientContactLink[]
+  contactVerificationEvents         ContactVerificationEvent[]
+  familyGroups                      FamilyGroup[]
+  familyGroupMembers                FamilyGroupMember[]
+  familyGroupContacts               FamilyGroupContact[]
+  familyBookingGrants               FamilyBookingGrant[]
+  policyProducts                    PolicyProduct[]
+  familyPolicies                    FamilyPolicy[]
+  familyPolicyMembers               FamilyPolicyMember[]
+  familyPolicyPayments              FamilyPolicyPayment[]
+  bookingIdentitySessions           BookingIdentitySession[]
+  bookingIdentityIncidents          BookingIdentityIncident[]
+  appointmentBookingActors          AppointmentBookingActor[]
+  patientDuplicateCandidates        PatientDuplicateCandidate[]
+  patientMerges                     PatientMerge[]
+  bookingIdempotencies              BookingIdempotency[]
 
   @@index([isActive])
   @@index([status])
@@ -515,16 +741,27 @@ model Branch {
   patients                     Patient[]
   appointments                 Appointment[]
   auditLogs                    AuditLog[]
+  familyGroups                 FamilyGroup[]
+  familyPolicies               FamilyPolicy[]
+  familyPolicyPayments         FamilyPolicyPayment[]
   createdAt                    DateTime                      @default(now())
   updatedAt                    DateTime                      @updatedAt
   deletedAt                    DateTime?
   createdById                  String?
   updatedById                  String?
 
-  treatmentPlanReferrals           TreatmentPlanReferral[]
-  clinicalEvolutions               ClinicalEvolution[]
-  procedureEvolutionFieldTemplates ProcedureEvolutionFieldTemplate[]
-  procedureInventoryTemplates      ProcedureInventoryTemplate[]
+  treatmentPlanReferrals            TreatmentPlanReferral[]
+  clinicalEvolutions                ClinicalEvolution[]
+  procedureEvolutionFieldTemplates  ProcedureEvolutionFieldTemplate[]
+  procedureInventoryTemplates       ProcedureInventoryTemplate[]
+  patientLedgerEntries              PatientLedgerEntry[]
+  financialDocuments                FinancialDocument[]
+  coverageCases                     CoverageCase[]
+  patientBenefitCoverages           PatientBenefitCoverage[]
+  patientBenefitCoverageValidations PatientBenefitCoverageValidation[]
+  patientBenefitCoverageAudits      PatientBenefitCoverageAudit[]
+  patientBenefitCoverageDocuments   PatientBenefitCoverageDocument[]
+  agreementBranches                 AgreementBranch[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, dentalinkPlatformCode, dentalinkSucursalId])
@@ -625,6 +862,8 @@ model User {
   signedClinicalEvolutions     ClinicalEvolution[]          @relation("ClinicalEvolutionSignedBy")
   clinicalDocumentsCreated     ClinicalDocument[]           @relation("ClinicalDocumentCreatedBy")
   paymentsReceived             Payment[]                    @relation("PaymentReceivedBy")
+  familyPoliciesSold           FamilyPolicy[]               @relation("FamilyPolicySoldBy")
+  familyPolicyPaymentsReceived FamilyPolicyPayment[]        @relation("FamilyPolicyPaymentReceivedBy")
   cashRegistersOpened          CashRegister[]               @relation("CashRegisterOpenedBy")
   cashRegistersClosed          CashRegister[]               @relation("CashRegisterClosedBy")
   cashMovementsCreated         CashMovement[]               @relation("CashMovementCreatedBy")
@@ -1032,42 +1271,46 @@ model ProfessionalBranchTransfer {
 }
 
 model ProfessionalSchedule {
-  id             String       @id @default(cuid())
-  professionalId String
-  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  branchId       String
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  chairId        String?
-  chair          Chair?       @relation(fields: [chairId], references: [id], onDelete: SetNull)
-  dayOfWeek      Int
-  startTime      String
-  endTime        String
-  breakStartTime String?
-  breakEndTime   String?
-  isActive       Boolean      @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                 String         @id @default(cuid())
+  professionalId     String
+  professional       Professional   @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  branchId           String
+  branch             Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  chairId            String?
+  chair              Chair?         @relation(fields: [chairId], references: [id], onDelete: SetNull)
+  dayOfWeek          Int
+  startTime          String
+  endTime            String
+  breakStartTime     String?
+  breakEndTime       String?
+  simultaneousChairs Int            @default(1)
+  attendanceMode     AttendanceMode @default(PRESENTIAL)
+  isActive           Boolean        @default(true)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
   @@index([professionalId, branchId, dayOfWeek, isActive])
   @@index([chairId, dayOfWeek, isActive])
 }
 
 model ProfessionalSpecialSchedule {
-  id             String       @id @default(cuid())
-  professionalId String
-  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  branchId       String
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
-  chairId        String?
-  chair          Chair?       @relation(fields: [chairId], references: [id], onDelete: SetNull)
-  date           String // ISO YYYY-MM-DD
-  startTime      String
-  endTime        String
-  breakStartTime String?
-  breakEndTime   String?
-  isActive       Boolean      @default(true)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                 String         @id @default(cuid())
+  professionalId     String
+  professional       Professional   @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  branchId           String
+  branch             Branch         @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  chairId            String?
+  chair              Chair?         @relation(fields: [chairId], references: [id], onDelete: SetNull)
+  date               String // ISO YYYY-MM-DD
+  startTime          String
+  endTime            String
+  breakStartTime     String?
+  breakEndTime       String?
+  simultaneousChairs Int            @default(1)
+  attendanceMode     AttendanceMode @default(PRESENTIAL)
+  isActive           Boolean        @default(true)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
   @@index([professionalId, branchId, date, isActive])
   @@index([chairId, date, isActive])
@@ -1127,6 +1370,10 @@ model ProcedureCategory {
   id                                String                             @id @default(cuid())
   organizationId                    String
   organization                      Organization                       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parentId                          String?
+  parent                            ProcedureCategory?                 @relation("ProcedureCategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children                          ProcedureCategory[]                @relation("ProcedureCategoryTree")
+  code                              String?
   name                              String
   description                       String?
   type                              ProcedureType                      @default(CLINICAL)
@@ -1134,12 +1381,17 @@ model ProcedureCategory {
   procedures                        Procedure[]
   priceListCategories               PriceListCategory[]
   professionalContractCategoryRates ProfessionalContractCategoryRate[]
+  priceListVersionItems             PriceListVersionItem[]
+  agreementCategoryRules            AgreementCategoryRule[]
   isActive                          Boolean                            @default(true)
+  version                           Int                                @default(1)
   createdAt                         DateTime                           @default(now())
   updatedAt                         DateTime                           @updatedAt
 
   @@unique([organizationId, name])
+  @@unique([organizationId, code])
   @@index([organizationId, sortOrder])
+  @@index([parentId, isActive])
 }
 
 model Procedure {
@@ -1153,23 +1405,39 @@ model Procedure {
   name                             String
   description                      String?
   type                             ProcedureType                     @default(CLINICAL)
+  itemType                         ProcedureItemType                 @default(CLINICAL_SERVICE)
+  specialtyId                      String?
+  procedureType                    ProcedureBehaviorType             @default(GENERAL)
+  countsTowardOrthodonticProgress  Boolean                           @default(false)
   defaultDuration                  Int                               @default(30)
   requiresTooth                    Boolean                           @default(false)
   requiresSurface                  Boolean                           @default(false)
   requiresLab                      Boolean                           @default(false)
+  allowsArch                       Boolean                           @default(false)
+  allowsQuantity                   Boolean                           @default(true)
+  allowsProgress                   Boolean                           @default(false)
+  allowedProgressValues            Json?
+  createsEvolution                 Boolean                           @default(true)
+  consumesInventory                Boolean                           @default(false)
+  taxCategory                      String?
   requiresOdontogramSymbol         Boolean                           @default(false)
   defaultOdontogramSymbol          String?
   isActive                         Boolean                           @default(true)
   labAssignments                   LabProcedureAssignment[]
   priceListItems                   PriceListItem[]
+  agreementProcedureRules          AgreementProcedureRule[]
   professionalContractFixedAmounts ProfessionalContractFixedAmount[]
   odontogramRecords                OdontogramRecord[]
   toothProcedures                  ToothProcedure[]
   treatmentPlanItems               TreatmentPlanItem[]
+  variants                         ProcedureVariant[]
+  priceListVersionItems            PriceListVersionItem[]
+  priceTemplateItems               PriceTemplateItem[]
   consentTemplates                 ConsentTemplate[]
   documentRequirements             DocumentRequirement[]
   createdAt                        DateTime                          @default(now())
   updatedAt                        DateTime                          @updatedAt
+  version                          Int                               @default(1)
   fieldTemplates                   ProcedureEvolutionFieldTemplate[]
   inventoryTemplates               ProcedureInventoryTemplate[]
   inventoryMovements               InventoryMovement[]
@@ -1177,26 +1445,218 @@ model Procedure {
   @@unique([organizationId, code])
   @@unique([organizationId, displayId])
   @@index([organizationId, isActive])
+  @@index([organizationId, itemType, isActive])
+  @@index([specialtyId])
 }
 
 model PriceList {
   id                 String              @id @default(cuid())
   organizationId     String
   organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  code               String              @default(cuid())
   name               String
   description        String?
+  currency           CurrencyCode        @default(MXN)
+  basePriceListId    String?
+  basePriceList      PriceList?          @relation("PriceListBase", fields: [basePriceListId], references: [id], onDelete: SetNull)
+  derivedPriceLists  PriceList[]         @relation("PriceListBase")
+  validFrom          DateTime?
+  validTo            DateTime?
+  status             PriceListStatus     @default(DRAFT)
+  priority           Int                 @default(0)
+  version            Int                 @default(1)
+  currentVersion     Int                 @default(0)
   isDefault          Boolean             @default(false)
   isActive           Boolean             @default(true)
   categories         PriceListCategory[]
   items              PriceListItem[]
   branchAssignments  BranchPriceList[]
   agreements         Agreement[]
+  agreementVersions  AgreementVersion[]  @relation("AgreementVersionPriceList")
   treatmentPlanItems TreatmentPlanItem[]
+  versionsV2         PriceListVersion[]
+  priceTemplates     PriceTemplate[]
   createdAt          DateTime            @default(now())
   updatedAt          DateTime            @updatedAt
 
   @@unique([organizationId, name])
+  @@unique([organizationId, code])
   @@index([organizationId, isDefault])
+  @@index([organizationId, status, validFrom, validTo])
+  @@index([basePriceListId])
+}
+
+model ProcedureVariant {
+  id             String                 @id @default(cuid())
+  organizationId String
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  procedureId    String
+  procedure      Procedure              @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  code           String
+  name           String
+  description    String?
+  isActive       Boolean                @default(true)
+  version        Int                    @default(1)
+  priceItems     PriceListVersionItem[]
+  templateItems  PriceTemplateItem[]
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@unique([organizationId, code])
+  @@unique([procedureId, name])
+  @@index([organizationId, isActive])
+  @@index([procedureId])
+}
+
+model PriceListVersion {
+  id                String                 @id @default(cuid())
+  organizationId    String
+  organization      Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  priceListId       String
+  priceList         PriceList              @relation(fields: [priceListId], references: [id], onDelete: Restrict)
+  versionNumber     Int
+  status            PriceListStatus        @default(DRAFT)
+  validFrom         DateTime?
+  validTo           DateTime?
+  currency          CurrencyCode           @default(MXN)
+  publishedById     String?
+  publishedAt       DateTime?
+  changeSummary     String?
+  previousVersionId String?
+  previousVersion   PriceListVersion?      @relation("PriceListVersionHistory", fields: [previousVersionId], references: [id], onDelete: SetNull)
+  nextVersions      PriceListVersion[]     @relation("PriceListVersionHistory")
+  checksum          String?
+  version           Int                    @default(1)
+  items             PriceListVersionItem[]
+  scopes            PriceListScope[]
+  treatmentItems    TreatmentPlanItem[]
+  importJobs        PriceImportJob[]
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  @@unique([priceListId, versionNumber])
+  @@index([organizationId, status, validFrom, validTo])
+  @@index([priceListId, status])
+  @@index([previousVersionId])
+}
+
+model PriceListScope {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  priceListVersionId String
+  priceListVersion   PriceListVersion   @relation(fields: [priceListVersionId], references: [id], onDelete: Cascade)
+  scopeType          PriceListScopeType
+  scopeKey           String
+  priority           Int                @default(0)
+  isActive           Boolean            @default(true)
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@unique([priceListVersionId, scopeType, scopeKey])
+  @@index([organizationId, scopeType, scopeKey, isActive])
+  @@index([priceListVersionId, priority])
+}
+
+model PriceListVersionItem {
+  id                            String                 @id @default(cuid())
+  organizationId                String
+  organization                  Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  priceListVersionId            String
+  priceListVersion              PriceListVersion       @relation(fields: [priceListVersionId], references: [id], onDelete: Restrict)
+  procedureId                   String
+  procedure                     Procedure              @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  procedureVariantId            String?
+  procedureVariant              ProcedureVariant?      @relation(fields: [procedureVariantId], references: [id], onDelete: Restrict)
+  displayCategoryId             String?
+  displayCategory               ProcedureCategory?     @relation(fields: [displayCategoryId], references: [id], onDelete: SetNull)
+  basePrice                     Decimal                @db.Decimal(12, 2)
+  laboratoryCost                Decimal                @default(0) @db.Decimal(12, 2)
+  internalCost                  Decimal                @default(0) @db.Decimal(12, 2)
+  allowDiscount                 Boolean                @default(true)
+  maxDiscountPercent            Decimal                @default(0) @db.Decimal(5, 2)
+  authorizationThresholdPercent Decimal?               @db.Decimal(5, 2)
+  quantityRule                  Json?
+  taxCategory                   String?
+  status                        PriceListItemStatus    @default(ACTIVE)
+  sourceItemId                  String?
+  sourceItem                    PriceListVersionItem?  @relation("PriceListVersionItemSource", fields: [sourceItemId], references: [id], onDelete: SetNull)
+  derivedItems                  PriceListVersionItem[] @relation("PriceListVersionItemSource")
+  legacyPriceListItemId         String?
+  version                       Int                    @default(1)
+  treatmentItems                TreatmentPlanItem[]
+  templateItems                 PriceTemplateItem[]
+  createdAt                     DateTime               @default(now())
+  updatedAt                     DateTime               @updatedAt
+
+  @@unique([priceListVersionId, procedureId, procedureVariantId])
+  @@unique([legacyPriceListItemId])
+  @@index([organizationId, procedureId, status])
+  @@index([displayCategoryId])
+  @@index([sourceItemId])
+}
+
+model PriceTemplate {
+  id              String                 @id @default(cuid())
+  organizationId  String
+  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  specialtyId     String?
+  basePriceListId String?
+  basePriceList   PriceList?             @relation(fields: [basePriceListId], references: [id], onDelete: SetNull)
+  branchIds       String[]
+  validFrom       DateTime?
+  validTo         DateTime?
+  status          PriceTemplateStatus    @default(DRAFT)
+  version         Int                    @default(1)
+  sections        PriceTemplateSection[]
+  createdById     String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@unique([organizationId, name, version])
+  @@index([organizationId, status])
+  @@index([specialtyId])
+}
+
+model PriceTemplateSection {
+  id             String              @id @default(cuid())
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  templateId     String
+  template       PriceTemplate       @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  name           String
+  description    String?
+  sortOrder      Int                 @default(0)
+  items          PriceTemplateItem[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([templateId, sortOrder, name])
+  @@index([organizationId, templateId])
+}
+
+model PriceTemplateItem {
+  id                  String                @id @default(cuid())
+  organizationId      String
+  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sectionId           String
+  section             PriceTemplateSection  @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  procedureId         String
+  procedure           Procedure             @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  procedureVariantId  String?
+  procedureVariant    ProcedureVariant?     @relation(fields: [procedureVariantId], references: [id], onDelete: Restrict)
+  sourceVersionItemId String?
+  sourceVersionItem   PriceListVersionItem? @relation(fields: [sourceVersionItemId], references: [id], onDelete: SetNull)
+  quantity            Decimal               @default(1) @db.Decimal(10, 2)
+  sortOrder           Int                   @default(0)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@unique([sectionId, procedureId, procedureVariantId])
+  @@index([organizationId, sectionId])
+  @@index([sourceVersionItemId])
 }
 
 model BranchPriceList {
@@ -1242,27 +1702,154 @@ model PriceListCategory {
 }
 
 model Agreement {
-  id                       String              @id @default(cuid())
+  id                       String                       @id @default(cuid())
   organizationId           String
-  organization             Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization             Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name                     String
+  entityName               String?
+  entityTaxId              String?
+  type                     AgreementType                @default(CORPORATE)
+  status                   AgreementStatus              @default(DRAFT)
+  startsAt                 DateTime?
+  endsAt                   DateTime?
   description              String?
   priceListId              String?
-  priceList                PriceList?          @relation(fields: [priceListId], references: [id], onDelete: SetNull)
-  discountPercent          Decimal             @default(0) @db.Decimal(5, 2)
-  appliesToLabs            Boolean             @default(false)
-  appliesToOtherCategories Boolean             @default(false)
-  payrollDiscount          Boolean             @default(false)
-  isPublic                 Boolean             @default(true)
-  isActive                 Boolean             @default(true)
+  priceList                PriceList?                   @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  discountPercent          Decimal                      @default(0) @db.Decimal(5, 2)
+  coveragePercent          Decimal                      @default(0) @db.Decimal(5, 2)
+  copayAmount              Decimal                      @default(0) @db.Decimal(10, 2)
+  coverageLimitAmount      Decimal?                     @db.Decimal(10, 2)
+  coverageRules            Json?
+  appliesToLabs            Boolean                      @default(false)
+  appliesToOtherCategories Boolean                      @default(false)
+  payrollDiscount          Boolean                      @default(false)
+  isPublic                 Boolean                      @default(true)
+  isActive                 Boolean                      @default(true)
+  version                  Int                          @default(1)
+  publishedAt              DateTime?
+  cancelledAt              DateTime?
   patients                 Patient[]
+  patientAssignments       AgreementPatientAssignment[]
   treatmentPlanItems       TreatmentPlanItem[]
-  createdAt                DateTime            @default(now())
-  updatedAt                DateTime            @updatedAt
+  treatmentPlans           TreatmentPlan[]              @relation("AgreementTreatmentPlans")
+  versions                 AgreementVersion[]
+  createdAt                DateTime                     @default(now())
+  updatedAt                DateTime                     @updatedAt
+  coverageCases            CoverageCase[]
+  patientBenefitCoverages  PatientBenefitCoverage[]
 
   @@unique([organizationId, name])
   @@index([organizationId, isActive])
+  @@index([organizationId, status, startsAt, endsAt])
   @@index([priceListId])
+}
+
+model AgreementVersion {
+  id                  String                   @id @default(cuid())
+  organizationId      String
+  organization        Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agreementId         String
+  agreement           Agreement                @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  version             Int
+  entityName          String?
+  entityTaxId         String?
+  type                AgreementType
+  description         String?
+  priceListId         String?
+  priceList           PriceList?               @relation("AgreementVersionPriceList", fields: [priceListId], references: [id], onDelete: SetNull)
+  discountPercent     Decimal                  @default(0) @db.Decimal(5, 2)
+  coveragePercent     Decimal                  @default(0) @db.Decimal(5, 2)
+  copayAmount         Decimal                  @default(0) @db.Decimal(10, 2)
+  coverageLimitAmount Decimal?                 @db.Decimal(10, 2)
+  coverageRules       Json?
+  startsAt            DateTime?
+  endsAt              DateTime?
+  createdById         String?
+  createdAt           DateTime                 @default(now())
+  branches            AgreementBranch[]
+  categoryRules       AgreementCategoryRule[]
+  procedureRules      AgreementProcedureRule[]
+
+  @@unique([agreementId, version])
+  @@index([organizationId, agreementId, version])
+  @@index([priceListId])
+}
+
+model AgreementBranch {
+  id                 String           @id @default(cuid())
+  organizationId     String
+  organization       Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agreementVersionId String
+  agreementVersion   AgreementVersion @relation(fields: [agreementVersionId], references: [id], onDelete: Cascade)
+  branchId           String
+  branch             Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdAt          DateTime         @default(now())
+
+  @@unique([agreementVersionId, branchId])
+  @@index([organizationId, branchId])
+}
+
+model AgreementCategoryRule {
+  id                  String            @id @default(cuid())
+  organizationId      String
+  organization        Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agreementVersionId  String
+  agreementVersion    AgreementVersion  @relation(fields: [agreementVersionId], references: [id], onDelete: Cascade)
+  procedureCategoryId String
+  procedureCategory   ProcedureCategory @relation(fields: [procedureCategoryId], references: [id], onDelete: Restrict)
+  isEligible          Boolean           @default(true)
+  preferredPrice      Decimal?          @db.Decimal(10, 2)
+  discountPercent     Decimal?          @db.Decimal(5, 2)
+  coveragePercent     Decimal?          @db.Decimal(5, 2)
+  copayAmount         Decimal?          @db.Decimal(10, 2)
+  coverageLimitAmount Decimal?          @db.Decimal(10, 2)
+  coverageRules       Json?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@unique([agreementVersionId, procedureCategoryId])
+  @@index([organizationId, procedureCategoryId])
+}
+
+model AgreementProcedureRule {
+  id                  String           @id @default(cuid())
+  organizationId      String
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agreementVersionId  String
+  agreementVersion    AgreementVersion @relation(fields: [agreementVersionId], references: [id], onDelete: Cascade)
+  procedureId         String
+  procedure           Procedure        @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  isEligible          Boolean          @default(true)
+  preferredPrice      Decimal?         @db.Decimal(10, 2)
+  discountPercent     Decimal?         @db.Decimal(5, 2)
+  coveragePercent     Decimal?         @db.Decimal(5, 2)
+  copayAmount         Decimal?         @db.Decimal(10, 2)
+  coverageLimitAmount Decimal?         @db.Decimal(10, 2)
+  coverageRules       Json?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([agreementVersionId, procedureId])
+  @@index([organizationId, procedureId])
+}
+
+model AgreementPatientAssignment {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agreementId    String
+  agreement      Agreement    @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  patientId      String
+  patient        Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  version        Int
+  assignedAt     DateTime     @default(now())
+  assignedById   String?
+  revokedAt      DateTime?
+  revokedById    String?
+  notes          String?
+
+  @@index([organizationId, patientId, revokedAt])
+  @@index([agreementId, version])
 }
 
 model ExpenseCategory {
@@ -1315,7 +1902,7 @@ model PriceListItem {
   procedure           Procedure           @relation(fields: [procedureId], references: [id], onDelete: Restrict)
   price               Decimal             @db.Decimal(10, 2)
   labCost             Decimal             @default(0) @db.Decimal(10, 2)
-  allowsDiscount      Boolean             @default(false)
+  allowsDiscount      Boolean             @default(true)
   currency            CurrencyCode        @default(MXN)
   treatmentPlanItems  TreatmentPlanItem[]
   createdAt           DateTime            @default(now())
@@ -1323,6 +1910,113 @@ model PriceListItem {
 
   @@unique([priceListId, procedureId])
   @@index([priceListCategoryId])
+}
+
+model PriceImportJob {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  organization       Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  priceListId        String
+  priceListVersionId String?
+  priceListVersion   PriceListVersion?  @relation(fields: [priceListVersionId], references: [id], onDelete: SetNull)
+  fileName           String
+  checksum           String
+  idempotencyKey     String
+  status             PriceImportStatus  @default(UPLOADED)
+  options            Json?
+  summary            Json?
+  appliedAt          DateTime?
+  revertedAt         DateTime?
+  createdById        String?
+  rows               PriceImportRow[]
+  errors             PriceImportError[]
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status, createdAt])
+  @@index([priceListId, createdAt])
+  @@index([priceListVersionId])
+}
+
+model PriceImportRow {
+  id             String             @id @default(cuid())
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  importJobId    String
+  importJob      PriceImportJob     @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  rowNumber      Int
+  rawData        Json
+  normalizedData Json?
+  status         PriceImportStatus  @default(UPLOADED)
+  appliedItemId  String?
+  errors         PriceImportError[]
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@unique([importJobId, rowNumber])
+  @@index([organizationId, status])
+}
+
+model PriceImportError {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  importJobId    String
+  importJob      PriceImportJob  @relation(fields: [importJobId], references: [id], onDelete: Cascade)
+  importRowId    String?
+  importRow      PriceImportRow? @relation(fields: [importRowId], references: [id], onDelete: Cascade)
+  field          String?
+  code           String
+  message        String
+  createdAt      DateTime        @default(now())
+
+  @@index([organizationId, importJobId])
+  @@index([importRowId])
+}
+
+model PricingAuditEvent {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  actorUserId    String?
+  entity         String
+  entityId       String?
+  action         String
+  oldValue       Json?
+  newValue       Json?
+  reason         String?
+  correlationId  String?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, entity, entityId, createdAt])
+  @@index([correlationId])
+  @@index([branchId, createdAt])
+}
+
+model OutboxEvent {
+  id             String            @id @default(cuid())
+  organizationId String
+  organization   Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  aggregateType  String
+  aggregateId    String
+  eventType      String
+  payload        Json
+  correlationId  String?
+  idempotencyKey String?
+  status         OutboxEventStatus @default(PENDING)
+  attempts       Int               @default(0)
+  availableAt    DateTime          @default(now())
+  publishedAt    DateTime?
+  lastError      String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([status, availableAt])
+  @@index([organizationId, aggregateType, aggregateId])
 }
 
 model Patient {
@@ -1380,15 +2074,37 @@ model Patient {
 
   deletedAt DateTime?
 
-  payrollDiscounts      PayrollDiscount[]
-  inventoryMovements    InventoryMovement[]
-  inventoryProductSales InventoryProductSale[]
-  communicationJobs     CommunicationJob[]
-  surveys               Survey[]
-  chatMessages          ChatMessage[]
-  telemedicineSessions  TelemedicineSession[]
-  documentRequirements  DocumentRequirement[]
-  aiRequests            AiRequest[]
+  payrollDiscounts           PayrollDiscount[]
+  inventoryMovements         InventoryMovement[]
+  inventoryProductSales      InventoryProductSale[]
+  communicationJobs          CommunicationJob[]
+  surveys                    Survey[]
+  chatMessages               ChatMessage[]
+  telemedicineSessions       TelemedicineSession[]
+  documentRequirements       DocumentRequirement[]
+  aiRequests                 AiRequest[]
+  patientLedgerEntries       PatientLedgerEntry[]
+  financialDocuments         FinancialDocument[]
+  coverageCases              CoverageCase[]
+  benefitCoverages           PatientBenefitCoverage[]
+  benefitCoverageValidations PatientBenefitCoverageValidation[]
+  benefitCoverageAudits      PatientBenefitCoverageAudit[]
+  benefitCoverageDocuments   PatientBenefitCoverageDocument[]
+  agreementAssignments       AgreementPatientAssignment[]
+  contactLinks               PatientContactLink[]
+  familyMemberships          FamilyGroupMember[]
+  familyGroupsHeld           FamilyGroup[]                      @relation("FamilyGroupHolder")
+  policiesHeld               FamilyPolicy[]                     @relation("FamilyPolicyHolder")
+  familyPolicyMemberships    FamilyPolicyMember[]
+  familyBookingGrants        FamilyBookingGrant[]
+  familyContactActors        FamilyGroupContact[]               @relation("FamilyGroupContactActor")
+  bookingIdentitySessions    BookingIdentitySession[]           @relation("BookingIdentitySelectedPatient")
+  bookingActorSessions       BookingIdentitySession[]           @relation("BookingIdentityActorPatient")
+  appointmentBookingActors   AppointmentBookingActor[]          @relation("AppointmentBookingPatient")
+  duplicateCandidatesA       PatientDuplicateCandidate[]        @relation("DuplicatePatientA")
+  duplicateCandidatesB       PatientDuplicateCandidate[]        @relation("DuplicatePatientB")
+  mergesAsTarget             PatientMerge[]                     @relation("PatientMergeTarget")
+  mergesAsSource             PatientMerge[]                     @relation("PatientMergeSource")
 
   @@index([organizationId, branchId, status])
   @@index([organizationId, phone])
@@ -1411,6 +2127,466 @@ model PatientContact {
   updatedAt          DateTime @updatedAt
 
   @@index([patientId, isEmergencyContact])
+}
+
+model PatientIdentityConfig {
+  id                             String       @id @default(cuid())
+  organizationId                 String       @unique
+  organization                   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  shadowMode                     Boolean      @default(true)
+  adminResolutionEnabled         Boolean      @default(false)
+  publicBookingResolutionEnabled Boolean      @default(false)
+  whatsappResolutionEnabled      Boolean      @default(false)
+  familyGroupsEnabled            Boolean      @default(false)
+  safeMergeEnabled               Boolean      @default(false)
+  legacyPhoneReadDisabled        Boolean      @default(false)
+  defaultCountry                 String       @default("MX")
+  createdAt                      DateTime     @default(now())
+  updatedAt                      DateTime     @updatedAt
+}
+
+model ContactPoint {
+  id                 String                     @id @default(cuid())
+  organizationId     String
+  organization       Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  type               String
+  rawValue           String
+  normalizedValue    String
+  countryCode        String?
+  nationalNumber     String?
+  callingCode        String?
+  phoneType          String?
+  status             String                     @default("UNVERIFIED")
+  verifiedAt         DateTime?
+  provider           String?
+  version            Int                        @default(1)
+  patientLinks       PatientContactLink[]
+  familyContacts     FamilyGroupContact[]
+  actorGrants        FamilyBookingGrant[]
+  verificationEvents ContactVerificationEvent[]
+  bookingSessions    BookingIdentitySession[]
+  bookingActors      AppointmentBookingActor[]
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@unique([organizationId, type, normalizedValue])
+  @@index([organizationId, status])
+}
+
+model PatientContactLink {
+  id                  String       @id @default(cuid())
+  organizationId      String
+  organization        Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patientId           String
+  patient             Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  contactPointId      String
+  contactPoint        ContactPoint @relation(fields: [contactPointId], references: [id], onDelete: Cascade)
+  role                String       @default("PERSONAL")
+  isPrimary           Boolean      @default(false)
+  canReceiveReminders Boolean      @default(true)
+  consentStatus       String       @default("PENDING")
+  validFrom           DateTime     @default(now())
+  validUntil          DateTime?
+  version             Int          @default(1)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  @@unique([patientId, contactPointId, role])
+  @@index([organizationId, contactPointId])
+  @@index([patientId, isPrimary])
+}
+
+model ContactVerificationEvent {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contactPointId  String
+  contactPoint    ContactPoint @relation(fields: [contactPointId], references: [id], onDelete: Cascade)
+  method          String
+  outcome         String
+  provider        String?
+  providerEventId String?
+  actorType       String?
+  actorId         String?
+  metadata        Json?
+  createdAt       DateTime     @default(now())
+
+  @@index([contactPointId, createdAt])
+  @@index([organizationId, outcome])
+}
+
+model FamilyGroup {
+  id               String                    @id @default(cuid())
+  organizationId   String
+  organization     Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  familyCode       String                    @unique @default(dbgenerated("next_family_code()"))
+  name             String
+  holderPatientId  String?
+  holderPatient    Patient?                  @relation("FamilyGroupHolder", fields: [holderPatientId], references: [id], onDelete: Restrict)
+  branchId         String?
+  branch           Branch?                   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  status           String                    @default("ACTIVE")
+  createdById      String
+  version          Int                       @default(1)
+  members          FamilyGroupMember[]
+  policies         FamilyPolicy[]
+  contacts         FamilyGroupContact[]
+  bookingGrants    FamilyBookingGrant[]
+  bookingSessions  BookingIdentitySession[]
+  bookingActors    AppointmentBookingActor[]
+  bookingIncidents BookingIdentityIncident[]
+  createdAt        DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  deletedAt        DateTime?
+
+  @@index([organizationId, status])
+  @@index([organizationId, familyCode])
+  @@index([holderPatientId])
+  @@index([branchId])
+}
+
+model FamilyGroupMember {
+  id             String               @id @default(cuid())
+  organizationId String
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  familyGroupId  String
+  familyGroup    FamilyGroup          @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  patientId      String
+  patient        Patient              @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  role           String
+  relationship   String?
+  consentStatus  String               @default("PENDING")
+  validFrom      DateTime             @default(now())
+  validUntil     DateTime?
+  version        Int                  @default(1)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  policyMembers  FamilyPolicyMember[]
+
+  @@unique([familyGroupId, patientId])
+  @@index([organizationId, patientId])
+}
+
+model PolicyProduct {
+  id              String         @id @default(uuid())
+  organizationId  String
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productCode     String
+  name            String
+  modality        PolicyModality
+  minimumMembers  Int
+  maximumMembers  Int
+  durationMonths  Int            @default(12)
+  basePrice       Decimal        @default(0) @db.Decimal(10, 2)
+  currency        CurrencyCode   @default(MXN)
+  activationRules Json?
+  status          String         @default("ACTIVE")
+  policies        FamilyPolicy[]
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@unique([organizationId, productCode])
+  @@index([organizationId, status])
+}
+
+model FamilyPolicy {
+  id                  String                    @id @default(uuid())
+  organizationId      String
+  organization        Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  policyNumber        String                    @unique @default(dbgenerated("next_policy_number()"))
+  policyProductId     String
+  policyProduct       PolicyProduct             @relation(fields: [policyProductId], references: [id], onDelete: Restrict)
+  familyGroupId       String?
+  familyGroup         FamilyGroup?              @relation(fields: [familyGroupId], references: [id], onDelete: Restrict)
+  holderPatientId     String
+  holderPatient       Patient                   @relation("FamilyPolicyHolder", fields: [holderPatientId], references: [id], onDelete: Restrict)
+  status              FamilyPolicyStatus        @default(DRAFT)
+  effectiveFrom       DateTime
+  effectiveUntil      DateTime
+  contractedPrice     Decimal                   @db.Decimal(10, 2)
+  currency            CurrencyCode              @default(MXN)
+  paymentStatus       FamilyPolicyPaymentStatus @default(PENDING)
+  branchId            String
+  branch              Branch                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  soldByUserId        String
+  soldBy              User                      @relation("FamilyPolicySoldBy", fields: [soldByUserId], references: [id], onDelete: Restrict)
+  renewedFromPolicyId String?
+  renewedFromPolicy   FamilyPolicy?             @relation("FamilyPolicyRenewal", fields: [renewedFromPolicyId], references: [id], onDelete: SetNull)
+  renewals            FamilyPolicy[]            @relation("FamilyPolicyRenewal")
+  members             FamilyPolicyMember[]
+  payments            FamilyPolicyPayment[]
+  activatedAt         DateTime?
+  cancelledAt         DateTime?
+  cancellationReason  String?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  @@index([organizationId, status, effectiveUntil])
+  @@index([familyGroupId, createdAt])
+  @@index([holderPatientId, createdAt])
+  @@index([branchId, createdAt])
+}
+
+model FamilyPolicyMember {
+  id                   String             @id @default(uuid())
+  organizationId       String
+  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  policyId             String
+  policy               FamilyPolicy       @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  patientId            String
+  patient              Patient            @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  familyGroupMemberId  String?
+  familyGroupMember    FamilyGroupMember? @relation(fields: [familyGroupMemberId], references: [id], onDelete: SetNull)
+  memberRole           String
+  relationshipSnapshot String?
+  coverageStatus       String             @default("PENDING")
+  coverageStart        DateTime?
+  coverageEnd          DateTime?
+  addedAt              DateTime           @default(now())
+  removedAt            DateTime?
+  removalReason        String?
+
+  @@unique([policyId, patientId])
+  @@index([organizationId, patientId, coverageStatus])
+  @@index([familyGroupMemberId])
+}
+
+model FamilyPolicyPayment {
+  id             String        @id @default(uuid())
+  organizationId String
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  policyId       String
+  policy         FamilyPolicy  @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  paymentId      String        @unique
+  payment        Payment       @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  branchId       String
+  branch         Branch        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  cashRegisterId String?
+  cashRegister   CashRegister? @relation(fields: [cashRegisterId], references: [id], onDelete: SetNull)
+  amount         Decimal       @db.Decimal(10, 2)
+  paymentStatus  String        @default("RECEIVED")
+  paidAt         DateTime
+  receivedById   String
+  receivedBy     User          @relation("FamilyPolicyPaymentReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
+  createdAt      DateTime      @default(now())
+
+  @@index([policyId, paidAt])
+  @@index([organizationId, branchId, paidAt])
+}
+
+model FamilyGroupContact {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  familyGroupId  String
+  familyGroup    FamilyGroup  @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  contactPointId String
+  contactPoint   ContactPoint @relation(fields: [contactPointId], references: [id], onDelete: Cascade)
+  actorPatientId String?
+  actorPatient   Patient?     @relation("FamilyGroupContactActor", fields: [actorPatientId], references: [id], onDelete: SetNull)
+  isPrimary      Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([familyGroupId, contactPointId])
+  @@index([organizationId, contactPointId])
+}
+
+model FamilyBookingGrant {
+  id                          String       @id @default(cuid())
+  organizationId              String
+  organization                Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  familyGroupId               String
+  familyGroup                 FamilyGroup  @relation(fields: [familyGroupId], references: [id], onDelete: Cascade)
+  actorContactPointId         String
+  actorContactPoint           ContactPoint @relation(fields: [actorContactPointId], references: [id], onDelete: Cascade)
+  patientId                   String
+  patient                     Patient      @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  canBook                     Boolean      @default(true)
+  canReschedule               Boolean      @default(false)
+  canCancel                   Boolean      @default(false)
+  canReceiveReminders         Boolean      @default(true)
+  canViewAppointmentSummary   Boolean      @default(false)
+  canViewFinancialInformation Boolean      @default(false)
+  canViewClinicalInformation  Boolean      @default(false)
+  canSignConsents             Boolean      @default(false)
+  consentStatus               String       @default("PENDING")
+  validFrom                   DateTime     @default(now())
+  validUntil                  DateTime?
+  version                     Int          @default(1)
+  createdAt                   DateTime     @default(now())
+  updatedAt                   DateTime     @updatedAt
+
+  @@unique([familyGroupId, actorContactPointId, patientId])
+  @@index([organizationId, actorContactPointId])
+  @@index([familyGroupId, patientId, consentStatus])
+}
+
+model BookingIdentitySession {
+  id                        String                   @id @default(cuid())
+  organizationId            String
+  organization              Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  contactPointId            String?
+  contactPoint              ContactPoint?            @relation(fields: [contactPointId], references: [id], onDelete: SetNull)
+  selectedPatientId         String?
+  selectedPatient           Patient?                 @relation("BookingIdentitySelectedPatient", fields: [selectedPatientId], references: [id], onDelete: SetNull)
+  bookingActorPatientId     String?
+  bookingActorPatient       Patient?                 @relation("BookingIdentityActorPatient", fields: [bookingActorPatientId], references: [id], onDelete: SetNull)
+  familyGroupId             String?
+  familyGroup               FamilyGroup?             @relation(fields: [familyGroupId], references: [id], onDelete: SetNull)
+  source                    String
+  conversationId            String?
+  channelMessageId          String?
+  status                    String                   @default("PENDING")
+  resolution                String                   @default("NO_MATCH")
+  resolutionMethod          String?
+  confidence                Int                      @default(0)
+  attempts                  Int                      @default(0)
+  contactVerifiedAt         DateTime?
+  contactVerificationMethod String?
+  selectedAt                DateTime?
+  selectionExpiresAt        DateTime?
+  lastActionAt              DateTime                 @default(now())
+  metadata                  Json?
+  expiresAt                 DateTime
+  version                   Int                      @default(1)
+  incident                  BookingIdentityIncident?
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
+
+  @@unique([organizationId, source, conversationId])
+  @@index([organizationId, contactPointId, status])
+  @@index([expiresAt])
+  @@index([selectionExpiresAt])
+}
+
+model BookingIdentityIncident {
+  id             String                 @id @default(cuid())
+  organizationId String
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sessionId      String                 @unique
+  session        BookingIdentitySession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  familyGroupId  String?
+  familyGroup    FamilyGroup?           @relation(fields: [familyGroupId], references: [id], onDelete: SetNull)
+  reasonCode     String
+  status         String                 @default("OPEN")
+  privacyMode    Boolean                @default(true)
+  correlationId  String?
+  metadata       Json?
+  resolvedById   String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+
+  @@index([organizationId, status, createdAt])
+  @@index([familyGroupId])
+}
+
+model PatientDuplicateCandidate {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patientAId     String
+  patientA       Patient      @relation("DuplicatePatientA", fields: [patientAId], references: [id], onDelete: Cascade)
+  patientBId     String
+  patientB       Patient      @relation("DuplicatePatientB", fields: [patientBId], references: [id], onDelete: Cascade)
+  classification String
+  confidence     Int
+  reasons        Json
+  status         String       @default("OPEN")
+  reviewedById   String?
+  reviewedAt     DateTime?
+  reviewReason   String?
+  version        Int          @default(1)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, patientAId, patientBId])
+  @@index([organizationId, status, confidence])
+}
+
+model PatientMerge {
+  id              String                 @id @default(cuid())
+  organizationId  String
+  organization    Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  targetPatientId String
+  targetPatient   Patient                @relation("PatientMergeTarget", fields: [targetPatientId], references: [id], onDelete: Restrict)
+  sourcePatientId String
+  sourcePatient   Patient                @relation("PatientMergeSource", fields: [sourcePatientId], references: [id], onDelete: Restrict)
+  status          String                 @default("PREVIEW")
+  reason          String
+  preview         Json
+  expectedVersion Int?
+  executedById    String?
+  executedAt      DateTime?
+  correlationId   String?
+  version         Int                    @default(1)
+  relations       PatientMergeRelation[]
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([organizationId, status])
+  @@index([sourcePatientId])
+  @@index([targetPatientId])
+}
+
+model PatientMergeRelation {
+  id           String       @id @default(cuid())
+  mergeId      String
+  merge        PatientMerge @relation(fields: [mergeId], references: [id], onDelete: Cascade)
+  entity       String
+  recordId     String
+  oldPatientId String
+  newPatientId String
+  createdAt    DateTime     @default(now())
+
+  @@index([mergeId, entity])
+}
+
+model AppointmentBookingActor {
+  id                       String        @id @default(cuid())
+  organizationId           String
+  organization             Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  appointmentId            String        @unique
+  appointment              Appointment   @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  actorType                String
+  actorPatientId           String?
+  actorPatient             Patient?      @relation("AppointmentBookingPatient", fields: [actorPatientId], references: [id], onDelete: SetNull)
+  contactPointId           String?
+  contactPoint             ContactPoint? @relation(fields: [contactPointId], references: [id], onDelete: SetNull)
+  familyGroupId            String?
+  familyGroup              FamilyGroup?  @relation(fields: [familyGroupId], references: [id], onDelete: SetNull)
+  relationship             String?
+  bookingSource            String
+  identityResolutionMethod String
+  identityConfidence       Int
+  conversationId           String?
+  correlationId            String?
+  createdAt                DateTime      @default(now())
+
+  @@index([organizationId, bookingSource, createdAt])
+  @@index([contactPointId])
+}
+
+model BookingIdempotency {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  source         String
+  idempotencyKey String
+  requestHash    String
+  status         String       @default("PROCESSING")
+  appointmentId  String?
+  appointment    Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  response       Json?
+  expiresAt      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, source, idempotencyKey])
+  @@index([appointmentId])
+  @@index([expiresAt])
 }
 
 model PatientAddress {
@@ -1505,6 +2681,9 @@ model Appointment {
   professional         Professional               @relation(fields: [professionalId], references: [id], onDelete: Restrict)
   chairId              String?
   chair                Chair?                     @relation(fields: [chairId], references: [id], onDelete: SetNull)
+  chairIndex           Int                        @default(1)
+  isOverbooking        Boolean                    @default(false)
+  attendanceMode       AttendanceMode             @default(PRESENTIAL)
   specialtyId          String?
   specialty            Specialty?                 @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
   treatmentPlanId      String?
@@ -1533,6 +2712,8 @@ model Appointment {
   toothProcedures      ToothProcedure[]
   periodontalCharts    PeriodontalChart[]
   consents             Consent[]
+  bookingActor         AppointmentBookingActor?
+  bookingIdempotencies BookingIdempotency[]
   createdAt            DateTime                   @default(now())
   updatedAt            DateTime                   @updatedAt
 
@@ -1842,56 +3023,70 @@ model PeriodontalMeasurement {
 }
 
 model TreatmentPlan {
-  id                    String                       @id @default(cuid())
-  organizationId        String
-  organization          Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId              String
-  branch                Branch                       @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  patientId             String
-  patient               Patient                      @relation(fields: [patientId], references: [id], onDelete: Restrict)
-  professionalId        String
-  professional          Professional                 @relation(fields: [professionalId], references: [id], onDelete: Restrict)
-  kind                  TreatmentPlanKind            @default(GENERAL)
-  orthodonticProfile    OrthodonticTreatmentProfile?
-  specialtyId           String?
-  specialty             Specialty?                   @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
-  specialtySnapshotName String?
-  name                  String
-  description           String?
-  status                TreatmentPlanStatus          @default(DRAFT)
-  isAlternative         Boolean                      @default(false)
-  parentTreatmentPlanId String?
-  parentTreatmentPlan   TreatmentPlan?               @relation("TreatmentPlanParent", fields: [parentTreatmentPlanId], references: [id], onDelete: SetNull)
-  alternativePlans      TreatmentPlan[]              @relation("TreatmentPlanParent")
-  sections              TreatmentPlanSection[]
-  items                 TreatmentPlanItem[]
-  clinicalEvolutions    ClinicalEvolution[]
-  clinicalDocuments     ClinicalDocument[]
-  fileAttachments       FileAttachment[]
-  pauses                TreatmentPlanPause[]
-  alternativesAsParent  TreatmentPlanAlternative[]   @relation("TreatmentPlanAlternativeParent")
-  alternativesAsOption  TreatmentPlanAlternative[]   @relation("TreatmentPlanAlternativeOption")
-  appointments          Appointment[]
-  budgets               Budget[]
-  paymentLinks          PaymentLink[]
-  installmentPlans      InstallmentPlan[]
-  collectionCases       CollectionCase[]
-  consents              Consent[]
-  labOrders             LabOrder[]
-  prescriptions         Prescription[]
-  documentRequirements  DocumentRequirement[]
-  acceptedAt            DateTime?
-  completedAt           DateTime?
-  createdAt             DateTime                     @default(now())
-  updatedAt             DateTime                     @updatedAt
+  id                            String                         @id @default(cuid())
+  organizationId                String
+  organization                  Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId                      String
+  branch                        Branch                         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patientId                     String
+  patient                       Patient                        @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  agreementId                   String?
+  agreement                     Agreement?                     @relation("AgreementTreatmentPlans", fields: [agreementId], references: [id], onDelete: SetNull)
+  agreementVersionNumber        Int?
+  agreementSnapshot             Json?
+  professionalId                String
+  professional                  Professional                   @relation(fields: [professionalId], references: [id], onDelete: Restrict)
+  kind                          TreatmentPlanKind              @default(GENERAL)
+  orthodonticProfile            OrthodonticTreatmentProfile?
+  orthodonticDiagnoses          OrthodonticDiagnosis[]
+  specialtyId                   String?
+  specialty                     Specialty?                     @relation(fields: [specialtyId], references: [id], onDelete: SetNull)
+  specialtySnapshotName         String?
+  name                          String
+  description                   String?
+  status                        TreatmentPlanStatus            @default(DRAFT)
+  isAlternative                 Boolean                        @default(false)
+  parentTreatmentPlanId         String?
+  parentTreatmentPlan           TreatmentPlan?                 @relation("TreatmentPlanParent", fields: [parentTreatmentPlanId], references: [id], onDelete: SetNull)
+  alternativePlans              TreatmentPlan[]                @relation("TreatmentPlanParent")
+  sections                      TreatmentPlanSection[]
+  items                         TreatmentPlanItem[]
+  clinicalEvolutions            ClinicalEvolution[]
+  orthodonticControls           OrthodonticControl[]
+  orthodonticHygieneAssessments OrthodonticHygieneAssessment[]
+  orthodonticMilestones         OrthodonticMilestone[]
+  photographicSessions          PhotographicSession[]
+  photographicPolicy            PhotographicPolicy?
+  clinicalDocuments             ClinicalDocument[]
+  fileAttachments               FileAttachment[]
+  pauses                        TreatmentPlanPause[]
+  alternativesAsParent          TreatmentPlanAlternative[]     @relation("TreatmentPlanAlternativeParent")
+  alternativesAsOption          TreatmentPlanAlternative[]     @relation("TreatmentPlanAlternativeOption")
+  appointments                  Appointment[]
+  budgets                       Budget[]
+  paymentLinks                  PaymentLink[]
+  installmentPlans              InstallmentPlan[]
+  collectionCases               CollectionCase[]
+  consents                      Consent[]
+  labOrders                     LabOrder[]
+  prescriptions                 Prescription[]
+  documentRequirements          DocumentRequirement[]
+  acceptedAt                    DateTime?
+  completedAt                   DateTime?
+  createdAt                     DateTime                       @default(now())
+  updatedAt                     DateTime                       @updatedAt
 
-  referrals          TreatmentPlanReferral[]
-  payrollDiscounts   PayrollDiscount[]
-  inventoryMovements InventoryMovement[]
+  referrals              TreatmentPlanReferral[]
+  payrollDiscounts       PayrollDiscount[]
+  inventoryMovements     InventoryMovement[]
+  patientLedgerEntries   PatientLedgerEntry[]
+  financialDocuments     FinancialDocument[]
+  coverageAuthorizations CoverageAuthorization[]
 
   @@index([organizationId, branchId, status])
   @@index([patientId, status])
   @@index([professionalId, status])
+  @@index([agreementId, agreementVersionNumber])
   @@index([parentTreatmentPlanId])
 }
 
@@ -1910,44 +3105,74 @@ model TreatmentPlanSection {
 }
 
 model TreatmentPlanItem {
-  id                     String                  @id @default(cuid())
-  treatmentPlanId        String
-  treatmentPlan          TreatmentPlan           @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
-  sectionId              String?
-  section                TreatmentPlanSection?   @relation(fields: [sectionId], references: [id], onDelete: SetNull)
-  procedureId            String
-  procedure              Procedure               @relation(fields: [procedureId], references: [id], onDelete: Restrict)
-  toothNumber            String?
-  surface                String?
-  odontogramSymbol       String?
-  quantity               Decimal                 @db.Decimal(10, 2)
-  unitPrice              Decimal                 @db.Decimal(10, 2)
-  discount               Decimal                 @default(0) @db.Decimal(10, 2)
-  total                  Decimal                 @db.Decimal(10, 2)
-  status                 TreatmentPlanItemStatus @default(PLANNED)
-  priceListId            String?
-  priceList              PriceList?              @relation(fields: [priceListId], references: [id], onDelete: SetNull)
-  priceListItemId        String?
-  priceListItem          PriceListItem?          @relation(fields: [priceListItemId], references: [id], onDelete: SetNull)
-  priceSource            TreatmentPriceSource    @default(MANUAL)
-  priceSnapshotName      String?
-  priceSnapshotCode      String?
-  priceSnapshotCategory  String?
-  priceResolvedAt        DateTime?
-  notes                  String?
-  plannedAt              DateTime?
-  completedAt            DateTime?
-  completionPercentage   Int                     @default(0)
-  performedAmount        Decimal                 @default(0) @db.Decimal(10, 2)
-  budgetItems            BudgetItem[]
-  paymentAllocations     PaymentAllocation[]
-  payrollLiquidationItem PayrollLiquidationItem?
-  toothProcedure         ToothProcedure?
+  id                        String                  @id @default(cuid())
+  treatmentPlanId           String
+  treatmentPlan             TreatmentPlan           @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  sectionId                 String?
+  section                   TreatmentPlanSection?   @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  procedureId               String
+  procedure                 Procedure               @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  toothNumber               String?
+  surface                   String?
+  odontogramSymbol          String?
+  quantity                  Decimal                 @db.Decimal(10, 2)
+  unitPrice                 Decimal                 @db.Decimal(10, 2)
+  discount                  Decimal                 @default(0) @db.Decimal(10, 2)
+  total                     Decimal                 @db.Decimal(10, 2)
+  originalPrice             Decimal                 @default(0) @db.Decimal(10, 2)
+  allowsDiscountSnapshot    Boolean                 @default(true)
+  discountType              String?
+  discountValue             Decimal?                @db.Decimal(10, 2)
+  discountAmount            Decimal                 @default(0) @db.Decimal(10, 2)
+  finalPrice                Decimal                 @default(0) @db.Decimal(10, 2)
+  discountReason            String?
+  discountAuthorizedBy      String?
+  discountedAt              DateTime?
+  status                    TreatmentPlanItemStatus @default(PLANNED)
+  priceListId               String?
+  priceList                 PriceList?              @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  priceListItemId           String?
+  priceListItem             PriceListItem?          @relation(fields: [priceListItemId], references: [id], onDelete: SetNull)
+  priceListVersionId        String?
+  priceListVersion          PriceListVersion?       @relation(fields: [priceListVersionId], references: [id], onDelete: SetNull)
+  priceListVersionNumber    Int?
+  priceListVersionItemId    String?
+  priceListVersionItem      PriceListVersionItem?   @relation(fields: [priceListVersionItemId], references: [id], onDelete: SetNull)
+  priceSource               TreatmentPriceSource    @default(MANUAL)
+  priceSnapshotName         String?
+  priceSnapshotCode         String?
+  priceSnapshotCategory     String?
+  procedureCodeSnapshot     String?
+  procedureNameSnapshot     String?
+  procedureCategorySnapshot String?
+  priceListNameSnapshot     String?
+  priceResolvedAt           DateTime?
+  priceCurrency             CurrencyCode            @default(MXN)
+  laboratoryCostSnapshot    Decimal                 @default(0) @db.Decimal(12, 2)
+  internalCostSnapshot      Decimal                 @default(0) @db.Decimal(12, 2)
+  pricingRuleSnapshot       Json?
+  pricedById                String?
+  notes                     String?
+  plannedAt                 DateTime?
+  completedAt               DateTime?
+  completionPercentage      Int                     @default(0)
+  performedAmount           Decimal                 @default(0) @db.Decimal(10, 2)
+  budgetItems               BudgetItem[]
+  paymentAllocations        PaymentAllocation[]
+  installmentPlanItems      InstallmentPlanItem[]
+  payrollLiquidationItem    PayrollLiquidationItem?
+  toothProcedure            ToothProcedure?
 
-  agreementId       String?
-  agreement         Agreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
-  agreementCoverage Decimal    @default(0) @db.Decimal(10, 2)
-  agreementPaidAt   DateTime?
+  agreementId             String?
+  agreement               Agreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  agreementVersionId      String?
+  agreementVersionNumber  Int?
+  agreementSnapshot       Json?
+  agreementNormalPrice    Decimal?   @db.Decimal(10, 2)
+  agreementAppliedPrice   Decimal?   @db.Decimal(10, 2)
+  agreementDiscountAmount Decimal?   @db.Decimal(10, 2)
+  agreementCoverage       Decimal    @default(0) @db.Decimal(10, 2)
+  agreementPaidAt         DateTime?
 
   version                Int                 @default(1)
   createdAt              DateTime            @default(now())
@@ -1961,6 +3186,9 @@ model TreatmentPlanItem {
   @@index([procedureId])
   @@index([priceListId])
   @@index([priceListItemId])
+  @@index([priceListVersionId])
+  @@index([priceListVersionItemId])
+  @@index([agreementId, agreementVersionNumber])
   @@index([toothNumber, surface])
 }
 
@@ -2057,8 +3285,10 @@ model Payment {
   installmentAllocations PaymentInstallmentAllocation[]
   communicationJobs      CommunicationJob[]
   webhookEvents          PaymentWebhookEvent[]
+  familyPolicyPayments   FamilyPolicyPayment[]
   createdAt              DateTime                       @default(now())
   updatedAt              DateTime                       @updatedAt
+  financialDocuments     FinancialDocument[]
 
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, branchId, paidAt])
@@ -2117,12 +3347,27 @@ model InstallmentPlan {
   startDate            DateTime
   status               InstallmentPlanStatus @default(DRAFT)
   installments         Installment[]
+  items                InstallmentPlanItem[]
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
   @@index([organizationId, status])
   @@index([patientId, status])
   @@index([treatmentPlanId, status])
+}
+
+model InstallmentPlanItem {
+  id                  String            @id @default(cuid())
+  installmentPlanId   String
+  installmentPlan     InstallmentPlan   @relation(fields: [installmentPlanId], references: [id], onDelete: Cascade)
+  treatmentPlanItemId String
+  treatmentPlanItem   TreatmentPlanItem @relation(fields: [treatmentPlanItemId], references: [id], onDelete: Restrict)
+  amount              Decimal           @db.Decimal(10, 2)
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@unique([installmentPlanId, treatmentPlanItemId])
+  @@index([treatmentPlanItemId])
 }
 
 model Installment {
@@ -2150,23 +3395,24 @@ model Installment {
 }
 
 model CashRegister {
-  id             String             @id @default(cuid())
-  organizationId String
-  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId       String
-  branch         Branch             @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  openedById     String
-  openedBy       User               @relation("CashRegisterOpenedBy", fields: [openedById], references: [id], onDelete: Restrict)
-  closedById     String?
-  closedBy       User?              @relation("CashRegisterClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
-  openingAmount  Decimal            @db.Decimal(10, 2)
-  closingAmount  Decimal?           @db.Decimal(10, 2)
-  status         CashRegisterStatus @default(OPEN)
-  openedAt       DateTime           @default(now())
-  closedAt       DateTime?
-  movements      CashMovement[]
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  id                   String                @id @default(cuid())
+  organizationId       String
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId             String
+  branch               Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  openedById           String
+  openedBy             User                  @relation("CashRegisterOpenedBy", fields: [openedById], references: [id], onDelete: Restrict)
+  closedById           String?
+  closedBy             User?                 @relation("CashRegisterClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  openingAmount        Decimal               @db.Decimal(10, 2)
+  closingAmount        Decimal?              @db.Decimal(10, 2)
+  status               CashRegisterStatus    @default(OPEN)
+  openedAt             DateTime              @default(now())
+  closedAt             DateTime?
+  movements            CashMovement[]
+  familyPolicyPayments FamilyPolicyPayment[]
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
 
   @@index([organizationId, branchId, status])
   @@index([openedById, openedAt])
@@ -2193,23 +3439,24 @@ model CashMovement {
 }
 
 model Refund {
-  id             String       @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId       String
-  branch         Branch       @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  paymentId      String
-  payment        Payment      @relation(fields: [paymentId], references: [id], onDelete: Restrict)
-  patientId      String
-  patient        Patient      @relation(fields: [patientId], references: [id], onDelete: Restrict)
-  amount         Decimal      @db.Decimal(10, 2)
-  reason         String?
-  status         RefundStatus @default(PENDING)
-  processedById  String?
-  processedBy    User?        @relation("RefundProcessedBy", fields: [processedById], references: [id], onDelete: SetNull)
-  processedAt    DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                 String              @id @default(cuid())
+  organizationId     String
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId           String
+  branch             Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  paymentId          String
+  payment            Payment             @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  patientId          String
+  patient            Patient             @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  amount             Decimal             @db.Decimal(10, 2)
+  reason             String?
+  status             RefundStatus        @default(PENDING)
+  processedById      String?
+  processedBy        User?               @relation("RefundProcessedBy", fields: [processedById], references: [id], onDelete: SetNull)
+  processedAt        DateTime?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  financialDocuments FinancialDocument[]
 
   @@index([organizationId, branchId, createdAt])
   @@index([paymentId])
@@ -2494,30 +3741,35 @@ model InventoryProductSale {
 }
 
 model FileAttachment {
-  id                   String                  @id @default(cuid())
-  organizationId       String
-  organization         Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  patientId            String?
-  patient              Patient?                @relation(fields: [patientId], references: [id], onDelete: SetNull)
-  userId               String?
-  user                 User?                   @relation("UserFileAttachments", fields: [userId], references: [id], onDelete: SetNull)
-  professionalId       String?
-  professional         Professional?           @relation("ProfessionalFileAttachments", fields: [professionalId], references: [id], onDelete: SetNull)
-  treatmentPlanId      String?
-  treatmentPlan        TreatmentPlan?          @relation(fields: [treatmentPlanId], references: [id], onDelete: SetNull)
-  uploadedById         String
-  uploadedBy           User                    @relation("FileAttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
-  fileName             String
-  originalName         String
-  mimeType             String
-  size                 Int
-  url                  String
-  category             String
-  noteAttachments      PatientNoteAttachment[]
-  radiographyAnalysis  RadiographyAnalysis?
-  documentRequirements DocumentRequirement[]
-  createdAt            DateTime                @default(now())
-  updatedAt            DateTime                @updatedAt
+  id                         String                           @id @default(cuid())
+  organizationId             String
+  organization               Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  patientId                  String?
+  patient                    Patient?                         @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  userId                     String?
+  user                       User?                            @relation("UserFileAttachments", fields: [userId], references: [id], onDelete: SetNull)
+  professionalId             String?
+  professional               Professional?                    @relation("ProfessionalFileAttachments", fields: [professionalId], references: [id], onDelete: SetNull)
+  treatmentPlanId            String?
+  treatmentPlan              TreatmentPlan?                   @relation(fields: [treatmentPlanId], references: [id], onDelete: SetNull)
+  uploadedById               String
+  uploadedBy                 User                             @relation("FileAttachmentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  fileName                   String
+  originalName               String
+  mimeType                   String
+  size                       Int
+  url                        String
+  category                   String
+  noteAttachments            PatientNoteAttachment[]
+  radiographyAnalysis        RadiographyAnalysis?
+  photographicOriginalImage  PhotographicSessionImage?        @relation("PhotographicOriginalFile")
+  photographicPreviewImage   PhotographicSessionImage?        @relation("PhotographicPreviewFile")
+  photographicThumbnailImage PhotographicSessionImage?        @relation("PhotographicThumbnailFile")
+  photographicEditedImage    PhotographicSessionImage?        @relation("PhotographicEditedFile")
+  documentRequirements       DocumentRequirement[]
+  benefitCoverageDocuments   PatientBenefitCoverageDocument[]
+  createdAt                  DateTime                         @default(now())
+  updatedAt                  DateTime                         @updatedAt
 
   deletedAt    DateTime?
   deletedById  String?
@@ -3155,24 +4407,524 @@ model OrthodonticArchSize {
 }
 
 model OrthodonticTreatmentProfile {
-  id                String        @id @default(cuid())
-  treatmentPlanId   String        @unique
-  treatmentPlan     TreatmentPlan @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
-  startDate         DateTime?
-  estimatedMonths   Int?
-  diagnosis         Json?
-  estimatedControls Int?
-  lastUpperArch     String?
-  lastLowerArch     String?
-  nextControlAt     DateTime?
-  nextRadiographyAt DateTime?
-  hygieneStatus     String?
-  alert             String?
-  indications       String?
-  elastics          String?
-  planNotes         String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  id                    String                       @id @default(cuid())
+  treatmentPlanId       String                       @unique
+  treatmentPlan         TreatmentPlan                @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  technicalDescription  String?
+  startDate             DateTime?
+  startedById           String?
+  startedAt             DateTime?
+  finalizedById         String?
+  finalizedAt           DateTime?
+  actualEndDate         DateTime?
+  finalCalendarProgress Decimal?                     @db.Decimal(10, 2)
+  finalControlsProgress Decimal?                     @db.Decimal(10, 2)
+  finalizationReason    String?
+  estimatedMonths       Int?
+  diagnosis             Json?
+  estimatedControls     Int?
+  controlFrequencyValue Int?
+  controlFrequencyUnit  String?
+  totalAligners         Int?
+  indicatedExtractions  String?
+  performedExtractions  String?
+  reevaluationDate      DateTime?
+  interconsultations    String?
+  lastUpperArch         String?
+  lastLowerArch         String?
+  nextControlAt         DateTime?
+  nextRadiographyAt     DateTime?
+  hygieneStatus         String?
+  alert                 String?
+  indications           String?
+  elastics              String?
+  planNotes             String?
+  fieldValues           OrthodonticPlanFieldValue[]
+  optionValues          OrthodonticPlanOptionValue[]
+  version               Int                          @default(1)
+  createdAt             DateTime                     @default(now())
+  updatedAt             DateTime                     @updatedAt
+}
+
+model OrthodonticOptionField {
+  id             String                       @id @default(cuid())
+  organizationId String
+  code           String
+  name           String
+  inputType      String
+  allowsMultiple Boolean                      @default(false)
+  isConfigurable Boolean                      @default(true)
+  isActive       Boolean                      @default(true)
+  options        OrthodonticFieldOption[]
+  fieldValues    OrthodonticPlanFieldValue[]
+  optionValues   OrthodonticPlanOptionValue[]
+  createdAt      DateTime                     @default(now())
+  updatedAt      DateTime                     @updatedAt
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+}
+
+model OrthodonticFieldOption {
+  id                 String                       @id @default(cuid())
+  fieldId            String
+  field              OrthodonticOptionField       @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  code               String
+  label              String
+  normalizedLabel    String
+  sortOrder          Int                          @default(0)
+  isActive           Boolean                      @default(true)
+  createdById        String?
+  createdAt          DateTime                     @default(now())
+  updatedById        String?
+  updatedAt          DateTime                     @updatedAt
+  deactivatedById    String?
+  deactivatedAt      DateTime?
+  deactivationReason String?
+  reactivatedById    String?
+  reactivatedAt      DateTime?
+  version            Int                          @default(1)
+  fieldValues        OrthodonticPlanFieldValue[]
+  optionValues       OrthodonticPlanOptionValue[]
+
+  @@unique([fieldId, normalizedLabel])
+  @@index([fieldId, isActive, sortOrder])
+}
+
+model OrthodonticPlanFieldValue {
+  id                   String                      @id @default(cuid())
+  orthodonticProfileId String
+  orthodonticProfile   OrthodonticTreatmentProfile @relation(fields: [orthodonticProfileId], references: [id], onDelete: Cascade)
+  fieldId              String
+  field                OrthodonticOptionField      @relation(fields: [fieldId], references: [id], onDelete: Restrict)
+  optionId             String?
+  option               OrthodonticFieldOption?     @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  optionLabelSnapshot  String?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
+
+  @@unique([orthodonticProfileId, fieldId])
+  @@index([fieldId])
+  @@index([optionId])
+}
+
+model OrthodonticPlanOptionValue {
+  id                   String                      @id @default(cuid())
+  orthodonticProfileId String
+  orthodonticProfile   OrthodonticTreatmentProfile @relation(fields: [orthodonticProfileId], references: [id], onDelete: Cascade)
+  fieldId              String
+  field                OrthodonticOptionField      @relation(fields: [fieldId], references: [id], onDelete: Restrict)
+  optionId             String?
+  option               OrthodonticFieldOption?     @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  optionLabelSnapshot  String?
+  createdAt            DateTime                    @default(now())
+
+  @@unique([orthodonticProfileId, fieldId, optionId])
+  @@index([fieldId])
+  @@index([optionId])
+}
+
+enum OrthodonticDiagnosisStatus {
+  DRAFT
+  ACTIVE
+  AMENDED
+  VOIDED
+}
+
+model OrthodonticDiagnosis {
+  id                String                                 @id @default(cuid())
+  treatmentPlanId   String
+  treatmentPlan     TreatmentPlan                          @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  patientId         String
+  professionalId    String
+  branchId          String
+  status            OrthodonticDiagnosisStatus             @default(DRAFT)
+  versionNumber     Int                                    @default(1)
+  previousVersionId String?
+  clinicalDate      DateTime?
+  changeReason      String?
+  createdById       String?
+  createdAt         DateTime                               @default(now())
+  activatedById     String?
+  activatedAt       DateTime?
+  voidedById        String?
+  voidedAt          DateTime?
+  voidReason        String?
+  version           Int                                    @default(1)
+  fieldValues       OrthodonticDiagnosisFieldValue[]
+  multiOptionValues OrthodonticDiagnosisMultiOptionValue[]
+
+  @@index([treatmentPlanId, status])
+  @@index([patientId, status])
+  @@index([previousVersionId])
+}
+
+model OrthodonticDiagnosisSection {
+  id        String                      @id @default(cuid())
+  code      String                      @unique
+  name      String
+  sortOrder Int                         @default(0)
+  isActive  Boolean                     @default(true)
+  fields    OrthodonticDiagnosisField[]
+  createdAt DateTime                    @default(now())
+  updatedAt DateTime                    @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model OrthodonticDiagnosisField {
+  id                String                                 @id @default(cuid())
+  sectionId         String
+  section           OrthodonticDiagnosisSection            @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  code              String
+  name              String
+  inputType         String
+  allowsMultiple    Boolean                                @default(false)
+  isRequired        Boolean                                @default(false)
+  isHighlighted     Boolean                                @default(false)
+  isFavorite        Boolean                                @default(false)
+  includeInSummary  Boolean                                @default(false)
+  unitType          String?
+  sortOrder         Int                                    @default(0)
+  isConfigurable    Boolean                                @default(true)
+  isActive          Boolean                                @default(true)
+  validationJson    Json?
+  options           OrthodonticDiagnosisFieldOption[]
+  fieldValues       OrthodonticDiagnosisFieldValue[]
+  multiOptionValues OrthodonticDiagnosisMultiOptionValue[]
+  createdAt         DateTime                               @default(now())
+  updatedAt         DateTime                               @updatedAt
+
+  @@unique([sectionId, code])
+  @@index([sectionId, isActive, sortOrder])
+}
+
+model OrthodonticDiagnosisFieldOption {
+  id                 String                                 @id @default(cuid())
+  fieldId            String
+  field              OrthodonticDiagnosisField              @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  code               String
+  label              String
+  normalizedLabel    String
+  sortOrder          Int                                    @default(0)
+  isActive           Boolean                                @default(true)
+  usageCount         Int                                    @default(0)
+  createdById        String?
+  createdAt          DateTime                               @default(now())
+  updatedById        String?
+  updatedAt          DateTime                               @updatedAt
+  deactivatedById    String?
+  deactivatedAt      DateTime?
+  deactivationReason String?
+  reactivatedById    String?
+  reactivatedAt      DateTime?
+  version            Int                                    @default(1)
+  fieldValues        OrthodonticDiagnosisFieldValue[]
+  multiOptionValues  OrthodonticDiagnosisMultiOptionValue[]
+
+  @@unique([fieldId, normalizedLabel])
+  @@index([fieldId, isActive, sortOrder])
+}
+
+model OrthodonticDiagnosisFieldValue {
+  id                  String                           @id @default(cuid())
+  diagnosisId         String
+  diagnosis           OrthodonticDiagnosis             @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
+  fieldId             String
+  field               OrthodonticDiagnosisField        @relation(fields: [fieldId], references: [id], onDelete: Restrict)
+  valueText           String?
+  valueNumber         Decimal?                         @db.Decimal(12, 4)
+  valueDate           DateTime?
+  valueBoolean        Boolean?
+  unitId              String?
+  optionId            String?
+  option              OrthodonticDiagnosisFieldOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  optionLabelSnapshot String?
+  createdAt           DateTime                         @default(now())
+  updatedAt           DateTime                         @updatedAt
+
+  @@unique([diagnosisId, fieldId])
+  @@index([fieldId])
+  @@index([optionId])
+}
+
+model OrthodonticDiagnosisMultiOptionValue {
+  id                  String                           @id @default(cuid())
+  diagnosisId         String
+  diagnosis           OrthodonticDiagnosis             @relation(fields: [diagnosisId], references: [id], onDelete: Cascade)
+  fieldId             String
+  field               OrthodonticDiagnosisField        @relation(fields: [fieldId], references: [id], onDelete: Restrict)
+  optionId            String?
+  option              OrthodonticDiagnosisFieldOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  optionLabelSnapshot String?
+  createdAt           DateTime                         @default(now())
+
+  @@unique([diagnosisId, fieldId, optionId])
+  @@index([fieldId])
+  @@index([optionId])
+}
+
+model OrthodonticControl {
+  id                String                   @id @default(cuid())
+  organizationId    String
+  treatmentPlanId   String
+  treatmentPlan     TreatmentPlan            @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  patientId         String
+  branchId          String
+  professionalId    String
+  appointmentId     String?
+  procedureId       String?
+  evolutionId       String?                  @unique
+  sequenceNumber    Int
+  clinicalDate      DateTime
+  status            OrthodonticControlStatus @default(PLANNED)
+  clinicalConfirmed Boolean                  @default(false)
+  completedById     String?
+  completedAt       DateTime?
+  annulledById      String?
+  annulledAt        DateTime?
+  annulmentReason   String?
+  createdById       String?
+  createdAt         DateTime                 @default(now())
+  updatedAt         DateTime                 @updatedAt
+
+  @@unique([treatmentPlanId, sequenceNumber])
+  @@index([organizationId, branchId, clinicalDate])
+  @@index([treatmentPlanId, status])
+  @@index([appointmentId])
+  @@index([procedureId])
+}
+
+model OrthodonticHygieneScale {
+  id             String                         @id @default(cuid())
+  organizationId String
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  minValue       Int
+  maxValue       Int
+  higherIsBetter Boolean                        @default(true)
+  isActive       Boolean                        @default(true)
+  options        OrthodonticHygieneOption[]
+  assessments    OrthodonticHygieneAssessment[]
+  createdAt      DateTime                       @default(now())
+  updatedAt      DateTime                       @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId, isActive])
+}
+
+model OrthodonticHygieneOption {
+  id           String                         @id @default(cuid())
+  scaleId      String
+  scale        OrthodonticHygieneScale        @relation(fields: [scaleId], references: [id], onDelete: Cascade)
+  numericValue Int
+  label        String
+  description  String?
+  sortOrder    Int                            @default(0)
+  color        String?
+  isActive     Boolean                        @default(true)
+  assessments  OrthodonticHygieneAssessment[]
+
+  @@unique([scaleId, numericValue])
+  @@index([scaleId, sortOrder])
+}
+
+model OrthodonticHygieneAssessment {
+  id              String                    @id @default(cuid())
+  treatmentPlanId String
+  treatmentPlan   TreatmentPlan             @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  controlId       String?
+  evolutionId     String?
+  patientId       String
+  professionalId  String
+  clinicalDate    DateTime
+  scaleId         String
+  scale           OrthodonticHygieneScale   @relation(fields: [scaleId], references: [id], onDelete: Restrict)
+  optionId        String?
+  option          OrthodonticHygieneOption? @relation(fields: [optionId], references: [id], onDelete: SetNull)
+  numericValue    Decimal                   @db.Decimal(10, 2)
+  observations    String?
+  recommendations String?
+  status          HygieneAssessmentStatus   @default(ACTIVE)
+  createdById     String?
+  updatedById     String?
+  annulledById    String?
+  annulledAt      DateTime?
+  annulmentReason String?
+  createdAt       DateTime                  @default(now())
+  updatedAt       DateTime                  @updatedAt
+
+  @@index([treatmentPlanId, clinicalDate])
+  @@index([evolutionId])
+  @@index([controlId])
+  @@index([status])
+}
+
+model OrthodonticMilestone {
+  id                 String                     @id @default(cuid())
+  treatmentPlanId    String
+  treatmentPlan      TreatmentPlan              @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  type               OrthodonticMilestoneType
+  label              String?
+  plannedAt          DateTime
+  completedAt        DateTime?
+  status             OrthodonticMilestoneStatus @default(PENDING)
+  professionalId     String?
+  evolutionId        String?
+  fileAttachmentId   String?
+  notes              String?
+  findings           String?
+  cancelledById      String?
+  cancelledAt        DateTime?
+  cancellationReason String?
+  createdById        String?
+  updatedById        String?
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([treatmentPlanId, type, plannedAt])
+  @@index([status, plannedAt])
+}
+
+model PhotographicSession {
+  id              String                      @id @default(cuid())
+  organizationId  String
+  patientId       String
+  treatmentPlanId String
+  treatmentPlan   TreatmentPlan               @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  branchId        String
+  name            String
+  sessionType     PhotographicSessionType     @default(FOLLOW_UP)
+  clinicalDate    DateTime                    @db.Date
+  professionalId  String
+  status          PhotographicSessionStatus   @default(INCOMPLETE)
+  notes           String?
+  createdById     String
+  createdAt       DateTime                    @default(now())
+  updatedById     String?
+  updatedAt       DateTime                    @updatedAt
+  completedAt     DateTime?
+  voidedById      String?
+  voidedAt        DateTime?
+  voidReason      String?
+  idempotencyKey  String?                     @unique
+  version         Int                         @default(1)
+  images          PhotographicSessionImage[]
+  links           PhotographicSessionLink[]
+  uploadSessions  PhotographicUploadSession[]
+
+  @@index([organizationId, patientId, clinicalDate, createdAt])
+  @@index([treatmentPlanId, status, clinicalDate])
+  @@index([branchId, clinicalDate])
+}
+
+model PhotographicSlot {
+  id                     String                     @id @default(cuid())
+  organizationId         String
+  code                   String
+  label                  String
+  group                  String
+  sortOrder              Int
+  rowNumber              Int
+  columnNumber           Int
+  isRequired             Boolean                    @default(true)
+  recommendedOrientation String?
+  isActive               Boolean                    @default(true)
+  version                Int                        @default(1)
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+  images                 PhotographicSessionImage[]
+
+  @@unique([organizationId, code])
+  @@unique([organizationId, rowNumber, columnNumber])
+  @@index([organizationId, isActive, sortOrder])
+}
+
+model PhotographicSessionImage {
+  id                  String                     @id @default(cuid())
+  sessionId           String
+  session             PhotographicSession        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  slotId              String
+  slot                PhotographicSlot           @relation(fields: [slotId], references: [id], onDelete: Restrict)
+  originalFileId      String                     @unique
+  originalFile        FileAttachment             @relation("PhotographicOriginalFile", fields: [originalFileId], references: [id], onDelete: Restrict)
+  previewFileId       String?                    @unique
+  previewFile         FileAttachment?            @relation("PhotographicPreviewFile", fields: [previewFileId], references: [id], onDelete: SetNull)
+  thumbnailFileId     String?                    @unique
+  thumbnailFile       FileAttachment?            @relation("PhotographicThumbnailFile", fields: [thumbnailFileId], references: [id], onDelete: SetNull)
+  editedFileId        String?                    @unique
+  editedFile          FileAttachment?            @relation("PhotographicEditedFile", fields: [editedFileId], references: [id], onDelete: SetNull)
+  checksum            String
+  mimeType            String
+  width               Int
+  height              Int
+  status              PhotographicImageStatus    @default(PROCESSING)
+  transformationsJson Json?
+  uploadedById        String
+  uploadedAt          DateTime                   @default(now())
+  replacedImageId     String?
+  replacedImage       PhotographicSessionImage?  @relation("PhotographicImageReplacement", fields: [replacedImageId], references: [id], onDelete: SetNull)
+  replacementImage    PhotographicSessionImage[] @relation("PhotographicImageReplacement")
+  voidedById          String?
+  voidedAt            DateTime?
+  voidReason          String?
+  version             Int                        @default(1)
+  createdAt           DateTime                   @default(now())
+  updatedAt           DateTime                   @updatedAt
+
+  @@index([sessionId, slotId, status])
+  @@index([checksum])
+  @@index([replacedImageId])
+}
+
+model PhotographicSessionLink {
+  id               String                       @id @default(cuid())
+  sessionId        String
+  session          PhotographicSession          @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  linkedEntityType PhotographicLinkedEntityType
+  linkedEntityId   String
+  relationshipType String                       @default("CLINICAL_CONTEXT")
+  createdById      String
+  createdAt        DateTime                     @default(now())
+  removedById      String?
+  removedAt        DateTime?
+  removalReason    String?
+
+  @@index([sessionId, removedAt])
+  @@index([linkedEntityType, linkedEntityId])
+}
+
+model PhotographicUploadSession {
+  id                    String                          @id @default(cuid())
+  photographicSessionId String
+  photographicSession   PhotographicSession             @relation(fields: [photographicSessionId], references: [id], onDelete: Cascade)
+  tokenHash             String                          @unique
+  expiresAt             DateTime
+  status                PhotographicUploadSessionStatus @default(ACTIVE)
+  createdById           String
+  createdAt             DateTime                        @default(now())
+  claimedAt             DateTime?
+  usedAt                DateTime?
+  revokedAt             DateTime?
+  failedAttempts        Int                             @default(0)
+
+  @@index([photographicSessionId, status])
+  @@index([expiresAt, status])
+}
+
+model PhotographicPolicy {
+  id                  String                @id @default(cuid())
+  organizationId      String
+  treatmentPlanId     String                @unique
+  treatmentPlan       TreatmentPlan         @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  frequency           PhotographicFrequency @default(NONE)
+  customIntervalDays  Int?
+  reminderDismissedAt DateTime?
+  updatedById         String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@index([organizationId, frequency])
 }
 
 model PaymentInstallmentAllocation {
@@ -3239,4 +4991,334 @@ model PaymentIdempotency {
   createdAt      DateTime     @default(now())
 
   @@unique([organizationId, idempotencyKey])
+}
+
+model PatientLedgerEntry {
+  id                  String            @id @default(cuid())
+  organizationId      String
+  organization        Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId            String
+  branch              Branch            @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patientId           String
+  patient             Patient           @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  occurredAt          DateTime          @default(now())
+  entryType           LedgerEntryType
+  sourceType          LedgerSourceType
+  sourceId            String
+  planId              String?
+  treatmentPlan       TreatmentPlan?    @relation(fields: [planId], references: [id], onDelete: SetNull)
+  debitAmount         Decimal           @default(0) @db.Decimal(10, 2)
+  creditAmount        Decimal           @default(0) @db.Decimal(10, 2)
+  currency            CurrencyCode      @default(MXN)
+  descriptionSnapshot String?
+  status              LedgerEntryStatus @default(APPLIED)
+  reversalEntryId     String?
+  correlationId       String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([organizationId, branchId, occurredAt])
+  @@index([patientId, occurredAt])
+}
+
+enum LedgerEntryType {
+  CHARGE
+  PAYMENT
+  REFUND
+  ADJUSTMENT
+  VOID
+}
+
+enum LedgerSourceType {
+  TREATMENT
+  PAYMENT
+  REFUND
+  INSTALLMENT
+  MANUAL
+}
+
+enum LedgerEntryStatus {
+  APPLIED
+  REVERTED
+  PENDING
+}
+
+model FinancialDocument {
+  id              String                  @id @default(cuid())
+  organizationId  String
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId        String
+  branch          Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patientId       String
+  patient         Patient                 @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  type            FinancialDocumentType
+  folio           String?
+  status          FinancialDocumentStatus @default(DRAFT)
+  subtotal        Decimal                 @default(0) @db.Decimal(10, 2)
+  taxes           Decimal                 @default(0) @db.Decimal(10, 2)
+  total           Decimal                 @default(0) @db.Decimal(10, 2)
+  issuedAt        DateTime?
+  paymentId       String?
+  payment         Payment?                @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  refundId        String?
+  refund          Refund?                 @relation(fields: [refundId], references: [id], onDelete: SetNull)
+  treatmentPlanId String?
+  treatmentPlan   TreatmentPlan?          @relation(fields: [treatmentPlanId], references: [id], onDelete: SetNull)
+  files           FinancialDocumentFile[]
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([organizationId, branchId, type])
+  @@index([patientId])
+}
+
+model FinancialDocumentFile {
+  id                  String            @id @default(cuid())
+  financialDocumentId String
+  financialDocument   FinancialDocument @relation(fields: [financialDocumentId], references: [id], onDelete: Cascade)
+  url                 String
+  type                String
+  createdAt           DateTime          @default(now())
+}
+
+enum FinancialDocumentType {
+  PAYMENT_RECEIPT
+  INVOICE
+  SALES_RECEIPT
+  CREDIT_NOTE
+  DEBIT_NOTE
+  PAYMENT_COMPLEMENT
+  REFUND_RECEIPT
+  BUDGET_DOCUMENT
+  ACCOUNT_STATEMENT
+  OTHER
+}
+
+enum FinancialDocumentStatus {
+  DRAFT
+  ISSUING
+  ISSUED
+  ACCEPTED
+  REJECTED
+  CANCEL_REQUESTED
+  CANCELLED
+  REPLACED
+  FAILED
+}
+
+model CoverageCase {
+  id                String                  @id @default(cuid())
+  organizationId    String
+  organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId          String
+  branch            Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patientId         String
+  patient           Patient                 @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  patientCoverageId String?
+  patientCoverage   PatientBenefitCoverage? @relation(fields: [patientCoverageId], references: [id], onDelete: SetNull)
+  agreementId       String?
+  agreement         Agreement?              @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  policyNumber      String?
+  status            CoverageStatus          @default(DRAFT)
+  authorizations    CoverageAuthorization[]
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+
+  @@index([organizationId, patientId])
+  @@index([patientCoverageId])
+}
+
+model CoverageAuthorization {
+  id                String              @id @default(cuid())
+  coverageCaseId    String
+  coverageCase      CoverageCase        @relation(fields: [coverageCaseId], references: [id], onDelete: Cascade)
+  treatmentPlanId   String?
+  treatmentPlan     TreatmentPlan?      @relation(fields: [treatmentPlanId], references: [id], onDelete: SetNull)
+  authorizationCode String?
+  requestedAmount   Decimal             @default(0) @db.Decimal(10, 2)
+  authorizedAmount  Decimal             @default(0) @db.Decimal(10, 2)
+  consumedAmount    Decimal             @default(0) @db.Decimal(10, 2)
+  status            AuthorizationStatus @default(SUBMITTED)
+  validUntil        DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([coverageCaseId])
+}
+
+enum CoverageStatus {
+  NOT_VALIDATED
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  AUTHORIZED
+  PARTIALLY_AUTHORIZED
+  REJECTED
+  EXPIRED
+  CANCELLED
+  SETTLED
+}
+
+enum AuthorizationStatus {
+  SUBMITTED
+  UNDER_REVIEW
+  AUTHORIZED
+  PARTIALLY_AUTHORIZED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+enum PatientBenefitCoverageType {
+  INSURANCE
+  AGREEMENT
+  PAYROLL_BENEFIT
+  CORPORATE_BENEFIT
+  MEMBERSHIP
+  OTHER
+}
+
+enum PatientBenefitCoverageStatus {
+  DRAFT
+  PENDING_VALIDATION
+  VALIDATING
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  EXPIRED
+  REJECTED
+  REQUIRES_DOCUMENTS
+  INTEGRATION_ERROR
+  CANCELLED
+}
+
+enum CoverageValidationMode {
+  AUTOMATIC
+  MANUAL
+  DOCUMENTAL
+  MIXED
+}
+
+model PatientBenefitCoverage {
+  id                    String                             @id @default(cuid())
+  organizationId        String
+  organization          Organization                       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId              String
+  branch                Branch                             @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patientId             String
+  patient               Patient                            @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  type                  PatientBenefitCoverageType
+  status                PatientBenefitCoverageStatus       @default(DRAFT)
+  providerName          String
+  agreementId           String?
+  agreement             Agreement?                         @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  planName              String?
+  policyNumber          String?
+  affiliateNumber       String?
+  certificateNumber     String?
+  employeeNumber        String?
+  holderName            String?
+  holderDocument        String?
+  relationshipToPatient String?
+  startsAt              DateTime?
+  endsAt                DateTime?
+  coveragePercent       Decimal?                           @db.Decimal(5, 2)
+  copayAmount           Decimal?                           @db.Decimal(10, 2)
+  deductibleAmount      Decimal?                           @db.Decimal(10, 2)
+  annualLimitAmount     Decimal?                           @db.Decimal(10, 2)
+  requiresAuthorization Boolean                            @default(false)
+  notes                 String?
+  externalReference     String?
+  lastValidatedAt       DateTime?
+  lastValidationStatus  PatientBenefitCoverageStatus?
+  lastValidationSummary String?
+  metadata              Json?
+  createdById           String?
+  updatedById           String?
+  version               Int                                @default(1)
+  validations           PatientBenefitCoverageValidation[]
+  audits                PatientBenefitCoverageAudit[]
+  documents             PatientBenefitCoverageDocument[]
+  coverageCases         CoverageCase[]
+  createdAt             DateTime                           @default(now())
+  updatedAt             DateTime                           @updatedAt
+
+  @@index([organizationId, patientId, status])
+  @@index([branchId, status])
+  @@index([agreementId])
+  @@index([policyNumber])
+  @@index([affiliateNumber])
+  @@index([endsAt])
+}
+
+model PatientBenefitCoverageValidation {
+  id                 String                       @id @default(cuid())
+  coverageId         String
+  coverage           PatientBenefitCoverage       @relation(fields: [coverageId], references: [id], onDelete: Cascade)
+  organizationId     String
+  organization       Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId           String
+  branch             Branch                       @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patientId          String
+  patient            Patient                      @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  mode               CoverageValidationMode       @default(MANUAL)
+  status             PatientBenefitCoverageStatus @default(PENDING_VALIDATION)
+  providerName       String?
+  externalIdentifier String?
+  requestSnapshot    Json?
+  responseSnapshot   Json?
+  normalizedResult   Json?
+  errorMessage       String?
+  retryCount         Int                          @default(0)
+  validatedAt        DateTime?
+  createdById        String?
+  createdAt          DateTime                     @default(now())
+
+  @@index([coverageId, createdAt])
+  @@index([organizationId, patientId, createdAt])
+}
+
+model PatientBenefitCoverageDocument {
+  id               String                 @id @default(cuid())
+  coverageId       String
+  coverage         PatientBenefitCoverage @relation(fields: [coverageId], references: [id], onDelete: Cascade)
+  organizationId   String
+  organization     Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId         String
+  branch           Branch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patientId        String
+  patient          Patient                @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  fileAttachmentId String
+  fileAttachment   FileAttachment         @relation(fields: [fileAttachmentId], references: [id], onDelete: Restrict)
+  category         String
+  notes            String?
+  uploadedById     String?
+  createdAt        DateTime               @default(now())
+
+  @@index([coverageId, createdAt])
+  @@index([fileAttachmentId])
+  @@index([organizationId, patientId])
+}
+
+model PatientBenefitCoverageAudit {
+  id             String                 @id @default(cuid())
+  coverageId     String
+  coverage       PatientBenefitCoverage @relation(fields: [coverageId], references: [id], onDelete: Cascade)
+  organizationId String
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String
+  branch         Branch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patientId      String
+  patient        Patient                @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  action         String
+  before         Json?
+  after          Json?
+  reason         String?
+  correlationId  String?
+  actorUserId    String?
+  createdAt      DateTime               @default(now())
+
+  @@index([coverageId, createdAt])
+  @@index([organizationId, patientId, createdAt])
+  @@index([actorUserId])
 }

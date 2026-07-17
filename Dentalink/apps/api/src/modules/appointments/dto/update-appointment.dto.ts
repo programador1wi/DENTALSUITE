@@ -1,5 +1,5 @@
 import { IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, Min, MinLength } from "class-validator";
-import { AppointmentStatus } from "@prisma/client";
+import { AppointmentStatus, AttendanceMode } from "@prisma/client";
 
 export class UpdateAppointmentDto {
   @IsOptional()
@@ -17,6 +17,15 @@ export class UpdateAppointmentDto {
   @IsOptional()
   @IsString()
   chairId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  chairIndex?: number;
+
+  @IsOptional()
+  @IsEnum(AttendanceMode)
+  attendanceMode?: AttendanceMode;
 
   @IsOptional()
   @IsString()

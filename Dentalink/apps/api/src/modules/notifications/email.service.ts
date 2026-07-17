@@ -20,7 +20,7 @@ export interface AppointmentEmailData {
 
 export type PatientEmailAttachment = {
   filename: string;
-  content: ReadStream;
+  content: ReadStream | Buffer;
   contentType?: string;
 };
 

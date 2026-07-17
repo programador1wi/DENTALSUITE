@@ -42,6 +42,8 @@ const patient = {
     lastAppointment: null,
     balance: 0,
     activeTreatments: 0,
+    activeBenefits: 0,
+    coverageExpiringSoon: null,
     hasCriticalAlert: false
   },
   timeline: []
@@ -76,7 +78,10 @@ vi.mock("react-router-dom", () => ({
       {children}
     </a>
   ),
-  useParams: () => ({ id: "patient-1", profileTab })
+  useParams: () => ({ id: "patient-1", profileTab }),
+  useLocation: () => ({
+    pathname: profileTab ? `/patients/patient-1/profile/${profileTab}` : "/patients/patient-1/profile"
+  })
 }));
 
 vi.mock("../components/patient-header", () => ({
@@ -98,7 +103,14 @@ vi.mock("../components/patient-secondary-nav", () => ({
 }));
 
 vi.mock("@/features/agenda/hooks/use-appointments", () => ({
-  useAppointments: () => ({ data: appointments, isLoading: false, isError: false, error: null })
+  useAppointments: () => ({ data: appointments, isLoading: false, isError: false, error: null }),
+  useAppointment: () => ({ data: appointments[0], isLoading: false, isError: false, error: null }),
+  useAppointmentNotes: () => ({ data: [], isLoading: false, isError: false, error: null }),
+  useAddAppointmentNote: () => ({ mutateAsync: vi.fn(), isPending: false })
+}));
+
+vi.mock("@/features/settings/admin-workflows/hooks/use-admin-workflows", () => ({
+  useAgreements: () => ({ data: [], isLoading: false, isError: false, error: null })
 }));
 
 vi.mock("@/features/settings/branches/hooks/use-branches", () => ({
@@ -118,9 +130,26 @@ vi.mock("@/features/documents/hooks/use-documents", () => ({
 vi.mock("../hooks/use-patients", () => ({
   usePatient: () => ({ data: patient, isLoading: false, isError: false, error: null }),
   usePatientTimeline: () => ({ data: [], isLoading: false, isError: false, error: null }),
+  usePatientBenefitsCoverages: () => ({
+    data: {
+      summary: { total: 0, active: 0, pendingValidation: 0, documents: 0, nextExpiration: null },
+      items: []
+    },
+    isLoading: false,
+    isError: false,
+    error: null
+  }),
+  usePatientBenefitsCoverageMutations: () => ({
+    createCoverage: { mutateAsync: vi.fn(), isPending: false },
+    updateCoverage: { mutateAsync: vi.fn(), isPending: false },
+    changeStatus: { mutate: vi.fn(), isPending: false },
+    validateInsurance: { mutateAsync: vi.fn(), isPending: false }
+  }),
   useUpdatePatient: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAddPatientNote: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAddPatientAlert: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  useSendPatientEmail: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  usePatientEmails: () => ({ data: [], isLoading: false, isError: false, error: null }),
   usePatientTasks: () => ({
     data: [
       {
@@ -176,6 +205,19 @@ describe("PatientProfilePage subtabs", () => {
     expect(screen.getByText("Comentario administrativo")).toBeInTheDocument();
   });
 
+  it("renders benefits and coverages subtab without replacing existing views", () => {
+    profileTab = "benefits-coverages";
+
+    render(<PatientProfilePage />);
+
+    expect(screen.getAllByText("Beneficios y coberturas").length).toBeGreaterThan(0);
+    expect(screen.getByText(/El paciente no tiene beneficios ni coberturas registrados/i)).toBeInTheDocument();
+    expect(screen.getByText("Citas")).toBeInTheDocument();
+    expect(screen.getByText("Comentarios administrativos")).toBeInTheDocument();
+    expect(screen.getByText("Tareas de gestion")).toBeInTheDocument();
+    expect(screen.getByText("Emails")).toBeInTheDocument();
+  });
+
   it("renders real patient task rows", () => {
     profileTab = "tasks";
 
@@ -193,6 +235,6 @@ describe("PatientProfilePage subtabs", () => {
 
     expect(screen.getByRole("heading", { name: "Registro de Emails" })).toBeInTheDocument();
     expect(screen.getByText("Redactar nuevo email")).toBeInTheDocument();
-    expect(screen.getByText("No se encontro ningun registro de email")).toBeInTheDocument();
+    expect(screen.getByText("No se encontró ningún registro de email")).toBeInTheDocument();
   });
 });

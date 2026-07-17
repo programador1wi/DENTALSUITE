@@ -17,6 +17,7 @@ import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useChairs } from "@/features/settings/chairs/hooks/use-chairs";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { useBranchStore } from "@/stores/branch.store";
+import { useAuthStore } from "@/stores/auth.store";
 import { toast } from "sonner";
 import {
   useCreateSchedule,
@@ -30,15 +31,17 @@ import {
 } from "../hooks/use-schedules";
 import { AgendaIntervalModals } from "../components/agenda-interval-modals";
 import { SpecialSchedulesSection } from "../components/special-schedules-section";
-import type { Schedule, ScheduleBlockAppointment, SchedulePayload } from "../services/schedules.service";
+import type { AttendanceMode, Schedule, ScheduleBlockAppointment, SchedulePayload } from "../services/schedules.service";
 
 type DayForm = {
   startTime: string;
   endTime: string;
   chairId: string;
+  simultaneousChairs: number;
   hasBreak: boolean;
   breakStartTime: string;
   breakEndTime: string;
+  attendanceMode: AttendanceMode;
   noAttend: boolean;
 };
 
@@ -81,9 +84,11 @@ function defaultDayForm(dayOfWeek: number, chairId = ""): DayForm {
       startTime: "10:00",
       endTime: fixedEndTimesByDay[dayOfWeek] ?? "19:00",
       chairId,
+      simultaneousChairs: 1,
       hasBreak: false,
       breakStartTime: "",
       breakEndTime: "",
+      attendanceMode: "PRESENTIAL",
       noAttend: true
     };
   }
@@ -92,9 +97,11 @@ function defaultDayForm(dayOfWeek: number, chairId = ""): DayForm {
     startTime: "10:00",
     endTime: fixedEndTimesByDay[dayOfWeek] ?? "19:00",
     chairId,
+    simultaneousChairs: 1,
     hasBreak,
     breakStartTime: hasBreak ? "14:00" : "",
     breakEndTime: hasBreak ? "15:00" : "",
+    attendanceMode: "PRESENTIAL",
     noAttend: false
   };
 }
@@ -123,9 +130,11 @@ function scheduleToDayForm(schedule: Schedule): DayForm {
     startTime: schedule.startTime,
     endTime: fixedEndTimesByDay[schedule.dayOfWeek] ?? schedule.endTime,
     chairId: schedule.chairId ?? "",
+    simultaneousChairs: schedule.simultaneousChairs ?? 1,
     hasBreak,
     breakStartTime: hasBreak ? schedule.breakStartTime ?? "" : "",
     breakEndTime: hasBreak ? schedule.breakEndTime ?? "" : "",
+    attendanceMode: schedule.attendanceMode ?? "PRESENTIAL",
     noAttend: !schedule.isActive
   };
 }
@@ -159,6 +168,7 @@ export function SchedulesSettingsPage() {
   const [blockForm, setBlockForm] = useState<BlockForm>(emptyBlockForm());
   const [intervalOpen, setIntervalOpen] = useState(false);
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const currentUser = useAuthStore((state) => state.user);
   const professionalBranchFilterId = selectedBranchId || (!selectedProfessionalId ? activeBranchId : "");
 
   const professionals = useProfessionals(undefined, "true", {
@@ -244,6 +254,23 @@ export function SchedulesSettingsPage() {
       return next;
     }, { replace: true });
   }, [professionalBranchFilterId, professionals.data, selectedProfessionalId, setParams]);
+
+  useEffect(() => {
+    if (!professionals.data?.length) return;
+    if (params.get("professionalId")) return;
+
+    const matchedProfessional = professionals.data.find(
+      (prof) => prof.user?.id === currentUser?.id
+    );
+
+    const defaultProfId = matchedProfessional?.id ?? professionals.data[0].id;
+
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("professionalId", defaultProfId);
+      return next;
+    }, { replace: true });
+  }, [professionals.data, currentUser, params, setParams]);
 
   const blockRange = blockDateRange(blockForm);
   const blockConflictQuery = useScheduleBlockConflicts(
@@ -367,7 +394,9 @@ export function SchedulesSettingsPage() {
           startTime: row.startTime,
           endTime: row.endTime,
           breakStartTime: row.hasBreak ? row.breakStartTime : null,
-          breakEndTime: row.hasBreak ? row.breakEndTime : null
+          breakEndTime: row.hasBreak ? row.breakEndTime : null,
+          simultaneousChairs: row.simultaneousChairs,
+          attendanceMode: row.attendanceMode
         };
 
         if (current) {
@@ -417,43 +446,6 @@ export function SchedulesSettingsPage() {
 
   return (
     <div className="space-y-[var(--space-4)]">
-      <PageHeader
-        title="Horarios profesionales"
-        description="Disponibilidad habitual, box asignado y bloqueos programados por profesional."
-        helpText="Los descansos se consideran horario de comida y quedan cerrados automaticamente para agenda. Los sabados no usan descanso."
-      />
-
-      <Card className="space-y-[var(--space-4)]">
-        <div className="grid gap-[var(--space-3)] md:grid-cols-2">
-          <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
-            Profesional
-            <Select value={selectedProfessionalId} onChange={(event) => updateParam("professionalId", event.target.value)}>
-              <option value="">Selecciona profesional</option>
-              {professionals.data?.map((professional) => (
-                <option key={professional.id} value={professional.id}>
-                  {professional.firstName} {professional.lastName}
-                </option>
-              ))}
-            </Select>
-          </label>
-
-          <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
-            Sucursal
-            <Select
-              value={selectedBranchId}
-              disabled={Boolean(selectedProfessional && !professionalBranches.length)}
-              onChange={(event) => updateParam("branchId", event.target.value)}
-            >
-              <option value="">{needsBranchSelection ? "Selecciona sucursal del doctor" : "Selecciona sucursal"}</option>
-              {branchOptions.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name}
-                </option>
-              ))}
-            </Select>
-          </label>
-        </div>
-      </Card>
 
       {schedules.isLoading || branchActiveSchedules.isLoading || professionals.isLoading || branches.isLoading || chairs.isLoading ? (
         <LoadingState message="Cargando horarios y catalogos..." />
@@ -508,10 +500,10 @@ export function SchedulesSettingsPage() {
             </div>
 
             <div className="hidden lg:block overflow-x-auto w-full max-w-full">
-              <table className="w-full min-w-[720px] lg:min-w-[840px] border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]">
+              <table className="w-full min-w-[680px] lg:min-w-[760px] border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]">
                 <thead className="bg-[var(--bg-subtle)] text-left text-[var(--text-xs)] font-semibold uppercase text-[var(--text-secondary)]">
                   <tr>
-                    <th className="w-[100px] sm:w-[120px] md:w-[130px] px-1 py-[var(--space-2)]">Configuracion</th>
+                    <th className="w-[80px] sm:w-[100px] md:w-[110px] px-1 py-[var(--space-2)]">Configuracion</th>
                     {days.map((day) => (
                       <th key={day.value} className="px-1.5 py-[var(--space-3)] text-center sm:px-[var(--space-3)]">
                         {day.label}
@@ -540,6 +532,23 @@ export function SchedulesSettingsPage() {
                           options={endTimeOptionsForDay(day.value)}
                           onChange={(value) => updateDay(day.value, { endTime: value })}
                         />
+                      </ScheduleCell>
+                    ))}
+                  </ScheduleRow>
+                  <ScheduleRow label="Sillones simultaneos">
+                    {days.map((day) => (
+                      <ScheduleCell key={day.value}>
+                        <Select
+                          className="w-full min-w-[56px] sm:min-w-[64px] md:min-w-[70px] h-8 px-1 text-xs"
+                          value={String(weeklyForm[day.value].simultaneousChairs)}
+                          disabled={weeklyForm[day.value].noAttend}
+                          onChange={(event) => updateDay(day.value, { simultaneousChairs: Number(event.target.value) })}
+                        >
+                          <option value="1">1</option>
+                          <option value="2">2</option>
+                          <option value="3">3</option>
+                          <option value="4">4</option>
+                        </Select>
                       </ScheduleCell>
                     ))}
                   </ScheduleRow>
@@ -587,7 +596,7 @@ export function SchedulesSettingsPage() {
                     {days.map((day) => (
                       <ScheduleCell key={day.value}>
                         <Select
-                          className="w-full min-w-[80px] sm:min-w-[95px] md:min-w-[104px]"
+                          className="w-full min-w-[75px] sm:min-w-[85px] md:min-w-[95px] h-8 px-1.5 text-xs"
                           value={weeklyForm[day.value].chairId}
                           disabled={weeklyForm[day.value].noAttend || !branchChairs.length}
                           onChange={(event) => updateDay(day.value, { chairId: event.target.value })}
@@ -979,7 +988,7 @@ function TimeSelect({
   value: string;
 }) {
   return (
-    <Select className="w-full min-w-[68px] sm:min-w-[76px] md:min-w-[88px]" disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)}>
+    <Select className="w-full min-w-[56px] sm:min-w-[64px] md:min-w-[70px] h-8 px-1 text-xs" disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)}>
       <option value="">{placeholder}</option>
       {options.map((time) => (
         <option key={time} value={time}>

@@ -6,7 +6,7 @@
  */
 const http = require("http");
 
-const API_BASE = "http://localhost:3001/api/v1";
+const API_BASE = "http://127.0.0.1:3001/api/v1";
 const ADMIN_EMAIL = "admin@dentalwarner.local";
 const ADMIN_PASSWORD = "Admin123!";
 

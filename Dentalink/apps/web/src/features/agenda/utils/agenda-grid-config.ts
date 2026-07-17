@@ -81,8 +81,8 @@ export function resolveAgendaViewConfig({
   const agendaSlotMinutes = selectedProfessionalSlotMinutes ?? globalProfessionalSlotMinutes ?? branchSlotMinutes;
   const defaultAppointmentDurationMinutes =
     normalizeOptionalAppointmentDuration(selectedProfessionalBranch?.defaultAppointmentDurationMinutes) ?? agendaSlotMinutes;
-  const agendaStartHour = 8;
-  const agendaEndHour = 19;
+  const agendaStartHour = normalizeHour(activeBranch?.agendaStartHour, DEFAULT_AGENDA_START_HOUR);
+  const agendaEndHour = normalizeHour(activeBranch?.agendaEndHour, DEFAULT_AGENDA_END_HOUR);
 
   return {
     agendaSlotMinutes,

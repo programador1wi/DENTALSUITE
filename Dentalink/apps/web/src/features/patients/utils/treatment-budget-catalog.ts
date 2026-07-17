@@ -1,20 +1,43 @@
-import type { PriceList, PriceListItem } from "@/features/settings/price-lists/services/price-lists.service";
-
 export const UNCATEGORIZED_BUDGET_CATEGORY_ID = "__uncategorized__";
 
-export type TreatmentBudgetCatalogCategory = {
+export type TreatmentBudgetCatalogItem = {
+  id: string;
+  priceListCategoryId?: string | null;
+  price: string | number | null;
+  procedure: {
+    code: string;
+    name: string;
+    displayId?: string | number | null;
+    description?: string | null;
+    isActive: boolean;
+  };
+};
+
+export type TreatmentBudgetCatalogSource<T extends TreatmentBudgetCatalogItem> = {
+  categories?: Array<{
+    id: string;
+    name: string;
+    description?: string | null;
+    isActive: boolean;
+    sortOrder: number;
+    items?: T[];
+  }>;
+  items?: T[];
+};
+
+export type TreatmentBudgetCatalogCategory<T extends TreatmentBudgetCatalogItem = TreatmentBudgetCatalogItem> = {
   id: string;
   name: string;
   description?: string | null;
-  items: PriceListItem[];
+  items: T[];
   isUncategorized?: boolean;
 };
 
-function isPricedProcedureItem(item: PriceListItem) {
+function isPricedProcedureItem(item: TreatmentBudgetCatalogItem) {
   return Boolean(item.procedure?.isActive && item.price !== null && item.price !== undefined);
 }
 
-function uniqueItems(items: PriceListItem[]) {
+function uniqueItems<T extends TreatmentBudgetCatalogItem>(items: T[]) {
   const seen = new Set<string>();
   return items.filter((item) => {
     if (seen.has(item.id)) return false;
@@ -23,12 +46,14 @@ function uniqueItems(items: PriceListItem[]) {
   });
 }
 
-export function buildTreatmentBudgetCatalog(priceList: PriceList | null): TreatmentBudgetCatalogCategory[] {
+export function buildTreatmentBudgetCatalog<T extends TreatmentBudgetCatalogItem>(
+  priceList: TreatmentBudgetCatalogSource<T> | null
+): TreatmentBudgetCatalogCategory<T>[] {
   if (!priceList) return [];
 
   const categories = (priceList.categories ?? []).filter((category) => category.isActive).sort((a, b) => a.sortOrder - b.sortOrder);
   const activeItems = (priceList.items ?? []).filter(isPricedProcedureItem);
-  const itemsByCategoryId = new Map<string, PriceListItem[]>();
+  const itemsByCategoryId = new Map<string, T[]>();
   const usedItemIds = new Set<string>();
 
   activeItems.forEach((item) => {
@@ -38,7 +63,7 @@ export function buildTreatmentBudgetCatalog(priceList: PriceList | null): Treatm
     itemsByCategoryId.set(item.priceListCategoryId, rows);
   });
 
-  const catalog: TreatmentBudgetCatalogCategory[] = categories.map((category) => {
+  const catalog: TreatmentBudgetCatalogCategory<T>[] = categories.map((category) => {
     const directItems = itemsByCategoryId.get(category.id) ?? [];
     const nestedItems = (category.items ?? []).filter(isPricedProcedureItem);
     const items = uniqueItems([...directItems, ...nestedItems]);
@@ -59,7 +84,10 @@ export function buildTreatmentBudgetCatalog(priceList: PriceList | null): Treatm
   return catalog;
 }
 
-export function budgetCatalogCategoryMatchesSearch(category: TreatmentBudgetCatalogCategory, search: string) {
+export function budgetCatalogCategoryMatchesSearch(
+  category: TreatmentBudgetCatalogCategory,
+  search: string
+) {
   const term = search.trim().toLowerCase();
   if (!term) return true;
   return (
@@ -68,7 +96,7 @@ export function budgetCatalogCategoryMatchesSearch(category: TreatmentBudgetCata
   );
 }
 
-export function budgetCatalogItemMatchesSearch(item: PriceListItem, search: string) {
+export function budgetCatalogItemMatchesSearch(item: TreatmentBudgetCatalogItem, search: string) {
   const term = search.trim().toLowerCase();
   if (!term) return true;
   const procedure = item.procedure;

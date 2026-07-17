@@ -2,6 +2,10 @@ import type { PermissionListItem } from "./services/permissions.service";
 
 export const PERMISSION_LABELS: Record<string, string> = {
   "system.manage_all": "Administrar todo",
+  "family_policies.read": "Ver pólizas familiares",
+  "family_policies.create": "Crear pólizas familiares",
+  "family_policies.manage": "Administrar pólizas familiares",
+  "family_policies.activate": "Registrar pago y activar pólizas",
   "dashboard.read": "Ver panel principal",
   "users.read": "Ver usuarios",
   "users.create": "Crear usuarios",
@@ -68,9 +72,29 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "price_lists.update": "Editar listas de precios",
   "price_lists.override_manual": "Sobrescribir precios manualmente",
   "price_lists.deactivate": "Desactivar listas de precios",
+  "treatment_discount.apply": "Aplicar descuentos de tratamiento",
+  "treatment_discount.override": "Autorizar descuentos especiales",
+  "treatment_discount.view": "Ver descuentos de tratamiento",
+  "treatment_discount.audit": "Auditar descuentos de tratamiento",
   "patients.read": "Ver pacientes",
   "patients.create": "Crear pacientes",
   "patients.update": "Editar pacientes",
+  "patient_identity.config.read": "Ver configuración de identidad",
+  "patient_identity.config.manage": "Administrar identidad de pacientes",
+  "contact_points.read": "Ver medios de contacto",
+  "contact_points.link": "Vincular medios de contacto",
+  "contact_points.verify": "Verificar medios de contacto",
+  "contact_points.transfer": "Transferir medios de contacto",
+  "contact_points.backfill": "Migrar teléfonos heredados",
+  "family_groups.read": "Ver grupos familiares",
+  "family_groups.create": "Crear grupos familiares",
+  "family_groups.manage_members": "Gestionar integrantes familiares",
+  "family_groups.manage_contacts": "Gestionar contactos familiares",
+  "family_groups.manage_permissions": "Gestionar permisos familiares",
+  "patient_duplicates.review": "Revisar pacientes duplicados",
+  "patients.merge": "Fusionar fichas de pacientes",
+  "booking_identity.review": "Revisar identidad de reservas",
+  "booking_identity.resolve": "Resolver identidad de reservas",
   "patients.deactivate": "Desactivar pacientes",
   "patients.notes.create": "Crear notas de pacientes",
   "patients.alerts.create": "Crear alertas de pacientes",
@@ -101,6 +125,13 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "treatment_plans.update": "Editar planes de tratamiento",
   "treatment_plans.status.update": "Actualizar estado de tratamientos",
   "treatment_plans.alternatives.manage": "Administrar alternativas de tratamiento",
+  "orthodontic_catalogs.manage": "Administrar catalogos de ortodoncia",
+  "orthodontic_diagnosis.read": "Ver diagnostico de ortodoncia",
+  "orthodontic_diagnosis.create": "Guardar diagnostico activo de ortodoncia",
+  "orthodontic_diagnosis.draft": "Guardar borrador de diagnostico de ortodoncia",
+  "orthodontic_diagnosis.update": "Actualizar diagnostico de ortodoncia",
+  "orthodontic_diagnosis.history.read": "Ver historial de diagnosticos de ortodoncia",
+  "orthodontic_diagnosis.catalogs.manage": "Administrar catalogos de diagnostico de ortodoncia",
   "budgets.read": "Ver presupuestos",
   "budgets.create": "Crear presupuestos",
   "budgets.update": "Editar presupuestos",
@@ -131,6 +162,20 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "collections.activities.create": "Crear actividades de cobranza",
   "files.read": "Ver archivos",
   "files.upload": "Subir archivos",
+  "photographic_templates.view": "Ver plantillas fotograficas",
+  "photographic_templates.create": "Crear plantillas fotograficas",
+  "photographic_templates.edit": "Editar plantillas fotograficas",
+  "photographic_templates.void": "Anular plantillas fotograficas",
+  "photographic_templates.link": "Vincular plantillas fotograficas",
+  "photographic_templates.mobile_upload": "Crear carga fotografica movil",
+  "photographic_templates.compare": "Comparar plantillas fotograficas",
+  "photographic_templates.view_voided": "Ver plantillas fotograficas anuladas",
+  "photographic_templates.configure_frequency": "Configurar frecuencia fotografica",
+  "photographic_templates.configure_slots": "Configurar posiciones fotograficas",
+  "photographic_photos.upload": "Subir fotografias de ortodoncia",
+  "photographic_photos.edit": "Editar fotografias de ortodoncia",
+  "photographic_photos.replace": "Reemplazar fotografias de ortodoncia",
+  "photographic_photos.void": "Anular fotografias de ortodoncia",
   "patients.files.manage": "Administrar archivos de pacientes",
   "consent_templates.read": "Ver plantillas de consentimiento",
   "consent_templates.create": "Crear plantillas de consentimiento",
@@ -266,9 +311,31 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "price_lists.update": "Permite editar listas de precios y asignaciones por sucursal.",
   "price_lists.override_manual": "Permite registrar precios manuales distintos al arancel resuelto.",
   "price_lists.deactivate": "Permite desactivar listas de precios.",
+  "treatment_discount.apply": "Permite aplicar descuentos solo sobre prestaciones elegibles.",
+  "treatment_discount.override": "Permite autorizar descuentos que superan umbrales definidos.",
+  "treatment_discount.view": "Permite ver detalle de descuentos aplicados.",
+  "treatment_discount.audit": "Permite revisar auditoria de descuentos.",
   "patients.read": "Permite consultar pacientes.",
   "patients.create": "Permite crear pacientes.",
   "patients.update": "Permite editar datos del paciente.",
+  "patient_identity.config.read": "Permite consultar las reglas y banderas de identidad.",
+  "patient_identity.config.manage":
+    "Permite activar gradualmente resolución de identidad y grupos familiares.",
+  "contact_points.read": "Permite consultar teléfonos normalizados y sus relaciones.",
+  "contact_points.link": "Permite vincular un teléfono personal o compartido.",
+  "contact_points.verify": "Permite registrar verificación de control del canal.",
+  "contact_points.transfer": "Permite transferir vínculos telefónicos con auditoría.",
+  "contact_points.backfill": "Permite migrar teléfonos heredados al modelo de contactos.",
+  "family_groups.read": "Permite consultar grupos familiares sin otorgar acceso clínico.",
+  "family_groups.create": "Permite crear grupos familiares.",
+  "family_groups.manage_members": "Permite gestionar integrantes, roles y consentimientos.",
+  "family_groups.manage_contacts": "Permite administrar teléfonos compartidos del grupo.",
+  "family_groups.manage_permissions":
+    "Permite administrar permisos granulares de agenda, recordatorios y acceso sensible por integrante.",
+  "patient_duplicates.review": "Permite revisar candidatos antes de crear o fusionar fichas.",
+  "patients.merge": "Permite ejecutar una fusión auditada después de revisar su impacto.",
+  "booking_identity.review": "Permite revisar sesiones ambiguas del bot o Agenda Online.",
+  "booking_identity.resolve": "Permite resolver manualmente una identidad de reserva.",
   "patients.deactivate": "Permite desactivar pacientes.",
   "patients.notes.create": "Permite crear notas administrativas o clinicas del paciente.",
   "patients.alerts.create": "Permite crear alertas del paciente.",
@@ -299,6 +366,15 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "treatment_plans.update": "Permite editar planes de tratamiento.",
   "treatment_plans.status.update": "Permite actualizar estados de tratamientos o prestaciones.",
   "treatment_plans.alternatives.manage": "Permite administrar alternativas de tratamiento.",
+  "orthodontic_catalogs.manage":
+    "Permite crear, desactivar, reactivar y ordenar opciones tecnicas de ortodoncia.",
+  "orthodontic_diagnosis.read": "Permite consultar diagnosticos de ortodoncia.",
+  "orthodontic_diagnosis.create": "Permite guardar diagnosticos activos de ortodoncia.",
+  "orthodontic_diagnosis.draft": "Permite guardar borradores de diagnostico de ortodoncia.",
+  "orthodontic_diagnosis.update": "Permite crear nuevas versiones de diagnosticos activos.",
+  "orthodontic_diagnosis.history.read": "Permite consultar versiones anteriores del diagnostico.",
+  "orthodontic_diagnosis.catalogs.manage":
+    "Permite crear, desactivar, reactivar y ordenar opciones del catalogo de diagnostico.",
   "budgets.read": "Permite consultar presupuestos.",
   "budgets.create": "Permite generar presupuestos.",
   "budgets.update": "Permite editar presupuestos.",
@@ -340,7 +416,8 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "consents.pdf": "Permite descargar el PDF del consentimiento firmado.",
   "reports.read": "Permite consultar dashboards y reportes.",
   "reports.export": "Permite exportar reportes en archivos.",
-  "integrations.communications.read": "Permite consultar trabajos de comunicacion por email, WhatsApp y canales internos.",
+  "integrations.communications.read":
+    "Permite consultar trabajos de comunicacion por email, WhatsApp y canales internos.",
   "integrations.communications.send": "Permite crear y encolar comunicaciones para pacientes.",
   "integrations.surveys.read": "Permite consultar encuestas y respuestas NPS.",
   "integrations.surveys.manage": "Permite crear, enviar y administrar encuestas.",
@@ -397,7 +474,13 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
 };
 
 export function getPermissionLabel(permission: PermissionListItem) {
-  return PERMISSION_LABELS[permission.key] ?? permission.name ?? permission.key ?? permission.code ?? permission.action;
+  return (
+    PERMISSION_LABELS[permission.key] ??
+    permission.name ??
+    permission.key ??
+    permission.code ??
+    permission.action
+  );
 }
 
 export function getPermissionDescription(permission: PermissionListItem) {

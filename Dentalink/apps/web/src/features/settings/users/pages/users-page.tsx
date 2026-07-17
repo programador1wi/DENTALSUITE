@@ -155,6 +155,12 @@ function userDisplayName(user: UserListItem) {
   return `${user.firstName} ${user.lastName}`.trim();
 }
 
+function getInitials(user: UserListItem) {
+  const first = user.firstName?.[0] ?? "";
+  const last = user.lastName?.[0] ?? "";
+  return `${first}${last}`.toUpperCase();
+}
+
 function formFromUser(user: UserListItem): UserForm {
   return {
     branchIds: user.branches.map((branch) => branch.id),
@@ -701,12 +707,21 @@ export function UsersPage() {
                   key: "firstName",
                   title: "Usuario",
                   wrap: true,
-                  headerClassName: "w-[180px]",
+                  headerClassName: "w-[240px]",
                   cellClassName: "min-w-0",
                   render: (row) => (
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-900">{userDisplayName(row)}</p>
-                      <p className="mt-1 text-xs text-slate-500">{row.role?.name ?? "Sin perfil"}</p>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--bg-brand-light)] text-xs font-semibold text-[var(--text-brand-strong)] uppercase">
+                        {getInitials(row)}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-900 capitalize truncate" title={userDisplayName(row)}>
+                          {userDisplayName(row)}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500 truncate" title={row.role?.name ?? "Sin perfil"}>
+                          {row.role?.name ?? "Sin perfil"}
+                        </p>
+                      </div>
                     </div>
                   )
                 },
@@ -717,11 +732,11 @@ export function UsersPage() {
                   headerClassName: "w-auto",
                   cellClassName: "min-w-0",
                   render: (row) => (
-                    <div className="min-w-0">
-                      <p className="truncate" title={row.email}>
+                    <div className="min-w-0 space-y-0.5">
+                      <p className="truncate text-xs font-medium text-slate-700" title={row.email}>
                         {row.email}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">{row.phone || "Sin telefono"}</p>
+                      <p className="text-[11px] text-slate-400">{row.phone || "Sin teléfono"}</p>
                     </div>
                   )
                 },
@@ -736,7 +751,7 @@ export function UsersPage() {
                 {
                   key: "status",
                   title: "Estado",
-                  headerClassName: "w-[96px]",
+                  headerClassName: "w-[120px]",
                   render: (row) => (
                     <Badge
                       value={statusLabels[row.status] ?? row.status}
@@ -1395,7 +1410,7 @@ function ActionButton({
         aria-label={title}
         disabled={disabled}
         onClick={onClick}
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors duration-[var(--duration-fast)] hover:bg-[var(--bg-brand-light)] hover:text-[var(--text-brand)] disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] text-slate-500 shadow-sm transition-all duration-[var(--duration-fast)] hover:border-[var(--border-brand-subtle)] hover:bg-[var(--bg-brand-light)] hover:text-[var(--text-brand-strong)] disabled:cursor-not-allowed disabled:opacity-40"
       >
         {children}
       </button>
@@ -1409,7 +1424,7 @@ function ActionLink({ children, title, to }: { children: ReactNode; title: strin
       <Link
         aria-label={title}
         to={to}
-        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-slate-500 transition-colors duration-[var(--duration-fast)] hover:bg-[var(--bg-brand-light)] hover:text-[var(--text-brand)]"
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] text-slate-500 shadow-sm transition-all duration-[var(--duration-fast)] hover:border-[var(--border-brand-subtle)] hover:bg-[var(--bg-brand-light)] hover:text-[var(--text-brand-strong)]"
       >
         {children}
       </Link>
@@ -1434,7 +1449,7 @@ function BranchSummary({ branches }: { branches: UserListItem["branches"] }) {
         <span
           key={branch.id}
           className={cn(
-            "max-w-[150px] truncate rounded-[var(--radius-sm)] px-2 py-0.5 text-xs font-medium transition-all duration-[var(--duration-fast)]",
+            "max-w-[150px] truncate rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-all duration-[var(--duration-fast)]",
             branch.isPrimary
               ? "bg-[var(--bg-brand-light)] text-[var(--text-brand-strong)]"
               : "bg-[var(--bg-subtle)] text-[var(--text-secondary)]"
@@ -1444,7 +1459,7 @@ function BranchSummary({ branches }: { branches: UserListItem["branches"] }) {
         </span>
       ))}
       {remaining > 0 ? (
-        <span className="rounded-[var(--radius-sm)] bg-[var(--bg-subtle)] px-2 py-0.5 text-xs text-[var(--text-secondary)]">+{remaining}</span>
+        <span className="rounded-full bg-[var(--bg-subtle)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-secondary)]">+{remaining}</span>
       ) : null}
     </div>
   );

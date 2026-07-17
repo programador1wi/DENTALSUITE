@@ -38,6 +38,7 @@ import type {
   PriceListScopeType,
   ProcedureType
 } from "../services/price-lists.service";
+import { VersionedPriceListsPage } from "./versioned-price-lists-page";
 
 type PriceSection = "all" | "clinical" | "lab" | "availability";
 type Currency = "MXN" | "USD" | "EUR";
@@ -90,7 +91,7 @@ const emptyProductRowForm: ProductRowForm = {
   code: "",
   name: "",
   type: "CLINICAL",
-  allowsDiscount: false,
+  allowsDiscount: true,
   price: "",
   labCost: "0"
 };
@@ -251,7 +252,7 @@ function parsePriceListCsv(text: string) {
   }).filter((row) => row.procedureId);
 }
 
-export function PriceListsSettingsPage() {
+function LegacyPriceListsSettingsPage() {
   const [params, setParams] = useSearchParams();
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const [search, setSearch] = useState("");
@@ -442,7 +443,7 @@ export function PriceListsSettingsPage() {
       code: procedure.code,
       name: procedure.name,
       type: procedureType(procedure),
-      allowsDiscount: item?.allowsDiscount ?? false,
+      allowsDiscount: item?.allowsDiscount ?? true,
       price: item?.price ?? "0",
       labCost: item?.labCost ?? "0"
     });
@@ -968,6 +969,13 @@ export function PriceListsSettingsPage() {
   );
 }
 
+export function PriceListsSettingsPage() {
+  if (import.meta.env.VITE_PRICE_LISTS_V2_ENABLED === "true") {
+    return <VersionedPriceListsPage />;
+  }
+  return <LegacyPriceListsSettingsPage />;
+}
+
 function PriceListAvailability({
   selectedList,
   matrix,
@@ -1423,7 +1431,13 @@ function CategoryDetail({
                     <td className="px-4 py-3 font-medium text-slate-700">{procedure.code}</td>
                     <td className="px-4 py-3 font-semibold text-slate-900">{procedure.name}</td>
                     {/* Tipo column hidden */}
-                    <td className="px-4 py-3">{price?.allowsDiscount ? "Si" : "No"}</td>
+                    <td className="px-4 py-3">
+                      {price?.allowsDiscount ? (
+                        <span className="text-xs font-semibold text-emerald-700">Permite</span>
+                      ) : (
+                        <span className="text-xs font-semibold text-slate-500">No permite descuento</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 font-semibold text-slate-900">
                       {money(price?.price, price?.currency)}
                     </td>
@@ -1524,6 +1538,7 @@ function ProductEditRow({
           type="checkbox"
           checked={form.allowsDiscount}
           onChange={(event) => onChange({ ...form, allowsDiscount: event.target.checked })}
+          aria-label="Permite descuento"
         />
       </td>
       <td className="px-4 py-3">

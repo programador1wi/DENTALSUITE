@@ -1,6 +1,6 @@
 import { Activity, ShieldCheck, Timer } from "lucide-react";
 import { Link } from "react-router-dom";
-import { LoginAntigravityBackground } from "@/features/auth/components/login-antigravity-background";
+import { LoginParticleBackground } from "@/features/auth/components/LoginParticleBackground";
 import { LoginForm } from "@/features/auth/components/login-form";
 
 const highlights = [
@@ -24,7 +24,7 @@ const highlights = [
 export function LoginPage() {
   return (
     <>
-      <LoginAntigravityBackground />
+      <LoginParticleBackground />
 
       <div className="relative z-10 w-full max-w-[1020px]">
         <section className="grid items-center gap-8 lg:grid-cols-[1.1fr_420px]">

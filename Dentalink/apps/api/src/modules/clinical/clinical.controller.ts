@@ -34,6 +34,7 @@ import {
   ListOdontogramQueryDto,
   UpdateToothProcedureStatusDto
 } from "./dto/odontogram.dto";
+import { ListPatientHistoryQueryDto } from "./dto/patient-history.dto";
 
 @ApiTags("Clinical")
 @ApiBearerAuth()
@@ -52,6 +53,12 @@ export class ClinicalController {
   @RequirePermissions("clinical.read")
   appointmentHistory(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string) {
     return this.clinicalService.listAppointmentHistory(user, patientId);
+  }
+
+  @Get("patient-history")
+  @RequirePermissions("clinical.read")
+  patientHistory(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string, @Query() query: ListPatientHistoryQueryDto) {
+    return this.clinicalService.listPatientHistory(user, patientId, query);
   }
 
   @Put("history")

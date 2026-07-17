@@ -7,10 +7,11 @@ import {
   type PaymentMethodPayload
 } from "../services/payment-methods.service";
 
-export function usePaymentMethods(search?: string, active?: string) {
+export function usePaymentMethods(search?: string, active?: string, enabled = true) {
   return useQuery({
     queryKey: ["settings", "payment-methods", search, active],
-    queryFn: () => listPaymentMethods({ search, active })
+    queryFn: () => listPaymentMethods({ search, active }),
+    enabled
   });
 }
 
@@ -25,8 +26,13 @@ export function useCreatePaymentMethod() {
 export function useUpdatePaymentMethod() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: Partial<PaymentMethodPayload> & { isActive?: boolean } }) =>
-      updatePaymentMethod(id, payload),
+    mutationFn: ({
+      id,
+      payload
+    }: {
+      id: string;
+      payload: Partial<PaymentMethodPayload> & { isActive?: boolean };
+    }) => updatePaymentMethod(id, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings", "payment-methods"] })
   });
 }

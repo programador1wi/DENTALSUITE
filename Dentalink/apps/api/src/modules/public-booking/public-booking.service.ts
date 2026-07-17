@@ -6,13 +6,14 @@ import {
   NotFoundException,
   UnauthorizedException
 } from "@nestjs/common";
-import { AppointmentStatus } from "@prisma/client";
+import { AppointmentStatus, Prisma } from "@prisma/client";
 import { ConfigService } from "@nestjs/config";
 import { JwtService } from "@nestjs/jwt";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import { AppointmentsService } from "../appointments/appointments.service";
-import { PublicAvailabilityQueryDto, PublicCreateAppointmentDto, UpdatePublicPatientProfileDto } from "./dto/public-booking.dto";
+import { PatientIdentityService } from "../patient-identity/patient-identity.service";
+import { PublicAvailabilityQueryDto, PublicCreateAppointmentDto, PublicIdentityResolveDto, UpdatePublicPatientProfileDto } from "./dto/public-booking.dto";
 
 const PUBLIC_ACTION_ROLE_CODES = ["OWNER", "owner", "SUPER_ADMIN", "super_admin", "ADMIN", "admin"];
 const PUBLIC_ACTION_ROLE_NAMES = ["OWNER", "SUPER_ADMIN", "ADMIN"];
@@ -23,7 +24,8 @@ export class PublicBookingService {
     private readonly prisma: PrismaService,
     private readonly appointmentsService: AppointmentsService,
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly patientIdentityService: PatientIdentityService
   ) {}
 
   private async getSystemActor(organizationId: string, branchId?: string): Promise<AuthUser> {
@@ -201,36 +203,84 @@ export class PublicBookingService {
     });
   }
 
-  async createAppointment(slug: string, dto: PublicCreateAppointmentDto) {
+  async resolveIdentity(slug: string, dto: PublicIdentityResolveDto) {
     const config = await this.prisma.onlineSchedulingConfig.findUnique({ where: { slug } });
     if (!config || !config.isEnabled) throw new NotFoundException("Booking page not found or disabled");
+    if (!dto.patient.phone) throw new BadRequestException("El teléfono es obligatorio para resolver la identidad");
+    return this.patientIdentityService.createSession(config.organizationId, {
+      organizationId: config.organizationId,
+      source: "PUBLIC_BOOKING",
+      phone: dto.patient.phone,
+      conversationId: dto.conversationId
+    });
+  }
+
+  async verifyIdentity(slug: string, sessionId: string, dto: { firstName?: string; lastName?: string; birthDate?: string; documentNumber?: string }) {
+    const config = await this.prisma.onlineSchedulingConfig.findUnique({ where: { slug } });
+    if (!config || !config.isEnabled) throw new NotFoundException("Booking page not found or disabled");
+    return this.patientIdentityService.verifySession(config.organizationId, sessionId, dto);
+  }
+
+  async selectIdentity(slug: string, sessionId: string, patientId: string, familyGroupId?: string) {
+    const config = await this.prisma.onlineSchedulingConfig.findUnique({ where: { slug } });
+    if (!config || !config.isEnabled) throw new NotFoundException("Booking page not found or disabled");
+    return this.patientIdentityService.selectSessionPatient(config.organizationId, sessionId, {
+      patientId,
+      familyGroupId,
+      resolutionMethod: "PUBLIC_EXPLICIT_SELECTION"
+    });
+  }
+
+  async createAppointment(slug: string, dto: PublicCreateAppointmentDto, idempotencyKey?: string) {
+    const config = await this.prisma.onlineSchedulingConfig.findUnique({ where: { slug } });
+    if (!config || !config.isEnabled) throw new NotFoundException("Booking page not found or disabled");
+    if (!dto.identitySessionId) throw new BadRequestException("Debes resolver para quién es la cita antes de continuar");
+    if (!idempotencyKey?.trim()) throw new BadRequestException("idempotency-key es obligatorio");
 
     const actor = await this.getSystemActor(config.organizationId, dto.branchId);
-
-    let patient;
-    if (dto.patient.documentNumber) {
-      patient = await this.prisma.patient.findFirst({
-        where: { organizationId: config.organizationId, documentNumber: dto.patient.documentNumber }
-      });
-    } else if (dto.patient.email) {
-      patient = await this.prisma.patient.findFirst({
-        where: { organizationId: config.organizationId, email: dto.patient.email }
-      });
-    }
+    let session = await this.patientIdentityService.getSessionState(config.organizationId, dto.identitySessionId);
+    let patient = session.selectedPatientId
+      ? await this.prisma.patient.findFirst({ where: { id: session.selectedPatientId, organizationId: config.organizationId, deletedAt: null } })
+      : null;
 
     if (!patient) {
+      if (session.resolution !== "NO_MATCH") {
+        throw new BadRequestException("La identidad es ambigua; verifica o selecciona al paciente antes de reservar");
+      }
+      const duplicateCheck = await this.patientIdentityService.duplicateCheck(config.organizationId, {
+        branchId: dto.branchId,
+        firstName: dto.patient.firstName,
+        lastName: dto.patient.lastName,
+        email: dto.patient.email,
+        phone: dto.patient.phone,
+        birthDate: dto.patient.birthDate,
+        documentType: dto.patient.documentType,
+        documentNumber: dto.patient.documentNumber
+      });
+      if (duplicateCheck.matches.length) {
+        throw new BadRequestException("Se encontraron fichas posibles; verifica la identidad antes de crear otra");
+      }
+      const normalizedPhone = dto.patient.phone
+        ? await this.patientIdentityService.normalizePhone(config.organizationId, dto.patient.phone)
+        : undefined;
       patient = await this.prisma.patient.create({
         data: {
           organizationId: config.organizationId,
           branchId: dto.branchId,
-          firstName: dto.patient.firstName,
-          lastName: dto.patient.lastName,
-          email: dto.patient.email,
-          phone: dto.patient.phone,
-          documentType: dto.patient.documentType,
-          documentNumber: dto.patient.documentNumber
+          firstName: dto.patient.firstName.trim().replace(/\s+/g, " "),
+          lastName: dto.patient.lastName.trim().replace(/\s+/g, " "),
+          email: dto.patient.email?.trim().toLowerCase(),
+          phone: normalizedPhone?.normalizedValue.replace(/^\+/, ""),
+          birthDate: dto.patient.birthDate ? new Date(dto.patient.birthDate) : undefined,
+          documentType: dto.patient.documentType?.trim(),
+          documentNumber: dto.patient.documentNumber?.trim(),
+          status: "PROVISIONAL"
         }
       });
+      if (normalizedPhone) {
+        await this.patientIdentityService.syncPatientPhones(actor, patient.id, normalizedPhone.normalizedValue);
+      }
+      session = await this.patientIdentityService.attachNewPatientToSession(config.organizationId, session.id, patient.id);
     }
 
     const startAtDate = new Date(dto.startAt);
@@ -253,10 +303,9 @@ export class PublicBookingService {
       }
     }
 
-    const appointment = await this.appointmentsService.create(actor, {
+    const appointment = await this.patientIdentityService.bookResolvedAppointment(config.organizationId, session.id, {
       branchId: dto.branchId,
       professionalId: dto.professionalId,
-      patientId: patient.id,
       specialtyId: dto.specialtyId,
       startAt: startAtDate.toISOString(),
       endAt: endAtDate.toISOString(),
@@ -264,7 +313,7 @@ export class PublicBookingService {
       status: config.mode === "EXPRESS" ? AppointmentStatus.SCHEDULED : AppointmentStatus.PENDING_CONFIRMATION,
       title: "Reserva Online",
       reason: dto.motive
-    });
+    }, idempotencyKey, dto.campaignCode);
 
     await this.prisma.onlineSchedulingEvent
       .create({
@@ -397,7 +446,7 @@ export class PublicBookingService {
     const patientId = appointment.patient.id;
     const organizationId = appointment.organizationId;
 
-    const dataToUpdate: any = {};
+    const dataToUpdate: Prisma.PatientUpdateInput = {};
     if (dto.firstName !== undefined) dataToUpdate.firstName = dto.firstName.trim();
     if (dto.lastName !== undefined) dataToUpdate.lastName = dto.lastName.trim();
     if (dto.email !== undefined) dataToUpdate.email = dto.email ? dto.email.trim().toLowerCase() : null;

@@ -123,7 +123,7 @@ export function InstallmentsPage() {
               onChange={(event) => setNewDownPayment(event.target.value)} 
               className="flex-1"
             />
-            <HelpTooltip content="Monto inicial o pie que el paciente pagará al momento de firmar el plan de cuotas (0 si no aplica)." />
+            <HelpTooltip content="Enganche inicial que el paciente pagará al momento de firmar el plan de cuotas (0 si no aplica)." />
           </div>
 
           <div className="flex items-center gap-1.5 w-full">

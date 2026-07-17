@@ -29,9 +29,7 @@ export function PrivateLayout({ children }: PropsWithChildren) {
   return (
     <div className="min-h-screen bg-[var(--bg-page)] text-[var(--text-primary)] flex flex-col">
       <Header />
-      <main className="mx-auto w-full max-w-[1536px] min-w-0 px-4 pb-12 pt-8 sm:px-6 lg:px-8">
-        {children}
-      </main>
+      <main className="mx-auto w-full min-w-0 max-w-[1536px] px-4 pb-12 pt-8 sm:px-6 lg:px-8">{children}</main>
     </div>
   );
 }

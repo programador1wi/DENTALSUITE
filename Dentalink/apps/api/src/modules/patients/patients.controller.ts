@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
@@ -9,6 +9,14 @@ import { AddPatientAlertDto } from "./dto/add-patient-alert.dto";
 import { AddPatientNoteDto } from "./dto/add-patient-note.dto";
 import { CreatePatientDto } from "./dto/create-patient.dto";
 import { MergePatientsDto } from "./dto/merge-patients.dto";
+import {
+  AttachPatientCoverageDocumentDto,
+  CreatePatientBenefitCoverageDto,
+  PatientCoverageStatusReasonDto,
+  PatientEligibleCoveragesQueryDto,
+  UpdatePatientBenefitCoverageDto,
+  ValidatePatientInsuranceDto
+} from "./dto/patient-benefit-coverage.dto";
 import { PatientAnalysisQueryDto } from "./dto/patient-analysis-query.dto";
 import { ListPatientEmailsQueryDto, SendPatientEmailDto } from "./dto/patient-email.dto";
 import { PatientQueryDto } from "./dto/patient-query.dto";
@@ -51,6 +59,90 @@ export class PatientsController {
   @RequirePermissions("patients.read")
   timeline(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.patientsService.timeline(user, id);
+  }
+
+  @Get(":id/benefits-coverages")
+  @RequirePermissions("patients.read")
+  listBenefitCoverages(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.patientsService.listBenefitCoverages(user, id);
+  }
+
+  @Post(":id/benefits-coverages")
+  @RequirePermissions("patients.update")
+  createBenefitCoverage(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: CreatePatientBenefitCoverageDto,
+    @Headers("idempotency-key") idempotencyKey?: string
+  ) {
+    return this.patientsService.createBenefitCoverage(user, id, dto, idempotencyKey);
+  }
+
+  @Patch(":id/benefits-coverages/:coverageId")
+  @RequirePermissions("patients.update")
+  updateBenefitCoverage(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("coverageId") coverageId: string,
+    @Body() dto: UpdatePatientBenefitCoverageDto
+  ) {
+    return this.patientsService.updateBenefitCoverage(user, id, coverageId, dto);
+  }
+
+  @Post(":id/benefits-coverages/:coverageId/activate")
+  @RequirePermissions("patients.update")
+  activateBenefitCoverage(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("coverageId") coverageId: string,
+    @Body() dto: PatientCoverageStatusReasonDto
+  ) {
+    return this.patientsService.changeBenefitCoverageStatus(user, id, coverageId, "ACTIVE", dto.reason);
+  }
+
+  @Post(":id/benefits-coverages/:coverageId/deactivate")
+  @RequirePermissions("patients.update")
+  deactivateBenefitCoverage(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("coverageId") coverageId: string,
+    @Body() dto: PatientCoverageStatusReasonDto
+  ) {
+    return this.patientsService.changeBenefitCoverageStatus(user, id, coverageId, "INACTIVE", dto.reason);
+  }
+
+  @Post(":id/benefits-coverages/:coverageId/cancel")
+  @RequirePermissions("patients.update")
+  cancelBenefitCoverage(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("coverageId") coverageId: string,
+    @Body() dto: PatientCoverageStatusReasonDto
+  ) {
+    return this.patientsService.changeBenefitCoverageStatus(user, id, coverageId, "CANCELLED", dto.reason);
+  }
+
+  @Post(":id/benefits-coverages/:coverageId/documents")
+  @RequirePermissions("files.upload")
+  attachCoverageDocument(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("coverageId") coverageId: string,
+    @Body() dto: AttachPatientCoverageDocumentDto
+  ) {
+    return this.patientsService.attachCoverageDocument(user, id, coverageId, dto);
+  }
+
+  @Post(":id/insurance-validations")
+  @RequirePermissions("patients.update")
+  validateInsurance(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: ValidatePatientInsuranceDto) {
+    return this.patientsService.validateInsurance(user, id, dto);
+  }
+
+  @Get(":id/eligible-coverages")
+  @RequirePermissions("patients.read")
+  eligibleCoverages(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query() query: PatientEligibleCoveragesQueryDto) {
+    return this.patientsService.listEligibleCoverages(user, id, query);
   }
 
   @Post()
@@ -142,8 +234,8 @@ export class PatientsController {
   }
 
   @Post("merge")
-  @RequirePermissions("patients.update")
-  merge(@CurrentUser() user: AuthUser, @Body() dto: MergePatientsDto) {
-    return this.patientsService.merge(user, dto);
+  @RequirePermissions("patients.merge")
+  merge(@CurrentUser() _user: AuthUser, @Body() _dto: MergePatientsDto) {
+    throw new BadRequestException("Usa el flujo auditado de vista previa en /patient-identity/merges/preview");
   }
 }

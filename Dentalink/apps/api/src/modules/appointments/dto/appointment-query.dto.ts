@@ -36,6 +36,14 @@ export class AppointmentQueryDto extends PaginationQueryDto {
 
   @IsOptional()
   @IsString()
+  chairIndex?: string;
+
+  @IsOptional()
+  @IsString()
+  overbooking?: string;
+
+  @IsOptional()
+  @IsString()
   status?: string;
 
   @IsOptional()

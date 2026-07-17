@@ -7,13 +7,19 @@ import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import {
   AssignAgreementPatientsDto,
+  AssignAgreementTreatmentPlanDto,
   CreateAgreementDto,
   CreateExpenseDto,
   FinalizePayrollDto,
   RecalculatePayrollDto,
-  UpdateAgreementDto
+  UpdateAgreementDto,
+  PublishAgreementDto,
+  PreviewAgreementPriceDto
 } from "./dto/admin-workflows.dto";
-import { CreateFinancialInstitutionDto, UpdateFinancialInstitutionDto } from "./dto/financial-institution.dto";
+import {
+  CreateFinancialInstitutionDto,
+  UpdateFinancialInstitutionDto
+} from "./dto/financial-institution.dto";
 import { UpdateGeneralSettingsDto } from "./dto/update-general-settings.dto";
 import { SettingsService } from "./settings.service";
 
@@ -100,22 +106,66 @@ export class SettingsController {
     return this.settingsService.listAgreementDebts(user);
   }
 
+  @Get("agreements/:id")
+  @RequirePermissions("agreements.read")
+  getAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.getAgreement(user, id);
+  }
+
   @Post("agreements")
-  @RequirePermissions("settings.update")
+  @RequirePermissions("agreements.manage")
   createAgreement(@CurrentUser() user: AuthUser, @Body() dto: CreateAgreementDto) {
     return this.settingsService.createAgreement(user, dto);
   }
 
   @Patch("agreements/:id")
-  @RequirePermissions("settings.update")
+  @RequirePermissions("agreements.manage")
   updateAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateAgreementDto) {
     return this.settingsService.updateAgreement(user, id, dto);
   }
 
   @Patch("agreements/:id/deactivate")
-  @RequirePermissions("settings.update")
+  @RequirePermissions("agreements.manage")
   deactivateAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.settingsService.deactivateAgreement(user, id);
+  }
+
+  @Post("agreements/:id/versions")
+  @RequirePermissions("agreements.manage")
+  createAgreementVersion(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: CreateAgreementDto
+  ) {
+    return this.settingsService.createAgreementVersion(user, id, dto);
+  }
+
+  @Post("agreements/:id/publish")
+  @RequirePermissions("agreements.publish")
+  publishAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: PublishAgreementDto) {
+    return this.settingsService.publishAgreement(user, id, dto.version);
+  }
+
+  @Post("agreements/:id/cancel")
+  @RequirePermissions("agreements.manage")
+  cancelAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.cancelAgreement(user, id);
+  }
+
+  @Get("agreements/:id/preview")
+  @RequirePermissions("agreements.read")
+  previewAgreementPrice(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Query() dto: PreviewAgreementPriceDto
+  ) {
+    return this.settingsService.previewAgreementPrice(user, id, dto);
+  }
+
+  @Post("agreements/:id/duplicate")
+  @RequirePermissions("agreements.manage")
+  duplicateAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.duplicateAgreement(user, id);
   }
 
   @Post("agreements/:id/pay-debt")
@@ -125,13 +175,23 @@ export class SettingsController {
   }
 
   @Post("agreements/:id/patients")
-  @RequirePermissions("settings.update")
+  @RequirePermissions("agreements.assign")
   assignAgreementPatients(
     @CurrentUser() user: AuthUser,
     @Param("id") id: string,
     @Body() dto: AssignAgreementPatientsDto
   ) {
     return this.settingsService.assignAgreementPatients(user, id, dto);
+  }
+
+  @Post("agreements/:id/treatment-plans")
+  @RequirePermissions("agreements.assign")
+  assignAgreementTreatmentPlan(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: AssignAgreementTreatmentPlanDto
+  ) {
+    return this.settingsService.assignAgreementTreatmentPlan(user, id, dto.treatmentPlanId);
   }
 
   @Get("expenses")

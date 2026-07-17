@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorState } from "@/components/feedback/error-state";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
@@ -16,6 +17,7 @@ import { useCreatePatient } from "../hooks/use-patients";
 import { getPatientStatusLabel } from "../components/patient-status";
 import { getRequiredFormFields, getVisibleFormFields, usePatientFieldContext } from "../config/patient-field-settings";
 import type { PatientPayload, PatientStatus } from "../services/patients.service";
+import { duplicateCheck, type DuplicateCheckResult } from "../services/patient-identity.service";
 
 const statusOptions: PatientStatus[] = ["NEW", "ACTIVE", "IN_TREATMENT", "INACTIVE", "DEBTOR", "COMPLETED"];
 
@@ -65,6 +67,8 @@ export function PatientNewPage() {
   }, [requiredFields]);
   const [apiError, setApiError] = useState<string | null>(null);
   const [duplicateMessage, setDuplicateMessage] = useState<string | null>(null);
+  const [duplicateReview, setDuplicateReview] = useState<DuplicateCheckResult | null>(null);
+  const [pendingPayload, setPendingPayload] = useState<PatientPayload | null>(null);
 
   const form = useForm<PatientFormValues>({
     resolver: zodResolver(formSchema),
@@ -76,6 +80,11 @@ export function PatientNewPage() {
 
   const submitDisabled = createPatient.isPending || !branchQuery.data?.length;
   const branchOptions = useMemo(() => branchQuery.data ?? [], [branchQuery.data]);
+
+  const persistPatient = async (payload: PatientPayload) => {
+    const response = await createPatient.mutateAsync(payload);
+    navigate(`/patients/${response.patient.id}/profile`);
+  };
 
   useEffect(() => {
     for (const field of Object.keys(defaults) as Array<keyof PatientFormValues>) {
@@ -141,11 +150,22 @@ export function PatientNewPage() {
     }
 
     try {
-      const response = await createPatient.mutateAsync(payload);
-      if (response.potentialDuplicates.length) {
-        setDuplicateMessage("Se detectaron posibles duplicados con datos similares.");
+      const review = await duplicateCheck({
+        branchId: payload.branchId,
+        firstName: payload.firstName,
+        lastName: payload.lastName,
+        birthDate: payload.birthDate,
+        documentType: payload.documentType,
+        documentNumber: payload.documentNumber,
+        email: payload.email,
+        phone: payload.phone
+      });
+      if (review.matches.length) {
+        setPendingPayload(payload);
+        setDuplicateReview(review);
+        return;
       }
-      navigate(`/patients/${response.patient.id}/profile`);
+      await persistPatient(payload);
     } catch (error) {
       setApiError((error as Error).message);
     }
@@ -329,6 +349,58 @@ export function PatientNewPage() {
           </div>
         </form>
       </Card>
+
+      <Modal
+        open={Boolean(duplicateReview)}
+        title="Revisar identidad antes de crear"
+        onClose={() => {
+          setDuplicateReview(null);
+          setPendingPayload(null);
+        }}
+        size="lg"
+      >
+        <div className="space-y-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="font-semibold text-amber-950">Encontramos fichas con datos coincidentes.</p>
+            <p className="mt-1 text-sm text-amber-800">Teléfono o correo compartido no bloquean por sí solos. Documento y datos personales coincidentes requieren usar ficha existente.</p>
+          </div>
+          <div className="space-y-2">
+            {duplicateReview?.matches.map((match) => (
+              <div key={match.id} className="flex items-center justify-between gap-4 rounded-lg border border-slate-200 p-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{match.firstName} {match.lastName}</p>
+                  <p className="mt-1 text-xs text-slate-500">Coincidencia {match.confidence}% · {match.reasons.join(", ")}</p>
+                </div>
+                <Link to={`/patients/${match.id}/profile`} className="shrink-0 text-sm font-semibold text-[var(--text-brand)] hover:underline">
+                  Abrir ficha
+                </Link>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-4">
+            <Button variant="secondary" onClick={() => setDuplicateReview(null)}>Volver a editar</Button>
+            <Button
+              onClick={() => pendingPayload && void persistPatient(pendingPayload)}
+              disabled={
+                !pendingPayload ||
+                createPatient.isPending ||
+                duplicateReview?.decision === "BLOCK_VERIFIED_IDENTITY" ||
+                duplicateReview?.decision === "PHONE_REQUIRES_FAMILY_FLOW"
+              }
+            >
+              Crear ficha distinta
+            </Button>
+          </div>
+          {duplicateReview?.decision === "BLOCK_VERIFIED_IDENTITY" ? (
+            <p className="text-right text-xs font-medium text-red-700">Documento e identidad coinciden. Creación bloqueada.</p>
+          ) : null}
+          {duplicateReview?.decision === "PHONE_REQUIRES_FAMILY_FLOW" ? (
+            <p className="text-right text-xs font-medium text-red-700">
+              Teléfono ya vinculado. Agrega paciente desde grupo familiar o utiliza otro número.
+            </p>
+          ) : null}
+        </div>
+      </Modal>
     </div>
   );
 }

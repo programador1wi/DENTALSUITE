@@ -8,6 +8,10 @@ import { Select } from "@/components/ui/select";
 import { useInventoryItems } from "@/features/labs-inventory/hooks/use-labs-inventory";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { useTreatmentPlans } from "@/features/treatments/hooks/use-treatments";
+import {
+  usePhotographicTemplateMutations,
+  usePhotographicTemplates
+} from "@/features/treatments/hooks/use-photographic-templates";
 import { useClinicalMutations } from "../hooks/use-clinical";
 import { useOrthodonticArchSizes, useOrthodonticMaterials } from "../hooks/use-orthodontic-catalogs";
 import type { ClinicalEvolution } from "../services/clinical.service";
@@ -116,10 +120,17 @@ export function ClinicalEvolutionModal({
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [orthoFields, setOrthoFields] = useState<OrthodonticFields>(EMPTY_ORTHO_FIELDS);
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [photographicAction, setPhotographicAction] = useState<"NONE" | "CREATE" | "LINK">("NONE");
+  const [photographicSessionId, setPhotographicSessionId] = useState("");
 
   const isEditing = Boolean(evolution?.id);
   const selectedPlan = treatmentPlans.data?.find((plan) => plan.id === form.treatmentPlanId);
   const isOrthodontics = selectedPlan?.kind === "ORTHODONTICS";
+  const photographicTemplates = usePhotographicTemplates(
+    form.treatmentPlanId,
+    open && Boolean(form.treatmentPlanId) && isOrthodontics
+  );
+  const photographicMutations = usePhotographicTemplateMutations(form.treatmentPlanId);
   const saving = mutations.createEvolution.isPending || mutations.updateEvolution.isPending;
 
   useEffect(() => {
@@ -168,9 +179,41 @@ export function ClinicalEvolutionModal({
     setSelectedInventoryItemId("");
     setSelectedQuantity(1);
     setOrthoFields(EMPTY_ORTHO_FIELDS);
+    setPhotographicAction("NONE");
+    setPhotographicSessionId("");
   };
 
-  const canSubmit = Boolean(form.professionalId && (form.notes.trim() || form.treatmentPlanItemId));
+  const canSubmit = Boolean(
+    form.professionalId &&
+    (form.notes.trim() || form.treatmentPlanItemId) &&
+    (photographicAction !== "LINK" || photographicSessionId)
+  );
+
+  const syncPhotographicSession = async (savedEvolution: ClinicalEvolution) => {
+    if (!form.treatmentPlanId || photographicAction === "NONE") return;
+    if (photographicAction === "LINK" && photographicSessionId) {
+      await photographicMutations.createLink.mutateAsync({
+        sessionId: photographicSessionId,
+        linkedEntityType: "CLINICAL_EVOLUTION",
+        linkedEntityId: savedEvolution.id
+      });
+      return;
+    }
+    if (photographicAction === "CREATE") {
+      await photographicMutations.createSession.mutateAsync({
+        sessionType: "FOLLOW_UP",
+        clinicalDate: new Date().toISOString().slice(0, 10),
+        professionalId: form.professionalId,
+        branchId,
+        links: [
+          {
+            linkedEntityType: "CLINICAL_EVOLUTION",
+            linkedEntityId: savedEvolution.id
+          }
+        ]
+      });
+    }
+  };
 
   const handleSubmit = () => {
     if (!canSubmit) return;
@@ -180,7 +223,8 @@ export function ClinicalEvolutionModal({
       mutations.updateEvolution.mutate(
         { evolutionId: evolution.id, data: payload },
         {
-          onSuccess: (updated) => {
+          onSuccess: async (updated) => {
+            await syncPhotographicSession(updated).catch(() => undefined);
             resetForm();
             onClose();
             toast.success("La evolucion fue actualizada correctamente.");
@@ -192,7 +236,8 @@ export function ClinicalEvolutionModal({
     }
 
     mutations.createEvolution.mutate(payload, {
-      onSuccess: (created) => {
+      onSuccess: async (created) => {
+        await syncPhotographicSession(created).catch(() => undefined);
         resetForm();
         onClose();
         toast.success("La evolucion fue registrada correctamente.");
@@ -277,7 +322,9 @@ export function ClinicalEvolutionModal({
 
           {form.treatmentPlanItemId ? (
             <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-              <p className="text-xs font-semibold uppercase text-slate-500">Avance de la prestacion vinculada</p>
+              <p className="text-xs font-semibold uppercase text-slate-500">
+                Avance de la prestacion vinculada
+              </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {[0, 25, 50, 75, 100].map((percentage) => (
                   <button
@@ -439,7 +486,9 @@ export function ClinicalEvolutionModal({
                       max="7"
                       step="1"
                       value={orthoFields.hygiene || "4"}
-                      onChange={(event) => setOrthoFields((prev) => ({ ...prev, hygiene: event.target.value }))}
+                      onChange={(event) =>
+                        setOrthoFields((prev) => ({ ...prev, hygiene: event.target.value }))
+                      }
                       className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-slate-200 accent-blue-600"
                     />
                     <div className="mt-1 flex justify-between text-[10px] text-slate-400">
@@ -450,6 +499,48 @@ export function ClinicalEvolutionModal({
                 ) : (
                   <p className="mt-2 text-xs text-slate-500">No se agregara punto a la curva de higiene.</p>
                 )}
+              </div>
+
+              <div className="rounded-md border border-sky-200 bg-sky-50/70 p-3">
+                <div className="mb-3">
+                  <h4 className="text-sm font-semibold text-slate-900">Plantilla fotografica opcional</h4>
+                  <p className="mt-1 text-xs text-slate-600">
+                    La evolucion puede guardarse sin plantilla. Vincular no modifica progreso ni crea
+                    controles.
+                  </p>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Select
+                    value={photographicAction}
+                    onChange={(event) => {
+                      setPhotographicAction(event.target.value as "NONE" | "CREATE" | "LINK");
+                      if (event.target.value !== "LINK") setPhotographicSessionId("");
+                    }}
+                  >
+                    <option value="NONE">Continuar sin plantilla</option>
+                    <option value="CREATE">Crear nueva plantilla y vincular</option>
+                    <option value="LINK">Vincular plantilla existente</option>
+                  </Select>
+                  {photographicAction === "LINK" ? (
+                    <Select
+                      value={photographicSessionId}
+                      onChange={(event) => setPhotographicSessionId(event.target.value)}
+                    >
+                      <option value="">Seleccionar plantilla...</option>
+                      {(photographicTemplates.data?.sessions ?? []).map((session) => (
+                        <option key={session.id} value={session.id}>
+                          {session.name} - {new Date(session.clinicalDate).toLocaleDateString("es-MX")}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <div className="flex items-center rounded-md border border-dashed border-sky-200 px-3 text-xs text-sky-800">
+                      {photographicAction === "CREATE"
+                        ? "Se creara despues de guardar la evolucion."
+                        : "No se realizara ninguna accion fotografica."}
+                    </div>
+                  )}
+                </div>
               </div>
             </section>
           ) : null}

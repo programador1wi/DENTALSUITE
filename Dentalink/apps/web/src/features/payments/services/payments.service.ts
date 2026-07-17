@@ -27,9 +27,29 @@ export type Payment = {
     lastName: string;
     documentNumber?: string | null;
     birthDate?: string | null;
+    email?: string | null;
     agreement?: { id: string; name: string } | null;
   };
-  branch: { id: string; name: string };
+  branch: {
+    id: string;
+    name: string;
+    timezone?: string | null;
+    phone?: string | null;
+    countryCode?: string | null;
+    email?: string | null;
+    replyToEmail?: string | null;
+    website?: string | null;
+    address?: string | null;
+    exteriorNumber?: string | null;
+    interiorNumber?: string | null;
+    neighborhood?: string | null;
+    postalCode?: string | null;
+    municipality?: string | null;
+    city?: string | null;
+    state?: string | null;
+    country?: string | null;
+    brand?: ReceiptBrandingSource | null;
+  };
   paymentMethod: { id: string; name: string; type: string };
   financialInstitution?: { id: string; name: string } | null;
   receivedBy: { id: string; firstName: string; lastName: string };
@@ -95,6 +115,76 @@ export type Payment = {
     };
   }>;
   refunds: Array<{ id: string; amount: string; status: string; createdAt: string }>;
+  receiptBranding?: ReceiptBranding;
+};
+
+export type ReceiptBrandingSource = {
+  name?: string | null;
+  shortName?: string | null;
+  legalName?: string | null;
+  logoUrl?: string | null;
+  phone?: string | null;
+  senderEmail?: string | null;
+  replyToEmail?: string | null;
+  website?: string | null;
+  privacyNoticeUrl?: string | null;
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
+};
+
+export type ReceiptBranding = {
+  logoUrl?: string | null;
+  businessName: string;
+  legalName?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  privacyNoticeUrl?: string | null;
+  primaryColor?: string | null;
+  secondaryColor?: string | null;
+};
+
+export type DailyPaymentReceipt = {
+  receiptType: "DAILY";
+  date: string;
+  printedAt: string;
+  patient: Payment["patient"];
+  branch: Payment["branch"] & {
+    phone?: string | null;
+    email?: string | null;
+    address?: string | null;
+    city?: string | null;
+    state?: string | null;
+    brand?: ReceiptBrandingSource | null;
+  };
+  receiptBranding: ReceiptBranding;
+  payments: Payment[];
+  paymentNumbers: string[];
+  totalAmount: number;
+  paymentMethods: Array<{
+    paymentNumber: string;
+    name: string;
+    amount: number;
+    reference?: string | null;
+    financialInstitution?: string | null;
+  }>;
+  breakdown: Array<Payment["breakdown"][number] & { paymentNumber: string }>;
+  treatments: Array<{ id: string; number: string; name: string; procedures: string[] }>;
+};
+
+export type ReceiptEmailResponse = {
+  status: "PENDING" | "QUEUED" | "SENT" | "FAILED" | "CANCELLED";
+  documentType: "PAYMENT_RECEIPT" | "DAILY_PAYMENT_RECEIPT";
+  paymentNumber?: string | number | null;
+  documentDate?: string | null;
+  paymentCount?: number | null;
+  totalAmount?: number | string | null;
+  recipient: string;
+  attachmentName: string;
+  sentAt?: string | null;
+  messageId?: string | null;
+  communicationJobId: string;
 };
 
 export type RefundStatus = "PENDING" | "PROCESSED" | "REJECTED";
@@ -186,6 +276,8 @@ export type PayableTreatmentItem = {
   total: number;
   paidAmount: number;
   outstandingAmount: number;
+  financedAmount?: number;
+  financeableAmount?: number;
   status: string;
   plannedAt?: string | null;
   completedAt?: string | null;
@@ -307,6 +399,139 @@ export type AccountsReceivableRow = {
   overdueInstallments: number;
 };
 
+export type PatientBalance = {
+  patientId: string;
+  plannedAmount: number;
+  allocatedPaidAmount: number;
+  totalPaidAmount: number;
+  outstandingAmount: number;
+  unallocatedCredit: number;
+  overdueInstallments: number;
+  confirmedBalance: number;
+  currentDueBalance: number;
+  futureBalance: number;
+  freeCreditBalance: number;
+  refundedAmount: number;
+  projectedCoverage: number;
+  projectedBalance: number;
+};
+
+export type PatientBillingSummary = {
+  patientId: string;
+  balance: PatientBalance;
+  counts: {
+    documents: number;
+    reimbursements: number;
+    onlineBenefits: number;
+    refunds: number;
+    voidedPayments: number;
+    ledgerEntries: number;
+  };
+};
+
+export type FinancialDocument = {
+  id: string;
+  type: string;
+  folio?: string | null;
+  status: string;
+  subtotal: string;
+  taxes: string;
+  total: string;
+  issuedAt?: string | null;
+  createdAt: string;
+  branch: { id: string; name: string };
+  payment?: { id: string; paymentNumber?: number | string | null; amount: string; status: PaymentStatus; paidAt: string } | null;
+  refund?: { id: string; amount: string; status: string; createdAt: string } | null;
+  treatmentPlan?: { id: string; name: string } | null;
+  files: Array<{ id: string; url: string; type: string; createdAt: string }>;
+};
+
+export type ReimbursementRequest = {
+  id: string;
+  policyNumber?: string | null;
+  status: string;
+  requestedAmount: number;
+  approvedAmount: number;
+  paidAmount: number;
+  createdAt: string;
+  updatedAt: string;
+  agreement?: { id: string; name: string } | null;
+  authorizations: Array<{
+    id: string;
+    status: string;
+    requestedAmount: string;
+    authorizedAmount: string;
+    consumedAmount: string;
+    authorizationCode?: string | null;
+    validUntil?: string | null;
+    treatmentPlan?: { id: string; name: string } | null;
+  }>;
+};
+
+export type OnlineBenefit = {
+  id: string;
+  status: string;
+  authorizationCode?: string | null;
+  requestedAmount: string;
+  authorizedAmount: string;
+  consumedAmount: string;
+  validUntil?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  treatmentPlan?: { id: string; name: string } | null;
+  coverageCase: {
+    id: string;
+    policyNumber?: string | null;
+    status: string;
+    agreement?: { id: string; name: string } | null;
+  };
+};
+
+export type PatientLedgerEntry = {
+  id: string;
+  occurredAt: string;
+  entryType: string;
+  sourceType: string;
+  sourceId: string;
+  debitAmount: string;
+  creditAmount: string;
+  currency: string;
+  descriptionSnapshot?: string | null;
+  status: string;
+  branch: { id: string; name: string };
+  treatmentPlan?: { id: string; name: string } | null;
+};
+
+export type PaymentBehaviorPoint = {
+  date: string;
+  charges: number;
+  payments: number;
+  runningBalance: number;
+};
+
+export type PaymentDistributionRow = {
+  key: string;
+  label: string;
+  amount: number;
+  count: number;
+  percentage: number;
+};
+
+export type BalanceByPlanRow = {
+  planId: string;
+  planName: string;
+  subtotal: number;
+  discount: number;
+  totalNet: number;
+  realized: number;
+  paid: number;
+  coverage: number;
+  refunded: number;
+  currentDueBalance: number;
+  futureBalance: number;
+  totalBalance: number;
+};
+
 export async function listPayments(params?: { patientId?: string; branchId?: string; search?: string; status?: PaymentStatus }) {
   const { data } = await http.get<Payment[]>("/payments", { params });
   return data;
@@ -385,6 +610,11 @@ export async function getPaymentReceipt(paymentId: string) {
   return data;
 }
 
+export async function getDailyPaymentReceipt(patientId: string, params: { date: string; branchId: string }) {
+  const { data } = await http.get<DailyPaymentReceipt>(`/patients/${patientId}/payments/daily-receipt`, { params });
+  return data;
+}
+
 export async function downloadPaymentReceiptPdf(paymentNumber: string) {
   const { data, headers } = await http.get<Blob>(`/payments/${paymentNumber}/receipt.pdf`, {
     responseType: "blob"
@@ -397,13 +627,88 @@ export async function downloadPaymentReceiptPdf(paymentNumber: string) {
   };
 }
 
+export async function downloadDailyReceiptPdf(patientId: string, params: { date: string; branchId: string }) {
+  const { data, headers } = await http.get<Blob>(`/patients/${patientId}/payments/daily-receipt.pdf`, {
+    params,
+    responseType: "blob"
+  });
+  const disposition = headers["content-disposition"];
+  const fileNameMatch = typeof disposition === "string" ? /filename="([^"]+)"/.exec(disposition) : null;
+  return {
+    blob: data,
+    fileName: fileNameMatch?.[1] ?? `Comprobante_Diario_${params.date}.pdf`
+  };
+}
+
+export async function sendPaymentReceiptEmail(
+  paymentNumber: string,
+  payload: { to: string; subject: string; message: string; idempotencyKey: string }
+) {
+  const { data } = await http.post<ReceiptEmailResponse>(`/payments/${paymentNumber}/receipt/email`, payload);
+  return data;
+}
+
+export async function sendDailyReceiptEmail(
+  patientId: string,
+  params: { date: string; branchId: string },
+  payload: { to: string; subject: string; message: string; idempotencyKey: string }
+) {
+  const { data } = await http.post<ReceiptEmailResponse>(`/patients/${patientId}/payments/daily-receipt/email`, payload, { params });
+  return data;
+}
+
 export async function listPatientPayments(patientId: string) {
   const { data } = await http.get<PatientPaymentsResponse>(`/patients/${patientId}/payments`);
   return data;
 }
 
+export async function getPatientBillingSummary(patientId: string) {
+  const { data } = await http.get<PatientBillingSummary>(`/patients/${patientId}/billing/summary`);
+  return data;
+}
+
+export async function listPatientFinancialDocuments(patientId: string, params?: { type?: string; status?: string }) {
+  const { data } = await http.get<FinancialDocument[]>(`/patients/${patientId}/financial-documents`, { params });
+  return data;
+}
+
+export async function listPatientReimbursementRequests(patientId: string, params?: { status?: string }) {
+  const { data } = await http.get<ReimbursementRequest[]>(`/patients/${patientId}/reimbursement-requests`, { params });
+  return data;
+}
+
+export async function listPatientOnlineBenefits(patientId: string, params?: { status?: string }) {
+  const { data } = await http.get<OnlineBenefit[]>(`/patients/${patientId}/online-benefits`, { params });
+  return data;
+}
+
+export async function listPatientVoidedPayments(patientId: string) {
+  const { data } = await http.get<Payment[]>(`/patients/${patientId}/voided-payments`);
+  return data;
+}
+
 export async function getPatientBalance(patientId: string) {
-  const { data } = await http.get(`/patients/${patientId}/balance`);
+  const { data } = await http.get<PatientBalance>(`/patients/${patientId}/balance`);
+  return data;
+}
+
+export async function getPatientBalanceByPlan(patientId: string) {
+  const { data } = await http.get<BalanceByPlanRow[]>(`/patients/${patientId}/balance/by-plan`);
+  return data;
+}
+
+export async function getPatientLedger(patientId: string) {
+  const { data } = await http.get<PatientLedgerEntry[]>(`/patients/${patientId}/ledger`);
+  return data;
+}
+
+export async function getPatientPaymentDistribution(patientId: string) {
+  const { data } = await http.get<PaymentDistributionRow[]>(`/patients/${patientId}/payment-distribution`);
+  return data;
+}
+
+export async function getPatientPaymentBehavior(patientId: string) {
+  const { data } = await http.get<PaymentBehaviorPoint[]>(`/patients/${patientId}/payment-behavior`);
   return data;
 }
 
@@ -435,6 +740,7 @@ export async function createInstallmentPlan(payload: {
   numberOfInstallments: number;
   frequency?: InstallmentFrequency;
   startDate: string;
+  itemAllocations?: Array<{ treatmentPlanItemId: string; amount: number; expectedVersion?: number }>;
 }) {
   const { data } = await http.post("/installment-plans", payload);
   return data;

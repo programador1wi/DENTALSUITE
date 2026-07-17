@@ -1,6 +1,6 @@
 import { http } from "@/lib/api/http-client";
 
-export type PatientStatus = "NEW" | "ACTIVE" | "IN_TREATMENT" | "INACTIVE" | "DEBTOR" | "COMPLETED";
+export type PatientStatus = "NEW" | "PROVISIONAL" | "ACTIVE" | "IN_TREATMENT" | "INACTIVE" | "DEBTOR" | "COMPLETED" | "MERGED";
 
 export type PatientListItem = {
   id: string;
@@ -125,6 +125,26 @@ export type PatientTaskPayload = {
 };
 
 export type PatientEmailStatus = "PENDING" | "QUEUED" | "SENT" | "FAILED" | "CANCELLED";
+export type PatientBenefitCoverageType =
+  | "INSURANCE"
+  | "AGREEMENT"
+  | "PAYROLL_BENEFIT"
+  | "CORPORATE_BENEFIT"
+  | "MEMBERSHIP"
+  | "OTHER";
+export type PatientBenefitCoverageStatus =
+  | "DRAFT"
+  | "PENDING_VALIDATION"
+  | "VALIDATING"
+  | "ACTIVE"
+  | "INACTIVE"
+  | "SUSPENDED"
+  | "EXPIRED"
+  | "REJECTED"
+  | "REQUIRES_DOCUMENTS"
+  | "INTEGRATION_ERROR"
+  | "CANCELLED";
+export type CoverageValidationMode = "AUTOMATIC" | "MANUAL" | "DOCUMENTAL" | "MIXED";
 
 export type PatientEmail = {
   id: string;
@@ -184,6 +204,8 @@ export type PatientDetail = {
     id: string;
     name: string;
     discountPercent: string;
+    payrollDiscount?: boolean;
+    isActive?: boolean;
     priceList?: { id: string; name: string; isDefault: boolean } | null;
   } | null;
   firstName: string;
@@ -229,9 +251,147 @@ export type PatientDetail = {
     lastAppointment: string | null;
     balance: number;
     activeTreatments: number;
+    activeBenefits?: number;
+    coverageExpiringSoon?: { providerName: string; endsAt: string } | null;
     hasCriticalAlert: boolean;
   };
   timeline: PatientTimelineEvent[];
+};
+
+export type PatientBenefitCoveragePayload = {
+  type: PatientBenefitCoverageType;
+  providerName: string;
+  branchId?: string;
+  agreementId?: string | null;
+  planName?: string;
+  policyNumber?: string;
+  affiliateNumber?: string;
+  certificateNumber?: string;
+  employeeNumber?: string;
+  holderName?: string;
+  holderDocument?: string;
+  relationshipToPatient?: string;
+  startsAt?: string;
+  endsAt?: string;
+  coveragePercent?: number;
+  copayAmount?: number;
+  deductibleAmount?: number;
+  annualLimitAmount?: number;
+  requiresAuthorization?: boolean;
+  notes?: string;
+  externalReference?: string;
+  status?: PatientBenefitCoverageStatus;
+};
+
+export type PatientBenefitCoverage = {
+  id: string;
+  organizationId: string;
+  branchId: string;
+  patientId: string;
+  type: PatientBenefitCoverageType;
+  status: PatientBenefitCoverageStatus;
+  providerName: string;
+  agreementId?: string | null;
+  agreement?: {
+    id: string;
+    name: string;
+    discountPercent: string;
+    payrollDiscount?: boolean;
+    isActive?: boolean;
+    priceList?: { id: string; name: string; isDefault: boolean } | null;
+  } | null;
+  branch: { id: string; name: string; timezone?: string | null };
+  planName?: string | null;
+  policyNumber?: string | null;
+  affiliateNumber?: string | null;
+  certificateNumber?: string | null;
+  employeeNumber?: string | null;
+  holderName?: string | null;
+  holderDocument?: string | null;
+  relationshipToPatient?: string | null;
+  startsAt?: string | null;
+  endsAt?: string | null;
+  coveragePercent?: number | null;
+  copayAmount?: number | null;
+  deductibleAmount?: number | null;
+  annualLimitAmount?: number | null;
+  requiresAuthorization: boolean;
+  notes?: string | null;
+  externalReference?: string | null;
+  lastValidatedAt?: string | null;
+  lastValidationStatus?: PatientBenefitCoverageStatus | null;
+  lastValidationSummary?: string | null;
+  version: number;
+  validations: Array<{
+    id: string;
+    mode: CoverageValidationMode;
+    status: PatientBenefitCoverageStatus;
+    providerName?: string | null;
+    externalIdentifier?: string | null;
+    normalizedResult?: Record<string, unknown> | null;
+    errorMessage?: string | null;
+    retryCount: number;
+    validatedAt?: string | null;
+    createdAt: string;
+  }>;
+  documents: Array<{
+    id: string;
+    category: string;
+    notes?: string | null;
+    createdAt: string;
+    fileAttachment: {
+      id: string;
+      originalName: string;
+      mimeType: string;
+      size: number;
+      url: string;
+      category: string;
+      createdAt: string;
+    };
+  }>;
+  audits: Array<{
+    id: string;
+    action: string;
+    reason?: string | null;
+    actorUserId?: string | null;
+    createdAt: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PatientBenefitsCoveragesResponse = {
+  summary: {
+    total: number;
+    active: number;
+    pendingValidation: number;
+    documents: number;
+    nextExpiration?: { providerName: string; endsAt: string } | null;
+  };
+  items: PatientBenefitCoverage[];
+};
+
+export type ValidateInsurancePayload = {
+  coverageId: string;
+  mode?: CoverageValidationMode;
+  status?: PatientBenefitCoverageStatus;
+  providerName?: string;
+  externalIdentifier?: string;
+  requestSnapshot?: Record<string, unknown>;
+  responseSnapshot?: Record<string, unknown>;
+  normalizedResult?: {
+    active?: boolean;
+    holderName?: string;
+    beneficiaryName?: string;
+    coveragePercent?: number;
+    copayAmount?: number;
+    deductibleAmount?: number;
+    annualLimitAmount?: number;
+    requiresAuthorization?: boolean;
+    exclusions?: string;
+    validUntil?: string;
+  };
+  errorMessage?: string;
 };
 
 export type PatientTimelineEvent = {
@@ -373,6 +533,38 @@ export async function deactivatePatient(id: string) {
 
 export async function getPatientTimeline(id: string) {
   const { data } = await http.get<PatientTimelineEvent[]>(`/patients/${id}/timeline`);
+  return data;
+}
+
+export async function listPatientBenefitsCoverages(id: string) {
+  const { data } = await http.get<PatientBenefitsCoveragesResponse>(`/patients/${id}/benefits-coverages`);
+  return data;
+}
+
+export async function createPatientBenefitCoverage(id: string, payload: PatientBenefitCoveragePayload, idempotencyKey: string) {
+  const { data } = await http.post<PatientBenefitCoverage>(`/patients/${id}/benefits-coverages`, payload, {
+    headers: { "Idempotency-Key": idempotencyKey }
+  });
+  return data;
+}
+
+export async function updatePatientBenefitCoverage(id: string, coverageId: string, payload: Partial<PatientBenefitCoveragePayload> & { expectedVersion?: number }) {
+  const { data } = await http.patch<PatientBenefitCoverage>(`/patients/${id}/benefits-coverages/${coverageId}`, payload);
+  return data;
+}
+
+export async function changePatientBenefitCoverageStatus(id: string, coverageId: string, action: "activate" | "deactivate" | "cancel", reason?: string) {
+  const { data } = await http.post<PatientBenefitCoverage>(`/patients/${id}/benefits-coverages/${coverageId}/${action}`, { reason });
+  return data;
+}
+
+export async function validatePatientInsurance(id: string, payload: ValidateInsurancePayload) {
+  const { data } = await http.post(`/patients/${id}/insurance-validations`, payload);
+  return data;
+}
+
+export async function listEligiblePatientCoverages(id: string, params?: { treatmentPlanId?: string }) {
+  const { data } = await http.get<PatientBenefitsCoveragesResponse>(`/patients/${id}/eligible-coverages`, { params });
   return data;
 }
 

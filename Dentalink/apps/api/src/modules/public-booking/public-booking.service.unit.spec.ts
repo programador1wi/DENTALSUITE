@@ -55,6 +55,7 @@ function buildService({
   const configService = {
     get: jest.fn((key: string) => (key === "JWT_ACCESS_SECRET" ? "secret" : undefined))
   };
+  const patientIdentityService = {};
 
   return {
     prisma,
@@ -64,7 +65,8 @@ function buildService({
       prisma as never,
       appointmentsService as never,
       jwtService as never,
-      configService as never
+      configService as never,
+      patientIdentityService as never
     )
   };
 }

@@ -4,6 +4,7 @@ import type { Appointment, AppointmentStatus } from "../services/appointments.se
 import type { Professional } from "@/features/settings/professionals/services/professionals.service";
 import type { Schedule } from "@/features/settings/schedules/services/schedules.service";
 import { CalendarDays, Clock, Plus, UserRound } from "lucide-react";
+import { useState } from "react";
 
 import { AppointmentCard } from "./appointment-card";
 import type { AppointmentMenuAction } from "./appointment-actions-menu";
@@ -26,6 +27,8 @@ type CalendarCreateSlot = {
   professionalId: string;
   branchId?: string;
   chairId?: string;
+  chairIndex?: number;
+  allowOverbooking?: boolean;
   status?: AppointmentStatus;
   startAt: string;
   endAt: string;
@@ -112,6 +115,7 @@ export function CalendarView({
     : standardSlotHeight;
   const fallbackTimelineStartMinutes = normalizedDayStartHour * 60;
   const fallbackTimelineEndMinutes = normalizedDayEndHour * 60;
+  const [selectedWeeklyLane, setSelectedWeeklyLane] = useState<number | "OVERBOOKING">(1);
 
   if (view === "week") {
     const weekStart = getWeekStart(parseDateInput(date));
@@ -151,6 +155,16 @@ export function CalendarView({
     }
 
     const selectedAppointments = appointmentsInWeek.filter((appointment) => appointment.professionalId === selectedProfessional.id);
+    const weeklySchedules = schedules.filter(
+      (schedule) =>
+        schedule.professionalId === selectedProfessional.id &&
+        schedule.isActive &&
+        (!selectedBranchId || schedule.branchId === selectedBranchId)
+    );
+    const maxWeeklyChairs = Math.max(1, ...weeklySchedules.map((schedule) => schedule.simultaneousChairs ?? 1));
+    const effectiveWeeklyLane =
+      selectedWeeklyLane === "OVERBOOKING" ? "OVERBOOKING" : Math.min(selectedWeeklyLane, maxWeeklyChairs);
+    const weeklyChairTabs = Array.from({ length: maxWeeklyChairs }, (_, index) => index + 1);
     const appointmentsByDay = selectedAppointments.reduce<Record<string, Appointment[]>>((acc, appointment) => {
       const key = dayKey(appointment.startAt);
       acc[key] = [...(acc[key] ?? []), appointment];
@@ -160,6 +174,33 @@ export function CalendarView({
 
     return (
       <div className="w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-sm overflow-hidden">
+        <div className="flex flex-wrap gap-2 border-b border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2">
+          {weeklyChairTabs.map((chairIndex) => (
+            <button
+              key={chairIndex}
+              type="button"
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                effectiveWeeklyLane === chairIndex
+                  ? "bg-[var(--action-brand)] text-white"
+                  : "bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              }`}
+              onClick={() => setSelectedWeeklyLane(chairIndex)}
+            >
+              Sillon {chairIndex}
+            </button>
+          ))}
+          <button
+            type="button"
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+              effectiveWeeklyLane === "OVERBOOKING"
+                ? "bg-[var(--action-brand)] text-white"
+                : "bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            }`}
+            onClick={() => setSelectedWeeklyLane("OVERBOOKING")}
+          >
+            Sobreagendamiento
+          </button>
+        </div>
         <div className="overflow-x-auto">
           <div className="min-w-[980px]">
             <div
@@ -206,10 +247,15 @@ export function CalendarView({
               </div>
 
               {days.map((day) => {
-                const dayAppointments = appointmentsByDay[day.key] ?? [];
-                const dayBreaks = schedules.filter(
+                const daySchedule = weeklySchedules.find((schedule) => schedule.dayOfWeek === day.date.getDay());
+                const selectedChairIndex = effectiveWeeklyLane === "OVERBOOKING" ? null : effectiveWeeklyLane;
+                const dayAppointments = (appointmentsByDay[day.key] ?? []).filter((appointment) =>
+                  effectiveWeeklyLane === "OVERBOOKING"
+                    ? appointment.isOverbooking
+                    : !appointment.isOverbooking && (appointment.chairIndex ?? 1) === selectedChairIndex
+                );
+                const dayBreaks = weeklySchedules.filter(
                   (schedule) =>
-                    schedule.professionalId === selectedProfessional.id &&
                     schedule.dayOfWeek === day.date.getDay() &&
                     schedule.breakStartTime &&
                     schedule.breakEndTime
@@ -221,29 +267,61 @@ export function CalendarView({
                     className="relative border-r border-[var(--border-default)] bg-[var(--bg-surface)] last:border-r-0"
                     style={{ height: totalTimelineHeight }}
                   >
-                    {dayTimeSlots.map((time, index) => (
-                      <button
-                        key={time}
-                        type="button"
-                        onClick={() => {
-                          if (onCreateSlotClick) {
-                            onCreateSlotClick({
-                              professionalId: selectedProfessional.id,
-                              branchId: selectedBranchId || undefined,
-                              ...slotRange(day.key, time, normalizedDaySlotMinutes)
-                            });
-                            return;
-                          }
-                          onCreateClick?.();
-                        }}
-                        className="group absolute left-0 right-0 border-b border-[var(--border-default)]/50 transition-colors hover:bg-[var(--bg-brand-light)]/40"
-                        style={{ top: index * daySlotHeight, height: daySlotHeight }}
-                      >
-                        <span className="pointer-events-none absolute inset-1 flex items-center justify-center rounded-md text-[var(--text-brand)] opacity-0 transition-opacity group-hover:opacity-100">
-                          <Plus className="h-3.5 w-3.5" />
-                        </span>
-                      </button>
-                    ))}
+                    {dayTimeSlots.flatMap((time, index) => {
+                      const slotStartMinutes = timeToMinutes(time);
+                      const slotEndMinutes = slotStartMinutes === null ? null : slotStartMinutes + normalizedDaySlotMinutes;
+                      const scheduleStartMinutes = daySchedule ? timeToMinutes(daySchedule.startTime) : null;
+                      const scheduleEndMinutes = daySchedule ? timeToMinutes(daySchedule.endTime) : null;
+                      const normalLaneAvailable =
+                        effectiveWeeklyLane !== "OVERBOOKING" &&
+                        daySchedule &&
+                        selectedChairIndex !== null &&
+                        selectedChairIndex <= (daySchedule.simultaneousChairs ?? 1);
+                      const insideSchedule =
+                        slotStartMinutes !== null &&
+                        slotEndMinutes !== null &&
+                        scheduleStartMinutes !== null &&
+                        scheduleEndMinutes !== null &&
+                        slotStartMinutes >= scheduleStartMinutes &&
+                        slotEndMinutes <= scheduleEndMinutes;
+                      const overlapsBreak =
+                        slotStartMinutes !== null &&
+                        slotEndMinutes !== null &&
+                        dayBreaks.some((schedule) =>
+                          rangeOverlapsTimeRange(slotStartMinutes, slotEndMinutes, schedule.breakStartTime, schedule.breakEndTime)
+                        );
+                      const shouldRenderSlot =
+                        effectiveWeeklyLane === "OVERBOOKING"
+                          ? Boolean(daySchedule && insideSchedule && !overlapsBreak)
+                          : Boolean(normalLaneAvailable && insideSchedule && !overlapsBreak);
+                      if (!shouldRenderSlot) return [];
+
+                      return [
+                        <button
+                          key={time}
+                          type="button"
+                          onClick={() => {
+                            if (onCreateSlotClick) {
+                              onCreateSlotClick({
+                                professionalId: selectedProfessional.id,
+                                branchId: selectedBranchId || undefined,
+                                chairIndex: selectedChairIndex ?? undefined,
+                                allowOverbooking: effectiveWeeklyLane === "OVERBOOKING",
+                                ...slotRange(day.key, time, normalizedDaySlotMinutes)
+                              });
+                              return;
+                            }
+                            onCreateClick?.();
+                          }}
+                          className="group absolute left-0 right-0 border-b border-[var(--border-default)]/50 transition-colors hover:bg-[var(--bg-brand-light)]/40"
+                          style={{ top: index * daySlotHeight, height: daySlotHeight }}
+                        >
+                          <span className="pointer-events-none absolute inset-1 flex items-center justify-center rounded-md text-[var(--text-brand)] opacity-0 transition-opacity group-hover:opacity-100">
+                            <Plus className="h-3.5 w-3.5" />
+                          </span>
+                        </button>
+                      ];
+                    })}
 
                     {dayAppointments.map((appointment) => {
                       const placement = getAppointmentPlacement(appointment, {
@@ -355,6 +433,11 @@ export function CalendarView({
 
     const displayProfessionalIds = new Set(displayProfessionals.map((professional) => professional.id));
     const daySchedules = schedulesForDate.filter((schedule) => displayProfessionalIds.has(schedule.professionalId));
+    const displayColumns = displayProfessionals.flatMap((professional) => {
+      const professionalSchedules = daySchedules.filter((schedule) => schedule.professionalId === professional.id);
+      const maxChairs = Math.max(1, ...professionalSchedules.map((schedule) => schedule.simultaneousChairs ?? 1));
+      return Array.from({ length: maxChairs }, (_, index) => ({ professional, chairIndex: index + 1 }));
+    });
     const dayTimelineRange = resolveAgendaTimelineRange({
       schedules: daySchedules,
       fallbackStartHour: normalizedDayStartHour,
@@ -385,9 +468,9 @@ export function CalendarView({
 
               {/* Columns list for each active professional */}
               <div className="flex flex-1 divide-x divide-[var(--border-default)]/40">
-                {displayProfessionals.map((prof) => {
+                {displayColumns.map(({ professional: prof, chairIndex }) => {
                   const profApps = appointmentsForDate
-                    .filter((a) => a.professionalId === prof.id)
+                    .filter((a) => a.professionalId === prof.id && !a.isOverbooking && (a.chairIndex ?? 1) === chairIndex)
                     .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
                   const profAppsCount = profApps.length;
                   const professionalAgenda = getProfessionalBranchAgendaConfig(prof, selectedBranchId, normalizedDaySlotMinutes);
@@ -412,7 +495,7 @@ export function CalendarView({
                   const busyAppointments = profApps.filter((appointment) => !FREE_APPOINTMENT_STATUSES.has(appointment.status));
 
                   return (
-                    <div key={prof.id} className="flex-1 max-w-[340px] shrink-0 min-w-[220px] flex flex-col">
+                    <div key={`${prof.id}-${chairIndex}`} className="flex-1 max-w-[340px] shrink-0 min-w-[220px] flex flex-col">
                       {/* Professional Info Column Header */}
                       <div className="sticky top-0 h-10 bg-[var(--bg-surface)]/95 backdrop-blur-md border-b border-[var(--border-default)]/60 flex z-20 shrink-0">
                         <div className="w-8 shrink-0 border-r border-[var(--border-default)]/60 bg-[var(--bg-subtle)]/40 flex items-center justify-center select-none">
@@ -424,6 +507,9 @@ export function CalendarView({
                               <p className="text-xs font-semibold text-[var(--text-primary)] truncate">
                                 {prof.firstName} {prof.lastName}
                               </p>
+                              <span className="inline-flex items-center rounded-full bg-[var(--bg-brand-light)] px-1.5 py-0.5 text-[8px] font-bold text-[var(--text-brand)] shrink-0 select-none">
+                                Sillon {chairIndex}
+                              </span>
                               <span className="inline-flex items-center rounded-full bg-[var(--bg-subtle)] border border-[var(--border-default)]/60 px-1.5 py-0.5 text-[8px] font-medium text-[var(--text-secondary)] shrink-0 select-none">
                                 {profAppsCount} {profAppsCount === 1 ? "cita" : "citas"}
                               </span>
@@ -516,6 +602,7 @@ export function CalendarView({
                                   });
 
                             if (!isInsideSchedule || overlapsBreak || overlapsBusyAppointment || !placement) return null;
+                            if (professionalSchedule && chairIndex > (professionalSchedule.simultaneousChairs ?? 1)) return null;
 
                             return (
                               <button
@@ -526,6 +613,7 @@ export function CalendarView({
                                     onCreateSlotClick({
                                       professionalId: prof.id,
                                       branchId: selectedBranchId || undefined,
+                                      chairIndex,
                                       ...slotRange(date, time, professionalAgenda.defaultAppointmentDurationMinutes)
                                     });
                                     return;

@@ -4,7 +4,14 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import {
   CashMovementType,
   CashRegisterStatus,
+  CommunicationChannel,
+  CommunicationJobStatus,
+  AuthorizationStatus,
+  LedgerEntryStatus,
+  LedgerEntryType,
+  LedgerSourceType,
   InstallmentFrequency,
+  InstallmentPlanStatus,
   InstallmentStatus,
   PaymentLinkStatus,
   PaymentStatus,
@@ -17,6 +24,7 @@ import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
+import { EmailService } from "../notifications/email.service";
 import {
   AddPaymentAllocationsDto,
   CloseCashRegisterDto,
@@ -25,22 +33,30 @@ import {
   CreatePaymentDto,
   CreatePaymentLinkDto,
   CreateRefundDto,
+  DailyReceiptQueryDto,
   ListAccountsReceivableQueryDto,
   ListCashRegistersQueryDto,
   ListCancelledPendingPaymentsQueryDto,
+  ListPatientCoverageAuthorizationsQueryDto,
+  ListPatientCoverageCasesQueryDto,
+  ListPatientFinancialDocumentsQueryDto,
   ListInstallmentsQueryDto,
   ListPaymentLinksQueryDto,
   ListPaymentsQueryDto,
   ListRefundsQueryDto,
   OpenCashRegisterDto,
   PayInstallmentDto,
+  ReceiptEmailDto,
   UpdatePaymentDto,
   VoidPaymentDto
 } from "./dto/payments.dto";
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService?: EmailService
+  ) {}
 
   private paymentDetailInclude() {
     return {
@@ -52,6 +68,7 @@ export class PaymentsService {
           lastName: true,
           documentNumber: true,
           birthDate: true,
+          email: true,
           agreement: { select: { id: true, name: true } }
         }
       },
@@ -60,10 +77,20 @@ export class PaymentsService {
           id: true,
           name: true,
           phone: true,
+          countryCode: true,
           email: true,
+          replyToEmail: true,
+          website: true,
           address: true,
+          exteriorNumber: true,
+          interiorNumber: true,
+          neighborhood: true,
+          postalCode: true,
+          municipality: true,
           city: true,
           state: true,
+          country: true,
+          timezone: true,
           brand: {
             select: {
               id: true,
@@ -71,6 +98,8 @@ export class PaymentsService {
               legalName: true,
               shortName: true,
               logoUrl: true,
+              primaryColor: true,
+              secondaryColor: true,
               phone: true,
               senderEmail: true,
               replyToEmail: true,
@@ -500,6 +529,21 @@ export class PaymentsService {
           });
         }
 
+        await tx.patientLedgerEntry.create({
+          data: {
+            organizationId: actor.organizationId,
+            branchId: payment.branchId,
+            patientId: payment.patientId,
+            occurredAt: payment.paidAt,
+            entryType: LedgerEntryType.PAYMENT,
+            sourceType: LedgerSourceType.PAYMENT,
+            sourceId: payment.id,
+            creditAmount: amount,
+            currency: payment.currency,
+            descriptionSnapshot: `Pago #${paymentNumber}`
+          }
+        });
+
         if (dto.allocations?.length) {
           await this.applyAllocations(tx, actor, payment.id, dto.allocations);
         }
@@ -618,7 +662,8 @@ export class PaymentsService {
     };
 
     const patientName = `${payment.patient?.firstName ?? ""} ${payment.patient?.lastName ?? ""}`.trim();
-    const brandName = payment.branch?.brand?.shortName || payment.branch?.brand?.name || payment.organization?.name || "Clinica";
+    const branding = payment.receiptBranding;
+    const brandName = branding.businessName;
     page.drawText(brandName, { x: margin, y, size: 18, font: bold, color: rgb(0.02, 0.25, 0.45) });
     page.drawText(`Pago #${payment.paymentNumber}`, { x: 430, y, size: 12, font: bold, color: rgb(0.02, 0.25, 0.45) });
     y -= 34;
@@ -641,7 +686,7 @@ export class PaymentsService {
 
     drawText("Prestaciones", margin, 12, bold);
     for (const row of payment.breakdown ?? []) {
-      drawText(`${row.detail} | Plan #${row.treatmentNumber} | Precio ${this.formatCurrency(row.baseAmount)} | Pagado ${this.formatCurrency(row.paidAmount)}`, margin, 8);
+      drawText(`${this.humanizeReceiptDetail(row.detail)} | Plan #${row.treatmentNumber} | Precio ${this.formatCurrency(row.baseAmount)} | Pagado ${this.formatCurrency(row.paidAmount)}`, margin, 8);
       if (y < 120) break;
     }
     drawRule();
@@ -653,13 +698,232 @@ export class PaymentsService {
     drawText(`Total: ${this.formatCurrency(payment.amount)} ${payment.currency ?? ""}`, margin, 11, bold);
 
     y = 70;
-    drawText([payment.branch?.address, payment.branch?.city, payment.branch?.state].filter(Boolean).join(", ") || payment.organization?.address || "-", margin, 8);
-    drawText([payment.branch?.phone || payment.branch?.brand?.phone || payment.organization?.phone, payment.branch?.email || payment.branch?.brand?.senderEmail || payment.organization?.email].filter(Boolean).join(" · ") || "-", margin, 8);
+    drawText(branding.address || payment.organization?.address || "-", margin, 8);
+    drawText([branding.phone || payment.organization?.phone, branding.email || payment.organization?.email].filter(Boolean).join(" - ") || "-", margin, 8);
     const bytes = await pdf.save();
     return {
       bytes,
       fileName: `Comprobante_Pago_${payment.paymentNumber}_${patientName.replace(/[^a-zA-Z0-9]+/g, "_") || "Paciente"}.pdf`
     };
+  }
+
+  async getDailyReceiptPdf(actor: AuthUser, paymentId: string) {
+    const basePayment = await this.getPayment(actor, paymentId);
+    const date = this.localDateString(basePayment.paidAt, basePayment.branch?.timezone);
+    return this.getPatientDailyReceiptPdf(actor, basePayment.patientId, { date, branchId: basePayment.branchId });
+  }
+
+  async getPatientDailyReceipt(actor: AuthUser, patientId: string, query: DailyReceiptQueryDto) {
+    this.assertLocalDate(query.date);
+    const branch = await this.prisma.branch.findFirst({
+      where: { id: branchScope(actor, query.branchId), organizationId: actor.organizationId },
+      select: { id: true, name: true, timezone: true, phone: true, email: true, address: true, city: true, state: true, brand: true }
+    });
+    if (!branch) throw new NotFoundException("Branch not found");
+
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patientId, organizationId: actor.organizationId },
+      select: { id: true, firstName: true, lastName: true, birthDate: true, documentNumber: true, email: true, agreement: { select: { id: true, name: true } } }
+    });
+    if (!patient) throw new NotFoundException("Patient not found");
+
+    const range = this.zonedDayRange(query.date, branch.timezone);
+    const paymentsRaw = await this.prisma.payment.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        patientId,
+        branchId: branch.id,
+        paidAt: { gte: range.start, lt: range.end },
+        status: { in: [PaymentStatus.RECEIVED, PaymentStatus.PARTIALLY_ALLOCATED, PaymentStatus.ALLOCATED] }
+      },
+      include: this.paymentDetailInclude(),
+      orderBy: { paidAt: "asc" }
+    });
+    if (!paymentsRaw.length) throw new NotFoundException("No existen pagos validos para esta fecha.");
+
+    const payments = paymentsRaw.map((payment) => this.enrichPayment(payment));
+    const totalAmount = this.roundMoney(payments.reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0));
+    const paymentMethods = payments.flatMap((payment: any) =>
+      this.publicPaymentMethods(payment).map((method: any) => ({ ...method, paymentNumber: payment.paymentNumber }))
+    );
+    const breakdown = payments.flatMap((payment: any) =>
+      (payment.breakdown ?? []).map((row: any) => ({ ...row, paymentNumber: payment.paymentNumber }))
+    );
+    const treatments = new Map<string, { id: string; number: string; name: string; procedures: Set<string> }>();
+    for (const payment of payments as any[]) {
+      for (const treatment of payment.treatmentRefs ?? []) {
+        const current = treatments.get(treatment.id) ?? { id: treatment.id, number: treatment.number, name: treatment.name, procedures: new Set<string>() };
+        for (const procedure of treatment.procedures ?? []) current.procedures.add(procedure);
+        treatments.set(treatment.id, current);
+      }
+    }
+
+    await this.audit(this.prisma, actor, {
+      entity: "Payment",
+      action: "daily_receipt_view",
+      after: {
+        patientId,
+        branchId: branch.id,
+        date: query.date,
+        paymentNumbers: payments.map((payment: any) => payment.paymentNumber),
+        totalAmount
+      }
+    });
+
+    return {
+      receiptType: "DAILY" as const,
+      date: query.date,
+      printedAt: new Date(),
+      patient,
+      branch,
+      receiptBranding: this.resolveReceiptBranding((payments[0] as any).branch, (payments[0] as any).organization),
+      payments,
+      paymentNumbers: payments.map((payment: any) => payment.paymentNumber),
+      totalAmount,
+      paymentMethods,
+      breakdown,
+      treatments: Array.from(treatments.values()).map((treatment) => ({
+        ...treatment,
+        procedures: Array.from(treatment.procedures)
+      }))
+    };
+  }
+
+  async getPatientDailyReceiptPdf(actor: AuthUser, patientId: string, query: DailyReceiptQueryDto) {
+    const receipt = await this.getPatientDailyReceipt(actor, patientId, query);
+    const pdf = await PDFDocument.create();
+    const page = pdf.addPage([595.28, 841.89]);
+    const regular = await pdf.embedFont(StandardFonts.Helvetica);
+    const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+    const margin = 42;
+    let y = 790;
+    const drawText = (text: string, x: number, size = 10, font = regular, color = rgb(0.1, 0.15, 0.25)) => {
+      page.drawText(text.slice(0, 115), { x, y, size, font, color });
+      y -= size + 7;
+    };
+    const drawRule = () => {
+      page.drawLine({ start: { x: margin, y }, end: { x: 553, y }, thickness: 0.7, color: rgb(0.72, 0.76, 0.82) });
+      y -= 18;
+    };
+
+    const patientName = `${receipt.patient.firstName ?? ""} ${receipt.patient.lastName ?? ""}`.trim();
+    const branding = receipt.receiptBranding;
+    const brandName = branding.businessName;
+    page.drawText(brandName, { x: margin, y, size: 18, font: bold, color: rgb(0.02, 0.25, 0.45) });
+    page.drawText(`Fecha: ${this.formatLocalDate(receipt.date)}`, { x: 410, y, size: 12, font: bold, color: rgb(0.02, 0.25, 0.45) });
+    y -= 34;
+    page.drawText("Comprobante de pago diario", { x: 190, y, size: 17, font: bold, color: rgb(0, 0, 0) });
+    y -= 34;
+
+    drawText(`Paciente: ${patientName || "-"}`, margin, 10, bold);
+    drawText(`Documento: ${receipt.patient.documentNumber ?? "-"}`, margin);
+    drawText(`Fecha: ${this.formatLocalDate(receipt.date)}`, margin);
+    drawText(`Sucursal: ${receipt.branch?.name ?? "-"}`, margin);
+    drawRule();
+
+    drawText("Tratamientos pagados", margin, 12, bold);
+    for (const treatment of receipt.treatments) {
+      drawText(`#${treatment.number} - ${treatment.name}`, margin, 10, bold);
+      for (const procedure of treatment.procedures ?? []) drawText(`  ${procedure}`, margin + 14, 9);
+    }
+    if (receipt.treatments.length === 0) drawText("Pagos recibidos sin aplicaciones a tratamiento.", margin);
+    drawRule();
+
+    drawText("Prestaciones", margin, 12, bold);
+    for (const row of receipt.breakdown) {
+      drawText(`${this.humanizeReceiptDetail(row.detail)} | Pago #${row.paymentNumber} | Plan #${row.treatmentNumber} | Precio ${this.formatCurrency(row.baseAmount)} | Pagado ${this.formatCurrency(row.paidAmount)}`, margin, 8);
+      if (y < 120) {
+        drawText("...", margin, 8);
+        break;
+      }
+    }
+    drawRule();
+
+    drawText("Transacciones", margin, 12, bold);
+    for (const split of receipt.paymentMethods) {
+      drawText(`Pago #${split.paymentNumber} | ${split.name} | Ref. ${split.reference ?? "-"} | ${this.formatCurrency(split.amount)}`, margin);
+    }
+    drawText(`Total: ${this.formatCurrency(receipt.totalAmount)} MXN`, margin, 11, bold);
+
+    y = 70;
+    drawText(branding.address || "-", margin, 8);
+    drawText([branding.phone, branding.email].filter(Boolean).join(" - ") || "-", margin, 8);
+
+    const bytes = await pdf.save();
+    return {
+      bytes,
+      fileName: `Comprobante_Diario_${receipt.date}_${patientName.replace(/[^a-zA-Z0-9]+/g, "_") || "Paciente"}.pdf`
+    };
+  }
+
+  async sendPaymentReceiptEmail(actor: AuthUser, paymentId: string, dto: ReceiptEmailDto) {
+    const { payment } = await this.getPaymentReceipt(actor, paymentId);
+    const patientEmail = this.normalizeReceiptEmail(payment.patient?.email);
+    if (!patientEmail) throw new BadRequestException("El paciente no tiene un correo registrado.");
+    const to = this.normalizeReceiptEmail(dto.to);
+    if (!to || to !== patientEmail) throw new BadRequestException("El destinatario debe ser el correo registrado del paciente.");
+    const pdf = await this.getPaymentReceiptPdf(actor, paymentId);
+    return this.queueAndSendReceiptEmail(actor, {
+      patientId: payment.patientId,
+      paymentId: payment.id,
+      branchId: payment.branchId,
+      recipient: to,
+      subject: dto.subject,
+      message: dto.message,
+      fileName: pdf.fileName,
+      bytes: Buffer.from(pdf.bytes),
+      templateKey: "payment_receipt",
+      idempotencyKey: dto.idempotencyKey,
+      documentType: "PAYMENT_RECEIPT",
+      documentTitle: `Comprobante de pago #${payment.paymentNumber}`,
+      patientName: this.displayName(payment.patient),
+      branding: payment.receiptBranding,
+      summaryRows: [
+        ["Numero de pago", `#${payment.paymentNumber}`],
+        ["Fecha", payment.paidAt ? new Date(payment.paidAt).toLocaleDateString("es-MX") : "-"],
+        ["Monto", `${this.formatCurrency(payment.amount)} ${payment.currency ?? "MXN"}`],
+        ["Medio de pago", (payment.paymentMethods ?? [])[0]?.name ?? payment.paymentMethod?.name ?? "-"],
+        ["Plan", (payment.treatmentRefs ?? [])[0] ? `#${payment.treatmentRefs[0].number} - ${payment.treatmentRefs[0].name}` : "-"]
+      ],
+      metadata: { receiptType: "PAYMENT", paymentNumber: payment.paymentNumber, totalAmount: Number(payment.amount ?? 0) }
+    });
+  }
+
+  async sendPatientDailyReceiptEmail(actor: AuthUser, patientId: string, query: DailyReceiptQueryDto, dto: ReceiptEmailDto) {
+    const receipt = await this.getPatientDailyReceipt(actor, patientId, query);
+    const patientEmail = this.normalizeReceiptEmail(receipt.patient.email);
+    if (!patientEmail) throw new BadRequestException("El paciente no tiene un correo registrado.");
+    const to = this.normalizeReceiptEmail(dto.to);
+    if (!to || to !== patientEmail) throw new BadRequestException("El destinatario debe ser el correo registrado del paciente.");
+    const pdf = await this.getPatientDailyReceiptPdf(actor, patientId, query);
+    return this.queueAndSendReceiptEmail(actor, {
+      patientId,
+      branchId: receipt.branch.id,
+      recipient: to,
+      subject: dto.subject,
+      message: dto.message,
+      fileName: pdf.fileName,
+      bytes: Buffer.from(pdf.bytes),
+      templateKey: "payment_daily_receipt",
+      idempotencyKey: dto.idempotencyKey,
+      documentType: "DAILY_PAYMENT_RECEIPT",
+      documentTitle: `Comprobante diario de pagos - ${this.formatLocalDate(receipt.date)}`,
+      patientName: this.displayName(receipt.patient),
+      branding: receipt.receiptBranding,
+      summaryRows: [
+        ["Fecha", this.formatLocalDate(receipt.date)],
+        ["Pagos incluidos", receipt.paymentNumbers.join(", ")],
+        ["Cantidad de pagos", String(receipt.paymentNumbers.length)],
+        ["Total del dia", `${this.formatCurrency(receipt.totalAmount)} MXN`],
+        ["Sucursal", receipt.receiptBranding.businessName]
+      ],
+      metadata: {
+        receiptType: "DAILY",
+        date: receipt.date,
+        paymentNumbers: receipt.paymentNumbers,
+        totalAmount: receipt.totalAmount
+      }
+    });
   }
 
   async addAllocations(actor: AuthUser, paymentId: string, dto: AddPaymentAllocationsDto) {
@@ -778,6 +1042,21 @@ export class PaymentsService {
           voidReason: reason,
           voidedAt: new Date(),
           voidedById: actor.id
+        }
+      });
+
+      await tx.patientLedgerEntry.create({
+        data: {
+          organizationId: actor.organizationId,
+          branchId: payment.branchId,
+          patientId: payment.patientId,
+          occurredAt: new Date(),
+          entryType: LedgerEntryType.VOID,
+          sourceType: LedgerSourceType.PAYMENT,
+          sourceId: payment.id,
+          debitAmount: payment.amount,
+          currency: payment.currency,
+          descriptionSnapshot: `Anulacion de pago #${this.publicPaymentNumber(payment)}: ${reason}`
         }
       });
 
@@ -984,6 +1263,15 @@ export class PaymentsService {
       throw new BadRequestException("Down payment cannot be greater than total amount");
     }
 
+    const itemAllocations = this.normalizeInstallmentPlanItemAllocations(dto.itemAllocations);
+    if (itemAllocations.length) {
+      const selectedTotal = sumDecimals(itemAllocations.map((allocation) => allocation.amount));
+      if (!isDecimalEqual(selectedTotal, toDecimal(dto.totalAmount))) {
+        throw new BadRequestException("Installment item allocations must match total amount");
+      }
+      await this.validateInstallmentPlanItemAllocations(actor, dto.treatmentPlanId, itemAllocations);
+    }
+
     const financedAmount = this.roundMoney(dto.totalAmount - dto.downPayment);
     if (financedAmount <= 0) {
       throw new BadRequestException("Financed amount must be greater than zero");
@@ -991,6 +1279,10 @@ export class PaymentsService {
 
     const installmentAmounts = this.splitAmount(financedAmount, dto.numberOfInstallments);
     const created = await this.prisma.$transaction(async (tx) => {
+      if (itemAllocations.length) {
+        await this.validateInstallmentPlanItemAllocations(actor, dto.treatmentPlanId, itemAllocations, tx);
+      }
+
       const installmentPlan = await tx.installmentPlan.create({
         data: {
           organizationId: actor.organizationId,
@@ -1001,10 +1293,20 @@ export class PaymentsService {
           financedAmount: this.toDecimal(financedAmount),
           numberOfInstallments: dto.numberOfInstallments,
           frequency: dto.frequency ?? InstallmentFrequency.MONTHLY,
-          startDate: new Date(dto.startDate),
+          startDate: this.parseDateInput(dto.startDate),
           status: "ACTIVE"
         }
       });
+
+      for (const allocation of itemAllocations) {
+        await tx.installmentPlanItem.create({
+          data: {
+            installmentPlanId: installmentPlan.id,
+            treatmentPlanItemId: allocation.treatmentPlanItemId,
+            amount: allocation.amount
+          }
+        });
+      }
 
       for (let index = 0; index < dto.numberOfInstallments; index += 1) {
         await tx.installment.create({
@@ -1012,7 +1314,7 @@ export class PaymentsService {
             installmentPlanId: installmentPlan.id,
             patientId: dto.patientId,
             number: index + 1,
-            dueDate: this.shiftDate(new Date(dto.startDate), dto.frequency ?? InstallmentFrequency.MONTHLY, index),
+            dueDate: this.shiftDate(this.parseDateInput(dto.startDate), dto.frequency ?? InstallmentFrequency.MONTHLY, index),
             amount: this.toDecimal(installmentAmounts[index]),
             paidAmount: this.toDecimal(0),
             status: InstallmentStatus.PENDING
@@ -1025,19 +1327,38 @@ export class PaymentsService {
         entityId: installmentPlan.id,
         action: "create",
         after: {
-          patientId: dto.patientId,
-          treatmentPlanId: dto.treatmentPlanId,
-          totalAmount: dto.totalAmount,
-          financedAmount
-        }
-      });
+            patientId: dto.patientId,
+            treatmentPlanId: dto.treatmentPlanId,
+            totalAmount: dto.totalAmount,
+            financedAmount,
+            itemAllocations: itemAllocations.map((allocation) => ({
+              treatmentPlanItemId: allocation.treatmentPlanItemId,
+              amount: allocation.amount.toString()
+            }))
+          }
+        });
 
       return installmentPlan.id;
     });
 
     return this.prisma.installmentPlan.findFirst({
       where: { id: created, organizationId: actor.organizationId },
-      include: { installments: { orderBy: { number: "asc" } } }
+      include: {
+        installments: { orderBy: { number: "asc" } },
+        items: {
+          include: {
+            treatmentPlanItem: {
+              select: {
+                id: true,
+                procedure: { select: { id: true, code: true, name: true } },
+                toothNumber: true,
+                surface: true
+              }
+            }
+          },
+          orderBy: { createdAt: "asc" }
+        }
+      }
     });
   }
 
@@ -1458,6 +1779,14 @@ export class PaymentsService {
               section: { select: { id: true, name: true } },
               paymentAllocations: {
                 include: { payment: { select: { id: true, status: true } } }
+              },
+              installmentPlanItems: {
+                where: {
+                  installmentPlan: {
+                    status: { in: [InstallmentPlanStatus.DRAFT, InstallmentPlanStatus.ACTIVE, InstallmentPlanStatus.DEFAULTED] }
+                  }
+                },
+                select: { amount: true }
               }
             },
             orderBy: { createdAt: "asc" }
@@ -1472,11 +1801,153 @@ export class PaymentsService {
     return { payments: payments.map((payment) => this.enrichPayment(payment)), links, installments, balance, payablePlans, payableItems };
   }
 
+  async getPatientBillingSummary(actor: AuthUser, patientId: string) {
+    await this.ensurePatient(actor, patientId);
+    const [balance, documents, reimbursements, onlineBenefits, refunds, voidedPayments, ledgerEntries] = await Promise.all([
+      this.getPatientBalance(actor, patientId),
+      this.prisma.financialDocument.count({
+        where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) }
+      }),
+      this.prisma.coverageCase.count({
+        where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) }
+      }),
+      this.prisma.coverageAuthorization.count({
+        where: {
+          coverageCase: {
+            organizationId: actor.organizationId,
+            patientId,
+            branchId: branchScope(actor)
+          }
+        }
+      }),
+      this.prisma.refund.count({
+        where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) }
+      }),
+      this.prisma.payment.count({
+        where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor), status: PaymentStatus.VOIDED }
+      }),
+      this.prisma.patientLedgerEntry.count({
+        where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) }
+      })
+    ]);
+
+    return {
+      patientId,
+      balance,
+      counts: {
+        documents,
+        reimbursements,
+        onlineBenefits,
+        refunds,
+        voidedPayments,
+        ledgerEntries
+      }
+    };
+  }
+
+  async listPatientFinancialDocuments(actor: AuthUser, patientId: string, query: ListPatientFinancialDocumentsQueryDto) {
+    await this.ensurePatient(actor, patientId);
+    const { skip, take } = resolvePagination(query);
+    return this.prisma.financialDocument.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        patientId,
+        branchId: branchScope(actor),
+        ...(query.type ? { type: query.type } : {}),
+        ...(query.status ? { status: query.status } : {})
+      },
+      include: {
+        branch: { select: { id: true, name: true } },
+        payment: { select: { id: true, paymentNumber: true, amount: true, status: true, paidAt: true } },
+        refund: { select: { id: true, amount: true, status: true, createdAt: true } },
+        treatmentPlan: { select: { id: true, name: true } },
+        files: true
+      },
+      orderBy: [{ issuedAt: "desc" }, { createdAt: "desc" }],
+      skip,
+      take
+    });
+  }
+
+  async listPatientReimbursementRequests(actor: AuthUser, patientId: string, query: ListPatientCoverageCasesQueryDto) {
+    await this.ensurePatient(actor, patientId);
+    const { skip, take } = resolvePagination(query);
+    const cases = await this.prisma.coverageCase.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        patientId,
+        branchId: branchScope(actor),
+        ...(query.status ? { status: query.status } : {})
+      },
+      include: {
+        agreement: { select: { id: true, name: true } },
+        authorizations: {
+          include: { treatmentPlan: { select: { id: true, name: true } } },
+          orderBy: { createdAt: "desc" }
+        }
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take
+    });
+
+    return cases.map((coverageCase) => {
+      const requestedAmount = this.roundMoney(coverageCase.authorizations.reduce((sum, row) => sum + Number(row.requestedAmount ?? 0), 0));
+      const approvedAmount = this.roundMoney(coverageCase.authorizations.reduce((sum, row) => sum + Number(row.authorizedAmount ?? 0), 0));
+      const paidAmount = this.roundMoney(coverageCase.authorizations.reduce((sum, row) => sum + Number(row.consumedAmount ?? 0), 0));
+      return {
+        ...coverageCase,
+        requestedAmount,
+        approvedAmount,
+        paidAmount
+      };
+    });
+  }
+
+  async listPatientOnlineBenefits(actor: AuthUser, patientId: string, query: ListPatientCoverageAuthorizationsQueryDto) {
+    await this.ensurePatient(actor, patientId);
+    const { skip, take } = resolvePagination(query);
+    return this.prisma.coverageAuthorization.findMany({
+      where: {
+        coverageCase: {
+          organizationId: actor.organizationId,
+          patientId,
+          branchId: branchScope(actor)
+        },
+        ...(query.status ? { status: query.status } : {})
+      },
+      include: {
+        treatmentPlan: { select: { id: true, name: true } },
+        coverageCase: {
+          select: {
+            id: true,
+            policyNumber: true,
+            status: true,
+            agreement: { select: { id: true, name: true } }
+          }
+        }
+      },
+      orderBy: { createdAt: "desc" },
+      skip,
+      take
+    });
+  }
+
+  async listPatientVoidedPayments(actor: AuthUser, patientId: string) {
+    await this.ensurePatient(actor, patientId);
+    const payments = await this.prisma.payment.findMany({
+      where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor), status: PaymentStatus.VOIDED },
+      include: this.paymentDetailInclude(),
+      orderBy: [{ voidedAt: "desc" }, { paidAt: "desc" }]
+    });
+    return payments.map((payment) => this.enrichPayment(payment));
+  }
+
   async getPatientBalance(actor: AuthUser, patientId: string) {
     await this.ensurePatient(actor, patientId);
 
     const billablePaymentStatus = { notIn: [PaymentStatus.REFUNDED, PaymentStatus.VOIDED] };
-    const [plannedTotal, allocatedTotal, totalPayments, overdueInstallments] = await Promise.all([
+    const [plannedTotal, allocatedTotal, totalPayments, overdueInstallments, activeRefunds, projectedCoverage] = await Promise.all([
       this.prisma.treatmentPlanItem.aggregate({
         _sum: { total: true },
         where: {
@@ -1512,14 +1983,37 @@ export class PaymentsService {
           dueDate: { lt: new Date() },
           status: { notIn: [InstallmentStatus.PAID, InstallmentStatus.CANCELLED] }
         }
+      }),
+      this.prisma.refund.aggregate({
+        _sum: { amount: true },
+        where: {
+          organizationId: actor.organizationId,
+          patientId,
+          branchId: branchScope(actor),
+          status: RefundStatus.PROCESSED
+        }
+      }),
+      this.prisma.coverageAuthorization.aggregate({
+        _sum: { authorizedAmount: true },
+        where: {
+          status: { in: [AuthorizationStatus.AUTHORIZED, AuthorizationStatus.PARTIALLY_AUTHORIZED] },
+          coverageCase: {
+            organizationId: actor.organizationId,
+            patientId,
+            branchId: branchScope(actor)
+          }
+        }
       })
     ]);
 
     const planned = Number(plannedTotal._sum.total ?? 0);
     const allocated = Number(allocatedTotal._sum.amount ?? 0);
     const paid = Number(totalPayments._sum.amount ?? 0);
+    const refunded = Number(activeRefunds._sum.amount ?? 0);
+    const coverage = Number(projectedCoverage._sum.authorizedAmount ?? 0);
     const outstanding = this.roundMoney(Math.max(planned - allocated, 0));
     const unallocatedCredit = this.roundMoney(Math.max(paid - allocated, 0));
+    const projectedBalance = this.roundMoney(Math.max(outstanding - coverage, 0));
 
     return {
       patientId,
@@ -1528,8 +2022,258 @@ export class PaymentsService {
       totalPaidAmount: paid,
       outstandingAmount: outstanding,
       unallocatedCredit,
-      overdueInstallments
+      overdueInstallments,
+      confirmedBalance: outstanding,
+      currentDueBalance: outstanding,
+      futureBalance: 0,
+      freeCreditBalance: unallocatedCredit,
+      refundedAmount: this.roundMoney(refunded),
+      projectedCoverage: this.roundMoney(coverage),
+      projectedBalance
     };
+  }
+
+  async getPatientLedger(actor: AuthUser, patientId: string) {
+    await this.ensurePatient(actor, patientId);
+    return this.prisma.patientLedgerEntry.findMany({
+      where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) },
+      include: {
+        branch: { select: { id: true, name: true } },
+        treatmentPlan: { select: { id: true, name: true } }
+      },
+      orderBy: { occurredAt: "desc" }
+    });
+  }
+
+  async getPatientPaymentBehavior(actor: AuthUser, patientId: string) {
+    await this.ensurePatient(actor, patientId);
+    const [ledgerEntries, treatmentItems, payments] = await Promise.all([
+      this.prisma.patientLedgerEntry.findMany({
+        where: {
+          organizationId: actor.organizationId,
+          patientId,
+          branchId: branchScope(actor),
+          status: LedgerEntryStatus.APPLIED,
+          entryType: { in: [LedgerEntryType.CHARGE, LedgerEntryType.PAYMENT, LedgerEntryType.REFUND, LedgerEntryType.VOID] }
+        },
+        orderBy: { occurredAt: "asc" }
+      }),
+      this.prisma.treatmentPlanItem.findMany({
+        where: {
+          treatmentPlan: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor), isAlternative: false },
+          status: { not: TreatmentPlanItemStatus.CANCELLED }
+        },
+        select: { id: true, total: true, createdAt: true }
+      }),
+      this.prisma.payment.findMany({
+        where: {
+          organizationId: actor.organizationId,
+          patientId,
+          branchId: branchScope(actor),
+          status: { notIn: [PaymentStatus.REFUNDED, PaymentStatus.VOIDED] }
+        },
+        select: { id: true, amount: true, paidAt: true }
+      })
+    ]);
+
+    const ledgerFinancialRows = ledgerEntries.map((entry) => ({
+      date: entry.occurredAt,
+      charges: Number(entry.debitAmount ?? 0),
+      payments: Number(entry.creditAmount ?? 0)
+    }));
+    const paymentRows = ledgerFinancialRows.length
+      ? ledgerFinancialRows
+      : payments.map((payment) => ({ date: payment.paidAt, charges: 0, payments: Number(payment.amount ?? 0) }));
+    const rows = [
+      ...treatmentItems.map((item) => ({ date: item.createdAt, charges: Number(item.total ?? 0), payments: 0 })),
+      ...paymentRows
+    ];
+
+    const byDate = new Map<string, { date: string; charges: number; payments: number; runningBalance: number }>();
+    for (const row of rows.sort((a, b) => a.date.getTime() - b.date.getTime())) {
+      const date = row.date.toISOString().slice(0, 10);
+      const current = byDate.get(date) ?? { date, charges: 0, payments: 0, runningBalance: 0 };
+      current.charges = this.roundMoney(current.charges + row.charges);
+      current.payments = this.roundMoney(current.payments + row.payments);
+      byDate.set(date, current);
+    }
+
+    let runningBalance = 0;
+    return Array.from(byDate.values()).map((row) => {
+      runningBalance = this.roundMoney(runningBalance + row.charges - row.payments);
+      return { ...row, runningBalance };
+    });
+  }
+
+  async getPatientPaymentDistribution(actor: AuthUser, patientId: string) {
+    await this.ensurePatient(actor, patientId);
+    const [treatmentAllocations, installmentAllocations] = await Promise.all([
+      this.prisma.paymentAllocation.findMany({
+        where: {
+          payment: {
+            organizationId: actor.organizationId,
+            patientId,
+            branchId: branchScope(actor),
+            status: { notIn: [PaymentStatus.REFUNDED, PaymentStatus.VOIDED] }
+          }
+        },
+        include: {
+          treatmentPlanItem: {
+            select: {
+              id: true,
+              status: true,
+              treatmentPlanId: true,
+              treatmentPlan: { select: { id: true, name: true } },
+              procedure: { select: { id: true, code: true, name: true } }
+            }
+          }
+        }
+      }),
+      this.prisma.paymentInstallmentAllocation.findMany({
+        where: {
+          payment: {
+            organizationId: actor.organizationId,
+            patientId,
+            branchId: branchScope(actor),
+            status: { notIn: [PaymentStatus.REFUNDED, PaymentStatus.VOIDED] }
+          }
+        },
+        include: { installment: { select: { id: true, dueDate: true, number: true, installmentPlan: { select: { treatmentPlanId: true } } } } }
+      })
+    ]);
+
+    const categories = {
+      performedProcedures: { key: "performedProcedures", label: "Pagos sobre prestaciones realizadas", amount: 0, count: 0 },
+      pendingProcedures: { key: "pendingProcedures", label: "Pagos sobre prestaciones no realizadas", amount: 0, count: 0 },
+      overdueInstallments: { key: "overdueInstallments", label: "Pagos a cuotas vencidas", amount: 0, count: 0 },
+      futureInstallments: { key: "futureInstallments", label: "Pagos a cuotas por vencer", amount: 0, count: 0 }
+    };
+
+    for (const allocation of treatmentAllocations) {
+      const itemStatus = allocation.treatmentPlanItem.status;
+      const key: keyof typeof categories =
+        itemStatus === TreatmentPlanItemStatus.COMPLETED || itemStatus === TreatmentPlanItemStatus.PAID
+          ? "performedProcedures"
+          : "pendingProcedures";
+      categories[key].amount = this.roundMoney(categories[key].amount + Number(allocation.amount ?? 0));
+      categories[key].count += 1;
+    }
+
+    const now = new Date();
+    for (const allocation of installmentAllocations) {
+      const key: keyof typeof categories = allocation.installment.dueDate < now ? "overdueInstallments" : "futureInstallments";
+      categories[key].amount = this.roundMoney(categories[key].amount + Number(allocation.amount ?? 0));
+      categories[key].count += 1;
+    }
+
+    const total = this.roundMoney(Object.values(categories).reduce((sum, row) => sum + row.amount, 0));
+    return Object.values(categories).map((row) => ({
+      ...row,
+      percentage: total > 0 ? this.roundMoney((row.amount / total) * 100) : 0
+    }));
+  }
+
+  async getPatientBalanceByPlan(actor: AuthUser, patientId: string) {
+    await this.ensurePatient(actor, patientId);
+    const [plans, coverageAuthorizations, refunds] = await Promise.all([
+      this.prisma.treatmentPlan.findMany({
+        where: {
+          organizationId: actor.organizationId,
+          patientId,
+          branchId: branchScope(actor),
+          isAlternative: false
+        },
+        include: {
+          items: {
+            where: { status: { not: TreatmentPlanItemStatus.CANCELLED } },
+            include: {
+              paymentAllocations: {
+                include: { payment: { select: { id: true, status: true } } }
+              }
+            }
+          }
+        },
+        orderBy: { createdAt: "desc" }
+      }),
+      this.prisma.coverageAuthorization.findMany({
+        where: {
+          coverageCase: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) },
+          treatmentPlanId: { not: null }
+        },
+        select: { treatmentPlanId: true, authorizedAmount: true, consumedAmount: true, status: true }
+      }),
+      this.prisma.refund.findMany({
+        where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor), status: RefundStatus.PROCESSED },
+        include: {
+          payment: {
+            include: {
+              allocations: { select: { amount: true, treatmentPlanItem: { select: { treatmentPlanId: true } } } }
+            }
+          }
+        }
+      })
+    ]);
+
+    const coverageByPlan = new Map<string, number>();
+    for (const authorization of coverageAuthorizations) {
+      if (!authorization.treatmentPlanId) continue;
+      coverageByPlan.set(
+        authorization.treatmentPlanId,
+        this.roundMoney((coverageByPlan.get(authorization.treatmentPlanId) ?? 0) + Number(authorization.authorizedAmount ?? 0))
+      );
+    }
+
+    const refundsByPlan = new Map<string, number>();
+    for (const refund of refunds) {
+      const allocations = refund.payment?.allocations ?? [];
+      const paymentAllocated = allocations.reduce((sum, allocation) => sum + Number(allocation.amount ?? 0), 0);
+      for (const allocation of allocations) {
+        const planId = allocation.treatmentPlanItem?.treatmentPlanId;
+        if (!planId || paymentAllocated <= 0) continue;
+        const proportional = Number(refund.amount ?? 0) * (Number(allocation.amount ?? 0) / paymentAllocated);
+        refundsByPlan.set(planId, this.roundMoney((refundsByPlan.get(planId) ?? 0) + proportional));
+      }
+    }
+
+    return plans.map((plan) => {
+      const subtotal = this.roundMoney(plan.items.reduce((sum, item) => sum + Number(item.total ?? 0) + Number(item.discount ?? 0), 0));
+      const discount = this.roundMoney(plan.items.reduce((sum, item) => sum + Number(item.discount ?? 0), 0));
+      const totalNet = this.roundMoney(plan.items.reduce((sum, item) => sum + Number(item.total ?? 0), 0));
+      const paid = this.roundMoney(
+        plan.items.reduce(
+          (sum, item) =>
+            sum +
+            item.paymentAllocations.reduce((allocationSum, allocation) => {
+              if (allocation.payment.status === PaymentStatus.REFUNDED || allocation.payment.status === PaymentStatus.VOIDED) return allocationSum;
+              return allocationSum + Number(allocation.amount ?? 0);
+            }, 0),
+          0
+        )
+      );
+      const realized = this.roundMoney(
+        plan.items
+          .filter((item) => item.status === TreatmentPlanItemStatus.COMPLETED || item.status === TreatmentPlanItemStatus.PAID)
+          .reduce((sum, item) => sum + Number(item.total ?? 0), 0)
+      );
+      const coverage = coverageByPlan.get(plan.id) ?? 0;
+      const refunded = refundsByPlan.get(plan.id) ?? 0;
+      const balanceTotal = this.roundMoney(Math.max(totalNet - paid - coverage + refunded, 0));
+      const currentDue = this.roundMoney(Math.max(realized - paid - coverage + refunded, 0));
+      return {
+        planId: plan.id,
+        planName: plan.name,
+        subtotal,
+        discount,
+        totalNet,
+        realized,
+        paid,
+        coverage,
+        refunded,
+        currentDueBalance: currentDue,
+        futureBalance: this.roundMoney(Math.max(balanceTotal - currentDue, 0)),
+        totalBalance: balanceTotal
+      };
+    });
   }
 
   async listAccountsReceivable(actor: AuthUser, query: ListAccountsReceivableQueryDto) {
@@ -1652,6 +2396,21 @@ export class PaymentsService {
           }
         });
       }
+
+      await tx.patientLedgerEntry.create({
+        data: {
+          organizationId: actor.organizationId,
+          branchId: payment.branchId,
+          patientId: payment.patientId,
+          occurredAt: refund.processedAt ?? refund.createdAt,
+          entryType: LedgerEntryType.REFUND,
+          sourceType: LedgerSourceType.REFUND,
+          sourceId: refund.id,
+          debitAmount: refund.amount,
+          currency: payment.currency,
+          descriptionSnapshot: `Devolucion de pago #${this.publicPaymentNumber(payment)}`
+        }
+      });
 
       const nextRefunded = this.roundMoney(refundedAmount + dto.amount);
       if (nextRefunded >= Number(payment.amount)) {
@@ -1874,6 +2633,7 @@ export class PaymentsService {
       allocatedAmount,
       unallocatedAmount: this.roundMoney(Math.max(Number(payment.amount ?? 0) - allocatedAmount, 0)),
       remainingPlanBalance: this.roundMoney(breakdown.reduce((sum, row) => sum + row.remainingAmount, 0)),
+      receiptBranding: this.resolveReceiptBranding(payment.branch, payment.organization),
       receipt: {
         available: publicPaymentNumber !== "SIN-NUMERO",
         previewUrl: `/payments/${publicPaymentNumber}/receipt`,
@@ -1935,6 +2695,54 @@ export class PaymentsService {
     const owner = `${register.openedBy?.firstName ?? ""} ${register.openedBy?.lastName ?? ""}`.trim();
     const date = register.openedAt ? new Date(register.openedAt).toLocaleDateString("es-MX") : "";
     return ["Caja", register.branch?.name, owner ? `abierta por ${owner}` : null, date].filter(Boolean).join(" · ");
+  }
+
+  private resolveReceiptBranding(branch?: any, organization?: any) {
+    const brand = branch?.brand ?? null;
+    const businessName = branch?.name || brand?.shortName || brand?.name || organization?.name || "Clinica";
+    const address = this.formatBranchAddress(branch) || organization?.address || null;
+    const phone = this.formatPhone(branch?.phone || brand?.phone || organization?.phone, branch?.countryCode);
+    const email = branch?.email || brand?.senderEmail || brand?.replyToEmail || organization?.email || null;
+    return {
+      logoUrl: this.publicAssetUrl(branch?.logoUrl || brand?.logoUrl || organization?.logoUrl),
+      businessName,
+      legalName: brand?.legalName || organization?.legalName || null,
+      address,
+      phone,
+      email,
+      website: branch?.website || brand?.website || null,
+      privacyNoticeUrl: brand?.privacyNoticeUrl || null,
+      primaryColor: brand?.primaryColor || "#0369a1",
+      secondaryColor: brand?.secondaryColor || "#0f172a"
+    };
+  }
+
+  private formatBranchAddress(branch?: any) {
+    if (!branch) return null;
+    const streetLine = [
+      branch.address,
+      branch.exteriorNumber ? `No. ${branch.exteriorNumber}` : null,
+      branch.interiorNumber ? `Int. ${branch.interiorNumber}` : null
+    ].filter(Boolean).join(" ");
+    const locality = [branch.neighborhood, branch.municipality].filter(Boolean).join(", ");
+    const cityLine = [branch.city, branch.state].filter(Boolean).join(", ");
+    const postal = branch.postalCode ? `C.P. ${branch.postalCode}` : null;
+    return [streetLine, locality, cityLine, postal, branch.country && branch.country !== "MX" ? branch.country : null]
+      .filter((part) => typeof part === "string" && part.trim())
+      .join(", ");
+  }
+
+  private formatPhone(value?: string | null, countryCode?: string | null) {
+    const phone = value?.trim();
+    if (!phone) return null;
+    if (phone.startsWith("+") || !countryCode?.trim()) return phone;
+    return `${countryCode.trim()} ${phone}`;
+  }
+
+  private publicAssetUrl(value?: string | null) {
+    const url = value?.trim();
+    if (!url || !/^https:\/\//i.test(url)) return null;
+    return url;
   }
 
   private publicPaymentMethods(payment: any) {
@@ -2029,6 +2837,9 @@ export class PaymentsService {
           amount: Prisma.Decimal;
           payment: { id: string; status: PaymentStatus };
         }>;
+        installmentPlanItems?: Array<{
+          amount: Prisma.Decimal;
+        }>;
       }>;
     }>
   ) {
@@ -2054,6 +2865,8 @@ export class PaymentsService {
       total: number;
       paidAmount: number;
       outstandingAmount: number;
+      financedAmount: number;
+      financeableAmount: number;
       status: TreatmentPlanItemStatus;
       plannedAt: Date | null;
       completedAt: Date | null;
@@ -2070,6 +2883,10 @@ export class PaymentsService {
           );
           const total = Number(item.total);
           const outstandingAmount = this.roundMoney(Math.max(total - paidAmount, 0));
+          const financedAmount = this.roundMoney(
+            (item.installmentPlanItems ?? []).reduce((sum, allocation) => sum + Number(allocation.amount), 0)
+          );
+          const financeableAmount = this.roundMoney(Math.max(outstandingAmount - financedAmount, 0));
           const summary = {
             id: item.id,
             version: item.version,
@@ -2087,6 +2904,8 @@ export class PaymentsService {
             total: this.roundMoney(total),
             paidAmount,
             outstandingAmount,
+            financedAmount,
+            financeableAmount,
             status: item.status,
             plannedAt: item.plannedAt,
             completedAt: item.completedAt
@@ -2237,11 +3056,6 @@ export class PaymentsService {
 
     if (register) return register;
 
-    if (this.hasAnyPermission(actor, ["cash_register.open", "system.manage_all"])) {
-      const registerId = await this.openCashRegisterInternal(actor, branchId, 0);
-      return this.prisma.cashRegister.findUniqueOrThrow({ where: { id: registerId } });
-    }
-
     throw new BadRequestException("No open cash register found for this user and branch");
   }
 
@@ -2287,6 +3101,104 @@ export class PaymentsService {
     };
 
     return createHash("sha256").update(JSON.stringify(normalized)).digest("hex");
+  }
+
+  private normalizeInstallmentPlanItemAllocations(allocations?: CreateInstallmentPlanDto["itemAllocations"]) {
+    const byItem = new Map<string, { treatmentPlanItemId: string; amount: Prisma.Decimal; expectedVersion?: number }>();
+    for (const allocation of allocations ?? []) {
+      const treatmentPlanItemId = allocation.treatmentPlanItemId.trim();
+      if (!treatmentPlanItemId) throw new BadRequestException("Treatment plan item is required");
+      const amount = toDecimal(allocation.amount);
+      if (amount.lte(0)) throw new BadRequestException("Installment item allocation amount must be greater than zero");
+      const current = byItem.get(treatmentPlanItemId);
+      if (current) {
+        if (
+          allocation.expectedVersion !== undefined &&
+          current.expectedVersion !== undefined &&
+          current.expectedVersion !== allocation.expectedVersion
+        ) {
+          throw new ConflictException("El saldo cambiÃ³ mientras preparabas el financiamiento. Revisa la informaciÃ³n actualizada antes de continuar.");
+        }
+        byItem.set(treatmentPlanItemId, {
+          treatmentPlanItemId,
+          amount: current.amount.add(amount),
+          expectedVersion: allocation.expectedVersion ?? current.expectedVersion
+        });
+      } else {
+        byItem.set(treatmentPlanItemId, {
+          treatmentPlanItemId,
+          amount,
+          expectedVersion: allocation.expectedVersion
+        });
+      }
+    }
+
+    return Array.from(byItem.values());
+  }
+
+  private async validateInstallmentPlanItemAllocations(
+    actor: AuthUser,
+    treatmentPlanId: string,
+    allocations: ReturnType<PaymentsService["normalizeInstallmentPlanItemAllocations"]>,
+    client: Prisma.TransactionClient | PrismaService = this.prisma
+  ) {
+    const itemIds = allocations.map((allocation) => allocation.treatmentPlanItemId);
+    const items = await client.treatmentPlanItem.findMany({
+      where: {
+        id: { in: itemIds },
+        treatmentPlanId,
+        treatmentPlan: {
+          organizationId: actor.organizationId,
+          branchId: branchScope(actor)
+        }
+      },
+      include: {
+        treatmentPlan: { select: { id: true, isAlternative: true } },
+        paymentAllocations: {
+          where: {
+            payment: { status: { in: [PaymentStatus.RECEIVED, PaymentStatus.PARTIALLY_ALLOCATED, PaymentStatus.ALLOCATED] } }
+          },
+          select: { amount: true }
+        },
+        installmentPlanItems: {
+          where: {
+            installmentPlan: {
+              status: { in: [InstallmentPlanStatus.DRAFT, InstallmentPlanStatus.ACTIVE, InstallmentPlanStatus.DEFAULTED] }
+            }
+          },
+          select: { amount: true }
+        }
+      }
+    });
+
+    if (items.length !== itemIds.length) {
+      throw new BadRequestException("One or more treatment plan items are invalid for financing");
+    }
+
+    const itemById = new Map(items.map((item) => [item.id, item]));
+    for (const allocation of allocations) {
+      const item = itemById.get(allocation.treatmentPlanItemId);
+      if (!item) throw new BadRequestException("Treatment plan item is invalid for financing");
+      if (item.treatmentPlan.isAlternative) {
+        throw new BadRequestException("Alternative treatment plan items cannot be financed");
+      }
+      if (item.status === TreatmentPlanItemStatus.CANCELLED) {
+        throw new BadRequestException("Cancelled treatment plan items cannot be financed");
+      }
+      if (allocation.expectedVersion !== undefined && item.version !== allocation.expectedVersion) {
+        throw new ConflictException("El saldo cambiÃ³ mientras preparabas el financiamiento. Revisa la informaciÃ³n actualizada antes de continuar.");
+      }
+
+      const paid = sumDecimals(item.paymentAllocations.map((paymentAllocation) => paymentAllocation.amount));
+      const committed = sumDecimals(item.installmentPlanItems.map((installmentPlanItem) => installmentPlanItem.amount));
+      const available = toDecimal(item.total).sub(paid).sub(committed);
+      if (available.lte(0)) {
+        throw new BadRequestException("This treatment plan item has no balance available for financing");
+      }
+      if (allocation.amount.gt(available)) {
+        throw new BadRequestException("Installment item allocation exceeds available financing balance");
+      }
+    }
   }
 
   private async applyAllocations(
@@ -2440,6 +3352,12 @@ export class PaymentsService {
     }
   }
 
+  private parseDateInput(value: string) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+    if (!match) return new Date(value);
+    return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  }
+
   private shiftDate(baseDate: Date, frequency: InstallmentFrequency, index: number) {
     const date = new Date(baseDate);
     if (index === 0) return date;
@@ -2451,8 +3369,19 @@ export class PaymentsService {
       date.setDate(date.getDate() + index * 14);
       return date;
     }
-    date.setMonth(date.getMonth() + index);
-    return date;
+    const year = date.getFullYear();
+    const month = date.getMonth() + index;
+    const day = date.getDate();
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    return new Date(
+      year,
+      month,
+      Math.min(day, lastDay),
+      date.getHours(),
+      date.getMinutes(),
+      date.getSeconds(),
+      date.getMilliseconds()
+    );
   }
 
   private splitAmount(total: number, numberOfInstallments: number) {
@@ -2537,6 +3466,14 @@ export class PaymentsService {
     return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(Number(value ?? 0));
   }
 
+  private humanizeReceiptDetail(detail: string) {
+    return detail.replace(/\s+-\s+Cara\s+ALL\b/gi, " - Pieza completa");
+  }
+
+  private displayName(entity?: { firstName?: string | null; lastName?: string | null } | null) {
+    return `${entity?.firstName ?? ""} ${entity?.lastName ?? ""}`.trim() || "Paciente";
+  }
+
   private shortCode(value: string) {
     const cleaned = value.trim();
     if (!cleaned) return "-";
@@ -2545,6 +3482,314 @@ export class PaymentsService {
 
   private dateKey(date: Date) {
     return date.toISOString().slice(0, 10);
+  }
+
+  private assertLocalDate(value: string) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new BadRequestException("La fecha del comprobante diario no es valida.");
+  }
+
+  private formatLocalDate(value: string) {
+    this.assertLocalDate(value);
+    const [year, month, day] = value.split("-").map(Number);
+    return new Intl.DateTimeFormat("es-MX", { dateStyle: "long", timeZone: "UTC" }).format(new Date(Date.UTC(year, month - 1, day)));
+  }
+
+  private localDateString(value: Date | string, timezone?: string | null) {
+    const parts = this.localDateParts(new Date(value), timezone || "America/Mexico_City");
+    return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+  }
+
+  private zonedDayRange(date: string, timezone?: string | null) {
+    this.assertLocalDate(date);
+    const tz = timezone || "America/Mexico_City";
+    const start = this.zonedLocalToUtc(date, "00:00:00.000", tz);
+    const nextDate = new Date(`${date}T00:00:00.000Z`);
+    nextDate.setUTCDate(nextDate.getUTCDate() + 1);
+    const next = nextDate.toISOString().slice(0, 10);
+    return { start, end: this.zonedLocalToUtc(next, "00:00:00.000", tz) };
+  }
+
+  private zonedLocalToUtc(date: string, time: string, timezone: string) {
+    const utcGuess = new Date(`${date}T${time}Z`);
+    const local = this.localDateParts(utcGuess, timezone);
+    const asUtc = Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second);
+    return new Date(utcGuess.getTime() - (asUtc - utcGuess.getTime()));
+  }
+
+  private localDateParts(date: Date, timezone: string) {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23"
+    }).formatToParts(date);
+    const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+    return {
+      year: get("year"),
+      month: get("month"),
+      day: get("day"),
+      hour: get("hour"),
+      minute: get("minute"),
+      second: get("second")
+    };
+  }
+
+  private normalizeReceiptEmail(value?: string | null) {
+    const email = value?.trim().toLowerCase();
+    if (!email) return null;
+    if (/[\r\n]/.test(email) || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+    return email;
+  }
+
+  private async queueAndSendReceiptEmail(
+    actor: AuthUser,
+    input: {
+      patientId: string;
+      paymentId?: string;
+      branchId: string;
+      recipient: string;
+      subject: string;
+      message: string;
+      fileName: string;
+      bytes: Buffer;
+      templateKey: string;
+      idempotencyKey?: string;
+      documentType: "PAYMENT_RECEIPT" | "DAILY_PAYMENT_RECEIPT";
+      documentTitle: string;
+      patientName: string;
+      branding: {
+        logoUrl?: string | null;
+        businessName: string;
+        legalName?: string | null;
+        address?: string | null;
+        phone?: string | null;
+        email?: string | null;
+        website?: string | null;
+        privacyNoticeUrl?: string | null;
+        primaryColor?: string | null;
+      };
+      summaryRows: Array<[string, string]>;
+      metadata: Record<string, unknown>;
+    }
+  ) {
+    if (input.idempotencyKey) {
+      const existing = await this.prisma.communicationJob.findFirst({
+        where: {
+          organizationId: actor.organizationId,
+          patientId: input.patientId,
+          ...(input.paymentId ? { paymentId: input.paymentId } : {}),
+          metadata: { path: ["idempotencyKey"], equals: input.idempotencyKey } as any
+        }
+      });
+      if (existing) return this.serializeReceiptEmailResponse(existing, input);
+    }
+
+    const job = await this.prisma.communicationJob.create({
+      data: {
+        organizationId: actor.organizationId,
+        patientId: input.patientId,
+        paymentId: input.paymentId,
+        createdById: actor.id,
+        channel: CommunicationChannel.EMAIL,
+        templateKey: input.templateKey,
+        recipient: input.recipient,
+        subject: input.subject,
+        body: input.message,
+        status: CommunicationJobStatus.QUEUED,
+        provider: this.emailService?.getDefaultSender().provider ?? "smtp",
+        queuedAt: new Date(),
+        metadata: {
+          ...input.metadata,
+          documentType: input.documentType,
+          branchId: input.branchId,
+          fileName: input.fileName,
+          idempotencyKey: input.idempotencyKey,
+          toAddress: input.recipient
+        } as Prisma.InputJsonValue
+      }
+    });
+
+    try {
+      if (!this.emailService) throw new BadRequestException("El servicio de correo no esta configurado.");
+      const emailHtml = this.renderReceiptEmailHtml(input);
+      const emailText = this.renderReceiptEmailText(input);
+
+      const sent = await this.emailService.sendPatientEmail({
+        to: input.recipient,
+        subject: input.subject,
+        html: emailHtml,
+        text: emailText,
+        attachments: [{ filename: input.fileName, content: input.bytes, contentType: "application/pdf" }]
+      });
+      const updated = await this.prisma.communicationJob.update({
+        where: { id: job.id },
+        data: {
+          status: CommunicationJobStatus.SENT,
+          providerMessageId: sent.providerMessageId,
+          sentAt: new Date()
+        }
+      });
+      await this.audit(this.prisma, actor, {
+        entity: "CommunicationJob",
+        entityId: updated.id,
+        action: "send_payment_receipt_email",
+        after: { patientId: input.patientId, paymentId: input.paymentId ?? null, recipient: input.recipient, templateKey: input.templateKey }
+      });
+      return this.serializeReceiptEmailResponse(updated, input);
+    } catch (error) {
+      const safeMessage = error instanceof Error ? error.message.slice(0, 500) : "No fue posible enviar el correo.";
+      await this.prisma.communicationJob.update({
+        where: { id: job.id },
+        data: { status: CommunicationJobStatus.FAILED, failedAt: new Date(), errorMessage: safeMessage }
+      });
+      throw error;
+    }
+  }
+
+  private escapeEmailText(value: string) {
+    return value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  private renderReceiptEmailHtml(input: {
+    documentTitle: string;
+    patientName: string;
+    message: string;
+    fileName: string;
+    branding: { logoUrl?: string | null; businessName: string; address?: string | null; phone?: string | null; email?: string | null; privacyNoticeUrl?: string | null; primaryColor?: string | null };
+    summaryRows: Array<[string, string]>;
+  }) {
+    const brand = input.branding;
+    const primary = /^#[0-9a-f]{6}$/i.test(brand.primaryColor ?? "") ? brand.primaryColor! : "#0369a1";
+    const safeBrand = this.escapeEmailText(brand.businessName);
+    const logo = brand.logoUrl
+      ? `<img src="${this.escapeEmailAttribute(brand.logoUrl)}" alt="${safeBrand}" width="112" style="display:block;max-width:112px;max-height:56px;border:0;">`
+      : `<div style="width:52px;height:52px;border-radius:14px;background:${primary};color:#ffffff;font-weight:800;font-size:16px;line-height:52px;text-align:center;">${this.brandInitials(brand.businessName)}</div>`;
+    const paragraphs = input.message
+      .split(/\r?\n\r?\n/)
+      .map((paragraph) => paragraph.trim())
+      .filter(Boolean)
+      .map((paragraph) => `<p style="margin:0 0 14px;color:#334155;font-size:14px;line-height:1.65;">${this.escapeEmailText(paragraph).replace(/\r?\n/g, "<br>")}</p>`)
+      .join("");
+    const summaryRows = input.summaryRows
+      .map(([label, value]) => `
+        <tr>
+          <td style="padding:9px 0;color:#64748b;font-size:13px;border-bottom:1px solid #e2e8f0;">${this.escapeEmailText(label)}</td>
+          <td style="padding:9px 0;color:#0f172a;font-size:13px;font-weight:700;text-align:right;border-bottom:1px solid #e2e8f0;">${this.escapeEmailText(value)}</td>
+        </tr>`)
+      .join("");
+    const contactRows = [
+      brand.address ? `Direcci&oacute;n: ${this.escapeEmailText(brand.address)}` : null,
+      brand.phone ? `Tel&eacute;fono: ${this.escapeEmailText(brand.phone)}` : null,
+      brand.email ? `Correo: ${this.escapeEmailText(brand.email)}` : null
+    ].filter(Boolean).join("<br>");
+    return `<!doctype html>
+<html lang="es">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a;">
+  <span style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">Adjuntamos el comprobante en PDF.</span>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:28px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+        <tr>
+          <td style="padding:24px 28px;background:#f8fafc;border-bottom:1px solid #e2e8f0;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+              <td style="width:128px;vertical-align:middle;">${logo}</td>
+              <td style="vertical-align:middle;">
+                <div style="font-size:18px;font-weight:800;color:#0f172a;">${safeBrand}</div>
+                <div style="font-size:12px;color:#64748b;margin-top:4px;">${this.escapeEmailText(input.documentTitle)}</div>
+              </td>
+            </tr></table>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px;">
+            <h1 style="margin:0 0 18px;font-size:22px;line-height:1.25;color:#0f172a;">${this.escapeEmailText(input.documentTitle)}</h1>
+            ${paragraphs}
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:22px 0;border-top:1px solid #e2e8f0;border-collapse:collapse;">${summaryRows}</table>
+            <p style="margin:0 0 18px;color:#334155;font-size:14px;line-height:1.65;">El comprobante se encuentra adjunto en formato PDF.</p>
+            <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;color:#334155;font-size:13px;line-height:1.6;">
+              <strong style="display:block;color:#0f172a;margin-bottom:4px;">${safeBrand}</strong>
+              ${contactRows || "Datos de contacto no registrados."}
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:18px 28px;background:#f8fafc;border-top:1px solid #e2e8f0;color:#64748b;font-size:12px;line-height:1.55;">
+            Este es un correo generado autom&aacute;ticamente. ${brand.privacyNoticeUrl ? `Aviso de privacidad: <a href="${this.escapeEmailAttribute(brand.privacyNoticeUrl)}" style="color:${primary};text-decoration:none;">consultar</a>.` : ""}
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+  }
+
+  private renderReceiptEmailText(input: {
+    patientName: string;
+    message: string;
+    fileName: string;
+    branding: { businessName: string; address?: string | null; phone?: string | null; email?: string | null; privacyNoticeUrl?: string | null };
+    summaryRows: Array<[string, string]>;
+  }) {
+    const lines = [
+      input.message.trim(),
+      "",
+      ...input.summaryRows.map(([label, value]) => `${label}: ${value}`),
+      "",
+      `Adjunto: ${input.fileName}`,
+      "",
+      "Para cualquier aclaracion:",
+      input.branding.businessName,
+      input.branding.address ? `Direccion: ${input.branding.address}` : null,
+      input.branding.phone ? `Telefono: ${input.branding.phone}` : null,
+      input.branding.email ? `Correo: ${input.branding.email}` : null,
+      "",
+      `Saludos,`,
+      `Equipo de ${input.branding.businessName}`,
+      "",
+      "Este es un correo generado automaticamente.",
+      input.branding.privacyNoticeUrl ? `Aviso de privacidad: ${input.branding.privacyNoticeUrl}` : null
+    ];
+    return lines.filter((line): line is string => line !== null).join("\n");
+  }
+
+  private serializeReceiptEmailResponse(job: { id: string; status: CommunicationJobStatus; providerMessageId?: string | null; sentAt?: Date | null; queuedAt?: Date | null }, input: { documentType: string; recipient: string; fileName: string; metadata: Record<string, unknown> }) {
+    return {
+      status: job.status,
+      documentType: input.documentType,
+      paymentNumber: input.metadata.paymentNumber ?? null,
+      documentDate: input.metadata.date ?? null,
+      paymentCount: Array.isArray(input.metadata.paymentNumbers) ? input.metadata.paymentNumbers.length : input.metadata.paymentNumber ? 1 : null,
+      totalAmount: input.metadata.totalAmount ?? null,
+      recipient: input.recipient,
+      attachmentName: input.fileName,
+      sentAt: job.sentAt ?? job.queuedAt ?? null,
+      messageId: job.providerMessageId ?? null,
+      communicationJobId: job.id
+    };
+  }
+
+  private escapeEmailAttribute(value: string) {
+    return this.escapeEmailText(value).replaceAll("`", "&#096;");
+  }
+
+  private brandInitials(value: string) {
+    return value
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join("") || "DS";
   }
 
   private resolveOptionalDateRange(dateFrom?: string, dateTo?: string): Prisma.DateTimeFilter | undefined {

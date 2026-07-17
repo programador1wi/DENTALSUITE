@@ -1,0 +1,3 @@
+ALTER TABLE "PriceListItem"
+  ADD COLUMN "labCost" DECIMAL(10, 2) NOT NULL DEFAULT 0,
+  ADD COLUMN "allowsDiscount" BOOLEAN NOT NULL DEFAULT false;

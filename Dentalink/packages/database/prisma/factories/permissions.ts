@@ -20,19 +20,43 @@ export const permissionDefinitions = [
   ["branches.archive", "Archive branches", "Archive branches", "branches"],
   ["branches.restore", "Restore branches", "Restore archived branches", "branches"],
   ["branches.assign_brand", "Assign branch brand", "Move branches between brands", "branches"],
-  ["branches.manage_contact", "Manage branch contact", "Update branch contact and public settings", "branches"],
+  [
+    "branches.manage_contact",
+    "Manage branch contact",
+    "Update branch contact and public settings",
+    "branches"
+  ],
   ["branches.view_all", "View all branches", "View every branch in the organization", "branches"],
   ["health_center.view", "View health center", "View organization brands and branches", "health_center"],
-  ["health_center.manage", "Manage health center", "Manage organization brands and branches", "health_center"],
+  [
+    "health_center.manage",
+    "Manage health center",
+    "Manage organization brands and branches",
+    "health_center"
+  ],
   ["brands.view", "View brands", "View commercial brands", "brands"],
   ["brands.create", "Create brands", "Create commercial brands", "brands"],
   ["brands.update", "Update brands", "Update commercial brands", "brands"],
   ["brands.archive", "Archive brands", "Archive commercial brands", "brands"],
   ["brands.manage_identity", "Manage brand identity", "Update logos, colors and public identity", "brands"],
-  ["brands.manage_communications", "Manage brand communications", "Update sender and reply-to settings", "brands"],
+  [
+    "brands.manage_communications",
+    "Manage brand communications",
+    "Update sender and reply-to settings",
+    "brands"
+  ],
   ["users.manage_branch_access", "Manage branch access", "Assign users to branches", "users"],
   ["settings.read", "Read settings", "View settings", "settings"],
   ["settings.update", "Update settings", "Update settings", "settings"],
+  ["agreements.read", "Read agreements", "View agreement pricing and versions", "agreements"],
+  ["agreements.manage", "Manage agreements", "Create drafts, versions and cancellations", "agreements"],
+  ["agreements.publish", "Publish agreements", "Activate or schedule agreement versions", "agreements"],
+  [
+    "agreements.assign",
+    "Assign agreements",
+    "Assign active agreements to patients and treatment plans",
+    "agreements"
+  ],
   ["specialties.read", "Read specialties", "View specialties", "specialties"],
   ["specialties.create", "Create specialties", "Create specialties", "specialties"],
   ["specialties.update", "Update specialties", "Update specialties", "specialties"],
@@ -89,11 +113,95 @@ export const permissionDefinitions = [
   ["price_lists.read", "Read price lists", "View price lists", "price_lists"],
   ["price_lists.create", "Create price lists", "Create price lists", "price_lists"],
   ["price_lists.update", "Update price lists", "Update price lists", "price_lists"],
-  ["price_lists.override_manual", "Override price list prices", "Allow manual treatment price overrides", "price_lists"],
+  [
+    "price_lists.override_manual",
+    "Override price list prices",
+    "Allow manual treatment price overrides",
+    "price_lists"
+  ],
   ["price_lists.deactivate", "Deactivate price lists", "Deactivate price lists", "price_lists"],
+  [
+    "treatment_discount.apply",
+    "Apply treatment discounts",
+    "Apply allowed treatment discounts",
+    "treatment_plans"
+  ],
+  [
+    "treatment_discount.override",
+    "Override treatment discounts",
+    "Authorize treatment discounts over standard thresholds",
+    "treatment_plans"
+  ],
+  [
+    "treatment_discount.view",
+    "View treatment discounts",
+    "View treatment discount details",
+    "treatment_plans"
+  ],
+  [
+    "treatment_discount.audit",
+    "Audit treatment discounts",
+    "Review treatment discount audit trail",
+    "treatment_plans"
+  ],
   ["patients.read", "Read patients", "View patients", "patients"],
   ["patients.create", "Create patients", "Create patients", "patients"],
   ["patients.update", "Update patients", "Update patients", "patients"],
+  [
+    "patient_identity.config.read",
+    "Read patient identity configuration",
+    "View patient identity feature flags",
+    "patients"
+  ],
+  [
+    "patient_identity.config.manage",
+    "Manage patient identity configuration",
+    "Manage patient identity feature flags",
+    "patients"
+  ],
+  ["contact_points.read", "Read contact points", "View normalized patient contact points", "patients"],
+  ["contact_points.link", "Link contact points", "Link shared or personal contact points", "patients"],
+  ["contact_points.verify", "Verify contact points", "Register contact point verification", "patients"],
+  ["contact_points.transfer", "Transfer contact points", "Transfer contact point ownership", "patients"],
+  ["contact_points.backfill", "Backfill contact points", "Migrate legacy patient phones", "patients"],
+  ["family_groups.read", "Read family groups", "View family groups", "patients"],
+  ["family_groups.create", "Create family groups", "Create family groups", "patients"],
+  ["family_groups.manage_members", "Manage family members", "Manage family group members", "patients"],
+  [
+    "family_groups.manage_contacts",
+    "Manage family contacts",
+    "Manage family group contact points",
+    "patients"
+  ],
+  [
+    "family_groups.manage_permissions",
+    "Manage family permissions",
+    "Manage granular family booking, reminder, clinical and financial grants",
+    "patients"
+  ],
+  ["family_policies.read", "Read family policies", "View family policy contracts", "patients"],
+  ["family_policies.create", "Create family policies", "Create family policy drafts", "patients"],
+  ["family_policies.manage", "Manage family policies", "Manage policy members and cancellations", "patients"],
+  [
+    "family_policies.activate",
+    "Activate family policies",
+    "Register policy payments and activate coverage",
+    "patients"
+  ],
+  ["patient_duplicates.review", "Review patient duplicates", "Review duplicate candidates", "patients"],
+  ["patients.merge", "Merge patients", "Execute audited patient merges", "patients"],
+  [
+    "booking_identity.review",
+    "Review booking identity",
+    "Review ambiguous booking identity sessions",
+    "appointments"
+  ],
+  [
+    "booking_identity.resolve",
+    "Resolve booking identity",
+    "Resolve booking identity sessions manually",
+    "appointments"
+  ],
   ["patients.deactivate", "Deactivate patients", "Deactivate patients", "patients"],
   ["patients.notes.create", "Create patient notes", "Create patient notes", "patients"],
   ["patients.alerts.create", "Create patient alerts", "Create patient alerts", "patients"],
@@ -144,6 +252,48 @@ export const permissionDefinitions = [
     "Manage treatment plan alternatives",
     "treatment_plans"
   ],
+  [
+    "orthodontic_catalogs.manage",
+    "Manage orthodontic catalogs",
+    "Create, deactivate, reactivate and order orthodontic treatment catalog options",
+    "treatment_plans"
+  ],
+  [
+    "orthodontic_diagnosis.read",
+    "Read orthodontic diagnosis",
+    "View orthodontic diagnoses",
+    "treatment_plans"
+  ],
+  [
+    "orthodontic_diagnosis.create",
+    "Create orthodontic diagnosis",
+    "Save active orthodontic diagnoses",
+    "treatment_plans"
+  ],
+  [
+    "orthodontic_diagnosis.draft",
+    "Draft orthodontic diagnosis",
+    "Save orthodontic diagnosis drafts",
+    "treatment_plans"
+  ],
+  [
+    "orthodontic_diagnosis.update",
+    "Update orthodontic diagnosis",
+    "Create amended orthodontic diagnosis versions",
+    "treatment_plans"
+  ],
+  [
+    "orthodontic_diagnosis.history.read",
+    "Read orthodontic diagnosis history",
+    "View orthodontic diagnosis version history",
+    "treatment_plans"
+  ],
+  [
+    "orthodontic_diagnosis.catalogs.manage",
+    "Manage orthodontic diagnosis catalogs",
+    "Create, deactivate, reactivate and order orthodontic diagnosis options",
+    "treatment_plans"
+  ],
   ["budgets.read", "Read budgets", "View budgets", "budgets"],
   ["budgets.create", "Create budgets", "Generate budgets", "budgets"],
   ["budgets.update", "Update budgets", "Update budgets", "budgets"],
@@ -151,6 +301,29 @@ export const permissionDefinitions = [
   ["budgets.accept", "Accept budgets", "Accept budget and treatment plan", "budgets"],
   ["budgets.reject", "Reject budgets", "Reject budget", "budgets"],
   ["budgets.print", "Print budgets", "Print budget document", "budgets"],
+  ["print_complete_budget", "Print complete budget", "Print full treatment budget", "documents"],
+  [
+    "print_total_only_budget",
+    "Print total-only budget",
+    "Print treatment budget with final total only",
+    "documents"
+  ],
+  [
+    "print_budget_without_values",
+    "Print budget without values",
+    "Print clinical treatment detail without economic values",
+    "documents"
+  ],
+  ["print_care_plan", "Print care plan", "Print clinical care plan", "documents"],
+  ["print_treatment_sections", "Print treatment sections", "Print treatment plan sections", "documents"],
+  ["print_laboratory_order", "Print laboratory order", "Print linked laboratory orders", "documents"],
+  ["print_odontogram", "Print odontogram", "Print patient odontogram", "documents"],
+  ["print_clinical_history", "Print clinical history", "Print patient clinical history", "documents"],
+  ["select_print_logo", "Select print logo", "Select a logo for document generation", "documents"],
+  ["manage_logos", "Manage logos", "Create and deactivate document logos", "documents"],
+  ["assign_logos_to_branches", "Assign logos to branches", "Configure document logos by branch", "documents"],
+  ["view_generated_documents", "View generated documents", "View generated document history", "documents"],
+  ["void_generated_document", "Void generated document", "Void generated document records", "documents"],
   ["payments.read", "Read payments", "View payments and collections", "payments"],
   ["payments.create", "Create payments", "Register patient payments", "payments"],
   ["payments.update", "Update payments", "Update payment metadata", "payments"],
@@ -194,6 +367,85 @@ export const permissionDefinitions = [
   ],
   ["files.read", "Read files", "View patient files and attachments", "documents"],
   ["files.upload", "Upload files", "Upload patient files and attachments", "documents"],
+  [
+    "photographic_templates.view",
+    "View photographic templates",
+    "View orthodontic photographic sessions",
+    "clinical"
+  ],
+  [
+    "photographic_templates.create",
+    "Create photographic templates",
+    "Create orthodontic photographic sessions",
+    "clinical"
+  ],
+  [
+    "photographic_templates.edit",
+    "Edit photographic templates",
+    "Edit and complete photographic sessions",
+    "clinical"
+  ],
+  [
+    "photographic_templates.void",
+    "Void photographic templates",
+    "Void photographic sessions with a reason",
+    "clinical"
+  ],
+  [
+    "photographic_templates.link",
+    "Link photographic templates",
+    "Link sessions to appointments, controls and evolutions",
+    "clinical"
+  ],
+  [
+    "photographic_templates.mobile_upload",
+    "Create mobile photo uploads",
+    "Create secure short-lived mobile upload invitations",
+    "clinical"
+  ],
+  [
+    "photographic_templates.compare",
+    "Compare photographic templates",
+    "Compare equivalent photographic positions",
+    "clinical"
+  ],
+  [
+    "photographic_templates.view_voided",
+    "View voided photographic templates",
+    "View voided photographic clinical records",
+    "clinical"
+  ],
+  [
+    "photographic_templates.configure_frequency",
+    "Configure photographic frequency",
+    "Configure photographic reminder policy",
+    "clinical"
+  ],
+  [
+    "photographic_templates.configure_slots",
+    "Configure photographic positions",
+    "Configure photographic slot catalog",
+    "clinical"
+  ],
+  [
+    "photographic_photos.upload",
+    "Upload orthodontic photos",
+    "Upload photos into clinical positions",
+    "clinical"
+  ],
+  [
+    "photographic_photos.edit",
+    "Edit orthodontic photos",
+    "Apply non-destructive clinical image transformations",
+    "clinical"
+  ],
+  [
+    "photographic_photos.replace",
+    "Replace orthodontic photos",
+    "Replace a photo while preserving its history",
+    "clinical"
+  ],
+  ["photographic_photos.void", "Void orthodontic photos", "Void a clinical photo with a reason", "clinical"],
   ["consent_templates.read", "Read consent templates", "View consent templates", "documents"],
   ["consent_templates.create", "Create consent templates", "Create consent templates", "documents"],
   ["consent_templates.update", "Update consent templates", "Update consent templates", "documents"],
@@ -230,20 +482,50 @@ export const permissionDefinitions = [
   ["inventory.movements.create", "Create inventory movements", "Create inventory movements", "inventory"],
   ["inventory.alerts.read", "Read inventory alerts", "View minimum stock alerts", "inventory"],
   ["inventory.warehouses.read", "Read inventory warehouses", "View inventory warehouses", "inventory"],
-  ["inventory.warehouses.manage", "Manage inventory warehouses", "Create and update inventory warehouses", "inventory"],
+  [
+    "inventory.warehouses.manage",
+    "Manage inventory warehouses",
+    "Create and update inventory warehouses",
+    "inventory"
+  ],
   ["inventory.reports.read", "Read inventory reports", "Export inventory reports", "inventory"],
   ["inventory.adjustments.create", "Create inventory adjustments", "Create stock adjustments", "inventory"],
   ["inventory.sell", "Sell inventory products", "Register product sales from inventory", "inventory"],
   ["online_scheduling.read", "Read online scheduling", "View online scheduling config", "settings"],
   ["online_scheduling.update", "Update online scheduling", "Update online scheduling config", "settings"],
   ["treatment_plans.duplicate", "Duplicate treatment plans", "Duplicate treatment plans", "treatment_plans"],
-  ["treatment_plans.reactivate", "Reactivate treatment plans", "Reactivate cancelled treatment plans", "treatment_plans"],
-  ["treatment_plans.derive", "Derive treatment plans", "Transfer treatment plans between professionals", "treatment_plans"],
-  ["clinical.documents.delete", "Delete clinical documents", "Delete clinical documents logically", "documents"],
+  [
+    "treatment_plans.reactivate",
+    "Reactivate treatment plans",
+    "Reactivate cancelled treatment plans",
+    "treatment_plans"
+  ],
+  [
+    "treatment_plans.derive",
+    "Derive treatment plans",
+    "Transfer treatment plans between professionals",
+    "treatment_plans"
+  ],
+  [
+    "clinical.documents.delete",
+    "Delete clinical documents",
+    "Delete clinical documents logically",
+    "documents"
+  ],
   ["clinical.files.delete", "Delete clinical files", "Delete patient files logically", "documents"],
   ["rx_analysis.run", "Run RX Analysis", "Run AI radiography analysis", "documents"],
-  ["collections.payroll_discounts.manage", "Manage payroll discounts", "Manage payroll discounts", "collections"],
-  ["reports.collections.read", "Read collections reports", "View collections and delinquency reports", "reports"]
+  [
+    "collections.payroll_discounts.manage",
+    "Manage payroll discounts",
+    "Manage payroll discounts",
+    "collections"
+  ],
+  [
+    "reports.collections.read",
+    "Read collections reports",
+    "View collections and delinquency reports",
+    "reports"
+  ]
 ] as const;
 
 export const roleDefinitions = [
@@ -275,6 +557,20 @@ export const roleDefinitions = [
       "patients.tasks.create",
       "patients.tasks.update",
       "patients.tasks.complete",
+      "contact_points.read",
+      "contact_points.link",
+      "family_groups.read",
+      "family_groups.create",
+      "family_groups.manage_members",
+      "family_groups.manage_contacts",
+      "family_groups.manage_permissions",
+      "family_policies.read",
+      "family_policies.create",
+      "family_policies.manage",
+      "family_policies.activate",
+      "patient_duplicates.review",
+      "booking_identity.review",
+      "booking_identity.resolve",
       "appointments.read",
       "appointments.create",
       "appointments.update",
@@ -291,6 +587,8 @@ export const roleDefinitions = [
       "treatment_plans.read",
       "treatment_plans.create",
       "treatment_plans.update",
+      "treatment_discount.apply",
+      "treatment_discount.view",
       "budgets.read",
       "budgets.create",
       "budgets.send",
@@ -308,6 +606,11 @@ export const roleDefinitions = [
       "collections.activities.create",
       "files.read",
       "files.upload",
+      "photographic_templates.view",
+      "photographic_templates.create",
+      "photographic_templates.mobile_upload",
+      "photographic_templates.compare",
+      "photographic_photos.upload",
       "consent_templates.read",
       "consents.read",
       "consents.create",
@@ -353,6 +656,8 @@ export const roleDefinitions = [
       "treatment_plans.update",
       "treatment_plans.status.update",
       "treatment_plans.alternatives.manage",
+      "treatment_discount.apply",
+      "treatment_discount.view",
       "budgets.read",
       "budgets.create",
       "budgets.update",
@@ -366,6 +671,18 @@ export const roleDefinitions = [
       "installments.read",
       "files.read",
       "files.upload",
+      "photographic_templates.view",
+      "photographic_templates.create",
+      "photographic_templates.edit",
+      "photographic_templates.void",
+      "photographic_templates.link",
+      "photographic_templates.mobile_upload",
+      "photographic_templates.compare",
+      "photographic_templates.view_voided",
+      "photographic_photos.upload",
+      "photographic_photos.edit",
+      "photographic_photos.replace",
+      "photographic_photos.void",
       "consent_templates.read",
       "consents.read",
       "consents.create",
@@ -505,6 +822,10 @@ export const roleDefinitions = [
       "treatment_plans.update",
       "treatment_plans.status.update",
       "treatment_plans.alternatives.manage",
+      "treatment_discount.apply",
+      "treatment_discount.override",
+      "treatment_discount.view",
+      "treatment_discount.audit",
       "budgets.read",
       "budgets.create",
       "budgets.update",
@@ -1036,7 +1357,10 @@ const seededPriceLists = [
 ] as const;
 
 const allowedSpecialtySeeds = [
-  { name: "Odontología General (Integral)", aliases: ["Odontología General y Estética", "Odontología General"] },
+  {
+    name: "Odontología General (Integral)",
+    aliases: ["Odontología General y Estética", "Odontología General"]
+  },
   { name: "Ortodoncia", aliases: [] }
 ] as const;
 
@@ -1088,12 +1412,15 @@ async function seedSpecialtyAppointmentReasons(specialtyIdsByName: Map<string, s
     const specialtyId = specialtyIdsByName.get(specialtyName);
     if (!specialtyId) continue;
 
-    const existingReasons = await (prisma as any).specialtyAppointmentReason.findMany({ where: { specialtyId } });
+    const existingReasons = await (prisma as any).specialtyAppointmentReason.findMany({
+      where: { specialtyId }
+    });
     const byLegacyId = new Map<number, SeededAppointmentReasonRecord>();
     const byNormalizedName = new Map<string, SeededAppointmentReasonRecord>();
 
     for (const existingReason of existingReasons) {
-      if (typeof existingReason.legacyId === "number") byLegacyId.set(existingReason.legacyId, existingReason);
+      if (typeof existingReason.legacyId === "number")
+        byLegacyId.set(existingReason.legacyId, existingReason);
       byNormalizedName.set(normalizeAppointmentReasonKey(existingReason.name), existingReason);
     }
 

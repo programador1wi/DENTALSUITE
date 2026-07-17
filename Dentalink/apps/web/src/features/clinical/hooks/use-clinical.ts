@@ -30,11 +30,13 @@ import {
   updateToothProcedureStatus,
   upsertMedicalHistory,
   deleteClinicalDocument,
+  listPatientHistory,
   updateEvolution,
   annulEvolution,
   type ClinicalDocument,
   type ClinicalEvolution,
   type MedicalHistory,
+  type PatientHistoryQuery,
   type PeriodontalMeasurement,
   type ToothProcedureStatus
 } from "../services/clinical.service";
@@ -71,6 +73,14 @@ export function useOdontogram(patientId: string, toothNumber?: string, surface?:
   return useQuery({
     queryKey: ["clinical", patientId, "odontogram", toothNumber ?? "all", surface ?? "all"],
     queryFn: () => getOdontogram(patientId, toothNumber, surface),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function usePatientHistory(patientId: string, params: PatientHistoryQuery) {
+  return useQuery({
+    queryKey: ["clinical", patientId, "patient-history", params],
+    queryFn: () => listPatientHistory(patientId, params),
     enabled: Boolean(patientId)
   });
 }

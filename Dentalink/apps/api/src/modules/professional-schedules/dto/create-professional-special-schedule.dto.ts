@@ -1,4 +1,5 @@
-import { IsOptional, IsString, Matches } from "class-validator";
+import { AttendanceMode } from "@prisma/client";
+import { IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from "class-validator";
 
 export class CreateProfessionalSpecialScheduleDto {
   @IsString()
@@ -28,4 +29,14 @@ export class CreateProfessionalSpecialScheduleDto {
   @IsOptional()
   @IsString()
   breakEndTime?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(3)
+  simultaneousChairs?: number;
+
+  @IsOptional()
+  @IsEnum(AttendanceMode)
+  attendanceMode?: AttendanceMode;
 }

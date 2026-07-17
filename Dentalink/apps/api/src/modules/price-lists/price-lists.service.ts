@@ -134,6 +134,9 @@ export class PriceListsService {
   }
 
   async create(actor: AuthUser, dto: CreatePriceListDto) {
+    if (process.env.PRICE_LISTS_V2_ENABLED === "true") {
+      throw new BadRequestException("Use POST /admin/price-lists to create a validated draft version");
+    }
     await this.ensureSingleDefault(actor, dto.isDefault ?? false);
     if (dto.items?.length)
       await this.validateProcedures(
@@ -162,7 +165,7 @@ export class PriceListsService {
             procedureId: item.procedureId,
             price: new Prisma.Decimal(item.price),
             labCost: new Prisma.Decimal(item.labCost ?? "0"),
-            allowsDiscount: item.allowsDiscount ?? false,
+            allowsDiscount: item.allowsDiscount ?? true,
             currency: item.currency ?? "MXN"
           })),
           skipDuplicates: true
@@ -187,6 +190,9 @@ export class PriceListsService {
   }
 
   async update(actor: AuthUser, id: string, dto: UpdatePriceListDto) {
+    if (process.env.PRICE_LISTS_V2_ENABLED === "true" && dto.items) {
+      throw new BadRequestException("Published prices are immutable; create a draft with POST /admin/price-lists/:id/versions");
+    }
     await this.findOne(actor, id);
     await this.ensureSingleDefault(actor, dto.isDefault ?? false, id);
 
@@ -223,7 +229,7 @@ export class PriceListsService {
               procedureId: item.procedureId,
               price: new Prisma.Decimal(item.price),
               labCost: new Prisma.Decimal(item.labCost ?? "0"),
-              allowsDiscount: item.allowsDiscount ?? false,
+              allowsDiscount: item.allowsDiscount ?? true,
               currency: item.currency ?? "MXN"
             })),
             skipDuplicates: true
@@ -252,6 +258,9 @@ export class PriceListsService {
   }
 
   async deactivate(actor: AuthUser, id: string) {
+    if (process.env.PRICE_LISTS_V2_ENABLED === "true") {
+      throw new BadRequestException("Use POST /admin/price-list-versions/:id/deactivate");
+    }
     return this.update(actor, id, { isActive: false });
   }
 

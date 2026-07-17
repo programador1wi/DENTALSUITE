@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Patch, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Headers, Param, Query } from '@nestjs/common';
 import { PublicBookingService } from './public-booking.service';
-import { PublicAvailabilityQueryDto, PublicCreateAppointmentDto, UpdatePublicPatientProfileDto } from './dto/public-booking.dto';
+import { PublicAvailabilityQueryDto, PublicCreateAppointmentDto, PublicIdentityResolveDto, PublicIdentitySelectDto, PublicIdentityVerifyDto, UpdatePublicPatientProfileDto } from './dto/public-booking.dto';
 
 @Controller('public/booking')
 export class PublicBookingController {
@@ -17,8 +17,35 @@ export class PublicBookingController {
   }
 
   @Post(':slug/appointments')
-  async createAppointment(@Param('slug') slug: string, @Body() dto: PublicCreateAppointmentDto) {
-    return this.publicBookingService.createAppointment(slug, dto);
+  async createAppointment(
+    @Param('slug') slug: string,
+    @Body() dto: PublicCreateAppointmentDto,
+    @Headers('idempotency-key') idempotencyKey?: string
+  ) {
+    return this.publicBookingService.createAppointment(slug, dto, idempotencyKey);
+  }
+
+  @Post(':slug/identity/resolve')
+  async resolveIdentity(@Param('slug') slug: string, @Body() dto: PublicIdentityResolveDto) {
+    return this.publicBookingService.resolveIdentity(slug, dto);
+  }
+
+  @Post(':slug/identity/:sessionId/verify')
+  async verifyIdentity(
+    @Param('slug') slug: string,
+    @Param('sessionId') sessionId: string,
+    @Body() dto: PublicIdentityVerifyDto
+  ) {
+    return this.publicBookingService.verifyIdentity(slug, sessionId, dto);
+  }
+
+  @Post(':slug/identity/:sessionId/select')
+  async selectIdentity(
+    @Param('slug') slug: string,
+    @Param('sessionId') sessionId: string,
+    @Body() dto: PublicIdentitySelectDto
+  ) {
+    return this.publicBookingService.selectIdentity(slug, sessionId, dto.patientId, dto.familyGroupId);
   }
 
   @Post(':slug/track')

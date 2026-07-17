@@ -21,6 +21,7 @@
     "db:down": "docker compose down",
     "db:generate": "node scripts/db-generate.cjs",
     "db:migrate": "node scripts/db-migrate.cjs",
+    "db:migrate:deploy": "npm run prisma:migrate:deploy --workspace=@dentalwarner/database",
     "db:migrate:status": "node scripts/db-migrate-status.cjs",
     "db:seed": "node scripts/db-seed.cjs",
     "db:seed:demo": "node scripts/db-seed-demo.cjs",

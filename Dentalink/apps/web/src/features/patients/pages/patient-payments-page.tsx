@@ -181,7 +181,7 @@ export function PatientPaymentsPage() {
 
   const printReceipt = () => {
     if (!resultPayment) return;
-    window.open(`/payments/${resultPayment.paymentNumber}/receipt?print=1`, "_blank", "width=980,height=900");
+    window.open(`/payments/${encodeURIComponent(resultPayment.paymentNumber)}/receipt`, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -692,7 +692,7 @@ function PaymentResult({
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" onClick={onPrint}><Printer className="h-4 w-4" /> Imprimir comprobante</Button>
+          <Button type="button" variant="secondary" onClick={onPrint}><Printer className="h-4 w-4" /> Ver comprobante</Button>
           <Button type="button" variant="secondary" onClick={() => void downloadReceipt()}><Download className="h-4 w-4" /> Descargar PDF</Button>
           <Link to={`/patients/${payment.patientId}/billing`}>
             <Button type="button" variant="secondary"><ReceiptText className="h-4 w-4" /> Facturación y pagos</Button>
@@ -933,13 +933,4 @@ function statusLabel(status: string) {
     OVERDUE: "Vencida"
   };
   return labels[status] ?? status;
-}
-
-function escapeHtml(value: string) {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
 }

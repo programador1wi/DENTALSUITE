@@ -4,29 +4,9 @@ import { WarnerSuitePanel, ModuleTabs, type ModuleTab } from "@/components/layou
 
 const tabs: ModuleTab[] = [
   {
-    to: "/settings/online-scheduling",
-    label: "Agenda Online",
-    icon: <CalendarDays className="h-3.5 w-3.5" />
-  },
-  {
-    to: "/settings/online-scheduling/express",
-    label: "Agenda Express",
-    icon: <CalendarDays className="h-3.5 w-3.5" />
-  },
-  {
     to: "/settings/online-scheduling/schedules",
     label: "Horarios",
     icon: <CalendarClock className="h-3.5 w-3.5" />
-  },
-  {
-    to: "/settings/online-scheduling/campaigns",
-    label: "Campanas",
-    icon: <List className="h-3.5 w-3.5" />
-  },
-  {
-    to: "/settings/online-scheduling/dashboard",
-    label: "Dashboard",
-    icon: <Gauge className="h-3.5 w-3.5" />
   }
 ];
 
@@ -34,7 +14,7 @@ export function OnlineSchedulingNav({ children }: PropsWithChildren) {
   return (
     <div className="mx-auto max-w-6xl space-y-4">
       <WarnerSuitePanel>
-        <ModuleTabs tabs={tabs} />
+        {tabs.length > 1 && <ModuleTabs tabs={tabs} />}
         <div>{children}</div>
       </WarnerSuitePanel>
     </div>

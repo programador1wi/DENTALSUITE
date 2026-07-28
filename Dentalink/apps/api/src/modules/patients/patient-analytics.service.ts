@@ -963,6 +963,36 @@ export class PatientAnalyticsService {
     metadata: Record<string, unknown>
   ) {
     const omitted = map.get("Sin informacion") ?? 0;
+    map.delete("Sin informacion");
+
+    let entries = [...map.entries()]
+      .map(([itemLabel, value]) => ({
+        key: itemLabel.toLocaleLowerCase("es-MX").replace(/[^a-z0-9]+/g, "-"),
+        label: itemLabel,
+        value,
+        percent: percentage(value, denominator)
+      }))
+      .sort((a, b) => b.value - a.value);
+
+    if (entries.length > 15) {
+      const top = entries.slice(0, 15);
+      const othersValue = entries.slice(15).reduce((sum, item) => sum + item.value, 0);
+      top.push({
+        key: "otros",
+        label: "Otros",
+        value: othersValue,
+        percent: percentage(othersValue, denominator)
+      });
+      entries = top;
+    }
+
+    entries.push({
+      key: "sin-informacion",
+      label: "Sin informacion",
+      value: omitted,
+      percent: percentage(omitted, denominator)
+    });
+
     return {
       key,
       label,
@@ -971,14 +1001,7 @@ export class PatientAnalyticsService {
       denominator,
       omitted,
       ...metadata,
-      data: [...map.entries()]
-        .map(([itemLabel, value]) => ({
-          key: itemLabel.toLocaleLowerCase("es-MX").replace(/\s+/g, "-"),
-          label: itemLabel,
-          value,
-          percent: percentage(value, denominator)
-        }))
-        .sort((a, b) => b.value - a.value)
+      data: entries
     };
   }
 

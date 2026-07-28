@@ -44,10 +44,11 @@ export function usePatients(params?: PatientsQuery) {
   });
 }
 
-export function usePatientsAnalysis(params?: PatientAnalysisQuery) {
+export function usePatientsAnalysis(params?: PatientAnalysisQuery, enabled = true) {
   return useQuery({
     queryKey: ["patients", "analysis", params],
-    queryFn: () => getPatientsAnalysis(params)
+    queryFn: () => getPatientsAnalysis(params),
+    enabled
   });
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import React, { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Clock3, MapPin, ShieldAlert } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { ErrorState } from "@/components/feedback/error-state";
@@ -15,10 +15,14 @@ import {
   type PatientAnalyticsFilterValue
 } from "../components/analysis/analytics-filter-bar";
 import {
-  ConversionSection,
-  DemographicsSection,
-  GlobalMetricsSection
+  ConversionSection as _ConversionSection,
+  DemographicsSection as _DemographicsSection,
+  GlobalMetricsSection as _GlobalMetricsSection
 } from "../components/analysis/patient-analytics-charts";
+
+const ConversionSection = React.lazy(() => import("../components/analysis/patient-analytics-charts").then((m) => ({ default: m.ConversionSection })));
+const DemographicsSection = React.lazy(() => import("../components/analysis/patient-analytics-charts").then((m) => ({ default: m.DemographicsSection })));
+const GlobalMetricsSection = React.lazy(() => import("../components/analysis/patient-analytics-charts").then((m) => ({ default: m.GlobalMetricsSection })));
 import { AnalyticsDrilldownDrawer } from "../components/analysis/analytics-drilldown-drawer";
 import {
   usePatientsAnalysis,
@@ -85,7 +89,10 @@ export function PatientsAnalysisPage() {
       granularity: appliedFilters.granularity
     };
   }, [appliedFilters, branches.data]);
-  const analysis = usePatientsAnalysis(query);
+  const analysis = usePatientsAnalysis(
+    query,
+    appliedFilters.branchSelection !== "all" || Boolean(branches.data)
+  );
   const refresh = useRefreshPatientsAnalysis();
 
   const apply = () => {
@@ -175,9 +182,15 @@ export function PatientsAnalysisPage() {
                 Vista clínica activa. API omitió deuda e importes de presupuestos porque sesión no tiene permiso financiero.
               </div>
             ) : null}
-            <ConversionSection analysis={analysis.data} onOpenDetail={(metric, title) => setDetail({ metric, title })} />
-            <DemographicsSection analysis={analysis.data} />
-            <GlobalMetricsSection analysis={analysis.data} onOpenDetail={(metric, title) => setDetail({ metric, title })} />
+            <React.Suspense fallback={<LoadingState message="Cargando modulo de conversión..." />}>
+              <ConversionSection analysis={analysis.data} onOpenDetail={(metric, title) => setDetail({ metric, title })} />
+            </React.Suspense>
+            <React.Suspense fallback={<LoadingState message="Cargando modulo de demografía..." />}>
+              <DemographicsSection analysis={analysis.data} />
+            </React.Suspense>
+            <React.Suspense fallback={<LoadingState message="Cargando métricas globales..." />}>
+              <GlobalMetricsSection analysis={analysis.data} onOpenDetail={(metric, title) => setDetail({ metric, title })} />
+            </React.Suspense>
           </>
         ) : null}
       </div>

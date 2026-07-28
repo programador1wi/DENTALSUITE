@@ -65,4 +65,37 @@ describe("ReportsAnalyticsService", () => {
       "sales-book"
     ]);
   });
+
+  it("applies graphical-report configuration per split without duplicating mixed payments", async () => {
+    const service = new ReportsAnalyticsService({
+      payment: {
+        findMany: jest.fn().mockResolvedValue([
+          {
+            amount: 1000,
+            paidAt: new Date("2026-07-05T16:00:00.000Z"),
+            paymentMethod: { name: "Efectivo", includeInGraphicalReports: true },
+            splits: [
+              {
+                amount: 400,
+                paymentMethod: { name: "Efectivo", includeInGraphicalReports: true }
+              },
+              {
+                amount: 600,
+                paymentMethod: { name: "Tarjeta", includeInGraphicalReports: false }
+              }
+            ]
+          }
+        ])
+      }
+    } as never);
+
+    const result = await service.generateChartReport(actor, "daily-collection", {
+      preset: ReportsPeriodPreset.CUSTOM,
+      dateFrom: "2026-07-01",
+      dateTo: "2026-07-10"
+    });
+
+    expect(result.summary).toEqual(expect.objectContaining({ total: 400, payments: 1 }));
+    expect(result.rows).toEqual([expect.objectContaining({ method: "Efectivo", amount: 400 })]);
+  });
 });

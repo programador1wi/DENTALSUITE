@@ -22,6 +22,7 @@ import { ListPatientEmailsQueryDto, SendPatientEmailDto } from "./dto/patient-em
 import { PatientQueryDto } from "./dto/patient-query.dto";
 import { CreatePatientTaskDto, ListPatientTasksQueryDto, UpdatePatientTaskDto } from "./dto/patient-task.dto";
 import { UpdatePatientDto } from "./dto/update-patient.dto";
+import { PatientAnalyticsService } from "./patient-analytics.service";
 import { PatientsService } from "./patients.service";
 
 @ApiTags("Patients")
@@ -29,7 +30,10 @@ import { PatientsService } from "./patients.service";
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("patients")
 export class PatientsController {
-  constructor(private readonly patientsService: PatientsService) {}
+  constructor(
+    private readonly patientsService: PatientsService,
+    private readonly patientAnalytics: PatientAnalyticsService
+  ) {}
 
   @Get()
   @RequirePermissions("patients.read")
@@ -52,7 +56,7 @@ export class PatientsController {
   @Get("analysis")
   @RequirePermissions("patients.read")
   analysis(@CurrentUser() user: AuthUser, @Query() query: PatientAnalysisQueryDto) {
-    return this.patientsService.analysis(user, query);
+    return this.patientAnalytics.overview(user, query);
   }
 
   @Get(":id/timeline")

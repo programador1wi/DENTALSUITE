@@ -1,0 +1,6 @@
+Error: Treatment or OrthodonticProfile not found
+    at OrthodonticProgressService.getProgressSummary (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontic-progress.service.js:55:19)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontics.service.js:106:34
+    at async Promise.all (index 2)
+    at async OrthodonticsService.getPatientsReport (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontics.service.js:105:26)

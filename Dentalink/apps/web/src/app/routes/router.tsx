@@ -24,6 +24,9 @@ import { LabOrdersPage } from "@/features/labs-inventory/pages/lab-orders-page";
 import { LabProceduresPage } from "@/features/labs-inventory/pages/lab-procedures-page";
 import { LabsPage } from "@/features/labs-inventory/pages/labs-page";
 import { IntegrationsPage } from "@/features/integrations/pages/integrations-page";
+import { EmailMarketingPage } from "@/features/email-marketing/pages/email-marketing-page";
+import { SurveyManagementPage } from "@/features/surveys/pages/survey-management-page";
+import { PublicSurveyPage } from "@/features/surveys/pages/public-survey-page";
 import { ReportsAppointmentsPage } from "@/features/reports/pages/reports-appointments-page";
 import { ReportsChartsPage } from "@/features/reports/pages/reports-charts-page";
 import { ReportsExcelPage } from "@/features/reports/pages/reports-excel-page";
@@ -91,10 +94,12 @@ import { PatientsOrthodontiaPage } from "@/features/patients/pages/patients-orth
 import { PatientsPage } from "@/features/patients/pages/patients-page";
 import { AccountsReceivablePage } from "@/features/payments/pages/accounts-receivable-page";
 import { CashRegisterPage } from "@/features/payments/pages/cash-register-page";
+import { CashRegisterDetailPage } from "@/features/payments/pages/cash-register-detail-page";
 import { InstallmentsPage } from "@/features/payments/pages/installments-page";
 import { PaymentsPage } from "@/features/payments/pages/payments-page";
 import { PaymentLinksPage } from "@/features/payments/pages/payment-links-page";
 import { CancelledPendingPaymentsPage } from "@/features/payments/pages/cancelled-pending-payments-page";
+import { PaymentSettlementsPage } from "@/features/payments/pages/payment-settlements-page";
 import { PaymentDailyReceiptPage } from "@/features/payments/pages/payment-daily-receipt-page";
 import { PaymentReceiptPage } from "@/features/payments/pages/payment-receipt-page";
 import { BudgetsPage } from "@/features/treatments/pages/budgets-page";
@@ -162,7 +167,8 @@ export const router = createBrowserRouter([
       { path: "/book/:slug", element: <PublicBookingPage /> },
       { path: "/confirm-appointment", element: <ConfirmAppointmentPage /> },
       { path: "/complete-patient-profile", element: <CompletePatientProfilePage /> },
-      { path: "/mobile/photographic-upload/:token", element: <MobilePhotographicUploadPage /> }
+      { path: "/mobile/photographic-upload/:token", element: <MobilePhotographicUploadPage /> },
+      { path: "/public/surveys/respond/:token", element: <PublicSurveyPage /> }
     ]
   },
   {
@@ -388,13 +394,18 @@ export const router = createBrowserRouter([
             ]
           },
           {
+            element: <RequirePermissions required={["payment_settlements.read"]} />,
+            children: [{ path: "/payment-settlements", element: <PaymentSettlementsPage /> }]
+          },
+          {
             element: <RequirePermissions required={["cash_register.read"]} />,
             children: [
               { path: "/cash-register", element: <Navigate to="/cash-register/open" replace /> },
               { path: "/cash-register/open", element: <CashRegisterPage /> },
               { path: "/cash-register/closed", element: <CashRegisterPage /> },
               { path: "/cash-register/reports", element: <CashRegisterPage /> },
-              { path: "/cash-register/search", element: <CashRegisterPage /> }
+              { path: "/cash-register/search", element: <CashRegisterPage /> },
+              { path: "/cash-register/:registerNumber", element: <CashRegisterDetailPage /> }
             ]
           },
           { path: "/payroll", element: <RedirectWithSearch to="/settings/payroll" /> },
@@ -451,8 +462,33 @@ export const router = createBrowserRouter([
             ]
           },
           {
+            element: <RequirePermissions required={["integrations.surveys.read"]} />,
+            children: [
+              { path: "/crm/surveys", element: <Navigate to="/crm/surveys/list" replace /> },
+              { path: "/crm/surveys/list", element: <SurveyManagementPage /> },
+              { path: "/crm/surveys/:surveyId/edit", element: <SurveyManagementPage /> },
+              { path: "/crm/surveys/send-config", element: <SurveyManagementPage /> },
+              { path: "/crm/surveys/results", element: <SurveyManagementPage /> }
+            ]
+          },
+          {
             element: <RequirePermissions required={["integrations.communications.read"]} />,
-            children: [{ path: "/integrations", element: <IntegrationsPage /> }]
+            children: [
+              { path: "/integrations", element: <IntegrationsPage /> },
+              {
+                path: "/crm/email-marketing",
+                element: <Navigate to="/crm/email-marketing/reports" replace />
+              },
+              { path: "/crm/email-marketing/reports", element: <EmailMarketingPage /> },
+              { path: "/crm/email-marketing/reports/:reportCode", element: <EmailMarketingPage /> },
+              {
+                path: "/crm/email-marketing/reports/:reportCode/campaign",
+                element: <EmailMarketingPage />
+              },
+              { path: "/crm/email-marketing/campaigns", element: <EmailMarketingPage /> },
+              { path: "/crm/email-marketing/templates", element: <EmailMarketingPage /> },
+              { path: "/crm/email-marketing/settings", element: <EmailMarketingPage /> }
+            ]
           },
 
           {

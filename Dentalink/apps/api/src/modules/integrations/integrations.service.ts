@@ -117,7 +117,7 @@ export class IntegrationsService {
   async queueCommunicationJob(actor: AuthUser, id: string) {
     const job = await this.getScopedCommunicationJob(actor, id);
     if (job.status !== CommunicationJobStatus.PENDING && job.status !== CommunicationJobStatus.FAILED) {
-      throw new BadRequestException("Only pending or failed communication jobs can be queued");
+      throw new BadRequestException("Solo se pueden encolar mensajes en estado pendiente o fallido.");
     }
 
     const queued = await this.notificationProvider.queue({

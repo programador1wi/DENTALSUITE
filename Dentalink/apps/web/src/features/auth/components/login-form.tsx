@@ -12,11 +12,11 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const form = useForm<LoginSchema>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "" }
+    defaultValues: { email: "", password: "", rememberMe: true }
   });
 
   return (
-    <form className="space-y-5" onSubmit={form.handleSubmit((values) => login.mutate(values))}>
+    <form className="space-y-5" onSubmit={form.handleSubmit(({ email, password }) => login.mutate({ email, password }))}>
       <div className="space-y-2">
         <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Correo</label>
         <div className="relative">
@@ -35,7 +35,7 @@ export function LoginForm() {
 
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Contrasena</label>
+          <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Contraseña</label>
           <a
             href="#"
             onClick={(event) => event.preventDefault()}
@@ -55,9 +55,9 @@ export function LoginForm() {
           />
           <button
             type="button"
-            className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
+            className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
             onClick={() => setShowPassword((current) => !current)}
-            aria-label={showPassword ? "Ocultar contrasena" : "Mostrar contrasena"}
+            aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
           >
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
@@ -73,8 +73,9 @@ export function LoginForm() {
           id="remember-me"
           type="checkbox"
           className="h-4 w-4 rounded border-zinc-300 text-cyan-600 focus:ring-cyan-500/30"
+          {...form.register("rememberMe")}
         />
-        Mantener sesion iniciada
+        Mantener sesión iniciada
       </label>
 
       <Button

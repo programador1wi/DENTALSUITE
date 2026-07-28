@@ -11,9 +11,18 @@ import {
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
-import { AnalyticsReportQueryDto, ChartReportType, GenerateChartReportDto, ReportsPeriodPreset } from "./dto/reports.dto";
+import {
+  AnalyticsReportQueryDto,
+  ChartReportType,
+  GenerateChartReportDto,
+  ReportsPeriodPreset
+} from "./dto/reports.dto";
 
-const ATTENDED_STATUSES: AppointmentStatus[] = [AppointmentStatus.COMPLETED, AppointmentStatus.WAITING_ROOM, AppointmentStatus.IN_PROGRESS];
+const ATTENDED_STATUSES: AppointmentStatus[] = [
+  AppointmentStatus.COMPLETED,
+  AppointmentStatus.WAITING_ROOM,
+  AppointmentStatus.IN_PROGRESS
+];
 const SCHEDULED_EXCLUDED_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.BLOCKED,
   AppointmentStatus.CANCELLED_BY_CLINIC,
@@ -28,7 +37,11 @@ const CANCELLED_BY_PATIENT_OR_RESCHEDULE_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.CANCELLED_RESCHEDULED,
   AppointmentStatus.RESCHEDULED
 ];
-const RECEIVED_PAYMENT_STATUSES: PaymentStatus[] = [PaymentStatus.RECEIVED, PaymentStatus.PARTIALLY_ALLOCATED, PaymentStatus.ALLOCATED];
+const RECEIVED_PAYMENT_STATUSES: PaymentStatus[] = [
+  PaymentStatus.RECEIVED,
+  PaymentStatus.PARTIALLY_ALLOCATED,
+  PaymentStatus.ALLOCATED
+];
 const CAPTURED_BUDGET_STATUSES: BudgetStatus[] = [BudgetStatus.ACCEPTED];
 
 type AnalyticsFilters = {
@@ -72,23 +85,16 @@ export class ReportsAnalyticsService {
     const filters = await this.resolveFilters(actor, query);
     const previous = this.previousRange(filters.start, filters.end);
 
-    const [
-      agenda,
-      monthlyAttention,
-      currentFinance,
-      previousFinance,
-      monthlyFinance,
-      waitTime,
-      production
-    ] = await Promise.all([
-      this.getAgendaPerformance(actor, filters),
-      this.getMonthlyAttention(actor, filters),
-      this.getFinancePerformance(actor, filters.start, filters.end, filters.branchWhere),
-      this.getFinancePerformance(actor, previous.start, previous.end, filters.branchWhere),
-      this.getMonthlyFinance(actor, filters),
-      this.getWaitTimeMetrics(actor, filters),
-      this.getProductionPerformance(actor, filters)
-    ]);
+    const [agenda, monthlyAttention, currentFinance, previousFinance, monthlyFinance, waitTime, production] =
+      await Promise.all([
+        this.getAgendaPerformance(actor, filters),
+        this.getMonthlyAttention(actor, filters),
+        this.getFinancePerformance(actor, filters.start, filters.end, filters.branchWhere),
+        this.getFinancePerformance(actor, previous.start, previous.end, filters.branchWhere),
+        this.getMonthlyFinance(actor, filters),
+        this.getWaitTimeMetrics(actor, filters),
+        this.getProductionPerformance(actor, filters)
+      ]);
 
     return {
       filters: this.publicFilters(filters),
@@ -116,24 +122,52 @@ export class ReportsAnalyticsService {
     return [
       ["results", "Resultados", "Compara ventas realizadas con gastos pagados y costos teoricos."],
       ["money-flow", "Flujos de dinero", "Pagos recibidos, movimientos de caja y gastos pagados."],
-      ["patient-analysis", "Analisis de pacientes", "Embudo entre citas agendadas, confirmadas y presupuestos capturados."],
+      [
+        "patient-analysis",
+        "Analisis de pacientes",
+        "Embudo entre citas agendadas, confirmadas y presupuestos capturados."
+      ],
       ["expenses", "Gastos", "Gastos por fecha de gasto y fecha real de pago."],
-      ["professional-efficiency", "Eficiencia por profesional", "Ventas realizadas entre horas efectivamente atendidas."],
+      [
+        "professional-efficiency",
+        "Eficiencia por profesional",
+        "Ventas realizadas entre horas efectivamente atendidas."
+      ],
       ["sales-by-procedure", "Ventas por prestacion", "Produccion realizada agrupada por prestacion."],
-      ["sales-by-category", "Ventas por categoria", "Produccion realizada agrupada por categoria de arancel."],
-      ["budget-capture-efficiency", "Eficiencia de captacion de presupuestos", "Presupuestos capturados sobre presupuestos generados."],
+      [
+        "sales-by-category",
+        "Ventas por categoria",
+        "Produccion realizada agrupada por categoria de arancel."
+      ],
+      [
+        "budget-capture-efficiency",
+        "Eficiencia de captacion de presupuestos",
+        "Presupuestos capturados sobre presupuestos generados."
+      ],
       ["daily-collection", "Informe de recaudacion diario", "Cobranza recibida por dia y metodo de pago."],
       ["professional-ranking", "Ranking de profesionales", "Profesionales ordenados por ventas realizadas."],
       ["delinquent-patients", "Pacientes morosos", "Pacientes con cuotas vencidas o parcialmente pagadas."],
       ["financing-status", "Estado de financiamientos", "Cuotas agrupadas por estado de financiamiento."],
-      ["payroll-discount-status", "Estado de descuento por planilla", "Descuentos por planilla agrupados por estado."],
-      ["patient-referrals", "Derivacion de pacientes", "Derivaciones de tratamientos entre sucursales y profesionales."],
+      [
+        "payroll-discount-status",
+        "Estado de descuento por planilla",
+        "Descuentos por planilla agrupados por estado."
+      ],
+      [
+        "patient-referrals",
+        "Derivacion de pacientes",
+        "Derivaciones de tratamientos entre sucursales y profesionales."
+      ],
       ["captured-budgets", "Presupuestos capturados", "Presupuestos aceptados y montos capturados."],
       ["sales-book", "Libro de ventas", "Detalle exportable de ventas realizadas por prestacion."]
     ].map(([type, title, description]) => ({ type, title, description }));
   }
 
-  async generateChartReport(actor: AuthUser, type: ChartReportType, query: GenerateChartReportDto): Promise<ChartPayload> {
+  async generateChartReport(
+    actor: AuthUser,
+    type: ChartReportType,
+    query: GenerateChartReportDto
+  ): Promise<ChartPayload> {
     const filters = await this.resolveFilters(actor, query);
 
     switch (type) {
@@ -174,7 +208,9 @@ export class ReportsAnalyticsService {
   }
 
   async resolveFilters(actor: AuthUser, query: AnalyticsReportQueryDto): Promise<AnalyticsFilters> {
-    const preset = query.preset ?? (query.dateFrom || query.dateTo ? ReportsPeriodPreset.CUSTOM : ReportsPeriodPreset.MONTH);
+    const preset =
+      query.preset ??
+      (query.dateFrom || query.dateTo ? ReportsPeriodPreset.CUSTOM : ReportsPeriodPreset.MONTH);
     const now = new Date();
     let start: Date;
     let end: Date;
@@ -186,7 +222,8 @@ export class ReportsAnalyticsService {
       start.setDate(start.getDate() - 29);
       start.setHours(0, 0, 0, 0);
     } else if (preset === ReportsPeriodPreset.CUSTOM) {
-      if (!query.dateFrom || !query.dateTo) throw new BadRequestException("dateFrom and dateTo are required for custom reports");
+      if (!query.dateFrom || !query.dateTo)
+        throw new BadRequestException("dateFrom and dateTo are required for custom reports");
       start = new Date(query.dateFrom);
       end = new Date(query.dateTo);
       start.setHours(0, 0, 0, 0);
@@ -194,7 +231,12 @@ export class ReportsAnalyticsService {
     } else {
       const parsedMonth = query.month ? Number(query.month) : now.getMonth() + 1;
       const parsedYear = query.year ? Number(query.year) : now.getFullYear();
-      if (!Number.isInteger(parsedMonth) || parsedMonth < 1 || parsedMonth > 12 || !Number.isInteger(parsedYear)) {
+      if (
+        !Number.isInteger(parsedMonth) ||
+        parsedMonth < 1 ||
+        parsedMonth > 12 ||
+        !Number.isInteger(parsedYear)
+      ) {
         throw new BadRequestException("Invalid month or year");
       }
       start = new Date(parsedYear, parsedMonth - 1, 1);
@@ -254,8 +296,16 @@ export class ReportsAnalyticsService {
           deletedAt: null,
           createdAt: { gte: filters.start, lte: filters.end },
           OR: [
-            { clinicalEvolutions: { some: { createdAt: { gte: filters.start, lte: filters.end }, annulledAt: null } } },
-            { treatmentPlans: { some: { createdAt: { gte: filters.start, lte: filters.end }, isAlternative: false } } }
+            {
+              clinicalEvolutions: {
+                some: { createdAt: { gte: filters.start, lte: filters.end }, annulledAt: null }
+              }
+            },
+            {
+              treatmentPlans: {
+                some: { createdAt: { gte: filters.start, lte: filters.end }, isAlternative: false }
+              }
+            }
           ]
         }
       }),
@@ -274,7 +324,9 @@ export class ReportsAnalyticsService {
 
     const scheduled = appointments.filter((row) => !SCHEDULED_EXCLUDED_STATUSES.includes(row.status)).length;
     const attended = appointments.filter((row) => ATTENDED_STATUSES.includes(row.status)).length;
-    const cancelled = appointments.filter((row) => CANCELLED_BY_PATIENT_OR_RESCHEDULE_STATUSES.includes(row.status)).length;
+    const cancelled = appointments.filter((row) =>
+      CANCELLED_BY_PATIENT_OR_RESCHEDULE_STATUSES.includes(row.status)
+    ).length;
     const usedMinutes = appointments
       .filter((row) => ATTENDED_STATUSES.includes(row.status))
       .reduce((sum, row) => sum + row.durationMinutes, 0);
@@ -362,14 +414,19 @@ export class ReportsAnalyticsService {
     start.setMonth(start.getMonth() - 11);
     start.setHours(0, 0, 0, 0);
     const map = new Map<string, { month: string; sales: number; collections: number }>();
-    for (const key of this.emptyMonthMap(start, filters.end).keys()) map.set(key, { month: key, sales: 0, collections: 0 });
+    for (const key of this.emptyMonthMap(start, filters.end).keys())
+      map.set(key, { month: key, sales: 0, collections: 0 });
 
     const [items, payments] = await Promise.all([
       this.prisma.treatmentPlanItem.findMany({
         where: {
           status: TreatmentPlanItemStatus.COMPLETED,
           completedAt: { gte: start, lte: filters.end },
-          treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere, isAlternative: false }
+          treatmentPlan: {
+            organizationId: actor.organizationId,
+            branchId: filters.branchWhere,
+            isAlternative: false
+          }
         },
         select: { total: true, completedAt: true }
       }),
@@ -404,12 +461,22 @@ export class ReportsAnalyticsService {
         organizationId: actor.organizationId,
         branchId: filters.branchWhere,
         startAt: { gte: filters.start, lte: filters.end },
-        statusHistory: { some: { newStatus: { in: [AppointmentStatus.WAITING_ROOM, AppointmentStatus.IN_PROGRESS, AppointmentStatus.COMPLETED] } } }
+        statusHistory: {
+          some: {
+            newStatus: {
+              in: [AppointmentStatus.WAITING_ROOM, AppointmentStatus.IN_PROGRESS, AppointmentStatus.COMPLETED]
+            }
+          }
+        }
       },
       select: {
         id: true,
         statusHistory: {
-          where: { newStatus: { in: [AppointmentStatus.WAITING_ROOM, AppointmentStatus.IN_PROGRESS, AppointmentStatus.COMPLETED] } },
+          where: {
+            newStatus: {
+              in: [AppointmentStatus.WAITING_ROOM, AppointmentStatus.IN_PROGRESS, AppointmentStatus.COMPLETED]
+            }
+          },
           select: { newStatus: true, createdAt: true },
           orderBy: { createdAt: "asc" }
         }
@@ -418,17 +485,24 @@ export class ReportsAnalyticsService {
 
     const waits: number[] = [];
     for (const appointment of appointments) {
-      const waiting = appointment.statusHistory.find((row) => row.newStatus === AppointmentStatus.WAITING_ROOM);
+      const waiting = appointment.statusHistory.find(
+        (row) => row.newStatus === AppointmentStatus.WAITING_ROOM
+      );
       const started = appointment.statusHistory.find(
         (row) =>
-          (row.newStatus === AppointmentStatus.IN_PROGRESS || row.newStatus === AppointmentStatus.COMPLETED) &&
+          (row.newStatus === AppointmentStatus.IN_PROGRESS ||
+            row.newStatus === AppointmentStatus.COMPLETED) &&
           (!waiting || row.createdAt >= waiting.createdAt)
       );
       if (!waiting || !started) continue;
-      waits.push(Math.max(0, Math.round((started.createdAt.getTime() - waiting.createdAt.getTime()) / 60000)));
+      waits.push(
+        Math.max(0, Math.round((started.createdAt.getTime() - waiting.createdAt.getTime()) / 60000))
+      );
     }
 
-    const currentAverage = waits.length ? this.roundMoney(waits.reduce((sum, value) => sum + value, 0) / waits.length) : 0;
+    const currentAverage = waits.length
+      ? this.roundMoney(waits.reduce((sum, value) => sum + value, 0) / waits.length)
+      : 0;
     const historicalAverage = await this.getHistoricalWaitAverage(actor, filters);
 
     return {
@@ -443,8 +517,15 @@ export class ReportsAnalyticsService {
     const historicalEnd = new Date(filters.start.getTime() - 1);
     const historicalStart = new Date(historicalEnd);
     historicalStart.setMonth(historicalStart.getMonth() - 12);
-    const historical = await this.getWaitTimeMetricsRaw(actor, filters.branchWhere, historicalStart, historicalEnd);
-    return historical.length ? this.roundMoney(historical.reduce((sum, value) => sum + value, 0) / historical.length) : 0;
+    const historical = await this.getWaitTimeMetricsRaw(
+      actor,
+      filters.branchWhere,
+      historicalStart,
+      historicalEnd
+    );
+    return historical.length
+      ? this.roundMoney(historical.reduce((sum, value) => sum + value, 0) / historical.length)
+      : 0;
   }
 
   private async getWaitTimeMetricsRaw(
@@ -458,21 +539,34 @@ export class ReportsAnalyticsService {
         organizationId: actor.organizationId,
         branchId: branchWhere,
         startAt: { gte: start, lte: end },
-        statusHistory: { some: { newStatus: { in: [AppointmentStatus.WAITING_ROOM, AppointmentStatus.IN_PROGRESS, AppointmentStatus.COMPLETED] } } }
+        statusHistory: {
+          some: {
+            newStatus: {
+              in: [AppointmentStatus.WAITING_ROOM, AppointmentStatus.IN_PROGRESS, AppointmentStatus.COMPLETED]
+            }
+          }
+        }
       },
       select: {
         statusHistory: {
-          where: { newStatus: { in: [AppointmentStatus.WAITING_ROOM, AppointmentStatus.IN_PROGRESS, AppointmentStatus.COMPLETED] } },
+          where: {
+            newStatus: {
+              in: [AppointmentStatus.WAITING_ROOM, AppointmentStatus.IN_PROGRESS, AppointmentStatus.COMPLETED]
+            }
+          },
           select: { newStatus: true, createdAt: true },
           orderBy: { createdAt: "asc" }
         }
       }
     });
     return appointments.flatMap((appointment) => {
-      const waiting = appointment.statusHistory.find((row) => row.newStatus === AppointmentStatus.WAITING_ROOM);
+      const waiting = appointment.statusHistory.find(
+        (row) => row.newStatus === AppointmentStatus.WAITING_ROOM
+      );
       const started = appointment.statusHistory.find(
         (row) =>
-          (row.newStatus === AppointmentStatus.IN_PROGRESS || row.newStatus === AppointmentStatus.COMPLETED) &&
+          (row.newStatus === AppointmentStatus.IN_PROGRESS ||
+            row.newStatus === AppointmentStatus.COMPLETED) &&
           (!waiting || row.createdAt >= waiting.createdAt)
       );
       if (!waiting || !started) return [];
@@ -485,7 +579,11 @@ export class ReportsAnalyticsService {
       where: {
         status: TreatmentPlanItemStatus.COMPLETED,
         completedAt: { gte: filters.start, lte: filters.end },
-        treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere, isAlternative: false }
+        treatmentPlan: {
+          organizationId: actor.organizationId,
+          branchId: filters.branchWhere,
+          isAlternative: false
+        }
       },
       select: {
         total: true,
@@ -501,7 +599,10 @@ export class ReportsAnalyticsService {
     });
 
     const hoursByProfessional = await this.attendedHoursByProfessional(actor, filters);
-    const professionalMap = new Map<string, { professionalId: string; name: string; sales: number; attendedHours: number }>();
+    const professionalMap = new Map<
+      string,
+      { professionalId: string; name: string; sales: number; attendedHours: number }
+    >();
     let theoreticalCosts = 0;
 
     for (const item of completedItems) {
@@ -533,7 +634,11 @@ export class ReportsAnalyticsService {
     };
   }
 
-  private async computeAvailableMinutes(actor: AuthUser, filters: AnalyticsFilters, professionalIds: string[]) {
+  private async computeAvailableMinutes(
+    actor: AuthUser,
+    filters: AnalyticsFilters,
+    professionalIds: string[]
+  ) {
     if (!professionalIds.length) return 0;
     const schedules = await this.prisma.professionalSchedule.findMany({
       where: {
@@ -545,8 +650,13 @@ export class ReportsAnalyticsService {
       select: { dayOfWeek: true, startTime: true, endTime: true, breakStartTime: true, breakEndTime: true }
     });
     return schedules.reduce((sum, schedule) => {
-      const minutes = this.minutesDiff(schedule.startTime, schedule.endTime) - this.breakMinutes(schedule.breakStartTime, schedule.breakEndTime);
-      return sum + Math.max(0, minutes) * this.countWeekdayOccurrences(filters.start, filters.end, schedule.dayOfWeek);
+      const minutes =
+        this.minutesDiff(schedule.startTime, schedule.endTime) -
+        this.breakMinutes(schedule.breakStartTime, schedule.breakEndTime);
+      return (
+        sum +
+        Math.max(0, minutes) * this.countWeekdayOccurrences(filters.start, filters.end, schedule.dayOfWeek)
+      );
     }, 0);
   }
 
@@ -562,7 +672,10 @@ export class ReportsAnalyticsService {
     });
     const map = new Map<string, number>();
     for (const appointment of appointments) {
-      map.set(appointment.professionalId, (map.get(appointment.professionalId) ?? 0) + appointment.durationMinutes / 60);
+      map.set(
+        appointment.professionalId,
+        (map.get(appointment.professionalId) ?? 0) + appointment.durationMinutes / 60
+      );
     }
     return map;
   }
@@ -573,7 +686,12 @@ export class ReportsAnalyticsService {
       this.getProductionPerformance(actor, filters),
       this.prisma.expense.aggregate({
         _sum: { total: true },
-        where: { organizationId: actor.organizationId, branchId: filters.branchWhere, paidAt: { gte: filters.start, lte: filters.end } }
+        where: {
+          organizationId: actor.organizationId,
+          branchId: filters.branchWhere,
+          status: { not: "VOIDED" },
+          paidAt: { gte: filters.start, lte: filters.end }
+        }
       })
     ]);
     const paidExpenses = this.money(expenses._sum.total);
@@ -597,29 +715,61 @@ export class ReportsAnalyticsService {
 
   private async moneyFlowReport(actor: AuthUser, filters: AnalyticsFilters): Promise<ChartPayload> {
     const [payments, cashExpenses, expenses] = await Promise.all([
-      this.prisma.payment.aggregate({
-        _sum: { amount: true },
+      this.prisma.payment.findMany({
         where: {
           organizationId: actor.organizationId,
           branchId: filters.branchWhere,
           paidAt: { gte: filters.start, lte: filters.end },
           status: { in: RECEIVED_PAYMENT_STATUSES }
+        },
+        select: {
+          amount: true,
+          paymentMethod: { select: { includeInGraphicalReports: true } },
+          splits: {
+            select: {
+              amount: true,
+              paymentMethod: { select: { includeInGraphicalReports: true } }
+            }
+          }
         }
       }),
       this.prisma.cashMovement.aggregate({
         _sum: { amount: true },
         where: {
-          type: { in: [CashMovementType.EXPENSE, CashMovementType.REFUND] },
+          direction: "OUT",
+          type: { not: CashMovementType.EXPENSE },
+          voidedAt: null,
           createdAt: { gte: filters.start, lte: filters.end },
           cashRegister: { organizationId: actor.organizationId, branchId: filters.branchWhere }
         }
       }),
       this.prisma.expense.aggregate({
         _sum: { total: true },
-        where: { organizationId: actor.organizationId, branchId: filters.branchWhere, paidAt: { gte: filters.start, lte: filters.end } }
+        where: {
+          organizationId: actor.organizationId,
+          branchId: filters.branchWhere,
+          status: { not: "VOIDED" },
+          paidAt: { gte: filters.start, lte: filters.end }
+        }
       })
     ]);
-    const received = this.money(payments._sum.amount);
+    const received = this.roundMoney(
+      payments.reduce((total, payment) => {
+        if (payment.splits.length) {
+          return (
+            total +
+            payment.splits.reduce(
+              (splitTotal, split) =>
+                splitTotal + (split.paymentMethod.includeInGraphicalReports ? Number(split.amount) : 0),
+              0
+            )
+          );
+        }
+        return (
+          total + (payment.paymentMethod?.includeInGraphicalReports !== false ? Number(payment.amount) : 0)
+        );
+      }, 0)
+    );
     const outflow = this.money(cashExpenses._sum.amount) + this.money(expenses._sum.total);
     return this.chartPayload("Flujos de dinero", "Entradas y salidas efectivas del periodo.", filters, {
       summary: { received, outflow: this.roundMoney(outflow), netFlow: this.roundMoney(received - outflow) },
@@ -651,7 +801,14 @@ export class ReportsAnalyticsService {
           organizationId: actor.organizationId,
           branchId: filters.branchWhere,
           patientId: { not: null },
-          status: { in: [AppointmentStatus.CONFIRMED, AppointmentStatus.CONFIRMED_BY_EMAIL, AppointmentStatus.CONFIRMED_BY_PHONE, AppointmentStatus.CONFIRMED_BY_WHATSAPP] },
+          status: {
+            in: [
+              AppointmentStatus.CONFIRMED,
+              AppointmentStatus.CONFIRMED_BY_EMAIL,
+              AppointmentStatus.CONFIRMED_BY_PHONE,
+              AppointmentStatus.CONFIRMED_BY_WHATSAPP
+            ]
+          },
           startAt: { gte: filters.start, lte: filters.end }
         }
       }),
@@ -659,7 +816,10 @@ export class ReportsAnalyticsService {
         where: {
           organizationId: actor.organizationId,
           status: { in: CAPTURED_BUDGET_STATUSES },
-          OR: [{ acceptedAt: { gte: filters.start, lte: filters.end } }, { acceptedAt: null, createdAt: { gte: filters.start, lte: filters.end } }],
+          OR: [
+            { acceptedAt: { gte: filters.start, lte: filters.end } },
+            { acceptedAt: null, createdAt: { gte: filters.start, lte: filters.end } }
+          ],
           treatmentPlan: { branchId: filters.branchWhere, isAlternative: false }
         }
       })
@@ -687,8 +847,19 @@ export class ReportsAnalyticsService {
 
   private async expensesReport(actor: AuthUser, filters: AnalyticsFilters): Promise<ChartPayload> {
     const expenses = await this.prisma.expense.findMany({
-      where: { organizationId: actor.organizationId, branchId: filters.branchWhere, paidAt: { gte: filters.start, lte: filters.end } },
-      select: { description: true, total: true, invoicedAt: true, paidAt: true, category: { select: { name: true } } },
+      where: {
+        organizationId: actor.organizationId,
+        branchId: filters.branchWhere,
+        status: { not: "VOIDED" },
+        paidAt: { gte: filters.start, lte: filters.end }
+      },
+      select: {
+        description: true,
+        total: true,
+        invoicedAt: true,
+        paidAt: true,
+        category: { select: { name: true } }
+      },
       orderBy: { paidAt: "desc" },
       take: 200
     });
@@ -698,8 +869,13 @@ export class ReportsAnalyticsService {
       categoryMap.set(key, this.roundMoney((categoryMap.get(key) ?? 0) + Number(expense.total)));
     }
     return this.chartPayload("Gastos", "Separacion entre fecha del gasto y fecha real de pago.", filters, {
-      summary: { total: this.roundMoney(expenses.reduce((sum, row) => sum + Number(row.total), 0)), count: expenses.length },
-      chart: [...categoryMap.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount),
+      summary: {
+        total: this.roundMoney(expenses.reduce((sum, row) => sum + Number(row.total), 0)),
+        count: expenses.length
+      },
+      chart: [...categoryMap.entries()]
+        .map(([label, amount]) => ({ label, amount }))
+        .sort((a, b) => b.amount - a.amount),
       rows: expenses.map((row) => ({
         category: row.category.name,
         description: row.description,
@@ -710,15 +886,26 @@ export class ReportsAnalyticsService {
     });
   }
 
-  private async professionalEfficiencyReport(actor: AuthUser, filters: AnalyticsFilters, type: ChartReportType): Promise<ChartPayload> {
+  private async professionalEfficiencyReport(
+    actor: AuthUser,
+    filters: AnalyticsFilters,
+    type: ChartReportType
+  ): Promise<ChartPayload> {
     const production = await this.getProductionPerformance(actor, filters);
     return this.chartPayload(
       type === "professional-ranking" ? "Ranking de profesionales" : "Eficiencia por profesional",
       "Ventas realizadas y eficiencia por hora atendida.",
       filters,
       {
-        summary: { professionals: production.professionalEfficiency.length, theoreticalCosts: production.theoreticalCosts },
-        chart: production.professionalEfficiency.map((row) => ({ label: row.name, amount: row.sales, efficiency: row.efficiency })),
+        summary: {
+          professionals: production.professionalEfficiency.length,
+          theoreticalCosts: production.theoreticalCosts
+        },
+        chart: production.professionalEfficiency.map((row) => ({
+          label: row.name,
+          amount: row.sales,
+          efficiency: row.efficiency
+        })),
         rows: production.professionalEfficiency.map((row) => ({
           professional: row.name,
           sales: row.sales,
@@ -732,13 +919,24 @@ export class ReportsAnalyticsService {
   private async salesByProcedureReport(actor: AuthUser, filters: AnalyticsFilters): Promise<ChartPayload> {
     const rows = await this.completedItemRows(actor, filters);
     const map = new Map<string, number>();
-    for (const row of rows) map.set(row.procedure.name, this.roundMoney((map.get(row.procedure.name) ?? 0) + Number(row.total)));
-    const chart = [...map.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount);
-    return this.chartPayload("Ventas por prestacion", "Ventas realizadas agrupadas por prestacion.", filters, {
-      summary: { total: this.roundMoney(chart.reduce((sum, row) => sum + row.amount, 0)), procedures: chart.length },
-      chart,
-      rows: chart
-    });
+    for (const row of rows)
+      map.set(row.procedure.name, this.roundMoney((map.get(row.procedure.name) ?? 0) + Number(row.total)));
+    const chart = [...map.entries()]
+      .map(([label, amount]) => ({ label, amount }))
+      .sort((a, b) => b.amount - a.amount);
+    return this.chartPayload(
+      "Ventas por prestacion",
+      "Ventas realizadas agrupadas por prestacion.",
+      filters,
+      {
+        summary: {
+          total: this.roundMoney(chart.reduce((sum, row) => sum + row.amount, 0)),
+          procedures: chart.length
+        },
+        chart,
+        rows: chart
+      }
+    );
   }
 
   private async salesByCategoryReport(actor: AuthUser, filters: AnalyticsFilters): Promise<ChartPayload> {
@@ -748,9 +946,14 @@ export class ReportsAnalyticsService {
       const key = row.priceSnapshotCategory ?? row.priceListItem?.priceListCategory?.name ?? "Sin categoria";
       map.set(key, this.roundMoney((map.get(key) ?? 0) + Number(row.total)));
     }
-    const chart = [...map.entries()].map(([label, amount]) => ({ label, amount })).sort((a, b) => b.amount - a.amount);
+    const chart = [...map.entries()]
+      .map(([label, amount]) => ({ label, amount }))
+      .sort((a, b) => b.amount - a.amount);
     return this.chartPayload("Ventas por categoria", "Ventas realizadas agrupadas por categoria.", filters, {
-      summary: { total: this.roundMoney(chart.reduce((sum, row) => sum + row.amount, 0)), categories: chart.length },
+      summary: {
+        total: this.roundMoney(chart.reduce((sum, row) => sum + row.amount, 0)),
+        categories: chart.length
+      },
       chart,
       rows: chart
     });
@@ -759,29 +962,41 @@ export class ReportsAnalyticsService {
   private async budgetCaptureReport(actor: AuthUser, filters: AnalyticsFilters): Promise<ChartPayload> {
     const [generated, captured] = await Promise.all([
       this.prisma.budget.count({
-        where: { organizationId: actor.organizationId, createdAt: { gte: filters.start, lte: filters.end }, treatmentPlan: { branchId: filters.branchWhere, isAlternative: false } }
+        where: {
+          organizationId: actor.organizationId,
+          createdAt: { gte: filters.start, lte: filters.end },
+          treatmentPlan: { branchId: filters.branchWhere, isAlternative: false }
+        }
       }),
       this.prisma.budget.count({
         where: {
           organizationId: actor.organizationId,
           status: { in: CAPTURED_BUDGET_STATUSES },
-          OR: [{ acceptedAt: { gte: filters.start, lte: filters.end } }, { acceptedAt: null, createdAt: { gte: filters.start, lte: filters.end } }],
+          OR: [
+            { acceptedAt: { gte: filters.start, lte: filters.end } },
+            { acceptedAt: null, createdAt: { gte: filters.start, lte: filters.end } }
+          ],
           treatmentPlan: { branchId: filters.branchWhere, isAlternative: false }
         }
       })
     ]);
-    return this.chartPayload("Eficiencia de captacion de presupuestos", "Presupuestos capturados sobre presupuestos generados.", filters, {
-      summary: { generated, captured, rate: this.percent(captured, generated) },
-      chart: [
-        { label: "Generados", value: generated },
-        { label: "Capturados", value: captured }
-      ],
-      rows: [
-        { metric: "Presupuestos generados", value: generated },
-        { metric: "Presupuestos capturados", value: captured },
-        { metric: "Tasa de captacion", value: this.percent(captured, generated) }
-      ]
-    });
+    return this.chartPayload(
+      "Eficiencia de captacion de presupuestos",
+      "Presupuestos capturados sobre presupuestos generados.",
+      filters,
+      {
+        summary: { generated, captured, rate: this.percent(captured, generated) },
+        chart: [
+          { label: "Generados", value: generated },
+          { label: "Capturados", value: captured }
+        ],
+        rows: [
+          { metric: "Presupuestos generados", value: generated },
+          { metric: "Presupuestos capturados", value: captured },
+          { metric: "Tasa de captacion", value: this.percent(captured, generated) }
+        ]
+      }
+    );
   }
 
   private async dailyCollectionReport(actor: AuthUser, filters: AnalyticsFilters): Promise<ChartPayload> {
@@ -792,19 +1007,50 @@ export class ReportsAnalyticsService {
         paidAt: { gte: filters.start, lte: filters.end },
         status: { in: RECEIVED_PAYMENT_STATUSES }
       },
-      select: { amount: true, paidAt: true, paymentMethod: { select: { name: true } } },
+      select: {
+        amount: true,
+        paidAt: true,
+        paymentMethod: { select: { name: true, includeInGraphicalReports: true } },
+        splits: {
+          select: {
+            amount: true,
+            paymentMethod: { select: { name: true, includeInGraphicalReports: true } }
+          }
+        }
+      },
       orderBy: { paidAt: "asc" }
     });
     const map = new Map<string, number>();
+    const rows: Array<{ date: string; method: string | null; amount: number }> = [];
     for (const payment of payments) {
       const key = this.dateKey(payment.paidAt, filters.timezone);
-      map.set(key, this.roundMoney((map.get(key) ?? 0) + Number(payment.amount)));
+      const parts = payment.splits.length
+        ? payment.splits.map((split) => ({
+            amount: Number(split.amount),
+            method: split.paymentMethod.name,
+            included: split.paymentMethod.includeInGraphicalReports
+          }))
+        : [
+            {
+              amount: Number(payment.amount),
+              method: payment.paymentMethod?.name ?? null,
+              included: payment.paymentMethod?.includeInGraphicalReports !== false
+            }
+          ];
+      for (const part of parts) {
+        if (!part.included) continue;
+        map.set(key, this.roundMoney((map.get(key) ?? 0) + part.amount));
+        rows.push({ date: payment.paidAt.toISOString(), method: part.method, amount: part.amount });
+      }
     }
     const chart = [...map.entries()].map(([date, amount]) => ({ label: date, amount }));
     return this.chartPayload("Informe de recaudacion diario", "Cobranza recibida por dia.", filters, {
-      summary: { total: this.roundMoney(chart.reduce((sum, row) => sum + row.amount, 0)), payments: payments.length },
+      summary: {
+        total: this.roundMoney(chart.reduce((sum, row) => sum + row.amount, 0)),
+        payments: payments.length
+      },
       chart,
-      rows: payments.map((row) => ({ date: row.paidAt.toISOString(), method: row.paymentMethod?.name || null, amount: this.money(row.amount) }))
+      rows
     });
   }
 
@@ -815,7 +1061,13 @@ export class ReportsAnalyticsService {
         status: { in: [InstallmentStatus.PENDING, InstallmentStatus.PARTIAL, InstallmentStatus.OVERDUE] },
         patient: { organizationId: actor.organizationId, branchId: filters.branchWhere, deletedAt: null }
       },
-      select: { amount: true, paidAmount: true, dueDate: true, status: true, patient: { select: { firstName: true, lastName: true } } },
+      select: {
+        amount: true,
+        paidAmount: true,
+        dueDate: true,
+        status: true,
+        patient: { select: { firstName: true, lastName: true } }
+      },
       orderBy: { dueDate: "asc" },
       take: 200
     });
@@ -838,7 +1090,9 @@ export class ReportsAnalyticsService {
   private async financingStatusReport(actor: AuthUser, filters: AnalyticsFilters): Promise<ChartPayload> {
     const rows = await this.prisma.installment.groupBy({
       by: ["status"],
-      where: { patient: { organizationId: actor.organizationId, branchId: filters.branchWhere, deletedAt: null } },
+      where: {
+        patient: { organizationId: actor.organizationId, branchId: filters.branchWhere, deletedAt: null }
+      },
       _count: { _all: true },
       _sum: { amount: true, paidAmount: true }
     });
@@ -872,11 +1126,16 @@ export class ReportsAnalyticsService {
       totalAmount: this.roundMoney(Number(row._sum.totalAmount ?? 0)),
       discountAmount: this.roundMoney(Number(row._sum.discountAmount ?? 0))
     }));
-    return this.chartPayload("Estado de descuento por planilla", "Descuentos por planilla agrupados por estado.", filters, {
-      summary: { statuses: chart.length },
-      chart,
-      rows: chart
-    });
+    return this.chartPayload(
+      "Estado de descuento por planilla",
+      "Descuentos por planilla agrupados por estado.",
+      filters,
+      {
+        summary: { statuses: chart.length },
+        chart,
+        rows: chart
+      }
+    );
   }
 
   private async referralsReport(actor: AuthUser, filters: AnalyticsFilters): Promise<ChartPayload> {
@@ -893,11 +1152,21 @@ export class ReportsAnalyticsService {
     const map = new Map<string, number>();
     for (const row of rows) map.set(row.reason, (map.get(row.reason) ?? 0) + 1);
     const chart = [...map.entries()].map(([label, value]) => ({ label, value }));
-    return this.chartPayload("Derivacion de pacientes", "Derivaciones de tratamientos registradas.", filters, {
-      summary: { referrals: rows.length },
-      chart,
-      rows: rows.map((row) => ({ reason: row.reason, createdAt: row.createdAt.toISOString(), fromBranchId: row.fromBranchId, toBranchId: row.toBranchId }))
-    });
+    return this.chartPayload(
+      "Derivacion de pacientes",
+      "Derivaciones de tratamientos registradas.",
+      filters,
+      {
+        summary: { referrals: rows.length },
+        chart,
+        rows: rows.map((row) => ({
+          reason: row.reason,
+          createdAt: row.createdAt.toISOString(),
+          fromBranchId: row.fromBranchId,
+          toBranchId: row.toBranchId
+        }))
+      }
+    );
   }
 
   private async capturedBudgetsReport(actor: AuthUser, filters: AnalyticsFilters): Promise<ChartPayload> {
@@ -905,10 +1174,19 @@ export class ReportsAnalyticsService {
       where: {
         organizationId: actor.organizationId,
         status: { in: CAPTURED_BUDGET_STATUSES },
-        OR: [{ acceptedAt: { gte: filters.start, lte: filters.end } }, { acceptedAt: null, createdAt: { gte: filters.start, lte: filters.end } }],
+        OR: [
+          { acceptedAt: { gte: filters.start, lte: filters.end } },
+          { acceptedAt: null, createdAt: { gte: filters.start, lte: filters.end } }
+        ],
         treatmentPlan: { branchId: filters.branchWhere, isAlternative: false }
       },
-      select: { total: true, acceptedAt: true, createdAt: true, patient: { select: { firstName: true, lastName: true } }, professional: { select: { firstName: true, lastName: true } } },
+      select: {
+        total: true,
+        acceptedAt: true,
+        createdAt: true,
+        patient: { select: { firstName: true, lastName: true } },
+        professional: { select: { firstName: true, lastName: true } }
+      },
       orderBy: { acceptedAt: "desc" },
       take: 200
     });
@@ -928,13 +1206,17 @@ export class ReportsAnalyticsService {
   private async salesBookReport(actor: AuthUser, filters: AnalyticsFilters): Promise<ChartPayload> {
     const rows = await this.completedItemRows(actor, filters);
     return this.chartPayload("Libro de ventas", "Detalle de ventas realizadas por prestacion.", filters, {
-      summary: { total: this.roundMoney(rows.reduce((sum, row) => sum + Number(row.total), 0)), rows: rows.length },
+      summary: {
+        total: this.roundMoney(rows.reduce((sum, row) => sum + Number(row.total), 0)),
+        rows: rows.length
+      },
       chart: [],
       rows: rows.map((row) => ({
         completedAt: row.completedAt?.toISOString() ?? null,
         procedure: row.procedure.name,
         category: row.priceSnapshotCategory ?? row.priceListItem?.priceListCategory?.name ?? "Sin categoria",
-        professional: `${row.treatmentPlan.professional.firstName} ${row.treatmentPlan.professional.lastName}`.trim(),
+        professional:
+          `${row.treatmentPlan.professional.firstName} ${row.treatmentPlan.professional.lastName}`.trim(),
         amount: this.money(row.total)
       }))
     });
@@ -945,7 +1227,11 @@ export class ReportsAnalyticsService {
       where: {
         status: TreatmentPlanItemStatus.COMPLETED,
         completedAt: { gte: filters.start, lte: filters.end },
-        treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere, isAlternative: false }
+        treatmentPlan: {
+          organizationId: actor.organizationId,
+          branchId: filters.branchWhere,
+          isAlternative: false
+        }
       },
       select: {
         total: true,
@@ -1056,7 +1342,8 @@ export class ReportsAnalyticsService {
       year: "numeric"
     }).formatToParts(date);
     const year = parts.find((part) => part.type === "year")?.value ?? String(date.getFullYear());
-    const month = parts.find((part) => part.type === "month")?.value ?? String(date.getMonth() + 1).padStart(2, "0");
+    const month =
+      parts.find((part) => part.type === "month")?.value ?? String(date.getMonth() + 1).padStart(2, "0");
     return `${year}-${month}`;
   }
 

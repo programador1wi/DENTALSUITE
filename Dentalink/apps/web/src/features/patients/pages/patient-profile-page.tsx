@@ -4,6 +4,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { Link, useParams, useLocation } from "react-router-dom";
 import {
   Bold,
+  Calendar,
+  Check,
   ChevronDown,
   CircleDot,
   Italic,
@@ -16,7 +18,8 @@ import {
   Plus,
   Search,
   Send,
-  Underline
+  Underline,
+  User
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -706,11 +709,8 @@ function CommentsTab({
             className="border-0 rounded-none focus-within:ring-0 focus-within:ring-offset-0 shadow-none"
           />
           <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50/80 px-4 py-3">
-            <div className="flex flex-col gap-1">
-              <label className="group cursor-pointer inline-flex items-center gap-2 text-sm font-medium text-slate-700 hover:text-blue-600 transition-colors">
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white border border-slate-200 shadow-sm group-hover:border-blue-300 group-hover:bg-blue-50 transition-all">
-                  <Paperclip className="h-4 w-4" />
-                </div>
+            <div className="flex flex-col gap-0.5">
+              <label className="group cursor-pointer inline-flex items-center gap-1 text-sm font-medium text-sky-600 hover:text-sky-700 transition-colors">
                 Adjuntar Archivos
                 <Input
                   className="hidden"
@@ -719,13 +719,14 @@ function CommentsTab({
                   onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
                 />
               </label>
-              <span className="text-[11px] text-slate-400 pl-10">jpg, pdf, xlsx, docx</span>
+              <span className="text-[11px] text-slate-400">(Formatos aceptados: jpg, pdf, xlsx, docx)</span>
             </div>
             <Button
               onClick={onSave}
               disabled={!newNote.trim() || saving || uploading}
-              className="shrink-0 font-medium"
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-medium shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-md shadow-sm"
             >
+              <Check className="h-4 w-4" />
               {saving || uploading ? "Guardando..." : "Agregar comentario"}
             </Button>
           </div>
@@ -744,7 +745,7 @@ function CommentsTab({
           ) : null}
         </div>
 
-        <div className="min-h-[120px] border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="min-h-[120px] border border-slate-200 bg-white p-4 shadow-sm rounded-sm">
           {!notes.length ? (
             <EmptyState title="Sin comentarios" description="No existe ningun comentario administrativo." />
           ) : (
@@ -752,6 +753,7 @@ function CommentsTab({
               {notes.map((note) => (
                 <NoteCard
                   key={note.id}
+                  user={note.user}
                   note={note.note}
                   createdAt={note.createdAt}
                   attachments={note.attachments}
@@ -1302,14 +1304,31 @@ function EmailsTab({
   );
 }
 
+function formatDentalinkDate(dateString: string) {
+  const d = new Date(dateString);
+  if (isNaN(d.getTime())) return dateString;
+  const day = d.getDate();
+  const months = [
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
+  ];
+  const month = months[d.getMonth()];
+  const year = d.getFullYear();
+  const hours = String(d.getHours()).padStart(2, "0");
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  return `Creada el ${day} de ${month} de ${year} ${hours}:${minutes}`;
+}
+
 function NoteCard({
   icon,
+  user,
   note,
   createdAt,
   attachments,
   onClick
 }: {
   icon?: ReactNode;
+  user?: { id?: string; firstName?: string; lastName?: string };
   note: string;
   createdAt: string;
   attachments?: PatientDetail["notes"][number]["attachments"];
@@ -1320,74 +1339,70 @@ function NoteCard({
   else if (displayNote.startsWith("[CRM_EMAIL]")) displayNote = displayNote.replace("[CRM_EMAIL]", "");
 
   const isHtml = displayNote.includes("<") && displayNote.includes(">");
+  const authorName = user ? `${user.firstName ?? ""} ${user.lastName ?? ""}`.trim().toUpperCase() : null;
 
-  if (isHtml) {
-    return (
-      <article
-        onClick={onClick}
-        className={`group relative flex gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-200/80 hover:-translate-y-[1px] transition-all duration-300 ${onClick ? "cursor-pointer hover:bg-slate-50/30" : ""}`}
-      >
-        {icon ? (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600 transition-colors group-hover:bg-sky-100/80">
-            {icon}
+  const renderHeader = () => {
+    if (authorName || !icon) {
+      return (
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3 text-xs text-sky-600">
+          <div className="flex items-center gap-1.5 font-bold tracking-wide uppercase">
+            <User className="h-3.5 w-3.5 shrink-0 text-sky-600" />
+            <span>{authorName || "USUARIO"}</span>
           </div>
-        ) : null}
-        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 text-sky-600 font-medium">
+            <Calendar className="h-3.5 w-3.5 shrink-0 text-sky-600" />
+            <span>{formatDentalinkDate(createdAt)}</span>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  const renderFooter = () => {
+    if (!authorName && icon) {
+      return (
+        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
+          <span className="font-medium">
+            {new Date(createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}
+          </span>
+          <span className="text-sky-600 font-semibold">Entregado</span>
+        </div>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <article
+      onClick={onClick}
+      className={`group relative flex gap-4 rounded-md border border-slate-200 bg-white p-4 shadow-2xs hover:shadow-xs transition-all duration-200 ${onClick ? "cursor-pointer hover:bg-slate-50/30" : ""}`}
+    >
+      {icon && !authorName ? (
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600 transition-colors group-hover:bg-sky-100/80">
+          {icon}
+        </div>
+      ) : null}
+      <div className="min-w-0 flex-1">
+        {renderHeader()}
+        {isHtml ? (
           <div
-            className="prose prose-sm max-w-none text-slate-600 break-words 
+            className="prose prose-sm max-w-none text-slate-700 break-words 
               prose-p:my-1 prose-ul:my-1 prose-ol:my-1 
               [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6 [&_li]:list-item [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5
               [&_strong]:font-semibold [&_strong]:text-slate-800
               [&_p]:leading-relaxed"
             dangerouslySetInnerHTML={{ __html: displayNote }}
           />
-          {attachments?.length ? (
-            <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-              {attachments.map((attachment) => (
-                <a
-                  key={attachment.id}
-                  href={attachment.fileAttachment.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-150 bg-slate-50/50 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-sky-50 hover:text-sky-700 hover:border-sky-200 transition-all duration-200"
-                >
-                  <Paperclip className="h-3.5 w-3.5 text-slate-400 group-hover:text-sky-500" />
-                  <span className="max-w-[200px] truncate">{attachment.fileAttachment.originalName}</span>
-                </a>
-              ))}
-            </div>
-          ) : null}
-          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
-            <span className="font-medium">
-              {new Date(createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}
-            </span>
-            <span className="text-sky-600 font-semibold">Entregado</span>
+        ) : (
+          <div className="space-y-1.5 text-slate-700 text-sm leading-relaxed">
+            {note.split("\n").filter((line) => !line.startsWith("[")).map((line, idx) => (
+              <p key={idx} className="break-words">
+                {line}
+              </p>
+            ))}
           </div>
-        </div>
-      </article>
-    );
-  }
-
-  const lines = note.split("\n").filter((line) => !line.startsWith("["));
-  return (
-    <article
-      onClick={onClick}
-      className={`group relative flex gap-4 rounded-xl border border-slate-100 bg-white p-5 shadow-sm hover:shadow-md hover:border-slate-200/80 hover:-translate-y-[1px] transition-all duration-300 ${onClick ? "cursor-pointer hover:bg-slate-50/30" : ""}`}
-    >
-      {icon ? (
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-600 transition-colors group-hover:bg-sky-100/80">
-          {icon}
-        </div>
-      ) : null}
-      <div className="min-w-0 flex-1">
-        <div className="space-y-1.5 text-slate-600 text-sm leading-relaxed">
-          {lines.map((line, idx) => (
-            <p key={idx} className="break-words">
-              {line}
-            </p>
-          ))}
-        </div>
+        )}
         {attachments?.length ? (
           <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
             {attachments.map((attachment) => (
@@ -1405,12 +1420,7 @@ function NoteCard({
             ))}
           </div>
         ) : null}
-        <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3 text-xs text-slate-400">
-          <span className="font-medium">
-            {new Date(createdAt).toLocaleString("es-MX", { dateStyle: "long", timeStyle: "short" })}
-          </span>
-          <span className="text-sky-600 font-semibold">Entregado</span>
-        </div>
+        {renderFooter()}
       </div>
     </article>
   );

@@ -64,11 +64,106 @@ export type AgreementVersion = {
   >;
 };
 
+export type AgreementDebtState = "NO_CHARGES" | "PAID" | "FUTURE_CHARGES" | "ADJUSTED_ZERO" | "OUTSTANDING";
+
 export type AgreementDebt = {
   id: string;
+  organizationId: string;
+  companyId: string;
   companyName: string;
+  agreementId: string;
   agreementName: string;
-  debt: number;
+  currency: "MXN" | "USD" | "EUR";
+  generatedCharges: number;
+  totalPaid: number;
+  outstandingDebt: number;
+  patientCount: number;
+  chargeCount: number;
+  oldestCharge?: string | null;
+  state: AgreementDebtState;
+};
+
+export type AgreementBranchDebt = Omit<AgreementDebt, "patientCount" | "oldestCharge"> & {
+  branchId: string;
+  branchName: string;
+};
+
+export type AgreementDebtReportParams = {
+  cutoffDate: string;
+  companyId?: string;
+  agreementId?: string;
+  branchId?: string;
+  currencyId?: "MXN" | "USD" | "EUR";
+  scope?: "AUTHORIZED" | "ALL";
+  page?: number;
+  pageSize?: number;
+};
+
+export type AgreementDebtReport = {
+  cutoffDate: string;
+  consolidated: AgreementDebt[];
+  byBranch: AgreementBranchDebt[];
+  totals: { generatedCharges: number; paid: number; debt: number; patients: number; charges: number };
+  totalsByCurrency: Array<{
+    currency: "MXN" | "USD" | "EUR";
+    generatedCharges: number;
+    paid: number;
+    debt: number;
+  }>;
+  reconciliation: { consolidatedDebt: number; branchDebt: number; difference: number; matches: boolean };
+  diagnostics: { futureChargeCount: number; emptyReason: "FUTURE_CHARGES" | "NO_CHARGES" | null };
+  pagination: { page: number; pageSize: number; consolidatedTotal: number; branchTotal: number };
+  filters: {
+    companies: Array<{ id: string; legalName: string }>;
+    agreements: Array<{ id: string; name: string; companyId: string; currency: "MXN" | "USD" | "EUR" }>;
+    branches: Array<{ id: string; name: string }>;
+    currencies: Array<"MXN" | "USD" | "EUR">;
+    canViewAllBranches: boolean;
+  };
+};
+
+export type AgreementDebtDetail = {
+  id: string;
+  folio: string;
+  patientId: string;
+  patient: string;
+  expediente: string;
+  treatmentPlanId: string;
+  treatment: string;
+  treatmentPlanItemId: string;
+  procedure: string;
+  procedureCode: string;
+  installmentNumber: number;
+  dueDate: string;
+  branch: { id: string; name: string };
+  originalAmount: number;
+  paid: number;
+  balance: number;
+  currency: "MXN" | "USD" | "EUR";
+  status: "SCHEDULED" | "PENDING" | "OVERDUE" | "PARTIALLY_PAID" | "PAID" | "CANCELLED" | "REVERSED";
+  overdueDays: number;
+  version: number;
+};
+
+export type AgreementDebtDetailsResponse = {
+  rows: AgreementDebtDetail[];
+  pagination: { page: number; pageSize: number; total: number };
+};
+
+export type CompanyPaymentPayload = {
+  branchId?: string;
+  paymentDate: string;
+  amount: number;
+  currencyId: "MXN" | "USD" | "EUR";
+  paymentMethodId?: string;
+  financialInstitutionId?: string;
+  reference?: string;
+  proofUrl?: string;
+  cashRegisterId?: string;
+  notes?: string;
+  allocationStrategy: "AUTO_DUE_DATE" | "MANUAL" | "PROPORTIONAL";
+  chargeIds?: string[];
+  confirm?: boolean;
 };
 
 export type AgreementPayload = {
@@ -96,16 +191,51 @@ export type AgreementPayload = {
 
 export type Expense = {
   id: string;
+  publicNumber: number;
+  status: "REGISTERED" | "PAID" | "VOIDED";
+  version: number;
   description: string;
+  supplierName?: string | null;
   quantity: string;
   unitCost: string;
   total: string;
   paidAt: string;
   invoicedAt?: string | null;
   notes?: string | null;
+  documentUrl?: string | null;
+  voidReason?: string | null;
+  voidedAt?: string | null;
   branch: { id: string; name: string };
   category: { id: string; name: string };
-  cashMovements: Array<{ id: string; cashRegisterId: string }>;
+  paymentMethod?: { id: string; name: string; type: string } | null;
+  cashMovements: Array<{
+    id: string;
+    cashRegisterId: string;
+    cashRegister: {
+      publicNumber: number;
+      status: string;
+      closedAt?: string | null;
+      branch: { id: string; name: string };
+      responsibleUser: { id: string; firstName: string; lastName: string };
+    };
+  }>;
+  cashAssociation: {
+    associated: boolean;
+    cashSessionNumber?: string | null;
+    responsibleName?: string | null;
+    branchName?: string | null;
+    status?: "OPEN" | "CLOSING" | "CLOSED" | "CANCELLED" | null;
+    closedAt?: string | null;
+    locked: boolean;
+    lockReason?: "CLOSING_CASH_SESSION" | "CLOSED_CASH_SESSION" | "CANCELLED_CASH_SESSION" | null;
+  };
+  permissions: {
+    canView: boolean;
+    canEdit: boolean;
+    canVoid: boolean;
+    canCreateCorrection: boolean;
+    canViewCashSession: boolean;
+  };
   createdBy: { id: string; firstName: string; lastName: string };
 };
 
@@ -113,12 +243,32 @@ export type ExpensePayload = {
   branchId: string;
   categoryName: string;
   description: string;
+  supplierName?: string;
   quantity: number;
   unitCost: number;
   invoicedAt?: string;
   paidAt: string;
   notes?: string;
+  paymentMethodId?: string;
+  documentUrl?: string;
+  cashRegisterId?: string;
   assignToOpenCash?: boolean;
+};
+
+export type ExpenseSummary = {
+  period: { from: string; to: string };
+  total: number;
+  count: number;
+  rows: Array<{
+    categoryId: string;
+    category: string;
+    count: number;
+    total: number;
+    percentage: number;
+    previousTotal: number;
+    comparisonPercent: number | null;
+  }>;
+  trend: Array<{ period: string; amount: number }>;
 };
 
 export type PayrollSummary = {
@@ -263,15 +413,62 @@ export async function assignAgreementPatients(id: string, patientIds: string[]) 
   return data;
 }
 
-export async function listAgreementDebts() {
-  const { data } = await http.get<AgreementDebt[]>("/settings/agreements/debts");
+export async function listAgreementDebts(params: AgreementDebtReportParams) {
+  const { data } = await http.get<AgreementDebtReport>("/agreements/debt-report", { params });
   return data;
 }
 
-export async function payAgreementDebt(id: string) {
-  const { data } = await http.post<{ success: boolean; amountPaid: number }>(
-    `/settings/agreements/${id}/pay-debt`
+export async function getAgreementDebtDetails(
+  agreementId: string,
+  params: AgreementDebtReportParams & {
+    patient?: string;
+    dueFrom?: string;
+    dueTo?: string;
+    status?: string;
+    installmentNumber?: number;
+    folio?: string;
+  }
+) {
+  const { data } = await http.get<AgreementDebtDetailsResponse>(
+    `/agreements/${agreementId}/debt-details`,
+    { params }
   );
+  return data;
+}
+
+export async function createCompanyPayment(
+  agreementId: string,
+  payload: CompanyPaymentPayload,
+  idempotencyKey: string
+) {
+  const { data } = await http.post(`/agreements/${agreementId}/payments`, payload, {
+    headers: { "Idempotency-Key": idempotencyKey, "Correlation-Id": crypto.randomUUID() }
+  });
+  return data;
+}
+
+export async function exportAgreementDebts(params: AgreementDebtReportParams) {
+  const response = await http.get<Blob>("/agreements/debt-report/export", {
+    params,
+    responseType: "blob",
+    headers: { "Correlation-Id": crypto.randomUUID() }
+  });
+  return response.data;
+}
+
+export async function createPayrollDiscountPlan(
+  agreementId: string,
+  payload: {
+    treatmentPlanId: string;
+    treatmentPlanItemIds: string[];
+    installmentCount: number;
+    firstDueDate: string;
+    periodicity: "WEEKLY" | "BIWEEKLY" | "MONTHLY";
+  }
+) {
+  const { data } = await http.post(`/agreements/${agreementId}/payroll-discount-plans`, payload, {
+    headers: { "Correlation-Id": crypto.randomUUID() }
+  });
   return data;
 }
 
@@ -280,13 +477,33 @@ export async function listExpenses(params?: {
   branchId?: string;
   month?: number;
   year?: number;
+  status?: string;
+  categoryId?: string;
 }) {
   const { data } = await http.get<Expense[]>("/settings/expenses", { params });
   return data;
 }
 
+export async function getExpenseSummary(params?: { branchId?: string; month?: number; year?: number }) {
+  const { data } = await http.get<ExpenseSummary>("/settings/expenses/summary", { params });
+  return data;
+}
+
 export async function createExpense(payload: ExpensePayload) {
   const { data } = await http.post<Expense>("/settings/expenses", payload);
+  return data;
+}
+
+export async function updateExpense(
+  id: string,
+  payload: Partial<ExpensePayload> & { expectedVersion: number }
+) {
+  const { data } = await http.patch<Expense>(`/settings/expenses/${id}`, payload);
+  return data;
+}
+
+export async function voidExpense(id: string, payload: { reason: string; expectedVersion: number }) {
+  const { data } = await http.post<Expense>(`/settings/expenses/${id}/void`, payload);
   return data;
 }
 

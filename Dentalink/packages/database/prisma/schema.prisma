@@ -129,9 +129,25 @@ enum PaymentMethodType {
   CARD
   TRANSFER
   DEPOSIT
+  CHECK
+  BONUS
+  INSURANCE
   ONLINE
   CREDIT
   OTHER
+}
+
+enum PaymentMethodSource {
+  SYSTEM
+  CUSTOM
+}
+
+enum PaymentSettlementStatus {
+  PENDING
+  RECEIVED
+  OVERDUE
+  CANCELLED
+  REVERSED
 }
 
 enum CurrencyCode {
@@ -328,10 +344,13 @@ enum PolicyModality {
 enum FamilyPolicyStatus {
   DRAFT
   PENDING_PAYMENT
+  PAID_PENDING_ACTIVATION
   ACTIVE
+  WAITING_PERIOD
   SUSPENDED
   EXPIRED
   CANCELLED
+  REPLACED
 }
 
 enum FamilyPolicyPaymentStatus {
@@ -339,6 +358,30 @@ enum FamilyPolicyPaymentStatus {
   PARTIAL
   PAID
   REFUNDED
+}
+
+enum PolicyCoverageType {
+  PERCENTAGE
+  FIXED_AMOUNT
+  FULL
+}
+
+enum FamilyPolicyUsageStatus {
+  PENDING_AUTHORIZATION
+  APPLIED
+  REVERSED
+  CANCELLED
+}
+
+enum FamilyPolicyDocumentType {
+  CONTRACT
+  CERTIFICATE
+  TERMS
+  CARD
+  PAYMENT_PROOF
+  AUTHORIZATION
+  CANCELLATION
+  OTHER
 }
 
 enum InstallmentFrequency {
@@ -363,24 +406,75 @@ enum InstallmentStatus {
   CANCELLED
 }
 
+enum AgreementChargeStatus {
+  SCHEDULED
+  PENDING
+  OVERDUE
+  PARTIALLY_PAID
+  PAID
+  CANCELLED
+  REVERSED
+}
+
+enum CompanyPaymentStatus {
+  DRAFT
+  CONFIRMED
+  PARTIALLY_APPLIED
+  APPLIED
+  VOIDED
+  REFUNDED
+}
+
 enum CashRegisterStatus {
   OPEN
+  CLOSING
   CLOSED
+  CANCELLED
 }
 
 enum CashMovementType {
   OPENING
+  INITIAL_DEPOSIT
   INCOME
   EXPENSE
   ADJUSTMENT
   REFUND
+  PAYMENT_VOID
+  MANUAL_INCOME
+  MANUAL_EXPENSE
+  WITHDRAWAL
+  CLOSING_CARRYOVER
   CLOSING
+}
+
+enum CashMovementDirection {
+  IN
+  OUT
+}
+
+enum ExpenseStatus {
+  REGISTERED
+  PAID
+  VOIDED
 }
 
 enum RefundStatus {
   PENDING
   PROCESSED
   CANCELLED
+}
+
+enum CashDiscountStatus {
+  DRAFT
+  ENABLED
+  DISABLED
+}
+
+enum CashDiscountApplicationStatus {
+  APPLIED
+  VOIDED
+  PARTIALLY_REFUNDED
+  REFUNDED
 }
 
 enum CollectionCaseStatus {
@@ -394,8 +488,32 @@ enum CollectionCaseStatus {
 
 enum ConsentStatus {
   DRAFT
+  READY_FOR_SIGNATURE
+  PARTIALLY_SIGNED
   SIGNED
+  VOIDED
+  EXPIRED
   CANCELLED
+}
+
+enum ConsentTemplateStatus {
+  DRAFT
+  PUBLISHED
+  INACTIVE
+  ARCHIVED
+}
+
+enum ConsentTemplateVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ConsentScopeType {
+  ORGANIZATION
+  BRANCHES
+  SPECIALTY
+  TREATMENTS
 }
 
 enum LabOrderStatus {
@@ -448,6 +566,72 @@ enum MessageDeliveryStatus {
   FAILED
 }
 
+enum MarketingConsentStatus {
+  UNKNOWN
+  GRANTED
+  DENIED
+  UNSUBSCRIBED
+}
+
+enum EmailCampaignStatus {
+  DRAFT
+  READY
+  SCHEDULED
+  QUEUED
+  SENDING
+  SENT
+  PARTIALLY_SENT
+  FAILED
+  CANCELLED
+  ARCHIVED
+}
+
+enum EmailRecipientEligibilityStatus {
+  ELIGIBLE
+  REJECTED
+}
+
+enum EmailRecipientStatus {
+  PENDING
+  ELIGIBILITY_REJECTED
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  BOUNCED
+  COMPLAINED
+  UNSUBSCRIBED
+  FAILED
+  SKIPPED
+}
+
+enum EmailTemplateStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum EmailDomainStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  INACTIVE
+}
+
+enum EmailEventType {
+  ACCEPTED
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  SOFT_BOUNCE
+  HARD_BOUNCE
+  COMPLAINED
+  UNSUBSCRIBED
+  FAILED
+}
+
 enum SurveyType {
   SATISFACTION
   NPS
@@ -460,6 +644,56 @@ enum SurveyStatus {
   SENT
   COMPLETED
   CANCELLED
+}
+
+enum SurveyDefinitionStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  ARCHIVED
+}
+
+enum SurveyVersionStatus {
+  DRAFT
+  PUBLISHED
+  SUPERSEDED
+}
+
+enum SurveyQuestionType {
+  LIKERT_5
+  NPS_10
+  YES_NO
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  FREE_TEXT
+  STAR_RATING
+}
+
+enum SurveyInvitationStatus {
+  CREATED
+  QUEUED
+  SENT
+  DELIVERED
+  OPENED
+  STARTED
+  RESPONDED
+  EXPIRED
+  BOUNCED
+  FAILED
+}
+
+enum SurveyResponseStatus {
+  IN_PROGRESS
+  SUBMITTED
+}
+
+enum SurveyDeliveryEventType {
+  QUEUED
+  ACCEPTED
+  DELIVERED
+  OPENED
+  BOUNCED
+  FAILED
 }
 
 enum TelemedicineSessionStatus {
@@ -565,6 +799,7 @@ model Organization {
   status                      OrganizationStatus           @default(ACTIVE)
   branches                    Branch[]
   users                       User[]
+  userDiscountPolicies        UserDiscountPolicy[]
   roles                       Role[]
   professionals               Professional[]
   professionalContracts       ProfessionalContract[]
@@ -596,6 +831,10 @@ model Organization {
   pricingAuditEvents          PricingAuditEvent[]
   outboxEvents                OutboxEvent[]
   agreements                  Agreement[]
+  companies                   Company[]
+  payrollDiscountPlans        PayrollDiscountPlan[]
+  agreementCharges            AgreementCharge[]
+  companyPayments             CompanyPayment[]
   agreementVersions           AgreementVersion[]
   agreementBranches           AgreementBranch[]
   agreementProcedureRules     AgreementProcedureRule[]
@@ -610,11 +849,16 @@ model Organization {
   paymentLinks                PaymentLink[]
   installmentPlans            InstallmentPlan[]
   cashRegisters               CashRegister[]
+  cashMovements               CashMovement[]
   refunds                     Refund[]
+  paymentSettlements          PaymentSettlement[]
+  cashDiscountRules           CashDiscountRule[]
+  cashDiscountApplications    CashDiscountApplication[]
   patientTasks                PatientTask[]
   fileAttachments             FileAttachment[]
   radiographyAnalyses         RadiographyAnalysis[]
   consentTemplates            ConsentTemplate[]
+  consents                    Consent[]
   labProviders                LabProvider[]
   labProcedureAssignments     LabProcedureAssignment[]
   labOrders                   LabOrder[]
@@ -639,6 +883,13 @@ model Organization {
   procedureEvolutionFieldTemplates  ProcedureEvolutionFieldTemplate[]
   procedureInventoryTemplates       ProcedureInventoryTemplate[]
   communicationJobs                 CommunicationJob[]
+  marketingSegments                 MarketingSegment[]
+  emailCampaigns                    EmailCampaign[]
+  emailTemplates                    EmailTemplate[]
+  emailSuppressions                 EmailSuppression[]
+  emailDomains                      DomainVerification[]
+  emailEvents                       EmailEvent[]
+  marketingSettings                 MarketingSettings?
   surveys                           Survey[]
   chatMessages                      ChatMessage[]
   telemedicineSessions              TelemedicineSession[]
@@ -667,6 +918,10 @@ model Organization {
   familyPolicies                    FamilyPolicy[]
   familyPolicyMembers               FamilyPolicyMember[]
   familyPolicyPayments              FamilyPolicyPayment[]
+  policyProductCoverages            PolicyProductCoverage[]
+  familyPolicyCoverages             FamilyPolicyCoverage[]
+  familyPolicyUsages                FamilyPolicyUsage[]
+  familyPolicyDocuments             FamilyPolicyDocument[]
   bookingIdentitySessions           BookingIdentitySession[]
   bookingIdentityIncidents          BookingIdentityIncident[]
   appointmentBookingActors          AppointmentBookingActor[]
@@ -734,16 +989,23 @@ model Branch {
   expenses                     Expense[]
   payrollLiquidations          PayrollLiquidation[]
   cashRegisters                CashRegister[]
+  cashMovements                CashMovement[]
   refunds                      Refund[]
+  paymentSettlements           PaymentSettlement[]
+  cashDiscountRuleBranches     CashDiscountRuleBranch[]
+  cashDiscountApplications     CashDiscountApplication[]
   inventoryItems               InventoryItem[]
   inventoryWarehouses          InventoryWarehouse[]
   inventoryMovements           InventoryMovement[]
   patients                     Patient[]
   appointments                 Appointment[]
   auditLogs                    AuditLog[]
+  consentTemplateScopes        ConsentTemplateBranch[]
+  consents                     Consent[]
   familyGroups                 FamilyGroup[]
   familyPolicies               FamilyPolicy[]
   familyPolicyPayments         FamilyPolicyPayment[]
+  familyPolicyUsages           FamilyPolicyUsage[]
   createdAt                    DateTime                      @default(now())
   updatedAt                    DateTime                      @updatedAt
   deletedAt                    DateTime?
@@ -762,6 +1024,11 @@ model Branch {
   patientBenefitCoverageAudits      PatientBenefitCoverageAudit[]
   patientBenefitCoverageDocuments   PatientBenefitCoverageDocument[]
   agreementBranches                 AgreementBranch[]
+  payrollDiscountPlans              PayrollDiscountPlan[]
+  agreementCharges                  AgreementCharge[]
+  companyPayments                   CompanyPayment[]
+  marketingSegments                 MarketingSegment[]
+  emailCampaigns                    EmailCampaign[]
 
   @@unique([organizationId, code])
   @@unique([organizationId, dentalinkPlatformCode, dentalinkSucursalId])
@@ -800,6 +1067,8 @@ model BranchBrand {
   isActive         Boolean           @default(true)
   archivedAt       DateTime?
   branches         Branch[]
+  policyProducts   PolicyProduct[]
+  familyPolicies   FamilyPolicy[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   createdById      String?
@@ -830,60 +1099,73 @@ model BranchZone {
 }
 
 model User {
-  id                           String                       @id @default(cuid())
-  organizationId               String
-  organization                 Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  firstName                    String
-  lastName                     String
-  email                        String                       @unique
-  phone                        String?
-  passwordHash                 String
-  avatarUrl                    String?
-  isActive                     Boolean                      @default(true)
-  lastLoginAt                  DateTime?
-  status                       UserStatus                   @default(ACTIVE)
-  roleId                       String?
-  role                         Role?                        @relation("PrimaryUserRole", fields: [roleId], references: [id])
-  roles                        UserRole[]
-  permissionsOverride          Boolean                      @default(false)
-  permissions                  UserPermission[]
-  branches                     UserBranch[]
-  sessions                     Session[]
-  professional                 Professional?
-  patientNotes                 PatientNote[]
-  patientTasksAssigned         PatientTask[]                @relation("PatientTaskAssignedTo")
-  patientTasksCreated          PatientTask[]                @relation("PatientTaskCreatedBy")
-  patientTasksCompleted        PatientTask[]                @relation("PatientTaskCompletedBy")
-  appointmentsCreated          Appointment[]                @relation("AppointmentCreatedBy")
-  appointmentsUpdated          Appointment[]                @relation("AppointmentUpdatedBy")
-  appointmentStatusChanges     AppointmentStatusHistory[]   @relation("AppointmentStatusChangedBy")
-  appointmentNotes             AppointmentNote[]
-  professionalBranchTransfers  ProfessionalBranchTransfer[] @relation("ProfessionalBranchTransferCreatedBy")
-  signedClinicalEvolutions     ClinicalEvolution[]          @relation("ClinicalEvolutionSignedBy")
-  clinicalDocumentsCreated     ClinicalDocument[]           @relation("ClinicalDocumentCreatedBy")
-  paymentsReceived             Payment[]                    @relation("PaymentReceivedBy")
-  familyPoliciesSold           FamilyPolicy[]               @relation("FamilyPolicySoldBy")
-  familyPolicyPaymentsReceived FamilyPolicyPayment[]        @relation("FamilyPolicyPaymentReceivedBy")
-  cashRegistersOpened          CashRegister[]               @relation("CashRegisterOpenedBy")
-  cashRegistersClosed          CashRegister[]               @relation("CashRegisterClosedBy")
-  cashMovementsCreated         CashMovement[]               @relation("CashMovementCreatedBy")
-  expensesCreated              Expense[]                    @relation("ExpenseCreatedBy")
-  refundsProcessed             Refund[]                     @relation("RefundProcessedBy")
-  assignedCollectionCases      CollectionCase[]             @relation("CollectionCaseAssignedTo")
-  collectionActivities         CollectionActivity[]
-  personnelFiles               FileAttachment[]             @relation("UserFileAttachments")
-  uploadedFiles                FileAttachment[]             @relation("FileAttachmentUploadedBy")
-  radiographyAnalysesCreated   RadiographyAnalysis[]        @relation("RadiographyAnalysisCreatedBy")
-  radiographyAnalysesUpdated   RadiographyAnalysis[]        @relation("RadiographyAnalysisUpdatedBy")
-  inventoryMovementsCreated    InventoryMovement[]          @relation("InventoryMovementCreatedBy")
-  inventorySalesCreated        InventoryProductSale[]       @relation("InventoryProductSaleCreatedBy")
-  payrollLiquidationsFinalized PayrollLiquidation[]
-  auditLogs                    AuditLog[]                   @relation("AuditLogUser")
-  createdAt                    DateTime                     @default(now())
-  updatedAt                    DateTime                     @updatedAt
-  deletedAt                    DateTime?
-  createdById                  String?
-  updatedById                  String?
+  id                            String                       @id @default(cuid())
+  organizationId                String
+  organization                  Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  firstName                     String
+  lastName                      String
+  email                         String                       @unique
+  phone                         String?
+  passwordHash                  String
+  avatarUrl                     String?
+  isActive                      Boolean                      @default(true)
+  lastLoginAt                   DateTime?
+  status                        UserStatus                   @default(ACTIVE)
+  roleId                        String?
+  role                          Role?                        @relation("PrimaryUserRole", fields: [roleId], references: [id])
+  roles                         UserRole[]
+  permissionsOverride           Boolean                      @default(false)
+  permissions                   UserPermission[]
+  discountPolicy                UserDiscountPolicy?
+  cashDiscountRuleUsers         CashDiscountRuleUser[]
+  branches                      UserBranch[]
+  sessions                      Session[]
+  professional                  Professional?
+  patientNotes                  PatientNote[]
+  patientTasksAssigned          PatientTask[]                @relation("PatientTaskAssignedTo")
+  patientTasksCreated           PatientTask[]                @relation("PatientTaskCreatedBy")
+  patientTasksCompleted         PatientTask[]                @relation("PatientTaskCompletedBy")
+  appointmentsCreated           Appointment[]                @relation("AppointmentCreatedBy")
+  appointmentsUpdated           Appointment[]                @relation("AppointmentUpdatedBy")
+  appointmentStatusChanges      AppointmentStatusHistory[]   @relation("AppointmentStatusChangedBy")
+  appointmentNotes              AppointmentNote[]
+  professionalBranchTransfers   ProfessionalBranchTransfer[] @relation("ProfessionalBranchTransferCreatedBy")
+  signedClinicalEvolutions      ClinicalEvolution[]          @relation("ClinicalEvolutionSignedBy")
+  clinicalDocumentsCreated      ClinicalDocument[]           @relation("ClinicalDocumentCreatedBy")
+  paymentsReceived              Payment[]                    @relation("PaymentReceivedBy")
+  companyPaymentsReceived       CompanyPayment[]             @relation("CompanyPaymentReceivedBy")
+  companyPaymentsApproved       CompanyPayment[]             @relation("CompanyPaymentApprovedBy")
+  companyPaymentsVoided         CompanyPayment[]             @relation("CompanyPaymentVoidedBy")
+  companyAllocationsReversed    CompanyPaymentAllocation[]   @relation("CompanyAllocationReversedBy")
+  familyPoliciesSold            FamilyPolicy[]               @relation("FamilyPolicySoldBy")
+  familyPolicyPaymentsReceived  FamilyPolicyPayment[]        @relation("FamilyPolicyPaymentReceivedBy")
+  familyPolicyUsagesApplied     FamilyPolicyUsage[]          @relation("FamilyPolicyUsageAppliedBy")
+  familyPolicyUsagesReversed    FamilyPolicyUsage[]          @relation("FamilyPolicyUsageReversedBy")
+  familyPolicyDocumentsUploaded FamilyPolicyDocument[]       @relation("FamilyPolicyDocumentUploadedBy")
+  cashRegistersOpened           CashRegister[]               @relation("CashRegisterOpenedBy")
+  cashRegistersClosed           CashRegister[]               @relation("CashRegisterClosedBy")
+  cashRegistersResponsible      CashRegister[]               @relation("CashRegisterResponsible")
+  cashMovementsCreated          CashMovement[]               @relation("CashMovementCreatedBy")
+  cashMovementsVoided           CashMovement[]               @relation("CashMovementVoidedBy")
+  expensesCreated               Expense[]                    @relation("ExpenseCreatedBy")
+  expensesUpdated               Expense[]                    @relation("ExpenseUpdatedBy")
+  expensesVoided                Expense[]                    @relation("ExpenseVoidedBy")
+  refundsProcessed              Refund[]                     @relation("RefundProcessedBy")
+  assignedCollectionCases       CollectionCase[]             @relation("CollectionCaseAssignedTo")
+  collectionActivities          CollectionActivity[]
+  personnelFiles                FileAttachment[]             @relation("UserFileAttachments")
+  uploadedFiles                 FileAttachment[]             @relation("FileAttachmentUploadedBy")
+  radiographyAnalysesCreated    RadiographyAnalysis[]        @relation("RadiographyAnalysisCreatedBy")
+  radiographyAnalysesUpdated    RadiographyAnalysis[]        @relation("RadiographyAnalysisUpdatedBy")
+  inventoryMovementsCreated     InventoryMovement[]          @relation("InventoryMovementCreatedBy")
+  inventorySalesCreated         InventoryProductSale[]       @relation("InventoryProductSaleCreatedBy")
+  payrollLiquidationsFinalized  PayrollLiquidation[]
+  auditLogs                     AuditLog[]                   @relation("AuditLogUser")
+  createdAt                     DateTime                     @default(now())
+  updatedAt                     DateTime                     @updatedAt
+  deletedAt                     DateTime?
+  createdById                   String?
+  updatedById                   String?
 
   clinicalDocumentsDeleted       ClinicalDocument[]          @relation("ClinicalDocumentDeletedBy")
   filesDeleted                   FileAttachment[]            @relation("FileAttachmentDeletedBy")
@@ -893,6 +1175,9 @@ model User {
   annulledEvolutions             ClinicalEvolution[]         @relation("ClinicalEvolutionAnnulledBy")
   specialtyClinicalTemplates     SpecialtyClinicalTemplate[]
   communicationJobsCreated       CommunicationJob[]          @relation("CommunicationJobCreatedBy")
+  marketingSegmentsCreated       MarketingSegment[]          @relation("MarketingSegmentCreatedBy")
+  emailCampaignsCreated          EmailCampaign[]             @relation("EmailCampaignCreatedBy")
+  emailTemplatesCreated          EmailTemplate[]             @relation("EmailTemplateCreatedBy")
   chatMessagesSent               ChatMessage[]               @relation("ChatMessageSender")
   importJobsCreated              ImportJob[]                 @relation("ImportJobCreatedBy")
   documentRequirementsCreated    DocumentRequirement[]       @relation("DocumentRequirementCreatedBy")
@@ -992,6 +1277,24 @@ model UserBranch {
   @@index([branchId])
 }
 
+model UserDiscountPolicy {
+  id                     String       @id @default(cuid())
+  organizationId         String
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId                 String       @unique
+  user                   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  maximumDiscountPercent Decimal      @default(0) @db.Decimal(5, 2)
+  active                 Boolean      @default(true)
+  createdById            String
+  updatedById            String
+  version                Int          @default(1)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, active])
+}
+
 model Professional {
   id                      String                        @id @default(cuid())
   organizationId          String
@@ -1026,6 +1329,7 @@ model Professional {
   contracts               ProfessionalContract[]
   commissionRate          Decimal                       @default(0) @db.Decimal(5, 2)
   telemedicineSessions    TelemedicineSession[]
+  consents                Consent[]
   createdAt               DateTime                      @default(now())
   updatedAt               DateTime                      @updatedAt
 
@@ -1336,31 +1640,59 @@ model Chair {
 }
 
 model PaymentMethod {
-  id             String               @id @default(cuid())
-  organizationId String
-  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  name           String
-  type           PaymentMethodType
-  isActive       Boolean              @default(true)
-  payments       Payment[]
-  paymentSplits  PaymentMethodSplit[]
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  id                           String               @id @default(cuid())
+  organizationId               String
+  organization                 Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name                         String
+  type                         PaymentMethodType
+  publicCode                   String
+  source                       PaymentMethodSource  @default(CUSTOM)
+  isActive                     Boolean              @default(true)
+  payments                     Payment[]
+  companyPayments              CompanyPayment[]
+  paymentSplits                PaymentMethodSplit[]
+  cashMovements                CashMovement[]
+  expenses                     Expense[]
+  refunds                      Refund[]
+  settlements                  PaymentSettlement[]
+  retentionPercent             Decimal              @default(0) @db.Decimal(5, 2)
+  allowsRefund                 Boolean              @default(false)
+  acceptsMultipleSettlements   Boolean              @default(false)
+  requiresReference            Boolean              @default(false)
+  requiresFinancialInstitution Boolean              @default(false)
+  fiscalCode                   String?
+  includeInCollectionReports   Boolean              @default(true)
+  includeInPhysicalCashBalance Boolean              @default(false)
+  includeInCashFlowReports     Boolean              @default(true)
+  includeInClosingSummary      Boolean              @default(true)
+  includeInGraphicalReports    Boolean              @default(true)
+  createdById                  String?
+  updatedById                  String?
+  disabledAt                   DateTime?
+  disabledById                 String?
+  disableReason                String?
+  version                      Int                  @default(1)
+  createdAt                    DateTime             @default(now())
+  updatedAt                    DateTime             @updatedAt
 
   @@unique([organizationId, name])
+  @@unique([organizationId, publicCode])
   @@index([organizationId, isActive])
 }
 
 model FinancialInstitution {
-  id             String               @id @default(cuid())
-  organizationId String
-  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  name           String
-  isActive       Boolean              @default(true)
-  payments       Payment[]
-  paymentSplits  PaymentMethodSplit[]
-  createdAt      DateTime             @default(now())
-  updatedAt      DateTime             @updatedAt
+  id              String               @id @default(cuid())
+  organizationId  String
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String
+  isActive        Boolean              @default(true)
+  payments        Payment[]
+  companyPayments CompanyPayment[]
+  paymentSplits   PaymentMethodSplit[]
+  settlements     PaymentSettlement[]
+  refunds         Refund[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
   @@unique([organizationId, name])
   @@index([organizationId, isActive])
@@ -1383,6 +1715,8 @@ model ProcedureCategory {
   professionalContractCategoryRates ProfessionalContractCategoryRate[]
   priceListVersionItems             PriceListVersionItem[]
   agreementCategoryRules            AgreementCategoryRule[]
+  policyProductCoverages            PolicyProductCoverage[]
+  familyPolicyCoverages             FamilyPolicyCoverage[]
   isActive                          Boolean                            @default(true)
   version                           Int                                @default(1)
   createdAt                         DateTime                           @default(now())
@@ -1435,6 +1769,9 @@ model Procedure {
   priceTemplateItems               PriceTemplateItem[]
   consentTemplates                 ConsentTemplate[]
   documentRequirements             DocumentRequirement[]
+  policyProductCoverages           PolicyProductCoverage[]
+  familyPolicyCoverages            FamilyPolicyCoverage[]
+  familyPolicyUsages               FamilyPolicyUsage[]
   createdAt                        DateTime                          @default(now())
   updatedAt                        DateTime                          @updatedAt
   version                          Int                               @default(1)
@@ -1701,10 +2038,32 @@ model PriceListCategory {
   @@index([procedureCategoryId])
 }
 
+model Company {
+  id             String                @id @default(cuid())
+  organizationId String
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  legalName      String
+  taxId          String?
+  billingEmail   String?
+  status         String                @default("ACTIVE")
+  agreements     Agreement[]
+  discountPlans  PayrollDiscountPlan[]
+  charges        AgreementCharge[]
+  payments       CompanyPayment[]
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+
+  @@unique([organizationId, legalName])
+  @@index([organizationId, taxId])
+  @@index([organizationId, status])
+}
+
 model Agreement {
   id                       String                       @id @default(cuid())
   organizationId           String
   organization             Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  companyId                String
+  company                  Company                      @relation(fields: [companyId], references: [id], onDelete: Restrict)
   name                     String
   entityName               String?
   entityTaxId              String?
@@ -1737,10 +2096,14 @@ model Agreement {
   updatedAt                DateTime                     @updatedAt
   coverageCases            CoverageCase[]
   patientBenefitCoverages  PatientBenefitCoverage[]
+  payrollDiscountPlans     PayrollDiscountPlan[]
+  charges                  AgreementCharge[]
+  companyPayments          CompanyPayment[]
 
   @@unique([organizationId, name])
   @@index([organizationId, isActive])
   @@index([organizationId, status, startsAt, endsAt])
+  @@index([organizationId, companyId])
   @@index([priceListId])
 }
 
@@ -1852,6 +2215,140 @@ model AgreementPatientAssignment {
   @@index([agreementId, version])
 }
 
+model PayrollDiscountPlan {
+  id                String                @id @default(cuid())
+  organizationId    String
+  organization      Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  companyId         String
+  company           Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  agreementId       String
+  agreement         Agreement             @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  patientId         String
+  patient           Patient               @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  treatmentPlanId   String
+  treatmentPlan     TreatmentPlan         @relation(fields: [treatmentPlanId], references: [id], onDelete: Restrict)
+  branchId          String
+  branch            Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  totalAmount       Decimal               @db.Decimal(12, 2)
+  installmentCount  Int
+  firstDueDate      DateTime
+  periodicity       InstallmentFrequency
+  currency          CurrencyCode
+  agreementSnapshot Json
+  status            InstallmentPlanStatus @default(ACTIVE)
+  createdById       String
+  charges           AgreementCharge[]
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([organizationId, agreementId, status])
+  @@index([patientId, treatmentPlanId])
+  @@index([branchId, firstDueDate])
+}
+
+model AgreementCharge {
+  id                    String                     @id @default(cuid())
+  folio                 String
+  organizationId        String
+  organization          Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  companyId             String
+  company               Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  agreementId           String
+  agreement             Agreement                  @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  payrollDiscountPlanId String
+  payrollDiscountPlan   PayrollDiscountPlan        @relation(fields: [payrollDiscountPlanId], references: [id], onDelete: Restrict)
+  patientId             String
+  patient               Patient                    @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  treatmentPlanId       String
+  treatmentPlan         TreatmentPlan              @relation(fields: [treatmentPlanId], references: [id], onDelete: Restrict)
+  treatmentPlanItemId   String
+  treatmentPlanItem     TreatmentPlanItem          @relation(fields: [treatmentPlanItemId], references: [id], onDelete: Restrict)
+  branchId              String
+  branch                Branch                     @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  dueDate               DateTime
+  installmentNumber     Int
+  originalAmount        Decimal                    @db.Decimal(12, 2)
+  paidAmount            Decimal                    @default(0) @db.Decimal(12, 2)
+  outstandingAmount     Decimal                    @db.Decimal(12, 2)
+  currency              CurrencyCode
+  status                AgreementChargeStatus
+  agreementSnapshot     Json
+  priceSnapshot         Json
+  version               Int                        @default(1)
+  createdById           String
+  allocations           CompanyPaymentAllocation[]
+  createdAt             DateTime                   @default(now())
+  updatedAt             DateTime                   @updatedAt
+
+  @@unique([organizationId, folio])
+  @@index([organizationId, agreementId, currency, dueDate, status])
+  @@index([organizationId, branchId, currency, dueDate, status])
+  @@index([patientId, treatmentPlanId])
+  @@index([treatmentPlanItemId])
+}
+
+model CompanyPayment {
+  id                     String                     @id @default(cuid())
+  organizationId         String
+  organization           Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  companyId              String
+  company                Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  agreementId            String
+  agreement              Agreement                  @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  branchId               String?
+  branch                 Branch?                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  paymentDate            DateTime
+  amount                 Decimal                    @db.Decimal(12, 2)
+  unappliedAmount        Decimal                    @default(0) @db.Decimal(12, 2)
+  currency               CurrencyCode
+  paymentMethodId        String?
+  paymentMethod          PaymentMethod?             @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  financialInstitutionId String?
+  financialInstitution   FinancialInstitution?      @relation(fields: [financialInstitutionId], references: [id], onDelete: SetNull)
+  reference              String?
+  proofUrl               String?
+  cashRegisterId         String?
+  cashRegister           CashRegister?              @relation(fields: [cashRegisterId], references: [id], onDelete: Restrict)
+  notes                  String?
+  status                 CompanyPaymentStatus       @default(DRAFT)
+  receivedById           String
+  receivedBy             User                       @relation("CompanyPaymentReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
+  approvedById           String?
+  approvedBy             User?                      @relation("CompanyPaymentApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  approvedAt             DateTime?
+  voidedById             String?
+  voidedBy               User?                      @relation("CompanyPaymentVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
+  voidedAt               DateTime?
+  voidReason             String?
+  idempotencyKey         String
+  version                Int                        @default(1)
+  allocations            CompanyPaymentAllocation[]
+  cashMovements          CashMovement[]
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, agreementId, currency, paymentDate, status])
+  @@index([organizationId, branchId, paymentDate])
+  @@index([companyId, status])
+}
+
+model CompanyPaymentAllocation {
+  id                String          @id @default(cuid())
+  companyPaymentId  String
+  companyPayment    CompanyPayment  @relation(fields: [companyPaymentId], references: [id], onDelete: Cascade)
+  agreementChargeId String
+  agreementCharge   AgreementCharge @relation(fields: [agreementChargeId], references: [id], onDelete: Restrict)
+  allocatedAmount   Decimal         @db.Decimal(12, 2)
+  reversedAt        DateTime?
+  reversedById      String?
+  reversedBy        User?           @relation("CompanyAllocationReversedBy", fields: [reversedById], references: [id], onDelete: SetNull)
+  createdAt         DateTime        @default(now())
+
+  @@unique([companyPaymentId, agreementChargeId])
+  @@index([agreementChargeId, reversedAt])
+}
+
 model ExpenseCategory {
   id             String       @id @default(cuid())
   organizationId String
@@ -1867,26 +2364,40 @@ model ExpenseCategory {
 }
 
 model Expense {
-  id             String          @id @default(cuid())
-  organizationId String
-  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId       String
-  branch         Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  categoryId     String
-  category       ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  description    String
-  quantity       Decimal         @default(1) @db.Decimal(10, 2)
-  unitCost       Decimal         @db.Decimal(10, 2)
-  total          Decimal         @db.Decimal(10, 2)
-  invoicedAt     DateTime?
-  paidAt         DateTime
-  notes          String?
-  cashMovements  CashMovement[]
-  createdById    String
-  createdBy      User            @relation("ExpenseCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  id              String          @id @default(cuid())
+  publicNumber    Int
+  organizationId  String
+  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId        String
+  branch          Branch          @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  categoryId      String
+  category        ExpenseCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  description     String
+  supplierName    String?
+  quantity        Decimal         @default(1) @db.Decimal(10, 2)
+  unitCost        Decimal         @db.Decimal(10, 2)
+  total           Decimal         @db.Decimal(10, 2)
+  invoicedAt      DateTime?
+  paidAt          DateTime
+  paymentMethodId String?
+  paymentMethod   PaymentMethod?  @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  status          ExpenseStatus   @default(PAID)
+  documentUrl     String?
+  notes           String?
+  cashMovements   CashMovement[]
+  createdById     String
+  createdBy       User            @relation("ExpenseCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedById     String?
+  updatedBy       User?           @relation("ExpenseUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+  voidedAt        DateTime?
+  voidedById      String?
+  voidedBy        User?           @relation("ExpenseVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
+  voidReason      String?
+  version         Int             @default(1)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
+  @@unique([organizationId, publicNumber])
   @@index([organizationId, paidAt])
   @@index([branchId, paidAt])
   @@index([categoryId, paidAt])
@@ -1903,6 +2414,7 @@ model PriceListItem {
   price               Decimal             @db.Decimal(10, 2)
   labCost             Decimal             @default(0) @db.Decimal(10, 2)
   allowsDiscount      Boolean             @default(true)
+  maxDiscountPercent  Decimal             @default(100) @db.Decimal(5, 2)
   currency            CurrencyCode        @default(MXN)
   treatmentPlanItems  TreatmentPlanItem[]
   createdAt           DateTime            @default(now())
@@ -2020,64 +2532,70 @@ model OutboxEvent {
 }
 
 model Patient {
-  id                  String                @id @default(cuid())
-  organizationId      String
-  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId            String
-  branch              Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  agreementId         String?
-  agreement           Agreement?            @relation(fields: [agreementId], references: [id], onDelete: SetNull)
-  firstName           String
-  lastName            String
-  birthDate           DateTime?
-  gender              String?
-  documentType        String?
-  documentNumber      String?
-  email               String?
-  phone               String?
-  alternatePhone      String?
-  occupation          String?
-  referredBy          String?
-  source              String?
-  status              PatientStatus         @default(ACTIVE)
-  contacts            PatientContact[]
-  address             PatientAddress?
-  medicalAlerts       PatientMedicalAlert[]
-  notes               PatientNote[]
-  tasks               PatientTask[]
-  appointments        Appointment[]
-  medicalHistory      MedicalHistory?
-  medicalConditions   MedicalCondition[]
-  allergies           Allergy[]
-  medications         Medication[]
-  clinicalEvolutions  ClinicalEvolution[]
-  prescriptions       Prescription[]
-  clinicalDocuments   ClinicalDocument[]
-  odontogramRecords   OdontogramRecord[]
-  toothConditions     ToothCondition[]
-  toothProcedures     ToothProcedure[]
-  periodontalCharts   PeriodontalChart[]
-  treatmentPlans      TreatmentPlan[]
-  budgets             Budget[]
-  payments            Payment[]
-  paymentLinks        PaymentLink[]
-  installmentPlans    InstallmentPlan[]
-  installments        Installment[]
-  refunds             Refund[]
-  collectionCases     CollectionCase[]
-  fileAttachments     FileAttachment[]
-  radiographyAnalyses RadiographyAnalysis[]
-  consents            Consent[]
-  labOrders           LabOrder[]
-  createdAt           DateTime              @default(now())
-  updatedAt           DateTime              @updatedAt
+  id                      String                 @id @default(cuid())
+  organizationId          String
+  organization            Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId                String
+  branch                  Branch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  agreementId             String?
+  agreement               Agreement?             @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  firstName               String
+  lastName                String
+  birthDate               DateTime?
+  gender                  String?
+  documentType            String?
+  documentNumber          String?
+  email                   String?
+  marketingConsent        MarketingConsentStatus @default(UNKNOWN)
+  marketingConsentedAt    DateTime?
+  marketingUnsubscribedAt DateTime?
+  phone                   String?
+  alternatePhone          String?
+  occupation              String?
+  referredBy              String?
+  source                  String?
+  status                  PatientStatus          @default(ACTIVE)
+  contacts                PatientContact[]
+  address                 PatientAddress?
+  medicalAlerts           PatientMedicalAlert[]
+  notes                   PatientNote[]
+  tasks                   PatientTask[]
+  appointments            Appointment[]
+  medicalHistory          MedicalHistory?
+  medicalConditions       MedicalCondition[]
+  allergies               Allergy[]
+  medications             Medication[]
+  clinicalEvolutions      ClinicalEvolution[]
+  prescriptions           Prescription[]
+  clinicalDocuments       ClinicalDocument[]
+  odontogramRecords       OdontogramRecord[]
+  toothConditions         ToothCondition[]
+  toothProcedures         ToothProcedure[]
+  periodontalCharts       PeriodontalChart[]
+  treatmentPlans          TreatmentPlan[]
+  budgets                 Budget[]
+  payments                Payment[]
+  paymentLinks            PaymentLink[]
+  installmentPlans        InstallmentPlan[]
+  installments            Installment[]
+  refunds                 Refund[]
+  collectionCases         CollectionCase[]
+  fileAttachments         FileAttachment[]
+  radiographyAnalyses     RadiographyAnalysis[]
+  consents                Consent[]
+  labOrders               LabOrder[]
+  createdAt               DateTime               @default(now())
+  updatedAt               DateTime               @updatedAt
 
   deletedAt DateTime?
 
   payrollDiscounts           PayrollDiscount[]
+  payrollDiscountPlans       PayrollDiscountPlan[]
+  agreementCharges           AgreementCharge[]
   inventoryMovements         InventoryMovement[]
   inventoryProductSales      InventoryProductSale[]
   communicationJobs          CommunicationJob[]
+  emailCampaignRecipients    EmailCampaignRecipient[]
   surveys                    Survey[]
   chatMessages               ChatMessage[]
   telemedicineSessions       TelemedicineSession[]
@@ -2096,6 +2614,7 @@ model Patient {
   familyGroupsHeld           FamilyGroup[]                      @relation("FamilyGroupHolder")
   policiesHeld               FamilyPolicy[]                     @relation("FamilyPolicyHolder")
   familyPolicyMemberships    FamilyPolicyMember[]
+  familyPolicyUsages         FamilyPolicyUsage[]
   familyBookingGrants        FamilyBookingGrant[]
   familyContactActors        FamilyGroupContact[]               @relation("FamilyGroupContactActor")
   bookingIdentitySessions    BookingIdentitySession[]           @relation("BookingIdentitySelectedPatient")
@@ -2268,25 +2787,62 @@ model FamilyGroupMember {
 }
 
 model PolicyProduct {
-  id              String         @id @default(uuid())
-  organizationId  String
-  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  productCode     String
-  name            String
-  modality        PolicyModality
-  minimumMembers  Int
-  maximumMembers  Int
-  durationMonths  Int            @default(12)
-  basePrice       Decimal        @default(0) @db.Decimal(10, 2)
-  currency        CurrencyCode   @default(MXN)
-  activationRules Json?
-  status          String         @default("ACTIVE")
-  policies        FamilyPolicy[]
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id                String                  @id @default(uuid())
+  organizationId    String
+  organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  brandId           String?
+  brand             BranchBrand?            @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  productCode       String
+  name              String
+  description       String?
+  modality          PolicyModality
+  minimumMembers    Int
+  maximumMembers    Int
+  durationMonths    Int                     @default(12)
+  waitingPeriodDays Int                     @default(0)
+  renewable         Boolean                 @default(true)
+  terms             String?
+  basePrice         Decimal                 @default(0) @db.Decimal(10, 2)
+  currency          CurrencyCode            @default(MXN)
+  activationRules   Json?
+  status            String                  @default("ACTIVE")
+  policies          FamilyPolicy[]
+  coverages         PolicyProductCoverage[]
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
 
   @@unique([organizationId, productCode])
   @@index([organizationId, status])
+  @@index([brandId])
+}
+
+model PolicyProductCoverage {
+  id                    String             @id @default(uuid())
+  organizationId        String
+  organization          Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  policyProductId       String
+  policyProduct         PolicyProduct      @relation(fields: [policyProductId], references: [id], onDelete: Cascade)
+  procedureId           String?
+  procedure             Procedure?         @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  procedureCategoryId   String?
+  procedureCategory     ProcedureCategory? @relation(fields: [procedureCategoryId], references: [id], onDelete: Restrict)
+  name                  String
+  coverageType          PolicyCoverageType
+  coverageValue         Decimal            @db.Decimal(10, 2)
+  copayAmount           Decimal?           @db.Decimal(10, 2)
+  annualAmountLimit     Decimal?           @db.Decimal(12, 2)
+  annualUseLimit        Int?
+  waitingPeriodDays     Int                @default(0)
+  requiresAuthorization Boolean            @default(false)
+  exclusions            String?
+  conditions            Json?
+  isActive              Boolean            @default(true)
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+
+  @@index([organizationId, policyProductId, isActive])
+  @@index([procedureId])
+  @@index([procedureCategoryId])
 }
 
 model FamilyPolicy {
@@ -2303,11 +2859,16 @@ model FamilyPolicy {
   status              FamilyPolicyStatus        @default(DRAFT)
   effectiveFrom       DateTime
   effectiveUntil      DateTime
+  purchasedAt         DateTime                  @default(now())
+  paidAt              DateTime?
+  coverageAvailableAt DateTime?
   contractedPrice     Decimal                   @db.Decimal(10, 2)
   currency            CurrencyCode              @default(MXN)
   paymentStatus       FamilyPolicyPaymentStatus @default(PENDING)
   branchId            String
   branch              Branch                    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  brandId             String?
+  brand               BranchBrand?              @relation(fields: [brandId], references: [id], onDelete: SetNull)
   soldByUserId        String
   soldBy              User                      @relation("FamilyPolicySoldBy", fields: [soldByUserId], references: [id], onDelete: Restrict)
   renewedFromPolicyId String?
@@ -2315,7 +2876,12 @@ model FamilyPolicy {
   renewals            FamilyPolicy[]            @relation("FamilyPolicyRenewal")
   members             FamilyPolicyMember[]
   payments            FamilyPolicyPayment[]
+  coverages           FamilyPolicyCoverage[]
+  usages              FamilyPolicyUsage[]
+  documents           FamilyPolicyDocument[]
   activatedAt         DateTime?
+  suspendedAt         DateTime?
+  suspensionReason    String?
   cancelledAt         DateTime?
   cancellationReason  String?
   createdAt           DateTime                  @default(now())
@@ -2325,26 +2891,28 @@ model FamilyPolicy {
   @@index([familyGroupId, createdAt])
   @@index([holderPatientId, createdAt])
   @@index([branchId, createdAt])
+  @@index([brandId, createdAt])
 }
 
 model FamilyPolicyMember {
-  id                   String             @id @default(uuid())
+  id                   String              @id @default(uuid())
   organizationId       String
-  organization         Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization         Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   policyId             String
-  policy               FamilyPolicy       @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  policy               FamilyPolicy        @relation(fields: [policyId], references: [id], onDelete: Cascade)
   patientId            String
-  patient              Patient            @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  patient              Patient             @relation(fields: [patientId], references: [id], onDelete: Restrict)
   familyGroupMemberId  String?
-  familyGroupMember    FamilyGroupMember? @relation(fields: [familyGroupMemberId], references: [id], onDelete: SetNull)
+  familyGroupMember    FamilyGroupMember?  @relation(fields: [familyGroupMemberId], references: [id], onDelete: SetNull)
   memberRole           String
   relationshipSnapshot String?
-  coverageStatus       String             @default("PENDING")
+  coverageStatus       String              @default("PENDING")
   coverageStart        DateTime?
   coverageEnd          DateTime?
-  addedAt              DateTime           @default(now())
+  addedAt              DateTime            @default(now())
   removedAt            DateTime?
   removalReason        String?
+  usages               FamilyPolicyUsage[]
 
   @@unique([policyId, patientId])
   @@index([organizationId, patientId, coverageStatus])
@@ -2372,6 +2940,99 @@ model FamilyPolicyPayment {
 
   @@index([policyId, paidAt])
   @@index([organizationId, branchId, paidAt])
+}
+
+model FamilyPolicyCoverage {
+  id                      String              @id @default(uuid())
+  organizationId          String
+  organization            Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  policyId                String
+  policy                  FamilyPolicy        @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  sourceProductCoverageId String?
+  procedureId             String?
+  procedure               Procedure?          @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  procedureCategoryId     String?
+  procedureCategory       ProcedureCategory?  @relation(fields: [procedureCategoryId], references: [id], onDelete: Restrict)
+  name                    String
+  coverageType            PolicyCoverageType
+  coverageValue           Decimal             @db.Decimal(10, 2)
+  copayAmount             Decimal?            @db.Decimal(10, 2)
+  annualAmountLimit       Decimal?            @db.Decimal(12, 2)
+  annualUseLimit          Int?
+  waitingPeriodDays       Int                 @default(0)
+  requiresAuthorization   Boolean             @default(false)
+  exclusions              String?
+  conditions              Json?
+  isActive                Boolean             @default(true)
+  usages                  FamilyPolicyUsage[]
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+
+  @@index([organizationId, policyId, isActive])
+  @@index([procedureId])
+  @@index([procedureCategoryId])
+}
+
+model FamilyPolicyUsage {
+  id                  String                  @id @default(uuid())
+  organizationId      String
+  organization        Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  policyId            String
+  policy              FamilyPolicy            @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  coverageId          String
+  coverage            FamilyPolicyCoverage    @relation(fields: [coverageId], references: [id], onDelete: Restrict)
+  memberId            String
+  member              FamilyPolicyMember      @relation(fields: [memberId], references: [id], onDelete: Restrict)
+  patientId           String
+  patient             Patient                 @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  branchId            String
+  branch              Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  treatmentPlanId     String?
+  treatmentPlan       TreatmentPlan?          @relation(fields: [treatmentPlanId], references: [id], onDelete: Restrict)
+  treatmentPlanItemId String?
+  treatmentPlanItem   TreatmentPlanItem?      @relation(fields: [treatmentPlanItemId], references: [id], onDelete: Restrict)
+  procedureId         String
+  procedure           Procedure               @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  normalAmount        Decimal                 @db.Decimal(12, 2)
+  coveredAmount       Decimal                 @db.Decimal(12, 2)
+  copayAmount         Decimal                 @db.Decimal(12, 2)
+  quantity            Decimal                 @default(1) @db.Decimal(10, 2)
+  status              FamilyPolicyUsageStatus @default(APPLIED)
+  authorizationCode   String?
+  idempotencyKey      String
+  appliedById         String
+  appliedBy           User                    @relation("FamilyPolicyUsageAppliedBy", fields: [appliedById], references: [id], onDelete: Restrict)
+  appliedAt           DateTime                @default(now())
+  reversedById        String?
+  reversedBy          User?                   @relation("FamilyPolicyUsageReversedBy", fields: [reversedById], references: [id], onDelete: Restrict)
+  reversedAt          DateTime?
+  reversalReason      String?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  @@unique([organizationId, idempotencyKey])
+  @@unique([policyId, treatmentPlanItemId])
+  @@index([policyId, patientId, appliedAt])
+  @@index([coverageId, status, appliedAt])
+  @@index([treatmentPlanId])
+}
+
+model FamilyPolicyDocument {
+  id               String                   @id @default(uuid())
+  organizationId   String
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  policyId         String
+  policy           FamilyPolicy             @relation(fields: [policyId], references: [id], onDelete: Restrict)
+  fileAttachmentId String
+  fileAttachment   FileAttachment           @relation(fields: [fileAttachmentId], references: [id], onDelete: Restrict)
+  type             FamilyPolicyDocumentType
+  notes            String?
+  uploadedById     String
+  uploadedBy       User                     @relation("FamilyPolicyDocumentUploadedBy", fields: [uploadedById], references: [id], onDelete: Restrict)
+  createdAt        DateTime                 @default(now())
+
+  @@unique([policyId, fileAttachmentId])
+  @@index([organizationId, policyId, type])
 }
 
 model FamilyGroupContact {
@@ -3055,6 +3716,7 @@ model TreatmentPlan {
   orthodonticControls           OrthodonticControl[]
   orthodonticHygieneAssessments OrthodonticHygieneAssessment[]
   orthodonticMilestones         OrthodonticMilestone[]
+  orthodonticProgressSnapshots  OrthodonticProgressSnapshot[]
   photographicSessions          PhotographicSession[]
   photographicPolicy            PhotographicPolicy?
   clinicalDocuments             ClinicalDocument[]
@@ -3076,12 +3738,16 @@ model TreatmentPlan {
   createdAt                     DateTime                       @default(now())
   updatedAt                     DateTime                       @updatedAt
 
-  referrals              TreatmentPlanReferral[]
-  payrollDiscounts       PayrollDiscount[]
-  inventoryMovements     InventoryMovement[]
-  patientLedgerEntries   PatientLedgerEntry[]
-  financialDocuments     FinancialDocument[]
-  coverageAuthorizations CoverageAuthorization[]
+  referrals                TreatmentPlanReferral[]
+  payrollDiscounts         PayrollDiscount[]
+  payrollDiscountPlans     PayrollDiscountPlan[]
+  agreementCharges         AgreementCharge[]
+  inventoryMovements       InventoryMovement[]
+  patientLedgerEntries     PatientLedgerEntry[]
+  financialDocuments       FinancialDocument[]
+  coverageAuthorizations   CoverageAuthorization[]
+  familyPolicyUsages       FamilyPolicyUsage[]
+  cashDiscountApplications CashDiscountApplication[]
 
   @@index([organizationId, branchId, status])
   @@index([patientId, status])
@@ -3105,74 +3771,84 @@ model TreatmentPlanSection {
 }
 
 model TreatmentPlanItem {
-  id                        String                  @id @default(cuid())
-  treatmentPlanId           String
-  treatmentPlan             TreatmentPlan           @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
-  sectionId                 String?
-  section                   TreatmentPlanSection?   @relation(fields: [sectionId], references: [id], onDelete: SetNull)
-  procedureId               String
-  procedure                 Procedure               @relation(fields: [procedureId], references: [id], onDelete: Restrict)
-  toothNumber               String?
-  surface                   String?
-  odontogramSymbol          String?
-  quantity                  Decimal                 @db.Decimal(10, 2)
-  unitPrice                 Decimal                 @db.Decimal(10, 2)
-  discount                  Decimal                 @default(0) @db.Decimal(10, 2)
-  total                     Decimal                 @db.Decimal(10, 2)
-  originalPrice             Decimal                 @default(0) @db.Decimal(10, 2)
-  allowsDiscountSnapshot    Boolean                 @default(true)
-  discountType              String?
-  discountValue             Decimal?                @db.Decimal(10, 2)
-  discountAmount            Decimal                 @default(0) @db.Decimal(10, 2)
-  finalPrice                Decimal                 @default(0) @db.Decimal(10, 2)
-  discountReason            String?
-  discountAuthorizedBy      String?
-  discountedAt              DateTime?
-  status                    TreatmentPlanItemStatus @default(PLANNED)
-  priceListId               String?
-  priceList                 PriceList?              @relation(fields: [priceListId], references: [id], onDelete: SetNull)
-  priceListItemId           String?
-  priceListItem             PriceListItem?          @relation(fields: [priceListItemId], references: [id], onDelete: SetNull)
-  priceListVersionId        String?
-  priceListVersion          PriceListVersion?       @relation(fields: [priceListVersionId], references: [id], onDelete: SetNull)
-  priceListVersionNumber    Int?
-  priceListVersionItemId    String?
-  priceListVersionItem      PriceListVersionItem?   @relation(fields: [priceListVersionItemId], references: [id], onDelete: SetNull)
-  priceSource               TreatmentPriceSource    @default(MANUAL)
-  priceSnapshotName         String?
-  priceSnapshotCode         String?
-  priceSnapshotCategory     String?
-  procedureCodeSnapshot     String?
-  procedureNameSnapshot     String?
-  procedureCategorySnapshot String?
-  priceListNameSnapshot     String?
-  priceResolvedAt           DateTime?
-  priceCurrency             CurrencyCode            @default(MXN)
-  laboratoryCostSnapshot    Decimal                 @default(0) @db.Decimal(12, 2)
-  internalCostSnapshot      Decimal                 @default(0) @db.Decimal(12, 2)
-  pricingRuleSnapshot       Json?
-  pricedById                String?
-  notes                     String?
-  plannedAt                 DateTime?
-  completedAt               DateTime?
-  completionPercentage      Int                     @default(0)
-  performedAmount           Decimal                 @default(0) @db.Decimal(10, 2)
-  budgetItems               BudgetItem[]
-  paymentAllocations        PaymentAllocation[]
-  installmentPlanItems      InstallmentPlanItem[]
-  payrollLiquidationItem    PayrollLiquidationItem?
-  toothProcedure            ToothProcedure?
+  id                               String                        @id @default(cuid())
+  treatmentPlanId                  String
+  treatmentPlan                    TreatmentPlan                 @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  sectionId                        String?
+  section                          TreatmentPlanSection?         @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  procedureId                      String
+  procedure                        Procedure                     @relation(fields: [procedureId], references: [id], onDelete: Restrict)
+  toothNumber                      String?
+  surface                          String?
+  odontogramSymbol                 String?
+  quantity                         Decimal                       @db.Decimal(10, 2)
+  unitPrice                        Decimal                       @db.Decimal(10, 2)
+  discount                         Decimal                       @default(0) @db.Decimal(10, 2)
+  total                            Decimal                       @db.Decimal(10, 2)
+  originalPrice                    Decimal                       @default(0) @db.Decimal(10, 2)
+  allowsDiscountSnapshot           Boolean                       @default(true)
+  maximumDiscountPercentSnapshot   Decimal                       @default(100) @db.Decimal(5, 2)
+  discountType                     String?
+  discountValue                    Decimal?                      @db.Decimal(10, 2)
+  discountAmount                   Decimal                       @default(0) @db.Decimal(10, 2)
+  finalPrice                       Decimal                       @default(0) @db.Decimal(10, 2)
+  discountReason                   String?
+  discountAuthorizedBy             String?
+  discountedAt                     DateTime?
+  appliedDiscountPercent           Decimal                       @default(0) @db.Decimal(5, 2)
+  userMaximumDiscountSnapshot      Decimal                       @default(0) @db.Decimal(5, 2)
+  effectiveMaximumDiscountSnapshot Decimal                       @default(0) @db.Decimal(5, 2)
+  status                           TreatmentPlanItemStatus       @default(PLANNED)
+  priceListId                      String?
+  priceList                        PriceList?                    @relation(fields: [priceListId], references: [id], onDelete: SetNull)
+  priceListItemId                  String?
+  priceListItem                    PriceListItem?                @relation(fields: [priceListItemId], references: [id], onDelete: SetNull)
+  priceListVersionId               String?
+  priceListVersion                 PriceListVersion?             @relation(fields: [priceListVersionId], references: [id], onDelete: SetNull)
+  priceListVersionNumber           Int?
+  priceListVersionItemId           String?
+  priceListVersionItem             PriceListVersionItem?         @relation(fields: [priceListVersionItemId], references: [id], onDelete: SetNull)
+  priceSource                      TreatmentPriceSource          @default(MANUAL)
+  priceSnapshotName                String?
+  priceSnapshotCode                String?
+  priceSnapshotCategory            String?
+  procedureCodeSnapshot            String?
+  procedureNameSnapshot            String?
+  procedureCategorySnapshot        String?
+  priceListNameSnapshot            String?
+  priceResolvedAt                  DateTime?
+  priceCurrency                    CurrencyCode                  @default(MXN)
+  laboratoryCostSnapshot           Decimal                       @default(0) @db.Decimal(12, 2)
+  internalCostSnapshot             Decimal                       @default(0) @db.Decimal(12, 2)
+  pricingRuleSnapshot              Json?
+  pricedById                       String?
+  notes                            String?
+  plannedAt                        DateTime?
+  completedAt                      DateTime?
+  completionPercentage             Int                           @default(0)
+  performedAmount                  Decimal                       @default(0) @db.Decimal(10, 2)
+  budgetItems                      BudgetItem[]
+  paymentAllocations               PaymentAllocation[]
+  installmentPlanItems             InstallmentPlanItem[]
+  payrollLiquidationItem           PayrollLiquidationItem?
+  toothProcedure                   ToothProcedure?
+  familyPolicyUsages               FamilyPolicyUsage[]
+  policyCoverageAmount             Decimal                       @default(0) @db.Decimal(12, 2)
+  policyCopayAmount                Decimal                       @default(0) @db.Decimal(12, 2)
+  policyCoverageAppliedAt          DateTime?
+  cashDiscountApplicationItems     CashDiscountApplicationItem[]
 
   agreementId             String?
-  agreement               Agreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  agreement               Agreement?        @relation(fields: [agreementId], references: [id], onDelete: SetNull)
   agreementVersionId      String?
   agreementVersionNumber  Int?
   agreementSnapshot       Json?
-  agreementNormalPrice    Decimal?   @db.Decimal(10, 2)
-  agreementAppliedPrice   Decimal?   @db.Decimal(10, 2)
-  agreementDiscountAmount Decimal?   @db.Decimal(10, 2)
-  agreementCoverage       Decimal    @default(0) @db.Decimal(10, 2)
+  agreementNormalPrice    Decimal?          @db.Decimal(10, 2)
+  agreementAppliedPrice   Decimal?          @db.Decimal(10, 2)
+  agreementDiscountAmount Decimal?          @db.Decimal(10, 2)
+  agreementCoverage       Decimal           @default(0) @db.Decimal(10, 2)
   agreementPaidAt         DateTime?
+  agreementCharges        AgreementCharge[]
 
   version                Int                 @default(1)
   createdAt              DateTime            @default(now())
@@ -3252,43 +3928,49 @@ model BudgetItem {
 }
 
 model Payment {
-  id                     String                         @id @default(cuid())
-  organizationId         String
-  organization           Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId               String
-  branch                 Branch                         @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  patientId              String
-  patient                Patient                        @relation(fields: [patientId], references: [id], onDelete: Restrict)
-  receivedById           String
-  receivedBy             User                           @relation("PaymentReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
-  paymentNumber          Int?                           @unique
-  amount                 Decimal                        @db.Decimal(10, 2)
-  currency               CurrencyCode                   @default(MXN)
-  paymentMethodId        String?
-  paymentMethod          PaymentMethod?                 @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
-  financialInstitutionId String?
-  financialInstitution   FinancialInstitution?          @relation(fields: [financialInstitutionId], references: [id], onDelete: SetNull)
-  status                 PaymentStatus                  @default(RECEIVED)
-  reference              String?
-  notes                  String?
-  voidReason             String?
-  voidedAt               DateTime?
-  voidedById             String?
-  paidAt                 DateTime
-  idempotencyKey         String?
-  allocations            PaymentAllocation[]
-  splits                 PaymentMethodSplit[]
-  idempotencyRecord      PaymentIdempotency?
-  cashMovements          CashMovement[]
-  refunds                Refund[]
-  installments           Installment[]
-  installmentAllocations PaymentInstallmentAllocation[]
-  communicationJobs      CommunicationJob[]
-  webhookEvents          PaymentWebhookEvent[]
-  familyPolicyPayments   FamilyPolicyPayment[]
-  createdAt              DateTime                       @default(now())
-  updatedAt              DateTime                       @updatedAt
-  financialDocuments     FinancialDocument[]
+  id                      String                         @id @default(cuid())
+  organizationId          String
+  organization            Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId                String
+  branch                  Branch                         @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  patientId               String
+  patient                 Patient                        @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  receivedById            String
+  receivedBy              User                           @relation("PaymentReceivedBy", fields: [receivedById], references: [id], onDelete: Restrict)
+  paymentNumber           Int?                           @unique
+  amount                  Decimal                        @db.Decimal(10, 2)
+  grossAmount             Decimal                        @default(0) @db.Decimal(10, 2)
+  retentionAmount         Decimal                        @default(0) @db.Decimal(10, 2)
+  netAmount               Decimal                        @default(0) @db.Decimal(10, 2)
+  paymentMethodSnapshot   Json?
+  currency                CurrencyCode                   @default(MXN)
+  paymentMethodId         String?
+  paymentMethod           PaymentMethod?                 @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  financialInstitutionId  String?
+  financialInstitution    FinancialInstitution?          @relation(fields: [financialInstitutionId], references: [id], onDelete: SetNull)
+  status                  PaymentStatus                  @default(RECEIVED)
+  reference               String?
+  notes                   String?
+  voidReason              String?
+  voidedAt                DateTime?
+  voidedById              String?
+  paidAt                  DateTime
+  idempotencyKey          String?
+  allocations             PaymentAllocation[]
+  splits                  PaymentMethodSplit[]
+  settlements             PaymentSettlement[]
+  idempotencyRecord       PaymentIdempotency?
+  cashMovements           CashMovement[]
+  refunds                 Refund[]
+  installments            Installment[]
+  installmentAllocations  PaymentInstallmentAllocation[]
+  communicationJobs       CommunicationJob[]
+  webhookEvents           PaymentWebhookEvent[]
+  familyPolicyPayments    FamilyPolicyPayment[]
+  createdAt               DateTime                       @default(now())
+  updatedAt               DateTime                       @updatedAt
+  financialDocuments      FinancialDocument[]
+  cashDiscountApplication CashDiscountApplication?
 
   @@unique([organizationId, idempotencyKey])
   @@index([organizationId, branchId, paidAt])
@@ -3298,15 +3980,135 @@ model Payment {
 }
 
 model PaymentAllocation {
-  id                  String            @id @default(cuid())
-  paymentId           String
-  payment             Payment           @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  treatmentPlanItemId String
-  treatmentPlanItem   TreatmentPlanItem @relation(fields: [treatmentPlanItemId], references: [id], onDelete: Restrict)
-  amount              Decimal           @db.Decimal(10, 2)
-  createdAt           DateTime          @default(now())
+  id                          String                       @id @default(cuid())
+  paymentId                   String
+  payment                     Payment                      @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  treatmentPlanItemId         String
+  treatmentPlanItem           TreatmentPlanItem            @relation(fields: [treatmentPlanItemId], references: [id], onDelete: Restrict)
+  amount                      Decimal                      @db.Decimal(10, 2)
+  settlementDiscountAmount    Decimal                      @default(0) @db.Decimal(10, 2)
+  cashDiscountApplicationItem CashDiscountApplicationItem?
+  createdAt                   DateTime                     @default(now())
 
   @@unique([paymentId, treatmentPlanItemId])
+  @@index([treatmentPlanItemId])
+}
+
+model CashDiscountRule {
+  id                          String                    @id @default(cuid())
+  organizationId              String
+  organization                Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  publicCode                  String
+  name                        String
+  description                 String?
+  campaign                    String?
+  discountPercent             Decimal                   @db.Decimal(5, 2)
+  appliesToClinicalActions    Boolean                   @default(true)
+  appliesToLaboratoryActions  Boolean                   @default(false)
+  availableToAllUsers         Boolean                   @default(true)
+  availableToAllBranches      Boolean                   @default(true)
+  stackableWithAgreements     Boolean                   @default(false)
+  stackableWithOtherDiscounts Boolean                   @default(false)
+  startsAt                    DateTime?
+  endsAt                      DateTime?
+  status                      CashDiscountStatus        @default(DRAFT)
+  createdById                 String
+  updatedById                 String
+  disabledAt                  DateTime?
+  disabledById                String?
+  disableReason               String?
+  version                     Int                       @default(1)
+  createdAt                   DateTime                  @default(now())
+  updatedAt                   DateTime                  @updatedAt
+  users                       CashDiscountRuleUser[]
+  branches                    CashDiscountRuleBranch[]
+  applications                CashDiscountApplication[]
+
+  @@unique([organizationId, publicCode])
+  @@index([organizationId, status, startsAt, endsAt])
+  @@index([organizationId, name])
+}
+
+model CashDiscountRuleUser {
+  cashDiscountRuleId String
+  cashDiscountRule   CashDiscountRule @relation(fields: [cashDiscountRuleId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt          DateTime         @default(now())
+
+  @@id([cashDiscountRuleId, userId])
+  @@index([userId])
+}
+
+model CashDiscountRuleBranch {
+  cashDiscountRuleId String
+  cashDiscountRule   CashDiscountRule @relation(fields: [cashDiscountRuleId], references: [id], onDelete: Cascade)
+  branchId           String
+  branch             Branch           @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdAt          DateTime         @default(now())
+
+  @@id([cashDiscountRuleId, branchId])
+  @@index([branchId])
+}
+
+model CashDiscountApplication {
+  id                          String                        @id @default(cuid())
+  organizationId              String
+  organization                Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId                    String
+  branch                      Branch                        @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  cashDiscountRuleId          String
+  cashDiscountRule            CashDiscountRule              @relation(fields: [cashDiscountRuleId], references: [id], onDelete: Restrict)
+  cashDiscountRuleVersion     Int
+  paymentId                   String                        @unique
+  payment                     Payment                       @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  treatmentPlanId             String
+  treatmentPlan               TreatmentPlan                 @relation(fields: [treatmentPlanId], references: [id], onDelete: Restrict)
+  appliedById                 String
+  ruleCodeSnapshot            String
+  ruleNameSnapshot            String
+  campaignSnapshot            String?
+  discountPercentSnapshot     Decimal                       @db.Decimal(5, 2)
+  appliesToClinicalSnapshot   Boolean
+  appliesToLaboratorySnapshot Boolean
+  originalAmount              Decimal                       @db.Decimal(12, 2)
+  discountAmount              Decimal                       @db.Decimal(12, 2)
+  finalAmount                 Decimal                       @db.Decimal(12, 2)
+  status                      CashDiscountApplicationStatus @default(APPLIED)
+  voidedAt                    DateTime?
+  refundedAmount              Decimal                       @default(0) @db.Decimal(12, 2)
+  createdAt                   DateTime                      @default(now())
+  updatedAt                   DateTime                      @updatedAt
+  items                       CashDiscountApplicationItem[]
+
+  @@index([organizationId, branchId, createdAt])
+  @@index([cashDiscountRuleId, createdAt])
+  @@index([appliedById, createdAt])
+  @@index([treatmentPlanId])
+}
+
+model CashDiscountApplicationItem {
+  id                        String                  @id @default(cuid())
+  cashDiscountApplicationId String
+  cashDiscountApplication   CashDiscountApplication @relation(fields: [cashDiscountApplicationId], references: [id], onDelete: Cascade)
+  treatmentPlanItemId       String
+  treatmentPlanItem         TreatmentPlanItem       @relation(fields: [treatmentPlanItemId], references: [id], onDelete: Restrict)
+  paymentAllocationId       String?                 @unique
+  paymentAllocation         PaymentAllocation?      @relation(fields: [paymentAllocationId], references: [id], onDelete: SetNull)
+  procedureCodeSnapshot     String
+  procedureNameSnapshot     String
+  itemTypeSnapshot          String
+  originalBalance           Decimal                 @db.Decimal(12, 2)
+  discountPercent           Decimal                 @db.Decimal(5, 2)
+  discountAmount            Decimal                 @db.Decimal(12, 2)
+  finalAmount               Decimal                 @db.Decimal(12, 2)
+  userMaximumSnapshot       Decimal                 @db.Decimal(5, 2)
+  procedureMaximumSnapshot  Decimal                 @db.Decimal(5, 2)
+  effectiveMaximumSnapshot  Decimal                 @db.Decimal(5, 2)
+  eligibilityResult         String
+  createdAt                 DateTime                @default(now())
+
+  @@unique([cashDiscountApplicationId, treatmentPlanItemId])
   @@index([treatmentPlanItemId])
 }
 
@@ -3395,68 +4197,124 @@ model Installment {
 }
 
 model CashRegister {
-  id                   String                @id @default(cuid())
-  organizationId       String
-  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId             String
-  branch               Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  openedById           String
-  openedBy             User                  @relation("CashRegisterOpenedBy", fields: [openedById], references: [id], onDelete: Restrict)
-  closedById           String?
-  closedBy             User?                 @relation("CashRegisterClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
-  openingAmount        Decimal               @db.Decimal(10, 2)
-  closingAmount        Decimal?              @db.Decimal(10, 2)
-  status               CashRegisterStatus    @default(OPEN)
-  openedAt             DateTime              @default(now())
-  closedAt             DateTime?
-  movements            CashMovement[]
-  familyPolicyPayments FamilyPolicyPayment[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  id                     String                @id @default(cuid())
+  publicNumber           Int
+  organizationId         String
+  organization           Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId               String
+  branch                 Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  openedById             String
+  openedBy               User                  @relation("CashRegisterOpenedBy", fields: [openedById], references: [id], onDelete: Restrict)
+  responsibleUserId      String
+  responsibleUser        User                  @relation("CashRegisterResponsible", fields: [responsibleUserId], references: [id], onDelete: Restrict)
+  closedById             String?
+  closedBy               User?                 @relation("CashRegisterClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  previousClosingBalance Decimal               @default(0) @db.Decimal(10, 2)
+  initialDeposit         Decimal               @default(0) @db.Decimal(10, 2)
+  openingAmount          Decimal               @db.Decimal(10, 2)
+  expectedCashBalance    Decimal?              @db.Decimal(10, 2)
+  declaredCashBalance    Decimal?              @db.Decimal(10, 2)
+  closingCarryover       Decimal?              @db.Decimal(10, 2)
+  withdrawnAmount        Decimal?              @db.Decimal(10, 2)
+  differenceAmount       Decimal?              @db.Decimal(10, 2)
+  closingAmount          Decimal?              @db.Decimal(10, 2)
+  openingNotes           String?
+  closingNotes           String?
+  reconciliationSnapshot Json?
+  currency               CurrencyCode          @default(MXN)
+  version                Int                   @default(1)
+  status                 CashRegisterStatus    @default(OPEN)
+  openedAt               DateTime              @default(now())
+  closedAt               DateTime?
+  movements              CashMovement[]
+  familyPolicyPayments   FamilyPolicyPayment[]
+  companyPayments        CompanyPayment[]
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
 
+  @@unique([organizationId, publicNumber])
   @@index([organizationId, branchId, status])
   @@index([openedById, openedAt])
 }
 
 model CashMovement {
-  id             String           @id @default(cuid())
-  cashRegisterId String
-  cashRegister   CashRegister     @relation(fields: [cashRegisterId], references: [id], onDelete: Cascade)
-  type           CashMovementType
-  amount         Decimal          @db.Decimal(10, 2)
-  paymentId      String?
-  payment        Payment?         @relation(fields: [paymentId], references: [id], onDelete: SetNull)
-  expenseId      String?
-  expense        Expense?         @relation(fields: [expenseId], references: [id], onDelete: SetNull)
-  description    String?
-  createdById    String
-  createdBy      User             @relation("CashMovementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
-  createdAt      DateTime         @default(now())
+  id                                   String                @id @default(cuid())
+  organizationId                       String
+  organization                         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId                             String
+  branch                               Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  cashRegisterId                       String
+  cashRegister                         CashRegister          @relation(fields: [cashRegisterId], references: [id], onDelete: Cascade)
+  type                                 CashMovementType
+  direction                            CashMovementDirection
+  amount                               Decimal               @db.Decimal(10, 2)
+  paymentId                            String?
+  payment                              Payment?              @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  companyPaymentId                     String?
+  companyPayment                       CompanyPayment?       @relation(fields: [companyPaymentId], references: [id], onDelete: SetNull)
+  expenseId                            String?
+  expense                              Expense?              @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+  refundId                             String?
+  refund                               Refund?               @relation(fields: [refundId], references: [id], onDelete: SetNull)
+  paymentSettlementId                  String?               @unique
+  paymentSettlement                    PaymentSettlement?    @relation(fields: [paymentSettlementId], references: [id], onDelete: SetNull)
+  paymentMethodId                      String?
+  paymentMethod                        PaymentMethod?        @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  paymentMethodNameSnapshot            String?
+  paymentMethodTypeSnapshot            PaymentMethodType?
+  includeInCollectionReportsSnapshot   Boolean?
+  includeInPhysicalCashBalanceSnapshot Boolean?
+  includeInCashFlowReportsSnapshot     Boolean?
+  includeInClosingSummarySnapshot      Boolean?
+  includeInGraphicalReportsSnapshot    Boolean?
+  reference                            String?
+  idempotencyKey                       String?
+  description                          String?
+  createdById                          String
+  createdBy                            User                  @relation("CashMovementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  voidedAt                             DateTime?
+  voidedById                           String?
+  voidedBy                             User?                 @relation("CashMovementVoidedBy", fields: [voidedById], references: [id], onDelete: SetNull)
+  voidReason                           String?
+  createdAt                            DateTime              @default(now())
 
+  @@unique([cashRegisterId, idempotencyKey])
   @@index([cashRegisterId, createdAt])
   @@index([paymentId])
+  @@index([companyPaymentId])
   @@index([expenseId])
+  @@index([refundId])
+  @@index([organizationId, branchId, createdAt])
 }
 
 model Refund {
-  id                 String              @id @default(cuid())
-  organizationId     String
-  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  branchId           String
-  branch             Branch              @relation(fields: [branchId], references: [id], onDelete: Restrict)
-  paymentId          String
-  payment            Payment             @relation(fields: [paymentId], references: [id], onDelete: Restrict)
-  patientId          String
-  patient            Patient             @relation(fields: [patientId], references: [id], onDelete: Restrict)
-  amount             Decimal             @db.Decimal(10, 2)
-  reason             String?
-  status             RefundStatus        @default(PENDING)
-  processedById      String?
-  processedBy        User?               @relation("RefundProcessedBy", fields: [processedById], references: [id], onDelete: SetNull)
-  processedAt        DateTime?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
-  financialDocuments FinancialDocument[]
+  id                            String                @id @default(cuid())
+  organizationId                String
+  organization                  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId                      String
+  branch                        Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  paymentId                     String
+  payment                       Payment               @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  patientId                     String
+  patient                       Patient               @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  amount                        Decimal               @db.Decimal(10, 2)
+  originalPaymentMethodId       String?
+  originalPaymentMethodSnapshot Json?
+  refundPaymentMethodSnapshot   Json?
+  paymentMethodId               String?
+  paymentMethod                 PaymentMethod?        @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  financialInstitutionId        String?
+  financialInstitution          FinancialInstitution? @relation(fields: [financialInstitutionId], references: [id], onDelete: SetNull)
+  reference                     String?
+  reason                        String?
+  status                        RefundStatus          @default(PENDING)
+  processedById                 String?
+  processedBy                   User?                 @relation("RefundProcessedBy", fields: [processedById], references: [id], onDelete: SetNull)
+  processedAt                   DateTime?
+  createdAt                     DateTime              @default(now())
+  updatedAt                     DateTime              @updatedAt
+  financialDocuments            FinancialDocument[]
+  cashMovements                 CashMovement[]
 
   @@index([organizationId, branchId, createdAt])
   @@index([paymentId])
@@ -3768,6 +4626,7 @@ model FileAttachment {
   photographicEditedImage    PhotographicSessionImage?        @relation("PhotographicEditedFile")
   documentRequirements       DocumentRequirement[]
   benefitCoverageDocuments   PatientBenefitCoverageDocument[]
+  familyPolicyDocuments      FamilyPolicyDocument[]
   createdAt                  DateTime                         @default(now())
   updatedAt                  DateTime                         @updatedAt
 
@@ -3807,57 +4666,156 @@ model RadiographyAnalysis {
 }
 
 model ConsentTemplate {
-  id             String       @id @default(cuid())
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  name           String
-  content        String
-  procedureId    String?
-  procedure      Procedure?   @relation(fields: [procedureId], references: [id], onDelete: SetNull)
-  isActive       Boolean      @default(true)
-  consents       Consent[]
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  id                        String                   @id @default(cuid())
+  organizationId            String
+  organization              Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name                      String
+  internalDescription       String?
+  content                   String
+  procedureId               String?
+  procedure                 Procedure?               @relation(fields: [procedureId], references: [id], onDelete: SetNull)
+  scopeType                 ConsentScopeType         @default(ORGANIZATION)
+  specialtyId               String?
+  treatmentTypeIds          String[]                 @default([])
+  status                    ConsentTemplateStatus    @default(DRAFT)
+  isActive                  Boolean                  @default(false)
+  currentPublishedVersionId String?                  @unique
+  currentPublishedVersion   ConsentTemplateVersion?  @relation("ConsentTemplateCurrentVersion", fields: [currentPublishedVersionId], references: [id], onDelete: SetNull)
+  versions                  ConsentTemplateVersion[] @relation("ConsentTemplateVersions")
+  branches                  ConsentTemplateBranch[]
+  consents                  Consent[]
+  createdById               String?
+  updatedById               String?
+  version                   Int                      @default(1)
+  createdAt                 DateTime                 @default(now())
+  updatedAt                 DateTime                 @updatedAt
 
   @@unique([organizationId, name])
   @@index([organizationId, isActive])
+  @@index([organizationId, status, updatedAt])
+  @@index([createdById])
+  @@index([updatedById])
+}
+
+model ConsentTemplateBranch {
+  templateId String
+  branchId   String
+  template   ConsentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  branch     Branch          @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  createdAt  DateTime        @default(now())
+
+  @@id([templateId, branchId])
+  @@index([branchId, templateId])
+}
+
+model ConsentTemplateVersion {
+  id                    String                       @id @default(cuid())
+  templateId            String
+  template              ConsentTemplate              @relation("ConsentTemplateVersions", fields: [templateId], references: [id], onDelete: Cascade)
+  currentForTemplate    ConsentTemplate?             @relation("ConsentTemplateCurrentVersion")
+  versionNumber         Int
+  status                ConsentTemplateVersionStatus @default(DRAFT)
+  editorSchemaJson      Json
+  sanitizedHtmlSnapshot String
+  requiredSignersJson   Json
+  variablesManifestJson Json
+  contentHash           String
+  createdById           String?
+  publishedById         String?
+  createdAt             DateTime                     @default(now())
+  publishedAt           DateTime?
+  consents              Consent[]
+
+  @@unique([templateId, versionNumber])
+  @@index([templateId, status, createdAt])
+  @@index([contentHash])
 }
 
 model Consent {
-  id                   String                @id @default(cuid())
+  id                   String                 @id @default(cuid())
+  organizationId       String
+  organization         Organization           @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branchId             String
+  branch               Branch                 @relation(fields: [branchId], references: [id], onDelete: Restrict)
   patientId            String
-  patient              Patient               @relation(fields: [patientId], references: [id], onDelete: Restrict)
+  patient              Patient                @relation(fields: [patientId], references: [id], onDelete: Restrict)
   templateId           String
-  template             ConsentTemplate       @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  template             ConsentTemplate        @relation(fields: [templateId], references: [id], onDelete: Restrict)
+  templateVersionId    String
+  templateVersion      ConsentTemplateVersion @relation(fields: [templateVersionId], references: [id], onDelete: Restrict)
   treatmentPlanId      String?
-  treatmentPlan        TreatmentPlan?        @relation(fields: [treatmentPlanId], references: [id], onDelete: SetNull)
+  treatmentPlan        TreatmentPlan?         @relation(fields: [treatmentPlanId], references: [id], onDelete: SetNull)
   appointmentId        String?
-  appointment          Appointment?          @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  appointment          Appointment?           @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  professionalId       String?
+  professional         Professional?          @relation(fields: [professionalId], references: [id], onDelete: SetNull)
+  representativeId     String?
   contentSnapshot      String
-  status               ConsentStatus         @default(DRAFT)
+  mergedValuesJson     Json                   @default("{}")
+  renderedHtmlSnapshot String
+  status               ConsentStatus          @default(DRAFT)
+  documentHash         String
+  pdfStorageKey        String?
+  pdfMimeType          String?
+  pdfSize              Int?
+  pdfChecksum          String?
+  readyAt              DateTime?
   signedAt             DateTime?
+  completedAt          DateTime?
+  voidedAt             DateTime?
+  voidedById           String?
+  voidReason           String?
+  supersedesConsentId  String?
+  supersedesConsent    Consent?               @relation("ConsentSupersession", fields: [supersedesConsentId], references: [id], onDelete: SetNull)
+  corrections          Consent[]              @relation("ConsentSupersession")
+  correlationId        String?
+  idempotencyKey       String?
+  version              Int                    @default(1)
   signatures           DocumentSignature[]
   documentRequirements DocumentRequirement[]
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  createdById          String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
 
+  @@unique([organizationId, idempotencyKey])
   @@index([patientId, status, createdAt])
   @@index([templateId, createdAt])
+  @@index([organizationId, branchId, status, createdAt])
+  @@index([templateVersionId, createdAt])
+  @@index([documentHash])
   @@index([treatmentPlanId])
   @@index([appointmentId])
 }
 
 model DocumentSignature {
-  id            String   @id @default(cuid())
-  consentId     String
-  consent       Consent  @relation(fields: [consentId], references: [id], onDelete: Cascade)
-  signerName    String
-  signerType    String
-  signatureData String
-  ipAddress     String?
-  signedAt      DateTime @default(now())
+  id                    String   @id @default(cuid())
+  consentId             String
+  consent               Consent  @relation(fields: [consentId], references: [id], onDelete: Restrict)
+  signerName            String
+  signerType            String
+  signerReferenceId     String?
+  signatureMethod       String   @default("DRAWN")
+  signatureData         String   @default("")
+  signatureStorageKey   String
+  signatureMimeType     String
+  signatureSize         Int
+  signatureChecksum     String
+  documentHash          String
+  acceptanceText        String
+  acceptanceTextVersion String
+  timezone              String?
+  ipAddress             String?
+  userAgent             String?
+  sessionId             String?
+  facilitatedById       String?
+  branchId              String?
+  correlationId         String?
+  signedAt              DateTime @default(now())
+  createdAt             DateTime @default(now())
 
+  @@unique([consentId, signerType])
   @@index([consentId, signedAt])
+  @@index([documentHash])
 }
 
 model AppointmentStatusHistory {
@@ -3960,6 +4918,208 @@ model MessageDelivery {
   @@index([status, createdAt])
 }
 
+model MarketingSettings {
+  id                       String       @id @default(cuid())
+  organizationId           String       @unique
+  organization             Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaignCooldownDays     Int          @default(30)
+  maxRecipientsPerCampaign Int          @default(5000)
+  maxCampaignsPerMonth     Int          @default(20)
+  maxDailyEmails           Int          @default(2000)
+  allowAttachments         Boolean      @default(false)
+  allowInlineImages        Boolean      @default(true)
+  requireMarketingConsent  Boolean      @default(true)
+  requireVerifiedDomain    Boolean      @default(false)
+  sendWindowStart          String       @default("08:00")
+  sendWindowEnd            String       @default("20:00")
+  createdAt                DateTime     @default(now())
+  updatedAt                DateTime     @updatedAt
+}
+
+model MarketingSegment {
+  id             String          @id @default(cuid())
+  organizationId String
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId       String?
+  branch         Branch?         @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  reportCode     String
+  parametersJson Json
+  name           String
+  resultCount    Int             @default(0)
+  eligibleCount  Int             @default(0)
+  version        Int             @default(1)
+  createdById    String
+  createdBy      User            @relation("MarketingSegmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  campaigns      EmailCampaign[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([organizationId, reportCode, createdAt])
+  @@index([branchId])
+}
+
+model EmailTemplate {
+  id             String              @id @default(cuid())
+  organizationId String
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String
+  category       String
+  subject        String
+  preheader      String?
+  html           String
+  text           String
+  status         EmailTemplateStatus @default(DRAFT)
+  version        Int                 @default(1)
+  createdById    String
+  createdBy      User                @relation("EmailTemplateCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  campaigns      EmailCampaign[]
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([organizationId, name, version])
+  @@index([organizationId, status, category])
+}
+
+model EmailCampaign {
+  id                   String                   @id @default(cuid())
+  organizationId       String
+  organization         Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId             String?
+  branch               Branch?                  @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  segmentId            String?
+  segment              MarketingSegment?        @relation(fields: [segmentId], references: [id], onDelete: SetNull)
+  templateId           String?
+  template             EmailTemplate?           @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  name                 String
+  type                 String                   @default("MARKETING")
+  subject              String
+  preheader            String?
+  fromName             String
+  fromAddress          String
+  replyTo              String?
+  domain               String?
+  tags                 String[]                 @default([])
+  contentHtmlSnapshot  String
+  contentTextSnapshot  String
+  reportCodeSnapshot   String?
+  reportParametersJson Json?
+  status               EmailCampaignStatus      @default(DRAFT)
+  scheduledAt          DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  idempotencyKey       String
+  version              Int                      @default(1)
+  createdById          String
+  createdBy            User                     @relation("EmailCampaignCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  recipients           EmailCampaignRecipient[]
+  events               EmailEvent[]
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status, scheduledAt])
+  @@index([branchId, createdAt])
+  @@index([segmentId])
+}
+
+model EmailCampaignRecipient {
+  id                String                          @id @default(cuid())
+  campaignId        String
+  campaign          EmailCampaign                   @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  patientId         String?
+  patient           Patient?                        @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  branchId          String?
+  emailSnapshot     String
+  normalizedEmail   String
+  nameSnapshot      String
+  eligibilityStatus EmailRecipientEligibilityStatus
+  eligibilityReason String?
+  deliveryStatus    EmailRecipientStatus            @default(PENDING)
+  providerMessageId String?
+  idempotencyKey    String                          @unique
+  selectedAt        DateTime                        @default(now())
+  queuedAt          DateTime?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  openedAt          DateTime?
+  clickedAt         DateTime?
+  bouncedAt         DateTime?
+  unsubscribedAt    DateTime?
+  failureReason     String?
+  attempts          Int                             @default(0)
+  events            EmailEvent[]
+  createdAt         DateTime                        @default(now())
+  updatedAt         DateTime                        @updatedAt
+
+  @@unique([campaignId, normalizedEmail])
+  @@index([campaignId, deliveryStatus])
+  @@index([patientId])
+  @@index([normalizedEmail])
+}
+
+model EmailSuppression {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  normalizedEmail String
+  reason          String
+  source          String
+  expiresAt       DateTime?
+  createdAt       DateTime     @default(now())
+
+  @@unique([organizationId, normalizedEmail])
+  @@index([organizationId, reason, createdAt])
+}
+
+model DomainVerification {
+  id                String            @id @default(cuid())
+  organizationId    String
+  organization      Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  domain            String
+  fromName          String
+  fromLocalPart     String            @default("notificaciones")
+  replyTo           String?
+  provider          String            @default("smtp")
+  status            EmailDomainStatus @default(PENDING)
+  verificationToken String
+  dnsRecordsJson    Json
+  spfStatus         String            @default("PENDING")
+  dkimStatus        String            @default("PENDING")
+  dmarcStatus       String            @default("PENDING")
+  lastCheckedAt     DateTime?
+  verifiedAt        DateTime?
+  failureReason     String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([organizationId, domain])
+  @@index([organizationId, status])
+}
+
+model EmailEvent {
+  id                String                  @id @default(cuid())
+  organizationId    String
+  organization      Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaignId        String
+  campaign          EmailCampaign           @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  recipientId       String?
+  recipient         EmailCampaignRecipient? @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  providerEventId   String?
+  providerMessageId String?
+  eventType         EmailEventType
+  occurredAt        DateTime
+  payloadJson       Json?
+  signatureValid    Boolean                 @default(false)
+  processedAt       DateTime                @default(now())
+  createdAt         DateTime                @default(now())
+
+  @@unique([organizationId, providerEventId])
+  @@index([campaignId, eventType, occurredAt])
+  @@index([recipientId, occurredAt])
+  @@index([providerMessageId])
+}
+
 model Survey {
   id             String               @id @default(cuid())
   organizationId String
@@ -3998,6 +5158,237 @@ model NpsResponse {
   respondedAt DateTime @default(now())
 
   @@index([category, respondedAt])
+}
+
+/// Reusable CRM survey definition. The legacy Survey model above remains for
+/// backwards compatibility with integrations that create one survey per patient.
+model SurveyDefinition {
+  id              String                 @id @default(cuid())
+  organizationId  String
+  branchId        String?
+  name            String                 @default("Encuesta sin nombre")
+  type            SurveyType             @default(SATISFACTION)
+  channel         CommunicationChannel   @default(EMAIL)
+  status          SurveyDefinitionStatus @default(DRAFT)
+  activeVersionId String?
+  createdById     String
+  updatedById     String
+  activatedAt     DateTime?
+  deactivatedAt   DateTime?
+  archivedAt      DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  versions          SurveyVersion[]
+  sendConfiguration SurveySendConfiguration?
+  invitations       SurveyInvitation[]
+  responses         SurveyResponse[]
+
+  @@index([organizationId, status, updatedAt])
+  @@index([organizationId, branchId, type, channel, status])
+}
+
+model SurveyVersion {
+  id              String              @id @default(cuid())
+  surveyId        String
+  survey          SurveyDefinition    @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  version         Int
+  status          SurveyVersionStatus @default(DRAFT)
+  emailSubject    String              @default("Tu opinión nos interesa")
+  emailHeaderHtml String              @default("¡Hola {nombrePaciente}! Te invitamos a responder la siguiente encuesta referente al servicio dental que recibiste el día {fechaAtencion} en {nombreSucursal}.")
+  emailFooterHtml String              @default("")
+  publishedById   String?
+  publishedAt     DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  sections    SurveySection[]
+  invitations SurveyInvitation[]
+  responses   SurveyResponse[]
+
+  @@unique([surveyId, version])
+  @@index([surveyId, status])
+}
+
+model SurveySection {
+  id          String        @id @default(cuid())
+  versionId   String
+  version     SurveyVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  name        String        @default("Sección sin nombre")
+  description String?
+  position    Int
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  questions SurveyQuestion[]
+
+  @@unique([versionId, position])
+  @@index([versionId])
+}
+
+model SurveyQuestion {
+  id             String             @id @default(cuid())
+  sectionId      String
+  section        SurveySection      @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  text           String             @default("Edita esta pregunta")
+  description    String?
+  type           SurveyQuestionType @default(LIKERT_5)
+  isRequired     Boolean            @default(true)
+  position       Int
+  validationJson Json?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  options SurveyQuestionOption[]
+  answers SurveyAnswer[]
+
+  @@unique([sectionId, position])
+  @@index([sectionId])
+}
+
+model SurveyQuestionOption {
+  id         String         @id @default(cuid())
+  questionId String
+  question   SurveyQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  label      String
+  value      String
+  position   Int
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  answers SurveyAnswer[]
+
+  @@unique([questionId, position])
+  @@index([questionId])
+}
+
+model SurveySendConfiguration {
+  id                   String               @id @default(cuid())
+  organizationId       String
+  surveyId             String               @unique
+  survey               SurveyDefinition     @relation(fields: [surveyId], references: [id], onDelete: Cascade)
+  branchIds            Json?
+  professionalIds      Json?
+  specialtyIds         Json?
+  appointmentTypes     Json?
+  channel              CommunicationChannel @default(EMAIL)
+  triggerEvent         String               @default("APPOINTMENT_COMPLETED")
+  delayMinutes         Int                  @default(120)
+  minimumFrequencyDays Int                  @default(30)
+  sendWindowStart      String               @default("08:00")
+  sendWindowEnd        String               @default("20:00")
+  maxRetries           Int                  @default(3)
+  reminderEnabled      Boolean              @default(false)
+  reminderDelayMinutes Int?
+  requireConsent       Boolean              @default(true)
+  isActive             Boolean              @default(false)
+  createdById          String
+  updatedById          String
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  @@index([organizationId, isActive])
+}
+
+model SurveyInvitation {
+  id                String                 @id @default(cuid())
+  organizationId    String
+  branchId          String
+  surveyId          String
+  survey            SurveyDefinition       @relation(fields: [surveyId], references: [id], onDelete: Restrict)
+  surveyVersionId   String
+  surveyVersion     SurveyVersion          @relation(fields: [surveyVersionId], references: [id], onDelete: Restrict)
+  patientId         String
+  appointmentId     String
+  professionalId    String
+  channel           CommunicationChannel   @default(EMAIL)
+  recipientEmail    String
+  tokenHash         String                 @unique
+  tokenExpiresAt    DateTime
+  status            SurveyInvitationStatus @default(CREATED)
+  scheduledAt       DateTime
+  queuedAt          DateTime?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  openedAt          DateTime?
+  startedAt         DateTime?
+  respondedAt       DateTime?
+  provider          String?
+  providerMessageId String?
+  attempts          Int                    @default(0)
+  lastError         String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  response       SurveyResponse?
+  deliveryEvents SurveyDeliveryEvent[]
+
+  @@unique([appointmentId, surveyVersionId, channel])
+  @@index([organizationId, status, scheduledAt])
+  @@index([organizationId, patientId, createdAt])
+  @@index([surveyId, createdAt])
+  @@index([branchId, professionalId, createdAt])
+}
+
+model SurveyResponse {
+  id              String               @id @default(cuid())
+  organizationId  String
+  branchId        String
+  surveyId        String
+  survey          SurveyDefinition     @relation(fields: [surveyId], references: [id], onDelete: Restrict)
+  surveyVersionId String
+  surveyVersion   SurveyVersion        @relation(fields: [surveyVersionId], references: [id], onDelete: Restrict)
+  invitationId    String               @unique
+  invitation      SurveyInvitation     @relation(fields: [invitationId], references: [id], onDelete: Restrict)
+  patientId       String
+  appointmentId   String
+  professionalId  String
+  status          SurveyResponseStatus @default(IN_PROGRESS)
+  startedAt       DateTime             @default(now())
+  submittedAt     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  answers SurveyAnswer[]
+
+  @@index([organizationId, surveyId, submittedAt])
+  @@index([branchId, professionalId, submittedAt])
+}
+
+model SurveyAnswer {
+  id            String                @id @default(cuid())
+  responseId    String
+  response      SurveyResponse        @relation(fields: [responseId], references: [id], onDelete: Cascade)
+  questionId    String
+  question      SurveyQuestion        @relation(fields: [questionId], references: [id], onDelete: Restrict)
+  optionId      String?
+  option        SurveyQuestionOption? @relation(fields: [optionId], references: [id], onDelete: Restrict)
+  optionIdsJson Json?
+  valueText     String?
+  valueNumber   Float?
+  valueBoolean  Boolean?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@unique([responseId, questionId])
+  @@index([questionId])
+  @@index([optionId])
+}
+
+model SurveyDeliveryEvent {
+  id                String                  @id @default(cuid())
+  invitationId      String
+  invitation        SurveyInvitation        @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  type              SurveyDeliveryEventType
+  provider          String?
+  providerMessageId String?
+  occurredAt        DateTime                @default(now())
+  payloadJson       Json?
+  createdAt         DateTime                @default(now())
+
+  @@index([invitationId, occurredAt])
+  @@index([providerMessageId])
+  @@index([type, occurredAt])
 }
 
 model ChatMessage {
@@ -4204,7 +5595,8 @@ model AuditLog {
   after          Json?
   createdAt      DateTime      @default(now())
 
-  reason String?
+  reason        String?
+  correlationId String?
 
   @@index([organizationId, entity])
   @@index([userId])
@@ -4407,9 +5799,9 @@ model OrthodonticArchSize {
 }
 
 model OrthodonticTreatmentProfile {
-  id                    String                       @id @default(cuid())
-  treatmentPlanId       String                       @unique
-  treatmentPlan         TreatmentPlan                @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  id                    String        @id @default(cuid())
+  treatmentPlanId       String        @unique
+  treatmentPlan         TreatmentPlan @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
   technicalDescription  String?
   startDate             DateTime?
   startedById           String?
@@ -4417,33 +5809,40 @@ model OrthodonticTreatmentProfile {
   finalizedById         String?
   finalizedAt           DateTime?
   actualEndDate         DateTime?
-  finalCalendarProgress Decimal?                     @db.Decimal(10, 2)
-  finalControlsProgress Decimal?                     @db.Decimal(10, 2)
+  finalCalendarProgress Decimal?      @db.Decimal(10, 2)
+  finalControlsProgress Decimal?      @db.Decimal(10, 2)
   finalizationReason    String?
   estimatedMonths       Int?
   diagnosis             Json?
   estimatedControls     Int?
   controlFrequencyValue Int?
   controlFrequencyUnit  String?
-  totalAligners         Int?
-  indicatedExtractions  String?
-  performedExtractions  String?
-  reevaluationDate      DateTime?
-  interconsultations    String?
-  lastUpperArch         String?
-  lastLowerArch         String?
-  nextControlAt         DateTime?
-  nextRadiographyAt     DateTime?
-  hygieneStatus         String?
-  alert                 String?
-  indications           String?
-  elastics              String?
-  planNotes             String?
-  fieldValues           OrthodonticPlanFieldValue[]
-  optionValues          OrthodonticPlanOptionValue[]
-  version               Int                          @default(1)
-  createdAt             DateTime                     @default(now())
-  updatedAt             DateTime                     @updatedAt
+
+  // Nuevos campos operativos de ortodoncia
+  calendarStartedAt    DateTime?
+  plannedControls      Int?
+  controlIntervalValue Int?
+  controlIntervalUnit  String?
+
+  totalAligners        Int?
+  indicatedExtractions String?
+  performedExtractions String?
+  reevaluationDate     DateTime?
+  interconsultations   String?
+  lastUpperArch        String?
+  lastLowerArch        String?
+  nextControlAt        DateTime?
+  nextRadiographyAt    DateTime?
+  hygieneStatus        String?
+  alert                String?
+  indications          String?
+  elastics             String?
+  planNotes            String?
+  fieldValues          OrthodonticPlanFieldValue[]
+  optionValues         OrthodonticPlanOptionValue[]
+  version              Int                          @default(1)
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
 }
 
 model OrthodonticOptionField {
@@ -4956,26 +6355,75 @@ model TreatmentPlanPause {
 }
 
 model PaymentMethodSplit {
-  id                     String                @id @default(cuid())
-  paymentId              String
-  payment                Payment               @relation(fields: [paymentId], references: [id], onDelete: Restrict)
-  paymentMethodId        String
-  paymentMethod          PaymentMethod         @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
-  amount                 Decimal               @db.Decimal(10, 2)
-  financialInstitutionId String?
-  financialInstitution   FinancialInstitution? @relation(fields: [financialInstitutionId], references: [id], onDelete: SetNull)
-  reference              String?
-  externalTransactionId  String?
-  authorizationCode      String?
-  lastFour               String?
-  provider               String?
-  status                 PaymentStatus         @default(RECEIVED)
-  metadata               Json?
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
+  id                                   String                @id @default(cuid())
+  paymentId                            String
+  payment                              Payment               @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  paymentMethodId                      String
+  paymentMethod                        PaymentMethod         @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  amount                               Decimal               @db.Decimal(10, 2)
+  grossAmount                          Decimal               @default(0) @db.Decimal(10, 2)
+  retentionAmount                      Decimal               @default(0) @db.Decimal(10, 2)
+  netAmount                            Decimal               @default(0) @db.Decimal(10, 2)
+  paymentMethodCodeSnapshot            String?
+  paymentMethodNameSnapshot            String?
+  paymentMethodTypeSnapshot            PaymentMethodType?
+  retentionPercentSnapshot             Decimal               @default(0) @db.Decimal(5, 2)
+  allowsRefundSnapshot                 Boolean               @default(false)
+  acceptsMultipleSettlementsSnapshot   Boolean               @default(false)
+  requiresReferenceSnapshot            Boolean               @default(false)
+  requiresFinancialInstitutionSnapshot Boolean               @default(false)
+  includeInCollectionReportsSnapshot   Boolean               @default(true)
+  includeInPhysicalCashBalanceSnapshot Boolean               @default(false)
+  includeInCashFlowReportsSnapshot     Boolean               @default(true)
+  includeInClosingSummarySnapshot      Boolean               @default(true)
+  includeInGraphicalReportsSnapshot    Boolean               @default(true)
+  financialInstitutionId               String?
+  financialInstitution                 FinancialInstitution? @relation(fields: [financialInstitutionId], references: [id], onDelete: SetNull)
+  reference                            String?
+  externalTransactionId                String?
+  authorizationCode                    String?
+  lastFour                             String?
+  provider                             String?
+  status                               PaymentStatus         @default(RECEIVED)
+  metadata                             Json?
+  settlements                          PaymentSettlement[]
+  createdAt                            DateTime              @default(now())
+  updatedAt                            DateTime              @updatedAt
 
   @@index([paymentId])
   @@index([paymentMethodId])
+}
+
+model PaymentSettlement {
+  id                     String                  @id @default(cuid())
+  organizationId         String
+  organization           Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId               String
+  branch                 Branch                  @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  paymentId              String
+  payment                Payment                 @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  paymentMethodSplitId   String
+  paymentMethodSplit     PaymentMethodSplit      @relation(fields: [paymentMethodSplitId], references: [id], onDelete: Restrict)
+  paymentMethodId        String
+  paymentMethod          PaymentMethod           @relation(fields: [paymentMethodId], references: [id], onDelete: Restrict)
+  sequence               Int
+  amount                 Decimal                 @db.Decimal(10, 2)
+  dueAt                  DateTime
+  receivedAt             DateTime?
+  status                 PaymentSettlementStatus @default(PENDING)
+  reference              String?
+  financialInstitutionId String?
+  financialInstitution   FinancialInstitution?   @relation(fields: [financialInstitutionId], references: [id], onDelete: SetNull)
+  notes                  String?
+  version                Int                     @default(1)
+  cashMovement           CashMovement?
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+
+  @@unique([paymentMethodSplitId, sequence])
+  @@index([organizationId, branchId, status, dueAt])
+  @@index([paymentId])
+  @@index([paymentMethodId, status, dueAt])
 }
 
 model PaymentIdempotency {
@@ -5321,4 +6769,33 @@ model PatientBenefitCoverageAudit {
   @@index([coverageId, createdAt])
   @@index([organizationId, patientId, createdAt])
   @@index([actorUserId])
+}
+
+enum OrthodonticProgressStatus {
+  DELAYED
+  ON_TRACK
+  AHEAD
+  NOT_CALCULABLE
+}
+
+model OrthodonticProgressSnapshot {
+  id                     String                    @id @default(cuid())
+  treatmentId            String
+  treatment              TreatmentPlan             @relation(fields: [treatmentId], references: [id], onDelete: Cascade)
+  cutoffDate             DateTime
+  calculatedAt           DateTime
+  plannedControls        Int?
+  expectedControls       Int?
+  completedControls      Int
+  calendarProgress       Decimal?                  @db.Decimal(10, 2)
+  realProgress           Decimal?                  @db.Decimal(10, 2)
+  progressDifference     Decimal?                  @db.Decimal(10, 2)
+  progressStatus         OrthodonticProgressStatus @default(NOT_CALCULABLE)
+  hasFutureAppointment   Boolean                   @default(false)
+  lastEvolutionAt        DateTime?
+  suggestedAppointmentAt DateTime?
+  scheduledAppointmentAt DateTime?
+  calculationVersion     String
+
+  @@index([treatmentId, cutoffDate])
 }

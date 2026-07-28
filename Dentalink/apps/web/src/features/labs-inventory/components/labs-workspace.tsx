@@ -125,7 +125,7 @@ export function LabsWorkspace({
 
                   {item.children ? (
                     <div
-                      className="invisible absolute left-0 top-full z-20 min-w-[230px] rounded-b-lg border border-slate-200 bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100"
+                      className="invisible absolute left-0 top-full z-20 min-w-[230px] rounded-b-lg border border-slate-200 bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 before:absolute before:-top-3 before:inset-x-0 before:h-3"
                       role="menu"
                     >
                       {item.children.map((child) => {

@@ -4,7 +4,7 @@ export type Branch = {
   id: string;
   code: string;
   brandId?: string | null;
-  brand?: { id: string; name: string; code: string } | null;
+  brand?: { id: string; name: string; code: string; logoUrl?: string | null } | null;
   zoneId?: string | null;
   zone?: { id: string; name: string; code: string } | null;
   name: string;

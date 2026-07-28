@@ -8,7 +8,9 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  IsUrl,
   Max,
+  MaxLength,
   Min,
   IsEnum,
   IsObject,
@@ -254,6 +256,10 @@ export class CreateExpenseDto {
   @IsString()
   description!: string;
 
+  @IsOptional()
+  @IsString()
+  supplierName?: string;
+
   @Type(() => Number)
   @IsPositive()
   quantity!: number;
@@ -274,8 +280,78 @@ export class CreateExpenseDto {
   notes?: string;
 
   @IsOptional()
+  @IsString()
+  paymentMethodId?: string;
+
+  @IsOptional()
+  @IsUrl({ protocols: ["https"], require_protocol: true })
+  documentUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  cashRegisterId?: string;
+
+  @IsOptional()
   @IsBoolean()
   assignToOpenCash?: boolean;
+}
+
+export class UpdateExpenseDto {
+  @IsOptional()
+  @IsString()
+  categoryName?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  supplierName?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsPositive()
+  quantity?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsPositive()
+  unitCost?: number;
+
+  @IsOptional()
+  @IsDateString()
+  invoicedAt?: string;
+
+  @IsOptional()
+  @IsDateString()
+  paidAt?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentMethodId?: string;
+
+  @IsOptional()
+  @IsUrl({ protocols: ["https"], require_protocol: true })
+  documentUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @Type(() => Number)
+  @Min(1)
+  expectedVersion!: number;
+}
+
+export class VoidExpenseDto {
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+
+  @Type(() => Number)
+  @Min(1)
+  expectedVersion!: number;
 }
 
 export class FinalizePayrollDto {

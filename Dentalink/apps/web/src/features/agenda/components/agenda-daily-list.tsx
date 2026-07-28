@@ -1,5 +1,14 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { CheckCircle2, DollarSign, MessageSquare, ChevronDown, Plus, Layers } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  DollarSign,
+  MessageSquare,
+  ChevronDown,
+  Plus,
+  Layers,
+  Stethoscope
+} from "lucide-react";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import { appointmentColorPalette } from "./appointment-status";
@@ -11,25 +20,25 @@ import { AppointmentStatusMenu } from "./appointment-status-menu";
 const PAGE_SIZE = 10;
 
 const ALL_STATUSES: { status: AppointmentStatus; label: string }[] = [
-  { status: "SCHEDULED",            label: "Agendada" },
-  { status: "CONFIRMED",            label: "Confirmada" },
-  { status: "CONFIRMED_BY_WHATSAPP",label: "Confirmada por WhatsApp" },
-  { status: "CONFIRMED_BY_PHONE",   label: "Confirmada por teléfono" },
-  { status: "CONFIRMED_BY_EMAIL",   label: "Confirmada por email" },
+  { status: "SCHEDULED", label: "Agendada" },
+  { status: "CONFIRMED", label: "Confirmada" },
+  { status: "CONFIRMED_BY_WHATSAPP", label: "Confirmada por WhatsApp" },
+  { status: "CONFIRMED_BY_PHONE", label: "Confirmada por teléfono" },
+  { status: "CONFIRMED_BY_EMAIL", label: "Confirmada por email" },
   { status: "PENDING_CONFIRMATION", label: "Por confirmar" },
   { status: "NOTIFIED_BY_WHATSAPP", label: "Notificada por WhatsApp" },
-  { status: "NOTIFIED_BY_EMAIL",    label: "Notificada por email" },
-  { status: "ARRIVED",              label: "Llegó a clínica" },
-  { status: "WAITING_ROOM",         label: "Sala de espera" },
-  { status: "IN_PROGRESS",          label: "En atención" },
-  { status: "COMPLETED",            label: "Atendida" },
-  { status: "RESCHEDULED",          label: "Reagendada" },
-  { status: "NO_SHOW",              label: "No asistió" },
+  { status: "NOTIFIED_BY_EMAIL", label: "Notificada por email" },
+  { status: "ARRIVED", label: "Llegó a clínica" },
+  { status: "WAITING_ROOM", label: "Sala de espera" },
+  { status: "IN_PROGRESS", label: "En atención" },
+  { status: "COMPLETED", label: "Atendida" },
+  { status: "RESCHEDULED", label: "Reagendada" },
+  { status: "NO_SHOW", label: "No asistió" },
   { status: "CANCELLED_BY_PATIENT", label: "Cancelada (paciente)" },
-  { status: "CANCELLED_BY_CLINIC",  label: "Cancelada (clínica)" },
-  { status: "CANCELLED_CONFLICT",   label: "Cancelada conflicto" },
-  { status: "CANCELLED_RESCHEDULED",label: "Anulada reprogramación" },
-  { status: "BLOCKED",              label: "Bloqueada" },
+  { status: "CANCELLED_BY_CLINIC", label: "Cancelada (clínica)" },
+  { status: "CANCELLED_CONFLICT", label: "Cancelada conflicto" },
+  { status: "CANCELLED_RESCHEDULED", label: "Anulada reprogramación" },
+  { status: "BLOCKED", label: "Bloqueada" }
 ];
 
 function appointmentPatientName(appointment: Appointment) {
@@ -53,7 +62,10 @@ function appointmentMatchesTerm(appointment: Appointment, term: string) {
 
 type ActionHandlers = {
   onEdit: (appointment: Appointment) => void;
-  onCancel: (appointment: Appointment, cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled") => void;
+  onCancel: (
+    appointment: Appointment,
+    cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled"
+  ) => void;
   onReschedule: (appointment: Appointment) => void;
   statusAction?: { appointmentId: string; status: AppointmentStatus } | null;
   onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
@@ -82,8 +94,8 @@ export function AgendaDailyList({
   onCreateClick?: () => void;
   onCreateMultipleClick?: () => void;
 } & ActionHandlers) {
-  const [search, setSearch]               = useState("");
-  const [page, setPage]                   = useState(1);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [selectedAppointmentId, setSelectedAppointmentId] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -107,15 +119,16 @@ export function AgendaDailyList({
     onDateChange(d.toISOString().slice(0, 10));
     setPage(1);
   };
-  const goToday = () => { onDateChange(toDateInputValue(new Date())); setPage(1); };
+  const goToday = () => {
+    onDateChange(toDateInputValue(new Date()));
+    setPage(1);
+  };
 
-  const dateObj   = new Date(`${date}T12:00:00`);
-  const dayName   = dateObj.toLocaleDateString("es-CL", { weekday: "long" });
-  const dayNum    = dateObj.getDate();
+  const dateObj = new Date(`${date}T12:00:00`);
+  const dayName = dateObj.toLocaleDateString("es-CL", { weekday: "long" });
+  const dayNum = dateObj.getDate();
   const monthYear = dateObj.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
-  const isToday   = date === toDateInputValue(new Date());
-
-
+  const isToday = date === toDateInputValue(new Date());
 
   // ── Filter + search + sort ──
   const filtered = useMemo(() => {
@@ -123,7 +136,7 @@ export function AgendaDailyList({
       (a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
     );
     if (search.trim()) {
-      list = list.filter(a => appointmentMatchesTerm(a, search));
+      list = list.filter((a) => appointmentMatchesTerm(a, search));
     }
     return list;
   }, [appointments, search]);
@@ -141,7 +154,10 @@ export function AgendaDailyList({
     const narrowed = [...appointments]
       .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
       .filter((item) => appointmentMatchesTerm(item, label));
-    const index = Math.max(0, narrowed.findIndex((item) => item.id === appointment.id));
+    const index = Math.max(
+      0,
+      narrowed.findIndex((item) => item.id === appointment.id)
+    );
 
     setSearch(label);
     setSelectedAppointmentId(appointment.id);
@@ -150,8 +166,8 @@ export function AgendaDailyList({
 
   // ── Pagination ──
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const safePage   = Math.min(page, totalPages);
-  const paginated  = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const safePage = Math.min(page, totalPages);
+  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   // Compute visible page numbers (max 5 shown)
   const pageNumbers = useMemo(() => {
@@ -165,14 +181,14 @@ export function AgendaDailyList({
   }, [totalPages, safePage]);
 
   return (
-    <div className="flex h-full rounded-xl border border-zinc-200/70 bg-white shadow-sm overflow-hidden" style={{ minHeight: "780px" }}>
-
+    <div
+      className="flex h-full rounded-xl border border-zinc-200/70 bg-white shadow-sm overflow-hidden"
+      style={{ minHeight: "780px" }}
+    >
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col min-w-0">
-
         {/* Date nav + search bar */}
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-zinc-100 bg-white/80 backdrop-blur-sm flex-wrap gap-y-2">
-
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-zinc-100 bg-white/80 backdrop-blur-sm flex-wrap gap-y-2 relative z-20">
           {/* Date navigation */}
           <div className="flex items-center gap-2 shrink-0">
             <button
@@ -186,7 +202,9 @@ export function AgendaDailyList({
             </button>
 
             <div className="text-center min-w-[110px]">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-400 capitalize">{dayName}</p>
+              <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-400 capitalize">
+                {dayName}
+              </p>
               <p className="text-2xl font-black text-zinc-900 leading-none tracking-tight">{dayNum}</p>
               <p className="text-[10px] text-zinc-400 leading-snug capitalize">{monthYear}</p>
             </div>
@@ -206,7 +224,12 @@ export function AgendaDailyList({
           <div className="flex items-center gap-2 shrink-0">
             <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200/70 px-2.5 py-1 text-[11px] font-bold text-blue-700 shadow-sm">
               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                />
               </svg>
               {appointments.length} citas
             </span>
@@ -245,7 +268,9 @@ export function AgendaDailyList({
                         {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-xs font-semibold text-zinc-800">{appointmentPatientName(appointment)}</span>
+                        <span className="block truncate text-xs font-semibold text-zinc-800">
+                          {appointmentPatientName(appointment)}
+                        </span>
                         <span className="block truncate text-[10px] text-zinc-400">{appointment.title}</span>
                       </span>
                     </div>
@@ -253,7 +278,7 @@ export function AgendaDailyList({
                 }}
               />
             </div>
-            
+
             {onCreateClick && (
               <div className="relative" ref={dropdownRef}>
                 <button
@@ -262,7 +287,9 @@ export function AgendaDailyList({
                   className="flex h-8 items-center justify-between gap-1.5 rounded-lg border border-[var(--action-primary)] bg-[var(--action-primary)] px-3 text-xs text-white font-semibold shadow-sm transition active:scale-95 hover:bg-[var(--action-primary-hover)] hover:border-[var(--action-primary-hover)]"
                 >
                   <span>Nueva cita</span>
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
+                  />
                 </button>
                 {dropdownOpen && (
                   <div className="absolute right-0 z-50 mt-1 w-48 rounded-lg border border-[var(--border-default)] bg-white p-1 shadow-lg animate-in fade-in zoom-in-95 duration-100">
@@ -295,8 +322,6 @@ export function AgendaDailyList({
               </div>
             )}
           </div>
-
-
         </div>
 
         {/* Table */}
@@ -305,29 +330,50 @@ export function AgendaDailyList({
             <div className="flex flex-col items-center justify-center h-full py-24 text-center">
               <div className="h-14 w-14 rounded-full bg-zinc-100 flex items-center justify-center mb-4">
                 <svg className="h-7 w-7 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={1.5}
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
                 </svg>
               </div>
               <p className="text-sm font-semibold text-zinc-600">Sin citas para este día</p>
               <p className="text-xs text-zinc-400 mt-1">
-                {search ? "Ajusta la búsqueda o los filtros de estados a la izquierda" : "Agrega una nueva cita para comenzar"}
+                {search
+                  ? "Ajusta la búsqueda o los filtros de estados a la izquierda"
+                  : "Agrega una nueva cita para comenzar"}
               </p>
             </div>
           ) : (
             <table className="w-full text-xs border-collapse">
               <thead className="sticky top-0 z-10">
                 <tr className="bg-zinc-50 border-b border-zinc-200/60">
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-[88px]">Hora</th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400">Paciente</th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-40">Doctor</th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-44">Tratamiento</th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-36">Estado</th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-28">Situación</th>
-                  <th className="px-4 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-28">Acciones</th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-[88px]">
+                    Hora
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                    Paciente
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-40">
+                    Doctor
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-44">
+                    Tratamiento
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-36">
+                    Estado
+                  </th>
+                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-28">
+                    Situación
+                  </th>
+                  <th className="px-4 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-28">
+                    Acciones
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100/80">
-                {paginated.map(appointment => (
+                {paginated.map((appointment) => (
                   <AgendaListRow
                     key={appointment.id}
                     appointment={appointment}
@@ -344,10 +390,14 @@ export function AgendaDailyList({
         {totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-zinc-100 bg-zinc-50/60 px-5 py-2.5">
             <span className="text-[11px] text-zinc-400">
-              Mostrando <span className="font-semibold text-zinc-600">{(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)}</span> de <span className="font-semibold text-zinc-600">{filtered.length}</span> citas
+              Mostrando{" "}
+              <span className="font-semibold text-zinc-600">
+                {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, filtered.length)}
+              </span>{" "}
+              de <span className="font-semibold text-zinc-600">{filtered.length}</span> citas
             </span>
             <div className="flex items-center gap-1">
-              <PaginationBtn onClick={() => setPage(p => p - 1)} disabled={safePage === 1}>
+              <PaginationBtn onClick={() => setPage((p) => p - 1)} disabled={safePage === 1}>
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
@@ -355,7 +405,9 @@ export function AgendaDailyList({
 
               {pageNumbers.map((p, i) =>
                 p === "…" ? (
-                  <span key={`ellipsis-${i}`} className="w-7 text-center text-zinc-400 text-xs">…</span>
+                  <span key={`ellipsis-${i}`} className="w-7 text-center text-zinc-400 text-xs">
+                    …
+                  </span>
                 ) : (
                   <PaginationBtn key={p} onClick={() => setPage(p)} active={p === safePage}>
                     {p}
@@ -363,7 +415,7 @@ export function AgendaDailyList({
                 )
               )}
 
-              <PaginationBtn onClick={() => setPage(p => p + 1)} disabled={safePage === totalPages}>
+              <PaginationBtn onClick={() => setPage((p) => p + 1)} disabled={safePage === totalPages}>
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                 </svg>
@@ -379,7 +431,10 @@ export function AgendaDailyList({
 // ─── Pagination Button ────────────────────────────────────────────────────────
 
 function PaginationBtn({
-  children, onClick, disabled, active,
+  children,
+  onClick,
+  disabled,
+  active
 }: {
   children: React.ReactNode;
   onClick: () => void;
@@ -431,24 +486,34 @@ function AgendaListRow({
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const pal         = appointmentColorPalette[appointment.status];
-  const start       = new Date(appointment.startAt);
-  const end         = new Date(appointment.endAt);
+  const pal = appointmentColorPalette[appointment.status];
+  const start = new Date(appointment.startAt);
+  const end = new Date(appointment.endAt);
   const patientName = appointment.patient
     ? `${appointment.patient.firstName} ${appointment.patient.lastName}`
     : "Bloqueo clínico";
 
   const hasAppointmentComment = Boolean(
     appointment.notes?.trim() ||
-      appointment.appointmentNotes?.length ||
-      (appointment._count?.appointmentNotes ?? 0) > 0
+    appointment.appointmentNotes?.length ||
+    (appointment._count?.appointmentNotes ?? 0) > 0
   );
-  const commentButtonLabel = hasAppointmentComment ? "Editar comentario de cita" : "Agregar comentario de cita";
+  const commentButtonLabel = hasAppointmentComment
+    ? "Editar comentario de cita"
+    : "Agregar comentario de cita";
 
   // Determine inline primary action based on status flow
-  const primaryAction = useMemo(() => getPrimaryAction(appointment.status, appointment.id, {
-    onConfirm, onArrive, onWaitingRoom, onStart, onComplete,
-  }), [appointment.status, appointment.id, onConfirm, onArrive, onWaitingRoom, onStart, onComplete]);
+  const primaryAction = useMemo(
+    () =>
+      getPrimaryAction(appointment.status, appointment.id, {
+        onConfirm,
+        onArrive,
+        onWaitingRoom,
+        onStart,
+        onComplete
+      }),
+    [appointment.status, appointment.id, onConfirm, onArrive, onWaitingRoom, onStart, onComplete]
+  );
 
   const handleMenuAction = (action: AppointmentMenuAction) => {
     if (action === "changeDate") {
@@ -461,7 +526,10 @@ function AgendaListRow({
       return;
     }
 
-    if (!onMenuAction && (action === "modifyDuration" || action === "addComment" || action === "changeStatus")) {
+    if (
+      !onMenuAction &&
+      (action === "modifyDuration" || action === "addComment" || action === "changeStatus")
+    ) {
       onEdit(appointment);
       return;
     }
@@ -470,11 +538,14 @@ function AgendaListRow({
   };
 
   return (
-    <tr className={`${highlighted ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "hover:bg-blue-50/20"} transition-colors duration-100 group`}>
-
+    <tr
+      className={`${highlighted ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "hover:bg-blue-50/20"} transition-colors duration-100 group`}
+    >
       {/* Hour block */}
       <td className="px-3 py-2.5">
-        <div className={`inline-flex flex-col items-center justify-center rounded-lg px-2 py-1.5 text-center border min-w-[64px] ${pal.cardClass}`}>
+        <div
+          className={`inline-flex flex-col items-center justify-center rounded-lg px-2 py-1.5 text-center border min-w-[64px] ${pal.cardClass}`}
+        >
           <span className="text-[12px] font-black leading-none tabular-nums">
             {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
@@ -507,7 +578,12 @@ function AgendaListRow({
           {appointment.patient?.phone && (
             <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
               <svg className="h-2.5 w-2.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.948V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.948V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"
+                />
               </svg>
               {appointment.patient.phone}
             </span>
@@ -524,7 +600,8 @@ function AgendaListRow({
       <td className="px-4 py-2.5">
         <div className="flex items-center gap-2">
           <div className="h-6 w-6 rounded-full bg-zinc-900 text-white flex items-center justify-center text-[9px] font-bold shrink-0 select-none">
-            {appointment.professional.firstName.charAt(0)}{appointment.professional.lastName.charAt(0)}
+            {appointment.professional.firstName.charAt(0)}
+            {appointment.professional.lastName.charAt(0)}
           </div>
           <span className="text-[11px] font-medium text-zinc-700 truncate max-w-[120px]">
             {appointment.professional.firstName} {appointment.professional.lastName}
@@ -563,21 +640,7 @@ function AgendaListRow({
 
       {/* Situación (Balance status) */}
       <td className="px-4 py-2.5">
-        {appointment.patient ? (
-          appointment.patient.hasDebt ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-500 px-2 py-0.5 text-[9.5px] font-black text-white shadow-sm whitespace-nowrap">
-              <DollarSign className="h-3 w-3 shrink-0 stroke-[3]" />
-              No hay saldo
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[9.5px] font-black text-white shadow-sm whitespace-nowrap">
-              <CheckCircle2 className="h-3 w-3 shrink-0 stroke-[3]" />
-              Hay saldo
-            </span>
-          )
-        ) : (
-          <span className="text-zinc-400 font-medium text-[10px]">-</span>
-        )}
+        <FinancialSituationBadge appointment={appointment} />
       </td>
 
       {/* Actions */}
@@ -603,7 +666,7 @@ function AgendaListRow({
           <div className="hidden" ref={menuRef}>
             <button
               type="button"
-              onClick={() => setMenuOpen(v => !v)}
+              onClick={() => setMenuOpen((v) => !v)}
               className="h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-200 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 transition active:scale-95"
             >
               <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
@@ -613,17 +676,90 @@ function AgendaListRow({
 
             {menuOpen && (
               <div className="absolute right-0 bottom-full mb-1 z-40 w-44 rounded-xl border border-zinc-200/80 bg-white p-1 shadow-xl ring-1 ring-black/5 text-xs animate-in fade-in-50 slide-in-from-bottom-2">
-                <MenuBtn icon="📝" onClick={() => { onEdit(appointment); setMenuOpen(false); }}>Editar datos</MenuBtn>
-                <MenuBtn icon="📅" onClick={() => { onReschedule(appointment); setMenuOpen(false); }}>Reagendar</MenuBtn>
+                <MenuBtn
+                  icon="📝"
+                  onClick={() => {
+                    onEdit(appointment);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Editar datos
+                </MenuBtn>
+                <MenuBtn
+                  icon="📅"
+                  onClick={() => {
+                    onReschedule(appointment);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Reagendar
+                </MenuBtn>
                 <hr className="border-zinc-100 my-1" />
-                <MenuBtn icon="✔️" onClick={() => { onConfirm(appointment.id); setMenuOpen(false); }}>Confirmar</MenuBtn>
-                <MenuBtn icon="🚗" onClick={() => { onArrive(appointment.id); setMenuOpen(false); }}>Llegó a clínica</MenuBtn>
-                <MenuBtn icon="🛋️" onClick={() => { onWaitingRoom(appointment.id); setMenuOpen(false); }}>Pasar a sala</MenuBtn>
-                <MenuBtn icon="🦷" onClick={() => { onStart(appointment.id); setMenuOpen(false); }}>Iniciar atención</MenuBtn>
-                <MenuBtn icon="🎓" onClick={() => { onComplete(appointment.id); setMenuOpen(false); }}>Finalizar atención</MenuBtn>
-                <MenuBtn icon="❌" onClick={() => { onNoShow(appointment.id); setMenuOpen(false); }}>No asistió</MenuBtn>
+                <MenuBtn
+                  icon="✔️"
+                  onClick={() => {
+                    onConfirm(appointment.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Confirmar
+                </MenuBtn>
+                <MenuBtn
+                  icon="🚗"
+                  onClick={() => {
+                    onArrive(appointment.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Llegó a clínica
+                </MenuBtn>
+                <MenuBtn
+                  icon="🛋️"
+                  onClick={() => {
+                    onWaitingRoom(appointment.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Pasar a sala
+                </MenuBtn>
+                <MenuBtn
+                  icon="🦷"
+                  onClick={() => {
+                    onStart(appointment.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Iniciar atención
+                </MenuBtn>
+                <MenuBtn
+                  icon="🎓"
+                  onClick={() => {
+                    onComplete(appointment.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Finalizar atención
+                </MenuBtn>
+                <MenuBtn
+                  icon="❌"
+                  onClick={() => {
+                    onNoShow(appointment.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  No asistió
+                </MenuBtn>
                 <hr className="border-zinc-100 my-1" />
-                <MenuBtn icon="⚠️" onClick={() => { onCancel(appointment); setMenuOpen(false); }} danger>Cancelar cita</MenuBtn>
+                <MenuBtn
+                  icon="⚠️"
+                  onClick={() => {
+                    onCancel(appointment);
+                    setMenuOpen(false);
+                  }}
+                  danger
+                >
+                  Cancelar cita
+                </MenuBtn>
               </div>
             )}
           </div>
@@ -633,9 +769,66 @@ function AgendaListRow({
   );
 }
 
+function FinancialSituationBadge({ appointment }: { appointment: Appointment }) {
+  const situation = appointment.financialSituation;
+  if (!appointment.patient) return <span className="text-zinc-400 font-medium text-[10px]">-</span>;
+  if (!appointment.treatmentPlanId || !situation) {
+    return (
+      <span
+        className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[9.5px] font-bold text-slate-500 whitespace-nowrap"
+        title="La cita no tiene un plan de tratamiento vinculado"
+      >
+        Sin plan
+      </span>
+    );
+  }
+
+  const amount = situation.amount
+    ? new Intl.NumberFormat("es-MX", { style: "currency", currency: situation.currency }).format(
+        Number(situation.amount)
+      )
+    : null;
+  const title = `${appointment.treatmentPlan?.name ?? "Plan de tratamiento"}: ${situation.label}${amount ? ` ${amount}` : ""}`;
+  const styles = {
+    DEBT: "bg-red-600 text-white",
+    AVAILABLE_BALANCE: "bg-emerald-600 text-white",
+    DIAGNOSTIC: "bg-emerald-600 text-white",
+    NO_AVAILABLE_BALANCE: "bg-amber-500 text-white",
+    CANCELLED: "bg-slate-500 text-white"
+  } as const;
+  const Icon =
+    situation.code === "DEBT"
+      ? AlertTriangle
+      : situation.code === "DIAGNOSTIC"
+        ? Stethoscope
+        : situation.code === "AVAILABLE_BALANCE"
+          ? CheckCircle2
+          : DollarSign;
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9.5px] font-black shadow-sm whitespace-nowrap ${styles[situation.code]}`}
+      title={title}
+    >
+      <Icon className="h-3 w-3 shrink-0 stroke-[3]" />
+      {situation.label}
+    </span>
+  );
+}
+
 // ─── Menu button atom ─────────────────────────────────────────────────────────
 
-function MenuBtn({ icon, children, onClick, danger }: { icon: string; children: React.ReactNode; onClick: () => void; danger?: boolean }) {
+function MenuBtn({
+  icon,
+  children,
+  onClick,
+  danger
+}: {
+  icon: string;
+  children: React.ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+}) {
   return (
     <button
       type="button"
@@ -661,15 +854,35 @@ function getPrimaryAction(
   switch (status) {
     case "SCHEDULED":
     case "PENDING_CONFIRMATION":
-      return { label: "Confirmar →", onClick: () => onConfirm(id), style: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" };
+      return {
+        label: "Confirmar →",
+        onClick: () => onConfirm(id),
+        style: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+      };
     case "CONFIRMED":
-      return { label: "Llegó →", onClick: () => onArrive(id), style: "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100" };
+      return {
+        label: "Llegó →",
+        onClick: () => onArrive(id),
+        style: "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
+      };
     case "ARRIVED":
-      return { label: "→ Sala", onClick: () => onWaitingRoom(id), style: "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100" };
+      return {
+        label: "→ Sala",
+        onClick: () => onWaitingRoom(id),
+        style: "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100"
+      };
     case "WAITING_ROOM":
-      return { label: "▶ Iniciar", onClick: () => onStart(id), style: "bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100" };
+      return {
+        label: "▶ Iniciar",
+        onClick: () => onStart(id),
+        style: "bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100"
+      };
     case "IN_PROGRESS":
-      return { label: "✓ Finalizar", onClick: () => onComplete(id), style: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100" };
+      return {
+        label: "✓ Finalizar",
+        onClick: () => onComplete(id),
+        style: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+      };
     default:
       return null;
   }

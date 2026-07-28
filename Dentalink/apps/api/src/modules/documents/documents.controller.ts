@@ -21,18 +21,12 @@ import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import {
   ClinicalDocumentTemplatesQueryDto,
-  ConsentTemplatesQueryDto,
   CreateClinicalDocumentTemplateSettingsDto,
-  CreateConsentDto,
-  CreateConsentTemplateDto,
   DeleteFileAttachmentDto,
-  PatientConsentsQueryDto,
   PatientFilesQueryDto,
-  SignConsentDto,
   UpsertRadiographyAnalysisDto,
   UploadBinaryFileAttachmentDto,
   UpdateClinicalDocumentTemplateSettingsDto,
-  UpdateConsentTemplateDto,
   UploadFileAttachmentDto
 } from "./dto/documents.dto";
 import { DocumentsService } from "./documents.service";
@@ -176,30 +170,6 @@ export class DocumentsController {
     });
   }
 
-  @Get("settings/consent-templates")
-  @RequirePermissions("consent_templates.read")
-  listTemplates(@CurrentUser() actor: AuthUser, @Query() query: ConsentTemplatesQueryDto) {
-    return this.service.listConsentTemplates(actor, query);
-  }
-
-  @Post("settings/consent-templates")
-  @RequirePermissions("consent_templates.create")
-  createTemplate(@CurrentUser() actor: AuthUser, @Body() dto: CreateConsentTemplateDto) {
-    return this.service.createConsentTemplate(actor, dto);
-  }
-
-  @Patch("settings/consent-templates/:id")
-  @RequirePermissions("consent_templates.update")
-  updateTemplate(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateConsentTemplateDto) {
-    return this.service.updateConsentTemplate(actor, id, dto);
-  }
-
-  @Patch("settings/consent-templates/:id/deactivate")
-  @RequirePermissions("consent_templates.deactivate")
-  deactivateTemplate(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
-    return this.service.deactivateConsentTemplate(actor, id);
-  }
-
   @Get("settings/clinical-document-templates")
   @RequirePermissions("clinical.read")
   listClinicalDocumentTemplates(@CurrentUser() actor: AuthUser, @Query() query: ClinicalDocumentTemplatesQueryDto) {
@@ -259,27 +229,4 @@ export class DocumentsController {
     });
   }
 
-  @Get("patients/:patientId/consents")
-  @RequirePermissions("consents.read")
-  listPatientConsents(@CurrentUser() actor: AuthUser, @Param("patientId") patientId: string, @Query() query: PatientConsentsQueryDto) {
-    return this.service.listPatientConsents(actor, patientId, query);
-  }
-
-  @Post("patients/:patientId/consents")
-  @RequirePermissions("consents.create")
-  createPatientConsent(@CurrentUser() actor: AuthUser, @Param("patientId") patientId: string, @Body() dto: CreateConsentDto) {
-    return this.service.createPatientConsent(actor, patientId, dto);
-  }
-
-  @Post("consents/:id/sign")
-  @RequirePermissions("consents.sign")
-  signConsent(@CurrentUser() actor: AuthUser, @Param("id") consentId: string, @Body() dto: SignConsentDto) {
-    return this.service.signConsent(actor, consentId, dto);
-  }
-
-  @Get("consents/:id/pdf")
-  @RequirePermissions("consents.pdf")
-  getConsentPdf(@CurrentUser() actor: AuthUser, @Param("id") consentId: string) {
-    return this.service.getConsentPdf(actor, consentId);
-  }
 }

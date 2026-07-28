@@ -160,6 +160,18 @@ function PatientSelection({
   );
 }
 
+const IMPACT_DICTIONARY: Record<string, string> = {
+  appointments: "Citas",
+  treatmentPlans: "Planes de tratamiento",
+  payments: "Pagos",
+  documents: "Documentos",
+  communications: "Comunicaciones",
+  contacts: "Contactos compartidos",
+  memberships: "Membresías familiares",
+  ledgers: "Estados de cuenta",
+  coverages: "Seguros y coberturas"
+};
+
 function MergeImpact({ preview, executing, onExecute }: { preview: PatientMergePreview; executing: boolean; onExecute: () => void }) {
   const entries = Object.entries(preview.preview.counts).filter(([, count]) => count > 0);
   return (
@@ -172,7 +184,7 @@ function MergeImpact({ preview, executing, onExecute }: { preview: PatientMergeP
         {entries.length ? entries.map(([entity, count]) => (
           <div key={entity} className="rounded-lg border border-sky-100 bg-white px-3 py-2">
             <p className="text-xl font-semibold text-slate-900">{count}</p>
-            <p className="text-xs capitalize text-slate-500">{entity}</p>
+            <p className="text-xs text-slate-500">{IMPACT_DICTIONARY[entity] || entity}</p>
           </div>
         )) : <p className="text-sm text-slate-600">Ficha sin relaciones operativas.</p>}
       </div>

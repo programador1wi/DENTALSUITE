@@ -420,75 +420,126 @@ export type PatientAnalysisQuery = {
   from?: string;
   to?: string;
   branchId?: string;
+  branchIds?: string[];
+  timezone?: string;
+  granularity?: "auto" | "day" | "month" | "year";
+  currency?: string;
+  metricVersion?: string;
 };
 
 export type PatientAnalysisDistribution = {
+  key: string;
   label: string;
   value: number;
   percent: number;
-  amount?: number;
 };
 
-export type PatientAnalysisMonthlyPoint = {
-  month: string;
+export type PatientAnalysisTrendPoint = {
+  period: string;
+  label: string;
   scheduledAppointments: number;
   confirmedAppointments: number;
   acceptedBudgets: number;
   newPatients: number;
+  attendedAppointments: number;
+  attendanceEligibleAppointments: number;
+  confirmedRate: number;
+  acceptedRate: number;
+  attendanceRate: number;
 };
 
 export type PatientAnalysisResponse = {
-  filters: {
+  metadata: {
+    organizationId: string;
+    branchIds: string[];
+    branches: Array<{ id: string; name: string }>;
     from: string;
     to: string;
-    branchId: string | null;
-    branchName: string;
-    updatedAt: string;
+    timezone: string;
+    cutoffAt: string;
+    lastUpdatedAt: string;
+    metricVersion: string;
+    granularity: "day" | "month" | "year";
+    source: "live" | "snapshot";
+    currencies: string[];
+    durationMs: number;
   };
-  branchContext: {
-    name: string;
-    userCount: number;
-    users: Array<{ id: string; name: string; email: string; branchName: string }>;
+  capabilities: {
+    canReadFinancial: boolean;
+    canViewAllBranches: boolean;
+    canExport: boolean;
+    canRefresh: boolean;
+    canViewPatientDetails: boolean;
   };
   conversion: {
     totals: {
       scheduledAppointments: number;
       confirmedAppointments: number;
       acceptedBudgets: number;
-      acceptedBudgetAmount: number;
+      scheduledRate: number;
       confirmedRate: number;
       acceptedRate: number;
+      confirmedToAcceptedRate: number;
     };
     funnel: Array<{
       key: string;
       label: string;
       value: number;
       percent: number;
-      color: string;
     }>;
-    monthly: PatientAnalysisMonthlyPoint[];
+    trend: PatientAnalysisTrendPoint[];
+    definition: Record<string, { formula: string; denominator: string }>;
   };
-  patientData: {
-    totalPatients: number;
-    distributions: {
-      age: PatientAnalysisDistribution[];
-      gender: PatientAnalysisDistribution[];
-      delegation: PatientAnalysisDistribution[];
-      paymentMethods: PatientAnalysisDistribution[];
-      actionCategories: PatientAnalysisDistribution[];
-      appointmentStatus: PatientAnalysisDistribution[];
-      sources: PatientAnalysisDistribution[];
-      patientStatus: PatientAnalysisDistribution[];
-    };
-  };
-  globalStats: Array<{
+  demographics: Array<{
     key: string;
     label: string;
-    value: number;
-    format?: "money" | "percent";
-    tone: "green" | "red" | "blue" | "amber";
+    universe: string;
+    formula: string;
+    denominator: number;
+    omitted: number;
+    period: { from: string; to: string };
+    cutoffAt: string;
+    branchIds: string[];
+    data: PatientAnalysisDistribution[];
+  }>;
+  globalMetrics: Array<{
+    key: string;
+    label: string;
+    value?: number;
+    values?: Array<{ currency: string; value: number }>;
+    breakdown?: Array<{ stage: string; values: Array<{ currency: string; value: number }> }>;
+    format: "number" | "money" | "percent";
+    formula: string;
+    denominator: string;
     trend: number[];
   }>;
+};
+
+export type PatientAnalysisDetailQuery = PatientAnalysisQuery & {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  order?: "asc" | "desc";
+  sortBy?: string;
+};
+
+export type PatientAnalysisDetailResponse = {
+  metric: string;
+  metadata: {
+    branchIds: string[];
+    from: string;
+    to: string;
+    timezone: string;
+    cutoffAt: string;
+    metricVersion: string;
+  };
+  pagination: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+  };
+  rows: Array<Record<string, unknown>>;
 };
 
 export async function listPatients(params?: PatientsQuery) {
@@ -497,8 +548,31 @@ export async function listPatients(params?: PatientsQuery) {
 }
 
 export async function getPatientsAnalysis(params?: PatientAnalysisQuery) {
-  const { data } = await http.get<PatientAnalysisResponse>("/patients/analysis", { params });
+  const { data } = await http.get<PatientAnalysisResponse>("/patient-analytics/overview", { params });
   return data;
+}
+
+export async function getPatientAnalysisDetail(metric: string, params?: PatientAnalysisDetailQuery) {
+  const { data } = await http.get<PatientAnalysisDetailResponse>(
+    `/patient-analytics/details/${metric}`,
+    { params }
+  );
+  return data;
+}
+
+export async function refreshPatientsAnalysis(params?: PatientAnalysisQuery) {
+  const { data } = await http.post<PatientAnalysisResponse>("/patient-analytics/refresh", undefined, {
+    params
+  });
+  return data;
+}
+
+export async function exportPatientAnalysis(metric: string, params?: PatientAnalysisDetailQuery) {
+  const response = await http.get<Blob>(`/patient-analytics/export/${metric}`, {
+    params,
+    responseType: "blob"
+  });
+  return response.data;
 }
 
 export async function searchPatients(params: {

@@ -8,11 +8,12 @@ import {
   Type,
   Plus,
   Mic,
-  MessageSquare
+  MessageSquare,
+  Link2,
+  Redo2,
+  Undo2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
-import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useRef, useEffect, useCallback, useState, MouseEvent } from "react";
 
 interface RichTextEditorProps {
@@ -23,6 +24,8 @@ interface RichTextEditorProps {
   onDictate?: () => void;
   onFeedback?: () => void;
   className?: string;
+  editorClassName?: string;
+  insertTextRequest?: { id: number; text: string };
 }
 
 export function RichTextEditor({
@@ -32,7 +35,9 @@ export function RichTextEditor({
   onUseTemplate,
   onDictate,
   onFeedback,
-  className
+  className,
+  editorClassName,
+  insertTextRequest
 }: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const savedRangeRef = useRef<Range | null>(null);
@@ -82,6 +87,15 @@ export function RichTextEditor({
       onChange(editorRef.current.innerHTML);
     }
   }, [onChange]);
+
+  useEffect(() => {
+    if (!insertTextRequest || !editorRef.current) return;
+    restoreSelection();
+    editorRef.current.focus();
+    document.execCommand("insertText", false, insertTextRequest.text);
+    handleInput();
+    saveSelection();
+  }, [handleInput, insertTextRequest, restoreSelection, saveSelection]);
 
   const executeCommand = (command: string, arg?: string, e?: MouseEvent<HTMLButtonElement> | React.ChangeEvent<HTMLSelectElement>) => {
     if (e) e.preventDefault(); // Prevent losing focus
@@ -179,6 +193,35 @@ export function RichTextEditor({
           >
             <Type className="h-5 w-5" />
           </button>
+          <button
+            type="button"
+            className="flex h-10 w-10 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-200/60 hover:text-slate-900 focus-visible:outline-none"
+            onMouseDown={(event) => {
+              event.preventDefault();
+              const url = window.prompt("Dirección del enlace (https://...)");
+              if (url && /^https?:\/\//i.test(url)) executeCommand("createLink", url, event);
+            }}
+            title="Insertar enlace"
+          >
+            <Link2 className="h-5 w-5" />
+          </button>
+          <div className="mx-1.5 h-5 w-px bg-slate-300" />
+          <button
+            type="button"
+            className="flex h-10 w-10 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-200/60 hover:text-slate-900 focus-visible:outline-none"
+            onMouseDown={(event) => executeCommand("undo", undefined, event)}
+            title="Deshacer"
+          >
+            <Undo2 className="h-5 w-5" />
+          </button>
+          <button
+            type="button"
+            className="flex h-10 w-10 items-center justify-center rounded-md text-slate-600 transition-colors hover:bg-slate-200/60 hover:text-slate-900 focus-visible:outline-none"
+            onMouseDown={(event) => executeCommand("redo", undefined, event)}
+            title="Rehacer"
+          >
+            <Redo2 className="h-5 w-5" />
+          </button>
         </div>
 
         {onUseTemplate && (
@@ -200,7 +243,7 @@ export function RichTextEditor({
           onInput={handleInput}
           onBlur={handleInput}
           data-placeholder={placeholder}
-          className="min-h-[250px] w-full bg-transparent text-sm text-slate-900 outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6 [&_li]:list-item [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5"
+          className={`min-h-[250px] w-full bg-transparent text-sm text-slate-900 outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6 [&_li]:list-item [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5 ${editorClassName || ""}`}
         />
       </div>
 

@@ -352,6 +352,13 @@ export class PricingService {
         procedureVariantId: dto.procedureVariantId ?? null
       }
     });
+    if (
+      !current ||
+      current.allowDiscount !== values.allowDiscount ||
+      !current.maxDiscountPercent.eq(values.maxDiscountPercent)
+    ) {
+      this.ensureCanConfigureDiscountLimits(actor);
+    }
     if (current && dto.expectedVersion !== current.version) throw new ConflictException("Price item was modified by another user");
     return this.prisma.$transaction(async (tx) => {
       const item = current
@@ -433,6 +440,11 @@ export class PricingService {
         });
       if (item.maxDiscountPercent.lt(0) || item.maxDiscountPercent.gt(100))
         errors.push({ code: "INVALID_DISCOUNT", message: `${item.procedure.code} has an invalid maximum discount` });
+      if (item.allowDiscount && item.maxDiscountPercent.lte(0))
+        errors.push({
+          code: "DISCOUNT_LIMIT_REQUIRED",
+          message: `${item.procedure.code} permite descuento pero no tiene un máximo mayor a 0 %`
+        });
     }
     const overlap = await this.findOverlap(version);
     if (overlap) errors.push({ code: "OVERLAPPING_SCOPE", message: `Conflicts with ${overlap.priceList.name} v${overlap.versionNumber}` });
@@ -1067,20 +1079,36 @@ export class PricingService {
     const basePrice = new Prisma.Decimal(dto.basePrice);
     const laboratoryCost = new Prisma.Decimal(dto.laboratoryCost ?? "0");
     const internalCost = new Prisma.Decimal(dto.internalCost ?? "0");
-    const maxDiscountPercent = new Prisma.Decimal(dto.maxDiscountPercent ?? (dto.allowDiscount === false ? "0" : "100"));
+    const allowDiscount = dto.allowDiscount ?? true;
+    const maxDiscountPercent = allowDiscount
+      ? new Prisma.Decimal(dto.maxDiscountPercent ?? "100")
+      : new Prisma.Decimal(0);
     if ([basePrice, laboratoryCost, internalCost, maxDiscountPercent].some((value) => value.lt(0)))
       throw new BadRequestException("Prices, costs and discounts cannot be negative");
     if (maxDiscountPercent.gt(100)) throw new BadRequestException("maxDiscountPercent cannot exceed 100");
+    if (allowDiscount && maxDiscountPercent.lte(0)) {
+      throw new BadRequestException("Discount-enabled procedures require maxDiscountPercent greater than 0");
+    }
     return {
       basePrice,
       laboratoryCost,
       internalCost,
-      allowDiscount: dto.allowDiscount ?? true,
+      allowDiscount,
       maxDiscountPercent,
       authorizationThresholdPercent: dto.authorizationThresholdPercent
         ? new Prisma.Decimal(dto.authorizationThresholdPercent)
         : null
     };
+  }
+
+  private ensureCanConfigureDiscountLimits(actor: AuthUser) {
+    if (
+      actor.permissions.includes("system.manage_all") ||
+      actor.permissions.includes("price_lists.configure_discount_limits")
+    ) {
+      return;
+    }
+    throw new ForbiddenException("Insufficient permissions to configure procedure discount limits");
   }
 
   private async version(actor: AuthUser, id: string, _details = false) {

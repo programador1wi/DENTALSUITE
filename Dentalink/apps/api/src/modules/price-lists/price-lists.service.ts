@@ -166,6 +166,7 @@ export class PriceListsService {
             price: new Prisma.Decimal(item.price),
             labCost: new Prisma.Decimal(item.labCost ?? "0"),
             allowsDiscount: item.allowsDiscount ?? true,
+            maxDiscountPercent: this.discountMaximum(item),
             currency: item.currency ?? "MXN"
           })),
           skipDuplicates: true
@@ -230,6 +231,7 @@ export class PriceListsService {
               price: new Prisma.Decimal(item.price),
               labCost: new Prisma.Decimal(item.labCost ?? "0"),
               allowsDiscount: item.allowsDiscount ?? true,
+              maxDiscountPercent: this.discountMaximum(item),
               currency: item.currency ?? "MXN"
             })),
             skipDuplicates: true
@@ -588,6 +590,19 @@ export class PriceListsService {
     const normalized = name.trim();
     if (!normalized) throw new BadRequestException("Category name is required");
     return normalized;
+  }
+
+  private discountMaximum(item: { allowsDiscount?: boolean; maxDiscountPercent?: string }) {
+    const maximum = new Prisma.Decimal(
+      item.allowsDiscount === false ? "0" : item.maxDiscountPercent ?? "100"
+    );
+    if (maximum.lt(0) || maximum.gt(100)) {
+      throw new BadRequestException("maxDiscountPercent must be between 0 and 100");
+    }
+    if (item.allowsDiscount !== false && maximum.lte(0)) {
+      throw new BadRequestException("Discount-enabled procedures require maxDiscountPercent greater than 0");
+    }
+    return maximum.toDecimalPlaces(2);
   }
 
   private audit(actor: AuthUser, entity: string, entityId: string, action: string, payload: unknown) {

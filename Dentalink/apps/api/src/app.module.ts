@@ -37,6 +37,12 @@ import { PhotographicTemplatesModule } from "./modules/photographic-templates/ph
 import { PatientIdentityModule } from "./modules/patient-identity/patient-identity.module";
 import { PricingModule } from "./modules/pricing/pricing.module";
 import { FamilyPoliciesModule } from "./modules/family-policies/family-policies.module";
+import { AgreementDebtsModule } from "./modules/agreement-debts/agreement-debts.module";
+import { OrthodonticsModule } from "./modules/orthodontics/orthodontics.module";
+import { DiscountPoliciesModule } from "./modules/discount-policies/discount-policies.module";
+import { CashDiscountsModule } from "./modules/cash-discounts/cash-discounts.module";
+import { EmailMarketingModule } from "./modules/email-marketing/email-marketing.module";
+import { CrmSurveysModule } from "./modules/crm-surveys/crm-surveys.module";
 
 @Module({
   imports: [
@@ -72,6 +78,8 @@ import { FamilyPoliciesModule } from "./modules/family-policies/family-policies.
     PriceListsModule,
     PricingModule,
     TreatmentPlansModule,
+    DiscountPoliciesModule,
+    CashDiscountsModule,
     HealthModule,
     HealthCenterModule,
     OnlineSchedulingModule,
@@ -79,7 +87,11 @@ import { FamilyPoliciesModule } from "./modules/family-policies/family-policies.
     IntegrationsModule,
     PhotographicTemplatesModule,
     PatientIdentityModule,
-    FamilyPoliciesModule
+    FamilyPoliciesModule,
+    AgreementDebtsModule,
+    OrthodonticsModule,
+    EmailMarketingModule,
+    CrmSurveysModule
   ],
   providers: [AppLogger],
   exports: [AppLogger]

@@ -81,7 +81,10 @@ import type {
   Refund,
   RefundStatus
 } from "@/features/payments/services/payments.service";
-import { useAgreements } from "@/features/settings/admin-workflows/hooks/use-admin-workflows";
+import {
+  useAgreements,
+  useCreatePayrollDiscountPlan
+} from "@/features/settings/admin-workflows/hooks/use-admin-workflows";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import type { Branch } from "@/features/settings/branches/services/branches.service";
 import { useProcedures } from "@/features/settings/procedures/hooks/use-procedures";
@@ -127,6 +130,7 @@ import type {
   OrthodonticSummary,
   TreatmentPlanClinicalStatus,
   TreatmentPlanDetail,
+  TreatmentPlanFinancialSummary,
   TreatmentPlanItem,
   TreatmentPlanRepricePreview,
   TreatmentPriceCatalog,
@@ -332,8 +336,8 @@ function payrollDiscountDisabledReason(
   if (!agreement) return "El paciente no esta afiliado a un convenio.";
   if (!agreement.isActive) return "El convenio no esta activo.";
   if (!agreement.payrollDiscount) return "El convenio no permite descuento por planilla.";
-  if (financeableTotal <= 0) return "No existen prestaciones con saldo pendiente.";
-  return "Faltan cargos y remesas empresariales para activar este flujo.";
+  if (financeableTotal <= 0) return "No existen prestaciones con cobertura empresarial pendiente.";
+  return undefined;
 }
 
 function finiteNumberValue(value: unknown, fallback = 0) {
@@ -374,7 +378,11 @@ function agreementFromSnapshot(snapshot: unknown): PatientAgreementOption | null
 }
 
 function treatmentPlanAgreementId(plan?: TreatmentPlanDetail | null) {
-  return plan?.agreementId ?? plan?.agreement?.id ?? agreementSnapshotString(plan?.agreementSnapshot, "agreementId");
+  return (
+    plan?.agreementId ??
+    plan?.agreement?.id ??
+    agreementSnapshotString(plan?.agreementSnapshot, "agreementId")
+  );
 }
 
 function resolveEffectiveTreatmentAgreement({
@@ -389,7 +397,7 @@ function resolveEffectiveTreatmentAgreement({
   const planAgreementId = treatmentPlanAgreementId(plan);
   const effectiveAgreementId = planAgreementId ?? patientAgreement?.id ?? null;
   const catalogAgreement = effectiveAgreementId
-    ? agreements.find((agreement) => agreement.id === effectiveAgreementId) ?? null
+    ? (agreements.find((agreement) => agreement.id === effectiveAgreementId) ?? null)
     : null;
   const planAgreement =
     plan?.agreement && (!effectiveAgreementId || plan.agreement.id === effectiveAgreementId)
@@ -474,6 +482,29 @@ function money(value: number) {
     currency: "MXN",
     maximumFractionDigits: 0
   }).format(value);
+}
+
+function planHasFinancialDebt(plan: { financialSummary?: TreatmentPlanFinancialSummary | null }) {
+  return numberValue(plan.financialSummary?.debtAmount) > 0;
+}
+
+function PlanFinancialStatus({ summary }: { summary?: TreatmentPlanFinancialSummary | null }) {
+  if (!summary) return <span className="text-xs font-medium text-slate-400">Sin cálculo</span>;
+  const tone =
+    summary.situation.code === "DEBT"
+      ? "bg-red-50 text-red-700 ring-red-200"
+      : summary.situation.code === "NO_AVAILABLE_BALANCE"
+        ? "bg-amber-50 text-amber-700 ring-amber-200"
+        : summary.situation.code === "CANCELLED"
+          ? "bg-slate-100 text-slate-600 ring-slate-200"
+          : "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  const amount = summary.situation.amount ? ` ${money(numberValue(summary.situation.amount))}` : "";
+  return (
+    <span className={`inline-flex rounded-full px-2 py-1 text-xs font-bold ring-1 ring-inset ${tone}`}>
+      {summary.situation.label}
+      {amount}
+    </span>
+  );
 }
 
 function fdiLabel(value?: string | null) {
@@ -736,6 +767,7 @@ export function PatientTreatmentsPage() {
   const [agreementModalOpen, setAgreementModalOpen] = useState(false);
   const [agreementDetailModalOpen, setAgreementDetailModalOpen] = useState(false);
   const [financingModalOpen, setFinancingModalOpen] = useState(false);
+  const [payrollDiscountModalOpen, setPayrollDiscountModalOpen] = useState(false);
   const [branchModalOpen, setBranchModalOpen] = useState(false);
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const [refundsModalOpen, setRefundsModalOpen] = useState(false);
@@ -829,6 +861,16 @@ export function PatientTreatmentsPage() {
     () => roundMoney(financeableItems.reduce((sum, item) => sum + financeableAmount(item), 0)),
     [financeableItems]
   );
+  const payrollChargeItems = useMemo(
+    () =>
+      plan?.items.filter((item) => item.status !== "CANCELLED" && numberValue(item.agreementCoverage) > 0) ??
+      [],
+    [plan]
+  );
+  const payrollChargeTotal = useMemo(
+    () => roundMoney(payrollChargeItems.reduce((sum, item) => sum + numberValue(item.agreementCoverage), 0)),
+    [payrollChargeItems]
+  );
   const totals = useMemo(() => planTotals(plan), [plan]);
   const priceList = treatmentPriceCatalog.data ?? null;
   const upcomingAppointments = (appointments.data ?? []).slice(0, 3);
@@ -845,8 +887,11 @@ export function PatientTreatmentsPage() {
   const canCreateFinancing = hasPermission("installments.create") || hasPermission("system.manage_all");
   const canCollectPayment = hasPermission("payments.create") || hasPermission("system.manage_all");
   const canUsePayrollDiscount =
-    (hasPermission("settings.read") || hasPermission("system.manage_all")) &&
+    (hasPermission("agreements.payments.create") ||
+      hasPermission("settings.update") ||
+      hasPermission("system.manage_all")) &&
     Boolean(patient.data?.agreement?.isActive && patient.data.agreement.payrollDiscount);
+  const createPayrollDiscountPlan = useCreatePayrollDiscountPlan();
 
   useEffect(() => {
     resetWorkspace();
@@ -940,7 +985,11 @@ export function PatientTreatmentsPage() {
       toast.error("Selecciona o crea un plan de tratamiento.");
       return;
     }
-    if (effectiveAgreement.source === "patient" && effectiveAgreement.agreementId && agreementsForPricing.isLoading) {
+    if (
+      effectiveAgreement.source === "patient" &&
+      effectiveAgreement.agreementId &&
+      agreementsForPricing.isLoading
+    ) {
       toast.error("Cargando convenio del plan. Intenta nuevamente.");
       return;
     }
@@ -1282,10 +1331,14 @@ export function PatientTreatmentsPage() {
 
   const openPayrollDiscount = () => {
     if (!canUsePayrollDiscount) {
-      toast.error(payrollDiscountDisabledReason(patient.data?.agreement, financeableTotal));
+      toast.error(payrollDiscountDisabledReason(patient.data?.agreement, payrollChargeTotal));
       return;
     }
-    toast.info("Descuento por planilla requiere cargos y remesas empresariales antes de activarse.");
+    if (!plan?.agreementId) {
+      toast.error("El plan no conserva un convenio asociado.");
+      return;
+    }
+    setPayrollDiscountModalOpen(true);
   };
 
   const duplicatePlan = async (targetPlan: TreatmentPlanDetail) => {
@@ -1518,7 +1571,6 @@ export function PatientTreatmentsPage() {
                   totals={totals}
                   patientAgreementName={effectiveAgreement.agreement?.name}
                   upcomingAppointments={upcomingAppointments}
-                  globalPaid={payments.data?.balance.allocatedPaidAmount ?? 0}
                   onOpenAgreement={openAgreementPanel}
                   onOpenBranch={() => setBranchModalOpen(true)}
                   onOpenRefunds={() => setRefundsModalOpen(true)}
@@ -1558,7 +1610,7 @@ export function PatientTreatmentsPage() {
                       financeDisabledReason={financingDisabledReason(canCreateFinancing, financeableTotal)}
                       payrollDiscountDisabledReason={payrollDiscountDisabledReason(
                         patient.data?.agreement,
-                        financeableTotal
+                        payrollChargeTotal
                       )}
                       collectDisabledReason={collectDisabledReason(canCollectPayment, totals.balance)}
                       onOpenRefunds={() => setRefundsModalOpen(true)}
@@ -1755,7 +1807,7 @@ export function PatientTreatmentsPage() {
                             </Button>
                           </div>
 
-                          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 md:gap-2">
+                          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 md:gap-2">
                             <div>
                               <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
                                 Profesional
@@ -1779,7 +1831,11 @@ export function PatientTreatmentsPage() {
                               <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
                                 Ultima cita
                               </div>
-                              <div className="text-sm text-slate-700 font-medium">Sin sesiones</div>
+                              <div className="text-sm text-slate-700 font-medium">
+                                {item.appointments?.[0]?.startAt
+                                  ? formatDate(item.appointments[0].startAt)
+                                  : "Sin sesiones"}
+                              </div>
                             </div>
                             <div className="flex flex-col items-center md:items-start">
                               <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
@@ -1798,18 +1854,35 @@ export function PatientTreatmentsPage() {
                                 {PLAN_CLINICAL_STATUS_LABELS[clinicalStatus]}
                               </div>
                             </div>
+                            <div>
+                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
+                                Estado financiero
+                              </div>
+                              <PlanFinancialStatus summary={item.financialSummary} />
+                            </div>
                           </div>
 
-                          <div className="mt-5 pt-3 border-t border-slate-100 text-xs font-medium text-slate-500">
-                            Presupuesto vacío
+                          <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs font-medium text-slate-500">
+                            <span>Presupuesto {money(numberValue(item.financialSummary?.budgetAmount))}</span>
+                            <span>
+                              Creado {formatDate(item.createdAt)} · Última actividad{" "}
+                              {formatDate(item.updatedAt)}
+                            </span>
                           </div>
                         </div>
                       </div>
                     );
                   };
 
-                  const inProgress = planList.filter((p) => planClinicalStatus(p) === "IN_PROGRESS");
-                  const others = planList.filter((p) => planClinicalStatus(p) !== "IN_PROGRESS");
+                  const finalizedWithDebt = planList.filter(
+                    (p) => planClinicalStatus(p) === "COMPLETED" && planHasFinancialDebt(p)
+                  );
+                  const inProgress = planList.filter(
+                    (p) => planClinicalStatus(p) === "IN_PROGRESS" && !finalizedWithDebt.includes(p)
+                  );
+                  const others = planList.filter(
+                    (p) => !inProgress.includes(p) && !finalizedWithDebt.includes(p)
+                  );
 
                   return (
                     <>
@@ -1839,6 +1912,18 @@ export function PatientTreatmentsPage() {
                           <div className="space-y-4">{others.map(renderCard)}</div>
                         )}
                       </div>
+
+                      {finalizedWithDebt.length ? (
+                        <div>
+                          <div className="mb-6 flex items-center gap-4">
+                            <h3 className="text-2xl font-normal text-red-600">
+                              Presupuestos finalizados con deudas
+                            </h3>
+                            <div className="h-px flex-1 bg-red-200" />
+                          </div>
+                          <div className="space-y-4">{finalizedWithDebt.map(renderCard)}</div>
+                        </div>
+                      ) : null}
                     </>
                   );
                 })()}
@@ -2005,6 +2090,20 @@ export function PatientTreatmentsPage() {
         }}
       />
 
+      <PayrollDiscountModal
+        open={payrollDiscountModalOpen}
+        plan={plan}
+        items={payrollChargeItems}
+        totalAvailable={payrollChargeTotal}
+        saving={createPayrollDiscountPlan.isPending}
+        onClose={() => setPayrollDiscountModalOpen(false)}
+        onCreate={async (payload) => {
+          if (!plan?.agreementId) return;
+          await createPayrollDiscountPlan.mutateAsync({ agreementId: plan.agreementId, payload });
+          setPayrollDiscountModalOpen(false);
+        }}
+      />
+
       <BranchChangeModal
         open={branchModalOpen}
         plan={plan}
@@ -2082,7 +2181,6 @@ function PlanSidebar({
   totals,
   patientAgreementName,
   upcomingAppointments,
-  globalPaid,
   onOpenAgreement,
   onOpenBranch,
   onOpenRefunds
@@ -2097,11 +2195,16 @@ function PlanSidebar({
     professional: { firstName: string; lastName: string };
     branch?: { name: string } | null;
   }>;
-  globalPaid: number;
   onOpenAgreement: () => void;
   onOpenBranch: () => void;
   onOpenRefunds: () => void;
 }) {
+  const financial = plan.financialSummary;
+  const budgetAmount = numberValue(financial?.budgetAmount ?? totals.total);
+  const discountAmount = numberValue(financial?.discountAmount ?? totals.discount);
+  const recognizedAmount = numberValue(financial?.recognizedAmount ?? totals.completed);
+  const paidAmount = numberValue(financial?.paidAmount ?? totals.paid);
+  const outstandingAmount = numberValue(financial?.outstandingAmount ?? totals.balance);
   return (
     <aside className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="bg-gradient-to-br from-[#0b8bd8] to-[#23b4c8] p-5 text-white">
@@ -2115,15 +2218,31 @@ function PlanSidebar({
 
         <div className="mt-5 rounded-lg bg-white p-4 text-slate-900 shadow-sm">
           <p className="text-center text-xs text-slate-500">Presupuesto total</p>
-          <p className="mt-1 text-center text-2xl font-semibold text-[#0879d5]">{money(totals.total)}</p>
+          <p className="mt-1 text-center text-2xl font-semibold text-[#0879d5]">{money(budgetAmount)}</p>
           <div className="mt-4 space-y-2 text-xs">
-            <SummaryLine label="Subtotal" value={money(totals.subtotal)} />
-            <SummaryLine label="Descuento" value={money(totals.discount)} />
-            <SummaryLine label="Realizado" value={money(totals.completed)} />
-            <SummaryLine label="Abonado al plan" value={money(totals.paid)} />
-            <SummaryLine label="Abonos del paciente" value={money(globalPaid)} />
-            <SummaryLine label="Saldo por abonar" value={money(totals.balance)} strong />
+            <SummaryLine
+              label="Presupuesto bruto"
+              value={money(numberValue(financial?.grossBudgetAmount ?? totals.subtotal))}
+            />
+            <SummaryLine label="Descuento comercial" value={money(discountAmount)} />
+            <SummaryLine
+              label="Realizado"
+              value={money(recognizedAmount)}
+              hint="Valor financiero reconocido de las prestaciones evolucionadas."
+            />
+            <SummaryLine
+              label="Abonado"
+              value={money(paidAmount)}
+              hint="Pagos válidos asignados a este plan."
+            />
+            <SummaryLine
+              label="Saldo por abonar"
+              value={money(outstandingAmount)}
+              strong
+              hint="Importe pendiente para completar el presupuesto total."
+            />
           </div>
+          <FinancialSituationPanel summary={financial} />
         </div>
       </div>
 
@@ -2177,12 +2296,61 @@ function PlanSidebar({
   );
 }
 
-function SummaryLine({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function SummaryLine({
+  label,
+  value,
+  strong,
+  hint
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  hint?: string;
+}) {
   return (
     <div className="flex items-center justify-between gap-3 border-b border-dotted border-slate-200 pb-1">
-      <span className="text-slate-500">{label}</span>
+      <span className="text-slate-500" title={hint}>
+        {label}
+      </span>
       <span className={strong ? "font-bold text-slate-950" : "font-medium text-slate-700"}>{value}</span>
     </div>
+  );
+}
+
+function FinancialSituationPanel({ summary }: { summary?: TreatmentPlanFinancialSummary | null }) {
+  if (!summary) return null;
+  const code = summary.situation.code;
+  const tone =
+    code === "DEBT"
+      ? "border-red-200 bg-red-50 text-red-700"
+      : code === "NO_AVAILABLE_BALANCE"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : code === "CANCELLED"
+          ? "border-slate-200 bg-slate-50 text-slate-600"
+          : "border-emerald-200 bg-emerald-50 text-emerald-700";
+  const amount = summary.situation.amount ? money(numberValue(summary.situation.amount)) : null;
+
+  return (
+    <details className={`mt-4 rounded-lg border px-3 py-2 ${tone}`}>
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-xs font-bold">
+        <span>{summary.situation.label}</span>
+        {amount ? <span>{amount}</span> : null}
+      </summary>
+      <div className="mt-3 space-y-1.5 border-t border-current/15 pt-3 text-[11px]">
+        <SummaryLine
+          label="Deuda clínica"
+          value={money(numberValue(summary.debtAmount))}
+          hint="Valor realizado que todavía no está cubierto por pagos."
+        />
+        <SummaryLine
+          label="Abonos asignados"
+          value={money(numberValue(summary.assignedBalance))}
+          hint="Dinero anticipado vinculado al plan disponible para futuras prestaciones."
+        />
+        <SummaryLine label="Abono libre disponible" value={money(numberValue(summary.freeCreditAmount))} />
+        <SummaryLine label="Importe devuelto" value={money(numberValue(summary.refundedAmount))} />
+      </div>
+    </details>
   );
 }
 
@@ -6151,6 +6319,7 @@ function TreatmentItemsTable({
     itemIds: string[];
     discountType: "PERCENTAGE" | "AMOUNT";
     value: number;
+    discountReason?: string;
   }) => Promise<unknown>;
   onDelete: (itemId: string) => void;
 }) {
@@ -6168,8 +6337,17 @@ function TreatmentItemsTable({
   const withDebtCount =
     proceduresData?.summary.withDebtCount ??
     plan.items.filter((item) => Math.max(numberValue(item.total) - itemPaidAmount(item), 0) > 0).length;
+  const procedureRows = [
+    ...(proceduresData?.sections.flatMap((section) => section.procedures) ?? []),
+    ...(proceduresData?.unsectionedProcedures ?? [])
+  ];
+  const discountLimitsByItemId = new Map(procedureRows.map((item) => [item.id, item.pricing] as const));
   const eligibleDiscountItems = canApplyTreatmentDiscount
-    ? plan.items.filter((item) => isBulkDiscountEligible(item))
+    ? plan.items.filter(
+        (item) =>
+          isBulkDiscountEligible(item) &&
+          Number(discountLimitsByItemId.get(item.id)?.effectiveMaximumDiscountPercent ?? 0) > 0
+      )
     : [];
 
   useEffect(() => {
@@ -6582,6 +6760,7 @@ function TreatmentItemsTable({
         plan={plan}
         selectedItemIds={selectedItemIds}
         eligibleItems={eligibleDiscountItems}
+        discountLimitsByItemId={discountLimitsByItemId}
         onSelectedItemIdsChange={setSelectedItemIds}
         onClose={() => setBulkDiscountOpen(false)}
         onApply={async (payload) => {
@@ -6613,6 +6792,7 @@ function BulkDiscountModal({
   plan,
   selectedItemIds,
   eligibleItems,
+  discountLimitsByItemId,
   onSelectedItemIdsChange,
   onClose,
   onApply
@@ -6621,22 +6801,33 @@ function BulkDiscountModal({
   plan: TreatmentPlanDetail;
   selectedItemIds: string[];
   eligibleItems: TreatmentPlanItem[];
+  discountLimitsByItemId: Map<
+    string,
+    {
+      userMaximumDiscountPercent?: string;
+      procedureMaximumDiscountPercent?: string;
+      effectiveMaximumDiscountPercent?: string;
+    }
+  >;
   onSelectedItemIdsChange: (ids: string[]) => void;
   onClose: () => void;
   onApply: (payload: {
     itemIds: string[];
     discountType: "PERCENTAGE" | "AMOUNT";
     value: number;
+    discountReason?: string;
   }) => Promise<void>;
 }) {
   const [discountType, setDiscountType] = useState<"PERCENTAGE" | "AMOUNT">("PERCENTAGE");
   const [value, setValue] = useState("10");
+  const [discountReason, setDiscountReason] = useState("");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setDiscountType("PERCENTAGE");
     setValue("10");
+    setDiscountReason("");
     if (!selectedItemIds.length && eligibleItems.length) {
       onSelectedItemIdsChange(eligibleItems.map((item) => item.id));
     }
@@ -6647,6 +6838,15 @@ function BulkDiscountModal({
   );
   const numericValue = numberValue(value);
   const selectedBase = selectedItems.reduce((sum, item) => sum + itemDiscountBase(item), 0);
+  const effectiveMaximum = selectedItems.length
+    ? Math.min(
+        ...selectedItems.map((item) =>
+          Number(discountLimitsByItemId.get(item.id)?.effectiveMaximumDiscountPercent ?? 0)
+        )
+      )
+    : 0;
+  const requestedPercent =
+    discountType === "PERCENTAGE" ? numericValue : selectedBase > 0 ? (numericValue / selectedBase) * 100 : 0;
   const previousTotal = selectedItems.reduce((sum, item) => sum + numberValue(item.total), 0);
   const previewDiscount =
     discountType === "PERCENTAGE"
@@ -6662,7 +6862,7 @@ function BulkDiscountModal({
   };
   const invalidValue =
     numericValue < 0 ||
-    (discountType === "PERCENTAGE" && numericValue > 100) ||
+    requestedPercent > effectiveMaximum ||
     (discountType === "AMOUNT" && numericValue > selectedBase) ||
     selectedItems.length === 0;
 
@@ -6676,7 +6876,12 @@ function BulkDiscountModal({
     if (invalidValue || saving) return;
     setSaving(true);
     try {
-      await onApply({ itemIds: selectedItems.map((item) => item.id), discountType, value: numericValue });
+      await onApply({
+        itemIds: selectedItems.map((item) => item.id),
+        discountType,
+        value: numericValue,
+        discountReason: discountReason.trim() || undefined
+      });
     } finally {
       setSaving(false);
     }
@@ -6703,7 +6908,11 @@ function BulkDiscountModal({
               className="mt-1"
               type="number"
               min={0}
-              max={discountType === "PERCENTAGE" ? 100 : undefined}
+              max={
+                discountType === "PERCENTAGE"
+                  ? effectiveMaximum
+                  : Number((selectedBase * (effectiveMaximum / 100)).toFixed(2))
+              }
               step="0.01"
               value={value}
               onChange={(event) => setValue(event.target.value)}
@@ -6722,9 +6931,9 @@ function BulkDiscountModal({
         <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-200">
           {eligibleItems.map((item) => {
             const base = itemDiscountBase(item);
-            const nextDiscount =
-              discountType === "PERCENTAGE" ? Number((base * (numericValue / 100)).toFixed(2)) : numericValue;
+            const nextDiscount = Number((base * (requestedPercent / 100)).toFixed(2));
             const nextTotal = Math.max(base - Math.min(nextDiscount, base), 0);
+            const limits = discountLimitsByItemId.get(item.id);
             return (
               <label
                 key={item.id}
@@ -6741,6 +6950,9 @@ function BulkDiscountModal({
                     {item.procedure ? `[${item.procedure.code}] ${item.procedure.name}` : item.procedureId}
                   </span>
                   <span className="text-xs text-slate-500">{item.section?.name ?? "Sin seccion"}</span>
+                  <span className="block text-xs font-medium text-emerald-700">
+                    Máximo aplicable {limits?.effectiveMaximumDiscountPercent ?? "0.00"} %
+                  </span>
                 </span>
                 <span className="text-right text-xs text-slate-500">
                   Antes
@@ -6759,6 +6971,44 @@ function BulkDiscountModal({
             </div>
           ) : null}
         </div>
+
+        <div className="grid gap-3 rounded-lg border border-sky-100 bg-sky-50 p-3 text-xs text-slate-600 sm:grid-cols-3">
+          <div>
+            <span className="block text-slate-500">Límite usuario</span>
+            <strong>
+              {selectedItems[0]
+                ? discountLimitsByItemId.get(selectedItems[0].id)?.userMaximumDiscountPercent
+                : "0.00"}{" "}
+              %
+            </strong>
+          </div>
+          <div>
+            <span className="block text-slate-500">Menor límite prestación</span>
+            <strong>{effectiveMaximum.toFixed(2)} %</strong>
+          </div>
+          <div>
+            <span className="block text-slate-500">Máximo aplicable</span>
+            <strong className="text-sky-800">{effectiveMaximum.toFixed(2)} %</strong>
+          </div>
+        </div>
+
+        <label className="block">
+          <span className="text-xs font-semibold text-slate-600">Motivo del descuento</span>
+          <Input
+            className="mt-1"
+            value={discountReason}
+            maxLength={240}
+            onChange={(event) => setDiscountReason(event.target.value)}
+            placeholder="Ej. Promoción, fidelización o ajuste comercial"
+          />
+        </label>
+
+        {requestedPercent > effectiveMaximum && selectedItems.length ? (
+          <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            Descuento solicitado {requestedPercent.toFixed(2)} %, máximo aplicable{" "}
+            {effectiveMaximum.toFixed(2)} %. No se guardará ningún cambio.
+          </p>
+        ) : null}
 
         <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm md:grid-cols-3">
           <SummaryLine label="Subtotal anterior" value={money(preview.previousTotal)} strong />
@@ -6847,10 +7097,7 @@ function TreatmentRepriceModal({
   onClose: () => void;
   onApply: () => void;
 }) {
-  const totalDifference = (preview?.items ?? []).reduce(
-    (sum, item) => sum + numberValue(item.difference),
-    0
-  );
+  const totalDifference = (preview?.items ?? []).reduce((sum, item) => sum + numberValue(item.difference), 0);
   const itemById = new Map((plan?.items ?? []).map((item) => [item.id, item]));
 
   return (
@@ -6858,7 +7105,8 @@ function TreatmentRepriceModal({
       {preview ? (
         <div className="space-y-4">
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            Esta acción solo cambia este plan en borrador. No modifica versiones antiguas ni otros tratamientos.
+            Esta acción solo cambia este plan en borrador. No modifica versiones antiguas ni otros
+            tratamientos.
           </div>
 
           <div className="overflow-hidden rounded-lg border border-slate-200">
@@ -6888,7 +7136,9 @@ function TreatmentRepriceModal({
                         <p className="mt-1 text-xs text-amber-700">Tiene pagos o presupuesto no borrador.</p>
                       ) : null}
                     </div>
-                    <span className="font-medium text-slate-700">{money(numberValue(row.current.total))}</span>
+                    <span className="font-medium text-slate-700">
+                      {money(numberValue(row.current.total))}
+                    </span>
                     <span className="font-medium text-slate-900">
                       {row.proposed ? money(numberValue(row.proposed.total)) : "—"}
                     </span>
@@ -6924,7 +7174,9 @@ function TreatmentRepriceModal({
           ) : null}
 
           <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
-            <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+            <Button variant="secondary" onClick={onClose}>
+              Cancelar
+            </Button>
             <Button disabled={!preview.canApply || !reason.trim() || applying} onClick={onApply}>
               {applying ? "Actualizando..." : "Confirmar actualización"}
             </Button>
@@ -7054,9 +7306,7 @@ function BudgetProcedureDrawer({
             className="h-10 w-full rounded-lg border border-slate-200 pl-10 pr-4 text-sm bg-white shadow-none focus-visible:outline-none focus:border-[#185FA5] focus:ring-1 focus:ring-[#185FA5]/20"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={
-              selectedCategory ? "Buscar prestaciones..." : "Buscar categorías, prestaciones..."
-            }
+            placeholder={selectedCategory ? "Buscar prestaciones..." : "Buscar categorías, prestaciones..."}
           />
         </div>
 
@@ -7165,7 +7415,9 @@ function BudgetProcedureDrawer({
         <footer className="shrink-0 border-t border-slate-200 bg-slate-50/80 px-5 py-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
-              <p className="text-[10px] uppercase font-semibold tracking-wider text-slate-400">Piezas seleccionadas</p>
+              <p className="text-[10px] uppercase font-semibold tracking-wider text-slate-400">
+                Piezas seleccionadas
+              </p>
               <p className="truncate text-sm font-semibold text-slate-700">{selectedPieceLabel}</p>
               <p className="mt-0.5 text-xs text-slate-500">Prestaciones en el plan: {planItemCount}</p>
             </div>
@@ -7448,6 +7700,225 @@ function FinancingModal({
   );
 }
 
+function PayrollDiscountModal({
+  open,
+  plan,
+  items,
+  totalAvailable,
+  saving,
+  onClose,
+  onCreate
+}: {
+  open: boolean;
+  plan: TreatmentPlanDetail | null;
+  items: TreatmentPlanItem[];
+  totalAvailable: number;
+  saving: boolean;
+  onClose: () => void;
+  onCreate: (payload: {
+    treatmentPlanId: string;
+    treatmentPlanItemIds: string[];
+    installmentCount: number;
+    firstDueDate: string;
+    periodicity: "WEEKLY" | "BIWEEKLY" | "MONTHLY";
+  }) => Promise<void>;
+}) {
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [installmentCount, setInstallmentCount] = useState("1");
+  const [firstDueDate, setFirstDueDate] = useState(new Date().toISOString().slice(0, 10));
+  const [periodicity, setPeriodicity] = useState<"WEEKLY" | "BIWEEKLY" | "MONTHLY">("MONTHLY");
+
+  useEffect(() => {
+    if (!open) return;
+    setSelectedIds(items.map((item) => item.id));
+    setInstallmentCount("1");
+    setFirstDueDate(new Date().toISOString().slice(0, 10));
+    setPeriodicity("MONTHLY");
+  }, [items, open]);
+
+  if (!plan) return null;
+  const selectedItems = items.filter((item) => selectedIds.includes(item.id));
+  const selectedTotal = roundMoney(
+    selectedItems.reduce((sum, item) => sum + numberValue(item.agreementCoverage), 0)
+  );
+  const count = Math.max(0, Math.trunc(numberValue(installmentCount)));
+  const currency = selectedItems[0]?.priceCurrency ?? "MXN";
+  const schedule = count
+    ? splitAmount(selectedTotal, count).map((amount, index) => ({
+        number: index + 1,
+        dueDate: addInstallmentPeriod(firstDueDate, periodicity, index),
+        amount
+      }))
+    : [];
+  const canCreate =
+    selectedItems.length > 0 && selectedTotal > 0 && count > 0 && Boolean(firstDueDate) && !saving;
+
+  const toggleItem = (itemId: string) => {
+    setSelectedIds((current) =>
+      current.includes(itemId) ? current.filter((id) => id !== itemId) : [...current, itemId]
+    );
+  };
+
+  return (
+    <Modal open={open} title="Descuento por planilla" onClose={onClose} size="2xl">
+      <div className="space-y-5">
+        <div className="rounded-xl border border-sky-100 bg-sky-50/70 p-4">
+          <div className="grid gap-3 text-sm md:grid-cols-4">
+            <SummaryPill label="Empresa / convenio" value={plan.agreement?.name ?? "Convenio del plan"} />
+            <SummaryPill
+              label="Paciente afiliado"
+              value={`${plan.patient.firstName} ${plan.patient.lastName}`}
+            />
+            <SummaryPill label="Sucursal" value={plan.branch.name} />
+            <SummaryPill label="Cobertura disponible" value={money(totalAvailable)} />
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-sky-900">
+            Estas cuotas serán deuda de la empresa hacia la clínica. No se registrarán como pago ni como deuda
+            particular del paciente.
+          </p>
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="w-10 px-3 py-3"></th>
+                <th className="px-3 py-3">Prestación</th>
+                <th className="px-3 py-3">Pieza</th>
+                <th className="px-3 py-3">Estado</th>
+                <th className="px-3 py-3 text-right">Cobro a empresa</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => (
+                <tr key={item.id} className="border-t border-slate-100">
+                  <td className="px-3 py-3">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-slate-300 text-sky-600 focus:ring-sky-600"
+                      checked={selectedIds.includes(item.id)}
+                      onChange={() => toggleItem(item.id)}
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <p className="font-medium text-slate-950">
+                      {item.procedure?.name ?? item.priceSnapshotName ?? "Prestación"}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {item.procedure?.code ?? item.priceSnapshotCode ?? item.id}
+                    </p>
+                  </td>
+                  <td className="px-3 py-3 text-slate-600">{fdiLabel(item.toothNumber)}</td>
+                  <td className="px-3 py-3">
+                    <Badge value={ITEM_STATUS_LABELS[item.status]} tone="default" />
+                  </td>
+                  <td className="px-3 py-3 text-right font-bold text-slate-950">
+                    {new Intl.NumberFormat("es-MX", {
+                      style: "currency",
+                      currency: item.priceCurrency ?? "MXN"
+                    }).format(numberValue(item.agreementCoverage))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-[1fr_380px]">
+          <div className="grid gap-3 md:grid-cols-3">
+            <label className="space-y-1.5">
+              <span className="block text-xs font-semibold text-slate-700">Número de cuotas</span>
+              <Input
+                type="number"
+                min="1"
+                max="120"
+                step="1"
+                value={installmentCount}
+                onChange={(event) => setInstallmentCount(event.target.value)}
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="block text-xs font-semibold text-slate-700">Primera cuota</span>
+              <Input
+                type="date"
+                value={firstDueDate}
+                onChange={(event) => setFirstDueDate(event.target.value)}
+              />
+            </label>
+            <label className="space-y-1.5">
+              <span className="block text-xs font-semibold text-slate-700">Periodicidad</span>
+              <Select
+                value={periodicity}
+                onChange={(event) => setPeriodicity(event.target.value as typeof periodicity)}
+              >
+                <option value="WEEKLY">Semanal</option>
+                <option value="BIWEEKLY">Quincenal</option>
+                <option value="MONTHLY">Mensual</option>
+              </Select>
+            </label>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-slate-950 p-4 text-white">
+            <p className="text-xs font-bold uppercase tracking-[0.14em] text-sky-300">Plan empresarial</p>
+            <p className="mt-1 text-2xl font-bold">
+              {new Intl.NumberFormat("es-MX", { style: "currency", currency }).format(selectedTotal)}
+            </p>
+            <div className="mt-3 flex justify-between text-sm text-slate-300">
+              <span>Prestaciones</span>
+              <strong className="text-white">{selectedItems.length}</strong>
+            </div>
+            <div className="mt-1 flex justify-between text-sm text-slate-300">
+              <span>Cargos a generar</span>
+              <strong className="text-white">{selectedItems.length * count}</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-sm font-semibold text-slate-950">Vista previa de cuotas</p>
+          <div className="mt-3 grid max-h-48 gap-2 overflow-y-auto md:grid-cols-3">
+            {schedule.map((installment) => (
+              <div
+                key={installment.number}
+                className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold text-slate-900">Cuota {installment.number}</p>
+                  <span className="font-bold text-sky-800">
+                    {new Intl.NumberFormat("es-MX", { style: "currency", currency }).format(
+                      installment.amount
+                    )}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-slate-500">Vence {installment.dueDate}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
+          <Button variant="secondary" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            disabled={!canCreate}
+            onClick={() =>
+              void onCreate({
+                treatmentPlanId: plan.id,
+                treatmentPlanItemIds: selectedIds,
+                installmentCount: count,
+                firstDueDate,
+                periodicity
+              })
+            }
+          >
+            {saving ? "Generando cargos..." : "Generar cargos empresariales"}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function PlanProcedureModal({
   open,
   plan,
@@ -7501,7 +7972,14 @@ function PlanProcedureModal({
 
   const selectedProcedure = procedures.find((procedure) => procedure.id === procedureId);
   const selectedPriceItem = priceList?.items.find((item) => item.procedureId === procedureId) ?? null;
-  const total = Math.max(numberValue(quantity) * numberValue(unitPrice) - numberValue(discount), 0);
+  const userMaximumDiscount = Number(priceList?.discountCapability?.maximumDiscountPercent ?? 0);
+  const procedureMaximumDiscount = selectedPriceItem?.allowsDiscount
+    ? Number(selectedPriceItem.maxDiscountPercent ?? 0)
+    : 0;
+  const effectiveMaximumDiscount = Math.min(userMaximumDiscount, procedureMaximumDiscount);
+  const baseAmount = numberValue(quantity) * numberValue(unitPrice);
+  const discountAmount = Number((baseAmount * (numberValue(discount) / 100)).toFixed(2));
+  const total = Math.max(baseAmount - discountAmount, 0);
 
   return (
     <Modal
@@ -7547,9 +8025,11 @@ function PlanProcedureModal({
           value={discount}
           type="number"
           min={0}
+          max={effectiveMaximumDiscount}
           step={0.01}
           onChange={(event) => setDiscount(event.target.value)}
-          placeholder="Descuento"
+          disabled={effectiveMaximumDiscount <= 0}
+          placeholder="Descuento %"
         />
         <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
           <p className="text-xs text-slate-500">Total</p>
@@ -7570,6 +8050,24 @@ function PlanProcedureModal({
           Arancel:{" "}
           <span className="font-semibold text-slate-900">{priceList?.name ?? "Sin lista activa"}</span>
         </p>
+        <div className="mt-2 grid gap-2 border-t border-slate-200 pt-2 sm:grid-cols-3">
+          <p>
+            Límite usuario: <strong>{userMaximumDiscount.toFixed(2)} %</strong>
+          </p>
+          <p>
+            Límite prestación: <strong>{procedureMaximumDiscount.toFixed(2)} %</strong>
+          </p>
+          <p>
+            Máximo aplicable:{" "}
+            <strong className="text-sky-800">{effectiveMaximumDiscount.toFixed(2)} %</strong>
+          </p>
+        </div>
+        {numberValue(discount) > effectiveMaximumDiscount ? (
+          <p className="mt-2 text-red-600">
+            Descuento solicitado {numberValue(discount).toFixed(2)} %, máximo permitido{" "}
+            {effectiveMaximumDiscount.toFixed(2)} %.
+          </p>
+        ) : null}
         <p>
           Origen precio:{" "}
           <span className="font-semibold text-slate-900">
@@ -7596,7 +8094,7 @@ function PlanProcedureModal({
           Cancelar
         </Button>
         <Button
-          disabled={!procedureId || !toothNumber}
+          disabled={!procedureId || !toothNumber || numberValue(discount) > effectiveMaximumDiscount}
           onClick={() =>
             void onSave({
               sectionId: sectionId || undefined,
@@ -7604,7 +8102,7 @@ function PlanProcedureModal({
               toothNumber,
               surface: surface || "ALL",
               quantity: numberValue(quantity) || 1,
-              discount: numberValue(discount),
+              discount: discountAmount,
               notes: notes || undefined
             })
           }

@@ -34,8 +34,8 @@ const patient = {
       isPrivate: true,
       createdAt: "2026-06-09T12:00:00.000Z",
       user: { id: "user-1", firstName: "Admin", lastName: "Uno" },
-      attachments: []
-    }
+      attachments: [],
+    },
   ],
   summary: {
     nextAppointment: null,
@@ -44,9 +44,9 @@ const patient = {
     activeTreatments: 0,
     activeBenefits: 0,
     coverageExpiringSoon: null,
-    hasCriticalAlert: false
+    hasCriticalAlert: false,
   },
-  timeline: []
+  timeline: [],
 };
 
 const appointments = [
@@ -65,11 +65,15 @@ const appointments = [
     durationMinutes: 30,
     branch: { id: "branch-1", name: "Dental + Suc. Leon" },
     patient: { id: "patient-1", firstName: "Demo", lastName: "Sucursal" },
-    professional: { id: "professional-1", firstName: "Lilia", lastName: "Nunez" },
+    professional: {
+      id: "professional-1",
+      firstName: "Lilia",
+      lastName: "Nunez",
+    },
     chair: { id: "chair-1", name: "Sillon 1" },
     specialty: null,
-    treatmentPlan: { id: "plan-1", name: "Diagnostico", status: "ACCEPTED" }
-  }
+    treatmentPlan: { id: "plan-1", name: "Diagnostico", status: "ACCEPTED" },
+  },
 ];
 
 vi.mock("react-router-dom", () => ({
@@ -80,16 +84,18 @@ vi.mock("react-router-dom", () => ({
   ),
   useParams: () => ({ id: "patient-1", profileTab }),
   useLocation: () => ({
-    pathname: profileTab ? `/patients/patient-1/profile/${profileTab}` : "/patients/patient-1/profile"
-  })
+    pathname: profileTab
+      ? `/patients/patient-1/profile/${profileTab}`
+      : "/patients/patient-1/profile",
+  }),
 }));
 
 vi.mock("../components/patient-header", () => ({
-  PatientHeader: () => <div>Patient header</div>
+  PatientHeader: () => <div>Patient header</div>,
 }));
 
 vi.mock("../components/patient-subnav", () => ({
-  PatientSubnav: () => <div>Patient subnav</div>
+  PatientSubnav: () => <div>Patient subnav</div>,
 }));
 
 vi.mock("../components/patient-secondary-nav", () => ({
@@ -99,57 +105,115 @@ vi.mock("../components/patient-secondary-nav", () => ({
         <span key={tab.label}>{tab.label}</span>
       ))}
     </nav>
-  )
+  ),
+}));
+
+vi.mock("../components/patient-family-policies", () => ({
+  PatientFamilyPolicies: () => (
+    <div>No hay beneficios o pólizas asociados a este paciente.</div>
+  ),
+}));
+
+vi.mock("../hooks/use-patient-identity", () => ({
+  usePatientIdentity: () => ({ data: { contacts: [], memberships: [] } }),
 }));
 
 vi.mock("@/features/agenda/hooks/use-appointments", () => ({
-  useAppointments: () => ({ data: appointments, isLoading: false, isError: false, error: null }),
-  useAppointment: () => ({ data: appointments[0], isLoading: false, isError: false, error: null }),
-  useAppointmentNotes: () => ({ data: [], isLoading: false, isError: false, error: null }),
-  useAddAppointmentNote: () => ({ mutateAsync: vi.fn(), isPending: false })
+  useAppointments: () => ({
+    data: appointments,
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  useAppointment: () => ({
+    data: appointments[0],
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  useAppointmentNotes: () => ({
+    data: [],
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  useAddAppointmentNote: () => ({ mutateAsync: vi.fn(), isPending: false }),
 }));
 
-vi.mock("@/features/settings/admin-workflows/hooks/use-admin-workflows", () => ({
-  useAgreements: () => ({ data: [], isLoading: false, isError: false, error: null })
-}));
+vi.mock(
+  "@/features/settings/admin-workflows/hooks/use-admin-workflows",
+  () => ({
+    useAgreements: () => ({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null,
+    }),
+  }),
+);
 
 vi.mock("@/features/settings/branches/hooks/use-branches", () => ({
-  useBranches: () => ({ data: [{ id: "branch-1", name: "Dental + Suc. Leon" }] })
+  useBranches: () => ({
+    data: [{ id: "branch-1", name: "Dental + Suc. Leon" }],
+  }),
 }));
 
 vi.mock("@/features/settings/users/hooks/use-users", () => ({
-  useUsersQuery: () => ({ data: [{ id: "user-2", firstName: "Sarahi", lastName: "Admin" }] })
+  useUsersQuery: () => ({
+    data: [{ id: "user-2", firstName: "Sarahi", lastName: "Admin" }],
+  }),
 }));
 
 vi.mock("@/features/documents/hooks/use-documents", () => ({
   useDocumentsMutations: () => ({
-    uploadPatientBinaryFile: { mutateAsync: vi.fn(), isPending: false }
-  })
+    uploadPatientBinaryFile: { mutateAsync: vi.fn(), isPending: false },
+  }),
 }));
 
 vi.mock("../hooks/use-patients", () => ({
-  usePatient: () => ({ data: patient, isLoading: false, isError: false, error: null }),
-  usePatientTimeline: () => ({ data: [], isLoading: false, isError: false, error: null }),
+  usePatient: () => ({
+    data: patient,
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+  usePatientTimeline: () => ({
+    data: [],
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
   usePatientBenefitsCoverages: () => ({
     data: {
-      summary: { total: 0, active: 0, pendingValidation: 0, documents: 0, nextExpiration: null },
-      items: []
+      summary: {
+        total: 0,
+        active: 0,
+        pendingValidation: 0,
+        documents: 0,
+        nextExpiration: null,
+      },
+      items: [],
     },
     isLoading: false,
     isError: false,
-    error: null
+    error: null,
   }),
   usePatientBenefitsCoverageMutations: () => ({
     createCoverage: { mutateAsync: vi.fn(), isPending: false },
     updateCoverage: { mutateAsync: vi.fn(), isPending: false },
     changeStatus: { mutate: vi.fn(), isPending: false },
-    validateInsurance: { mutateAsync: vi.fn(), isPending: false }
+    validateInsurance: { mutateAsync: vi.fn(), isPending: false },
   }),
   useUpdatePatient: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAddPatientNote: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useAddPatientAlert: () => ({ mutateAsync: vi.fn(), isPending: false }),
   useSendPatientEmail: () => ({ mutateAsync: vi.fn(), isPending: false }),
-  usePatientEmails: () => ({ data: [], isLoading: false, isError: false, error: null }),
+  usePatientEmails: () => ({
+    data: [],
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
   usePatientTasks: () => ({
     data: [
       {
@@ -165,18 +229,18 @@ vi.mock("../hooks/use-patients", () => ({
         completedAt: null,
         completedBy: null,
         createdAt: "2026-06-09T12:00:00.000Z",
-        updatedAt: "2026-06-09T12:00:00.000Z"
-      }
+        updatedAt: "2026-06-09T12:00:00.000Z",
+      },
     ],
     isLoading: false,
     isError: false,
-    error: null
+    error: null,
   }),
   usePatientTaskMutations: () => ({
     createTask: { mutateAsync: vi.fn(), isPending: false },
     updateTask: { mutate: vi.fn(), isPending: false },
-    completeTask: { mutate: vi.fn(), isPending: false }
-  })
+    completeTask: { mutate: vi.fn(), isPending: false },
+  }),
 }));
 
 describe("PatientProfilePage subtabs", () => {
@@ -200,18 +264,29 @@ describe("PatientProfilePage subtabs", () => {
 
     render(<PatientProfilePage />);
 
-    expect(screen.getByRole("heading", { name: "Comentarios administrativos" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Comentarios administrativos" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Adjuntar Archivos")).toBeInTheDocument();
     expect(screen.getByText("Comentario administrativo")).toBeInTheDocument();
   });
 
-  it("renders benefits and coverages subtab without replacing existing views", () => {
+  it("renders a single benefits and coverages experience", () => {
     profileTab = "benefits-coverages";
 
     render(<PatientProfilePage />);
 
-    expect(screen.getAllByText("Beneficios y coberturas").length).toBeGreaterThan(0);
-    expect(screen.getByText(/El paciente no tiene beneficios ni coberturas registrados/i)).toBeInTheDocument();
+    expect(
+      screen.getAllByText("Beneficios y coberturas").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByText(
+        /No hay beneficios o pólizas asociados a este paciente/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Otros beneficios y convenios"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("Citas")).toBeInTheDocument();
     expect(screen.getByText("Comentarios administrativos")).toBeInTheDocument();
     expect(screen.getByText("Tareas de gestion")).toBeInTheDocument();
@@ -223,7 +298,9 @@ describe("PatientProfilePage subtabs", () => {
 
     render(<PatientProfilePage />);
 
-    expect(screen.getByRole("heading", { name: "Tareas de gestion" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Tareas de gestion" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Agendar Cita")).toBeInTheDocument();
     expect(screen.getByText("Fijar cita por ausencia")).toBeInTheDocument();
   });
@@ -233,8 +310,12 @@ describe("PatientProfilePage subtabs", () => {
 
     render(<PatientProfilePage />);
 
-    expect(screen.getByRole("heading", { name: "Registro de Emails" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Registro de Emails" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("Redactar nuevo email")).toBeInTheDocument();
-    expect(screen.getByText("No se encontró ningún registro de email")).toBeInTheDocument();
+    expect(
+      screen.getByText("No se encontró ningún registro de email"),
+    ).toBeInTheDocument();
   });
 });

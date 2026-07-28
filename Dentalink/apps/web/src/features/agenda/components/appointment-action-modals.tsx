@@ -374,36 +374,81 @@ export function AppointmentEmailModal({
   };
 
   return (
-    <Modal open={Boolean(appointment)} title={mode === "dataRequest" ? "Solicitud de datos" : "Notificar por email"} onClose={onClose}>
-      <div className="space-y-3">
-        <Input placeholder="Correo destinatario" value={to} onChange={(event) => setTo(event.target.value)} />
-        <Input placeholder="Asunto" value={subject} onChange={(event) => setSubject(event.target.value)} />
-        <Textarea rows={6} placeholder="Mensaje" value={body} onChange={(event) => setBody(event.target.value)} />
-        <div className="grid gap-3 rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-subtle)] p-[var(--space-3)] md:grid-cols-2">
-          <label className="grid gap-1 text-[var(--text-xs)] font-semibold uppercase text-[var(--text-secondary)]">
-            Canal del recordatorio
+    <Modal open={Boolean(appointment)} title={mode === "dataRequest" ? "Solicitud de datos" : "Notificar por email"} onClose={onClose} size="lg">
+      <div className="space-y-6">
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <label className="text-[var(--text-sm)] font-medium text-[var(--text-primary)]">Destinatario</label>
+              <Input 
+                type="email"
+                placeholder="ejemplo@correo.com" 
+                value={to} 
+                onChange={(event) => setTo(event.target.value)} 
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[var(--text-sm)] font-medium text-[var(--text-primary)]">Asunto</label>
+              <Input 
+                placeholder="Asunto del correo" 
+                value={subject} 
+                onChange={(event) => setSubject(event.target.value)} 
+              />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[var(--text-sm)] font-medium text-[var(--text-primary)]">Mensaje</label>
+            <Textarea 
+              rows={5} 
+              className="resize-none"
+              placeholder="Escribe el mensaje aquí..." 
+              value={body} 
+              onChange={(event) => setBody(event.target.value)} 
+            />
+          </div>
+        </div>
+        
+        <div className="grid gap-4 rounded-lg border border-[var(--border-default)] bg-[var(--bg-subtle)] p-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <label className="text-[var(--text-xs)] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+              Canal del recordatorio
+            </label>
             <Select value={channel} onChange={(event) => setChannel(event.target.value as AppointmentReminderPayload["channel"])}>
               <option value="EMAIL">Email</option>
               <option value="WHATSAPP">WhatsApp</option>
               <option value="PHONE">Teléfono</option>
             </Select>
-          </label>
-          <label className="grid gap-1 text-[var(--text-xs)] font-semibold uppercase text-[var(--text-secondary)]">
-            Programar para
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-[var(--text-xs)] font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+              Programar para
+            </label>
             <Input type="datetime-local" value={scheduledAt} onChange={(event) => setScheduledAt(event.target.value)} />
-          </label>
+          </div>
         </div>
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose} type="button">Cerrar</Button>
-          <Button
-            variant="secondary"
-            disabled={!appointment || !onScheduleReminder || !scheduledAt || scheduling}
-            onClick={() => void scheduleReminder()}
-            type="button"
-          >
-            {scheduling ? "Registrando..." : "Registrar recordatorio"}
+
+        <div className="flex items-center justify-between pt-2">
+          <Button variant="secondary" onClick={onClose} type="button" className="w-full sm:w-auto">
+            Cancelar
           </Button>
-          <Button disabled={!subject.trim() || !body.trim()} onClick={send}>Abrir correo</Button>
+          <div className="flex w-full gap-2 sm:w-auto">
+            <Button
+              variant="secondary"
+              className="flex-1 sm:flex-none"
+              disabled={!appointment || !onScheduleReminder || !scheduledAt || scheduling}
+              onClick={() => void scheduleReminder()}
+              type="button"
+            >
+              {scheduling ? "Registrando..." : "Programar"}
+            </Button>
+            <Button 
+              className="flex-1 sm:flex-none"
+              disabled={!subject.trim() || !body.trim()} 
+              onClick={send}
+            >
+              Enviar ahora
+            </Button>
+          </div>
         </div>
       </div>
     </Modal>

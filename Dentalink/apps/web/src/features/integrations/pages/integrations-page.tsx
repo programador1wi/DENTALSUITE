@@ -48,7 +48,6 @@ import type {
   ImportJob,
   ImportJobStatus,
   ImportJobType,
-  MessageDeliveryStatus,
   PaymentWebhookEvent,
   Survey,
   SurveyStatus,
@@ -90,8 +89,8 @@ const TELEMEDICINE_STATUSES: TelemedicineSessionStatus[] = ["SCHEDULED", "STARTE
 const AI_USE_CASES: AiUseCase[] = ["RADIOGRAPHY", "CLINICAL_NOTE", "REPORT", "CRM", "CONTROL", "SMILE_SIMULATOR"];
 const AI_STATUSES: AiRequestStatus[] = ["PENDING", "PROCESSING", "COMPLETED", "FAILED", "CANCELLED"];
 
-export function IntegrationsPage() {
-  const [active, setActive] = useState<TabKey>("communications");
+export function IntegrationsPage({ initialTab = "communications" }: { initialTab?: TabKey }) {
+  const [active, setActive] = useState<TabKey>(initialTab);
 
   return (
     <div className="space-y-4">
@@ -209,7 +208,13 @@ function CommunicationsPanel() {
             title: "Acciones",
             render: (row: CommunicationJob) => (
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" variant="secondary" type="button" onClick={() => mutations.queueCommunicationJob.mutate(row.id)}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  type="button"
+                  disabled={row.status !== "PENDING" && row.status !== "FAILED"}
+                  onClick={() => mutations.queueCommunicationJob.mutate(row.id)}
+                >
                   <Play className="h-3.5 w-3.5" />
                   Encolar
                 </Button>
@@ -217,6 +222,7 @@ function CommunicationsPanel() {
                   size="sm"
                   variant="ghost"
                   type="button"
+                  disabled={row.status === "SENT"}
                   onClick={() => mutations.recordMessageDelivery.mutate({ id: row.id, status: "DELIVERED" })}
                 >
                   Entregado

@@ -125,6 +125,10 @@ vi.mock("@/features/settings/admin-workflows/hooks/use-admin-workflows", () => (
     data: mockState.agreements,
     isLoading: false,
     isError: false
+  }),
+  useCreatePayrollDiscountPlan: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false
   })
 }));
 

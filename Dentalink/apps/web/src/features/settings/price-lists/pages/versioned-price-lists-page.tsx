@@ -474,7 +474,7 @@ export function VersionedPriceListsPage() {
                   {latestVersion.status === "DRAFT" && can("price_list.edit_draft") ? <Button size="sm" onClick={() => openNewItem(selectedCategory.id)}><Plus className="h-4 w-4" /> Nuevo producto</Button> : null}
                 </div>
                 <table className="w-full border-collapse text-sm">
-                  <thead className="bg-[var(--bg-subtle)] text-left"><tr><th className="w-[110px] px-4 py-3">ID</th><th className="w-[120px] px-4 py-3">Codigo</th><th className="px-4 py-3">Nombre</th><th className="px-4 py-3">Permite descuento</th><th className="px-4 py-3 text-right">Precio final</th><th className="px-4 py-3 text-right">Costo laboratorio</th><th className="px-4 py-3 text-right">Opciones</th></tr></thead>
+                  <thead className="bg-[var(--bg-subtle)] text-left"><tr><th className="w-[110px] px-4 py-3">ID</th><th className="w-[120px] px-4 py-3">Codigo</th><th className="px-4 py-3">Nombre</th><th className="px-4 py-3">Permite descuento</th><th className="w-[130px] px-4 py-3 text-center">Máx. dscto.</th><th className="px-4 py-3 text-right">Precio final</th><th className="px-4 py-3 text-right">Costo laboratorio</th><th className="px-4 py-3 text-right">Opciones</th></tr></thead>
                   <tbody>
                     {selectedCategoryItems.map((item) => {
                       if (itemOpen && editingItem?.id === item.id) {
@@ -497,17 +497,28 @@ export function VersionedPriceListsPage() {
                                   onChange={(e) => setItemForm({ ...itemForm, allowDiscount: e.target.checked })}
                                   className="h-4 w-4"
                                 />
-                                {itemForm.allowDiscount && (
+                                <span className="text-xs font-medium">{itemForm.allowDiscount ? "Sí" : "No"}</span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-3">
+                              {itemForm.allowDiscount ? (
+                                <div className="flex items-center justify-center gap-1">
                                   <Input
-                                    inputMode="decimal"
+                                    type="number"
+                                    min={0.01}
+                                    max={100}
+                                    step={0.01}
                                     value={itemForm.maxDiscountPercent}
                                     onChange={(e) => setItemForm({ ...itemForm, maxDiscountPercent: e.target.value })}
-                                    className="h-8 w-16 px-1.5 text-center text-xs"
-                                    placeholder="%"
-                                    title="Parametro heredado de descuento"
+                                    onWheel={(e) => e.currentTarget.blur()}
+                                    className="h-8 w-20 px-1.5 text-right text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                    aria-label="Máximo de descuento permitido"
                                   />
-                                )}
-                              </div>
+                                  <span className="text-xs font-semibold text-[var(--text-secondary)]">%</span>
+                                </div>
+                              ) : (
+                                <span className="block text-center text-xs text-[var(--text-secondary)]">No permitido</span>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-right">
                               <Input
@@ -570,6 +581,13 @@ export function VersionedPriceListsPage() {
                                 <span className="text-xs font-semibold text-[var(--text-secondary)]">No permite descuento</span>
                               )}
                             </div>
+                          </td>
+                          <td className="px-4 py-3 text-center tabular-nums">
+                            {item.allowDiscount ? (
+                              <span className="font-semibold text-[var(--text-primary)]">{Number(item.maxDiscountPercent).toFixed(2)} %</span>
+                            ) : (
+                              <span className="text-xs text-[var(--text-secondary)]">No permitido</span>
+                            )}
                           </td>
                           <td className="px-4 py-3 text-right font-semibold">{money(item.basePrice, latestVersion.currency)}</td>
                           <td className="px-4 py-3 text-right">
@@ -652,17 +670,28 @@ export function VersionedPriceListsPage() {
                               onChange={(e) => setItemForm({ ...itemForm, allowDiscount: e.target.checked })}
                               className="h-4 w-4"
                             />
-                            {itemForm.allowDiscount && (
+                            <span className="text-xs font-medium">{itemForm.allowDiscount ? "Sí" : "No"}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {itemForm.allowDiscount ? (
+                            <div className="flex items-center justify-center gap-1">
                               <Input
-                                inputMode="decimal"
+                                type="number"
+                                min={0.01}
+                                max={100}
+                                step={0.01}
                                 value={itemForm.maxDiscountPercent}
                                 onChange={(e) => setItemForm({ ...itemForm, maxDiscountPercent: e.target.value })}
-                                className="h-8 w-16 px-1.5 text-center text-xs"
-                                placeholder="%"
-                                title="Parametro heredado de descuento"
+                                onWheel={(e) => e.currentTarget.blur()}
+                                className="h-8 w-20 px-1.5 text-right text-xs [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                                aria-label="Máximo de descuento permitido"
                               />
-                            )}
-                          </div>
+                              <span className="text-xs font-semibold text-[var(--text-secondary)]">%</span>
+                            </div>
+                          ) : (
+                            <span className="block text-center text-xs text-[var(--text-secondary)]">No permitido</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <Input
@@ -712,7 +741,7 @@ export function VersionedPriceListsPage() {
                       </tr>
                     ) : null}
 
-                    {!items.isLoading && !selectedCategoryItems.length && (!itemOpen || editingItem) ? <tr><td colSpan={7} className="px-4 py-12 text-center text-[var(--text-secondary)]">Categoria sin prestaciones configuradas en esta version.</td></tr> : null}
+                    {!items.isLoading && !selectedCategoryItems.length && (!itemOpen || editingItem) ? <tr><td colSpan={8} className="px-4 py-12 text-center text-[var(--text-secondary)]">Categoria sin prestaciones configuradas en esta version.</td></tr> : null}
                   </tbody>
                 </table>
               </div>
@@ -793,7 +822,14 @@ export function VersionedPriceListsPage() {
                       {event.correlationId ? <span className="font-mono text-[10px] text-[var(--text-secondary)]">{event.correlationId}</span> : null}
                     </div>
                     {event.reason ? <p className="mt-2 text-[var(--text-secondary)]">Motivo: {event.reason}</p> : null}
-                    {event.oldValue !== undefined || event.newValue !== undefined ? <details className="mt-2"><summary className="cursor-pointer text-xs font-medium text-[var(--text-brand)]">Ver valores anterior y nuevo</summary><pre className="mt-2 max-h-52 overflow-auto rounded bg-[var(--bg-subtle)] p-2 text-[10px]">{JSON.stringify({ anterior: event.oldValue, nuevo: event.newValue }, null, 2)}</pre></details> : null}
+                    {event.oldValue !== undefined || event.newValue !== undefined ? (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs font-medium text-[var(--text-brand)]">
+                          Ver valores (anterior vs nuevo)
+                        </summary>
+                        <AuditDiffViewer oldValue={event.oldValue} newValue={event.newValue} />
+                      </details>
+                    ) : null}
                   </article>
                 ))}
                 {!history.data?.events.length ? <p className="py-6 text-center text-sm text-[var(--text-secondary)]">No hay eventos para este listado.</p> : null}
@@ -818,6 +854,187 @@ export function VersionedPriceListsPage() {
           <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setPublishOpen(false)}>Cancelar</Button><Button disabled={!validation.valid || !changeSummary.trim() || mutations.publish.isPending} onClick={publish}>Publicar version inmutable</Button></div>
         </div>}
       </Modal>
+    </div>
+  );
+}
+
+function AuditDiffViewer({ oldValue, newValue }: { oldValue: unknown; newValue: unknown }) {
+  const oldObj = (typeof oldValue === "object" && oldValue !== null ? oldValue : {}) as Record<string, any>;
+  const newObj = (typeof newValue === "object" && newValue !== null ? newValue : {}) as Record<string, any>;
+
+  const IGNORED_KEYS = new Set([
+    "id", "checksum", "organizationId", "priceListId", "scopes", "replacedVersions",
+    "previousVersionId", "updatedById", "validTo", "validFrom", "createdAt", "updatedAt",
+    "sourceVersionId", "version"
+  ]);
+
+  const FIELD_LABELS: Record<string, string> = {
+    versionNumber: "Número de versión",
+    status: "Estado",
+    currency: "Moneda",
+    changeSummary: "Resumen de cambios",
+    itemCount: "Total de prestaciones",
+    name: "Nombre del tarifario",
+    code: "Código",
+    basePrice: "Precio base",
+    maxDiscountPercent: "% Descuento máx.",
+    allowDiscount: "Permite descuento",
+    laboratoryCost: "Costo laboratorio"
+  };
+
+  const formatSimpleValue = (val: any) => {
+    if (val === null || val === undefined || val === "") return <span className="text-slate-400 font-normal italic">Sin registro</span>;
+    if (typeof val === "boolean") return <Badge value={val ? "Sí" : "No"} tone={val ? "success" : "default"} />;
+    if (typeof val === "number" || typeof val === "string") return <span className="font-semibold text-slate-800">{String(val)}</span>;
+    return <span className="text-slate-600 font-mono text-[11px]">{JSON.stringify(val)}</span>;
+  };
+
+  const getCleanEntries = (obj: Record<string, any>) => {
+    return Object.entries(obj).filter(([key]) => !IGNORED_KEYS.has(key) && key !== "items");
+  };
+
+  const oldEntries = getCleanEntries(oldObj);
+  const newEntries = getCleanEntries(newObj);
+
+  const oldItems: any[] = Array.isArray(oldObj.items) ? oldObj.items : [];
+  const newItems: any[] = Array.isArray(newObj.items) ? newObj.items : [];
+
+  const hasItems = oldItems.length > 0 || newItems.length > 0;
+
+  const itemDiffs = useMemo(() => {
+    if (!hasItems) return [];
+    const map = new Map<string, { oldItem?: any; newItem?: any }>();
+
+    for (const item of oldItems) {
+      const key = item.procedureId || item.id || item.procedure?.code || item.procedure?.name;
+      if (key) map.set(key, { oldItem: item });
+    }
+    for (const item of newItems) {
+      const key = item.procedureId || item.id || item.procedure?.code || item.procedure?.name;
+      const existing = map.get(key);
+      if (existing) {
+        existing.newItem = item;
+      } else {
+        map.set(key, { newItem: item });
+      }
+    }
+
+    const diffList: { code: string; name: string; type: "ADDED" | "REMOVED" | "MODIFIED" | "UNCHANGED"; oldPrice?: number; newPrice?: number }[] = [];
+
+    for (const [, val] of map.entries()) {
+      const name = val.newItem?.procedure?.name || val.oldItem?.procedure?.name || val.newItem?.name || val.oldItem?.name || "Prestación";
+      const code = val.newItem?.procedure?.code || val.oldItem?.procedure?.code || val.newItem?.code || val.oldItem?.code || "";
+
+      if (!val.oldItem && val.newItem) {
+        diffList.push({ code, name, type: "ADDED", newPrice: val.newItem.basePrice });
+      } else if (val.oldItem && !val.newItem) {
+        diffList.push({ code, name, type: "REMOVED", oldPrice: val.oldItem.basePrice });
+      } else if (val.oldItem && val.newItem) {
+        const pOld = Number(val.oldItem.basePrice);
+        const pNew = Number(val.newItem.basePrice);
+        if (pOld !== pNew || val.oldItem.status !== val.newItem.status) {
+          diffList.push({ code, name, type: "MODIFIED", oldPrice: pOld, newPrice: pNew });
+        }
+      }
+    }
+    return diffList;
+  }, [oldItems, newItems, hasItems]);
+
+  return (
+    <div className="mt-3 space-y-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Versión</span>
+          <div className="mt-1 flex items-center gap-2">
+            {oldObj.versionNumber ? <span className="rounded bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-700">v{oldObj.versionNumber}</span> : null}
+            {oldObj.versionNumber && newObj.versionNumber ? <span className="text-slate-400 font-bold">➔</span> : null}
+            {newObj.versionNumber ? <span className="rounded bg-blue-100 px-2 py-0.5 text-xs font-bold text-blue-800">v{newObj.versionNumber}</span> : <span className="text-xs text-slate-400">Sin versión</span>}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Estado</span>
+          <div className="mt-1 flex items-center gap-2">
+            {oldObj.status ? <Badge value={oldObj.status} tone="default" /> : null}
+            {oldObj.status && newObj.status ? <span className="text-slate-400 font-bold">➔</span> : null}
+            {newObj.status ? <Badge value={newObj.status} tone={newObj.status === "ACTIVE" ? "success" : "brand"} /> : <span className="text-xs text-slate-400">-</span>}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Catálogo de Prestaciones</span>
+          <div className="mt-1 flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-700">{oldItems.length || oldObj.itemCount || 0} ítems</span>
+            <span className="text-slate-400 font-bold">➔</span>
+            <span className="text-xs font-bold text-emerald-700">{newItems.length || newObj.itemCount || 0} ítems</span>
+          </div>
+        </div>
+      </div>
+
+      {(oldEntries.length > 0 || newEntries.length > 0) && (
+        <div className="rounded-lg border border-slate-200 overflow-hidden text-xs">
+          <div className="bg-slate-100 px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">
+            Atributos modificados
+          </div>
+          <div className="divide-y divide-slate-100">
+            {Array.from(new Set([...oldEntries.map((e) => e[0]), ...newEntries.map((e) => e[0])])).map((key) => {
+              const label = FIELD_LABELS[key] || key.replace(/([A-Z])/g, " $1");
+              const valOld = oldObj[key];
+              const valNew = newObj[key];
+              return (
+                <div key={key} className="grid grid-cols-3 gap-2 px-3 py-2 hover:bg-slate-50/50">
+                  <span className="font-medium text-slate-500 capitalize">{label}</span>
+                  <div className="text-slate-600">{formatSimpleValue(valOld)}</div>
+                  <div className="text-slate-900 font-semibold">{formatSimpleValue(valNew)}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {hasItems && (
+        <div className="rounded-lg border border-slate-200 overflow-hidden text-xs">
+          <div className="flex items-center justify-between bg-slate-100 px-3 py-2 font-semibold text-slate-700 border-b border-slate-200">
+            <span>Prestaciones afectadas ({itemDiffs.length})</span>
+            <span className="text-[11px] font-normal text-slate-500">Mostrando cambios de precios y catálogo</span>
+          </div>
+          {itemDiffs.length > 0 ? (
+            <div className="max-h-56 overflow-y-auto divide-y divide-slate-100">
+              {itemDiffs.map((diff, idx) => (
+                <div key={idx} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 hover:bg-slate-50">
+                  <div className="flex items-center gap-2">
+                    {diff.code ? <span className="font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">{diff.code}</span> : null}
+                    <span className="font-medium text-slate-800">{diff.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {diff.type === "ADDED" && (
+                      <span className="inline-flex items-center gap-1 rounded bg-emerald-50 border border-emerald-200 px-2 py-0.5 font-bold text-emerald-700 text-[11px]">
+                        + Nuevo (${diff.newPrice ?? 0})
+                      </span>
+                    )}
+                    {diff.type === "REMOVED" && (
+                      <span className="inline-flex items-center gap-1 rounded bg-red-50 border border-red-200 px-2 py-0.5 font-bold text-red-700 text-[11px]">
+                        - Removido (${diff.oldPrice ?? 0})
+                      </span>
+                    )}
+                    {diff.type === "MODIFIED" && (
+                      <div className="flex items-center gap-1.5 text-[11px]">
+                        <span className="text-slate-400 line-through">${diff.oldPrice}</span>
+                        <span className="font-bold text-emerald-700">${diff.newPrice}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="p-3 text-center text-slate-400 italic">
+              Todas las prestaciones mantuvieron el mismo precio y estado.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

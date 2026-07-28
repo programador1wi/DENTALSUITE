@@ -5,7 +5,8 @@ const emailLike = (message = "Correo invalido") =>
 
 export const loginSchema = z.object({
   email: emailLike(),
-  password: z.string().min(8, "Minimo 8 caracteres")
+  password: z.string().min(8, "Minimo 8 caracteres"),
+  rememberMe: z.boolean().optional()
 });
 
 export const registerOrganizationSchema = z.object({

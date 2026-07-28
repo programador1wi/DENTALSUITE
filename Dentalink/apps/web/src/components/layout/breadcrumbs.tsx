@@ -18,6 +18,7 @@ const mapName: Record<string, string> = {
   schedules: "Horarios",
   chairs: "Sillones",
   "payment-methods": "Metodos de pago",
+  "payment-settlements": "Recepciones programadas",
   procedures: "Procedimientos",
   "price-lists": "Listas de precios",
   "consent-templates": "Plantillas consentimiento",
@@ -30,8 +31,7 @@ const mapName: Record<string, string> = {
   users: "Usuarios",
   roles: "Roles",
   login: "Login",
-  "register-organization": "Registro"
-  ,
+  "register-organization": "Registro",
   clinical: "Clinico",
   history: "Historia",
   evolutions: "Evoluciones",

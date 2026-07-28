@@ -35,6 +35,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             }
           }
         },
+        permissions: { include: { permission: true } },
         branches: true
       }
     });
@@ -53,6 +54,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     const permissions = new Set<string>();
     const permissionEntries = [
+      ...user.permissions,
       ...(user.role?.permissions ?? []),
       ...user.roles.flatMap((roleEntry) => roleEntry.role.permissions)
     ];

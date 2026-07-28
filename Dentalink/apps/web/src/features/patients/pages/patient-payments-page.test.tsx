@@ -38,6 +38,17 @@ vi.mock("@/features/settings/payment-methods/hooks/use-payment-methods", () => (
   usePaymentMethods: () => ({ data: [{ id: "method-1", name: "Efectivo" }] })
 }));
 
+vi.mock("@/features/settings/payment-methods/hooks/use-cash-discounts", () => ({
+  useAvailableCashDiscounts: () => ({ data: [], isLoading: false }),
+  useCashDiscountPreview: () => ({
+    data: null,
+    error: null,
+    isPending: false,
+    mutateAsync: vi.fn(),
+    reset: vi.fn()
+  })
+}));
+
 vi.mock("@/features/settings/financial-institutions/hooks/use-financial-institutions", () => ({
   useFinancialInstitutions: () => ({ data: [{ id: "bank-1", name: "Banco" }] })
 }));

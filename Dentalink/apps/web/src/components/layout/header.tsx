@@ -20,6 +20,12 @@ export function Header() {
   const { data: branches } = useBranches(undefined, "ACTIVE");
   const { activeBranchId, setActiveBranchId } = useBranchStore();
 
+  const activeBranch = useMemo(() => {
+    return branches?.find(b => b.id === activeBranchId);
+  }, [branches, activeBranchId]);
+
+  const activeBranchBrand = activeBranch?.brand;
+
   const [globalSearch, setGlobalSearch] = useState("");
   const [cobranzaSearch, setCobranzaSearch] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -107,7 +113,7 @@ export function Header() {
   };
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-[var(--border-default)] bg-white/80 backdrop-blur-md text-[var(--text-primary)] shadow-sm">
+    <header className="sticky top-0 z-50 w-full border-b border-[var(--border-default)] bg-white text-[var(--text-primary)] shadow-sm">
       <div className="mx-auto max-w-[1536px] px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between gap-4">
           
@@ -245,7 +251,7 @@ export function Header() {
                       </button>
 
                       {/* Cobranza Custom Dropdown (Only Search Box) */}
-                      <div className="absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2 rounded-lg border border-[var(--border-default)] bg-white p-4 shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 w-[320px]">
+                      <div className="absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2 rounded-lg border border-[var(--border-default)] bg-white p-4 shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 w-[320px] before:absolute before:-top-3 before:inset-x-0 before:h-3">
                         <div className="space-y-2">
                           <label className="text-[11px] font-medium text-[var(--text-secondary)] block">
                             Buscar paciente por nombre o documento
@@ -296,7 +302,7 @@ export function Header() {
                     {/* Standard Dropdown / Mega Menu */}
                     <div
                       className={cn(
-                        "absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2 rounded-lg border border-[var(--border-default)] bg-white p-3 shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200",
+                        "absolute left-1/2 top-full z-50 mt-1 -translate-x-1/2 rounded-lg border border-[var(--border-default)] bg-white p-3 shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all duration-200 before:absolute before:-top-3 before:inset-x-0 before:h-3",
                         isMega ? "w-[500px]" : "w-[240px]"
                       )}
                     >
@@ -357,6 +363,17 @@ export function Header() {
 
           {/* Right Section: Search & Profile */}
           <div className="flex items-center gap-3">
+            {/* Brand Logo */}
+            {activeBranchBrand?.logoUrl && (
+              <div className="hidden sm:flex items-center mr-1 md:mr-3 border-r border-[var(--border-default)] pr-3 md:pr-5" title={`Marca: ${activeBranchBrand.name}`}>
+                <img 
+                  src={activeBranchBrand.logoUrl} 
+                  alt={activeBranchBrand.name} 
+                  className="h-11 max-w-[160px] object-contain rounded-sm"
+                />
+              </div>
+            )}
+
             {/* Search Box */}
             <div className="relative hidden md:block w-64">
               <PatientSearchBox

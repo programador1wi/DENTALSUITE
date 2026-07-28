@@ -106,6 +106,10 @@ export class TreatmentPlanItemInputDto {
   notes?: string;
 
   @IsOptional()
+  @IsString()
+  discountReason?: string;
+
+  @IsOptional()
   @IsDateString()
   plannedAt?: string | null;
 
@@ -485,6 +489,11 @@ export class ListTreatmentPlansQueryDto extends PaginationQueryDto {
 
 export class UpdateTreatmentPlanItemDto {
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
+
+  @IsOptional()
   @IsString()
   sectionId?: string;
 
@@ -521,6 +530,10 @@ export class UpdateTreatmentPlanItemDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsString()
+  discountReason?: string;
 
   @IsOptional()
   @IsDateString()
@@ -565,6 +578,10 @@ export class BulkDiscountTreatmentPlanItemsDto {
   @IsNumber()
   @Min(0)
   value!: number;
+
+  @IsOptional()
+  @IsString()
+  discountReason?: string;
 }
 
 export class CreateBudgetDto {

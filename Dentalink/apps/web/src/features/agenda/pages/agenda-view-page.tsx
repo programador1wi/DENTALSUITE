@@ -60,6 +60,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const { activeBranchId, setActiveBranchId } = useBranchStore();
   const user = useAuthStore((state) => state.user);
   const [professionalId, setProfessionalId] = useState("");
+  const [weeklyProfessionalId, setWeeklyProfessionalId] = useState("");
   const [chairId, setChairId] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState<AppointmentStatus[]>(() => {
     try {
@@ -182,12 +183,25 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
     () => (chairs.data ?? []).filter((chair) => !activeBranchId || chair.branchId === activeBranchId),
     [activeBranchId, chairs.data]
   );
+  useEffect(() => {
+    if (!weeklyProfessionalId && visibleProfessionals.length > 0) {
+      setWeeklyProfessionalId(visibleProfessionals[0].id);
+    }
+  }, [weeklyProfessionalId, visibleProfessionals]);
+
   const appointmentsView = view === "list" ? "day" : view;
   const appointmentsDate = view === "week" ? getWeekStartDateInput(date) : date;
-  const appointments = useAppointments({ date: appointmentsDate, view: appointmentsView, branchId: activeBranchId || undefined, professionalId: professionalId || undefined, chairId: chairId || undefined, status: undefined });
+  const queryProfessionalId =
+    view === "week"
+      ? weeklyProfessionalId || undefined
+      : view === "day"
+        ? undefined
+        : professionalId || undefined;
+
+  const appointments = useAppointments({ date: appointmentsDate, view: appointmentsView, branchId: activeBranchId || undefined, professionalId: queryProfessionalId, chairId: chairId || undefined, status: undefined });
   const schedules = useSchedules({
     branchId: activeBranchId || undefined,
-    professionalId: professionalId || undefined,
+    professionalId: queryProfessionalId,
     dayOfWeek: view === "day" ? String(getDayOfWeek(date)) : undefined,
     active: "true"
   });
@@ -533,7 +547,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
               view={view}
               density={density}
               professionals={visibleProfessionals}
-              selectedProfessionalId={professionalId}
+              selectedProfessionalId={view === "day" ? "" : professionalId}
               selectedBranchId={activeBranchId}
               daySlotMinutes={agendaSlotMinutes}
               dayStartHour={agendaStartHour}
@@ -579,13 +593,13 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
               view={view}
               density={density}
               professionals={visibleProfessionals}
-              selectedProfessionalId={professionalId}
+              selectedProfessionalId={weeklyProfessionalId}
               selectedBranchId={activeBranchId}
               daySlotMinutes={agendaSlotMinutes}
               dayStartHour={agendaStartHour}
               dayEndHour={agendaEndHour}
               schedules={schedules.data ?? []}
-              onSelectProfessional={setProfessionalId}
+              onSelectProfessional={setWeeklyProfessionalId}
               onCreateClick={() => openCreate()}
               onCreateSlotClick={(slot) => openCreate(slot)}
               onEdit={openEdit}

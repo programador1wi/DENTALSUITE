@@ -1,20 +1,35 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  addConsentSignature,
   createConsentTemplate,
+  createConsentTemplateVersion,
   createPatientConsent,
   deactivateConsentTemplate,
-  getConsentPdf,
+  deletePatientFile,
+  downloadConsentPdf,
+  duplicateConsentTemplate,
+  finalizeConsent,
+  getConsentAudit,
+  getConsentEvidence,
   getPatientRadiographyAnalysis,
+  listConsentTemplateAudit,
   listConsentTemplates,
+  listConsentTemplateVersions,
+  listConsentVariables,
   listPatientConsents,
   listPatientFiles,
-  deletePatientFile,
+  previewConsentTemplate,
+  publishConsentTemplate,
   savePatientRadiographyAnalysis,
-  signConsent,
+  updateConsentFields,
   updateConsentTemplate,
   uploadPatientBinaryFile,
   uploadPatientFile,
+  voidConsent,
+  type Consent,
+  type ConsentTemplate,
+  type ConsentTemplateDraft,
   type FileAttachment
 } from "../services/documents.service";
 
@@ -26,14 +41,27 @@ export function usePatientFiles(patientId: string, category?: string, treatmentP
   });
 }
 
-export function useConsentTemplates(search?: string, active?: string) {
+export function useConsentTemplates(params: {
+  search?: string;
+  status?: ConsentTemplate["status"];
+  branchId?: string;
+  scopeType?: ConsentTemplate["scopeType"];
+} = {}) {
   return useQuery({
-    queryKey: ["consent-templates", search, active],
-    queryFn: () => listConsentTemplates({ search, active })
+    queryKey: ["consent-templates", params],
+    queryFn: () => listConsentTemplates(params)
   });
 }
 
-export function usePatientConsents(patientId: string, status?: "DRAFT" | "SIGNED" | "CANCELLED") {
+export function useConsentVariables() {
+  return useQuery({
+    queryKey: ["consent-variables"],
+    queryFn: listConsentVariables,
+    staleTime: 30 * 60 * 1000
+  });
+}
+
+export function usePatientConsents(patientId: string, status?: Consent["status"]) {
   return useQuery({
     queryKey: ["patient-consents", patientId, status],
     queryFn: () => listPatientConsents(patientId, { status }),
@@ -41,10 +69,34 @@ export function usePatientConsents(patientId: string, status?: "DRAFT" | "SIGNED
   });
 }
 
-export function useConsentPdf(consentId: string) {
+export function useConsentTemplateVersions(templateId: string) {
   return useQuery({
-    queryKey: ["consent-pdf", consentId],
-    queryFn: () => getConsentPdf(consentId),
+    queryKey: ["consent-template-versions", templateId],
+    queryFn: () => listConsentTemplateVersions(templateId),
+    enabled: Boolean(templateId)
+  });
+}
+
+export function useConsentTemplateAudit(templateId: string) {
+  return useQuery({
+    queryKey: ["consent-template-audit", templateId],
+    queryFn: () => listConsentTemplateAudit(templateId),
+    enabled: Boolean(templateId)
+  });
+}
+
+export function useConsentEvidence(consentId: string) {
+  return useQuery({
+    queryKey: ["consent-evidence", consentId],
+    queryFn: () => getConsentEvidence(consentId),
+    enabled: Boolean(consentId)
+  });
+}
+
+export function useConsentAudit(consentId: string) {
+  return useQuery({
+    queryKey: ["consent-audit", consentId],
+    queryFn: () => getConsentAudit(consentId),
     enabled: Boolean(consentId)
   });
 }
@@ -75,7 +127,7 @@ export function useRadiographyAnalysisMutations() {
         status?: "DRAFT" | "CONFIRMED";
       }) => savePatientRadiographyAnalysis(patientId, fileId, { findings, status }),
       onSuccess: (analysis, variables) => {
-        toast.success("Analisis RX guardado");
+        toast.success("Análisis RX guardado");
         queryClient.setQueryData(["patient-radiography-analysis", variables.patientId, variables.fileId], analysis);
       },
       onError
@@ -85,11 +137,13 @@ export function useRadiographyAnalysisMutations() {
 
 export function useDocumentsMutations() {
   const queryClient = useQueryClient();
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: ["patient-files"] });
+  const invalidateConsents = () => {
     queryClient.invalidateQueries({ queryKey: ["consent-templates"] });
+    queryClient.invalidateQueries({ queryKey: ["consent-template-versions"] });
+    queryClient.invalidateQueries({ queryKey: ["consent-template-audit"] });
     queryClient.invalidateQueries({ queryKey: ["patient-consents"] });
-    queryClient.invalidateQueries({ queryKey: ["consent-pdf"] });
+    queryClient.invalidateQueries({ queryKey: ["consent-evidence"] });
+    queryClient.invalidateQueries({ queryKey: ["consent-audit"] });
   };
   const upsertPatientFile = (patientId: string, file: FileAttachment) => {
     queryClient.setQueryData<FileAttachment[]>(["patient-files", patientId, undefined], (current) => {
@@ -148,72 +202,127 @@ export function useDocumentsMutations() {
       },
       onError
     }),
+    previewConsentTemplate: useMutation({
+      mutationFn: previewConsentTemplate,
+      onError
+    }),
     createConsentTemplate: useMutation({
       mutationFn: createConsentTemplate,
       onSuccess: () => {
-        toast.success("Plantilla creada");
-        invalidate();
+        toast.success("Borrador creado");
+        invalidateConsents();
       },
       onError
     }),
     updateConsentTemplate: useMutation({
-      mutationFn: ({
-        id,
-        payload
-      }: {
-        id: string;
-        payload: Partial<{ name: string; content: string; procedureId: string | null; isActive: boolean }>;
-      }) => updateConsentTemplate(id, payload),
+      mutationFn: ({ id, payload }: { id: string; payload: ConsentTemplateDraft & { expectedVersion: number } }) =>
+        updateConsentTemplate(id, payload),
       onSuccess: () => {
-        toast.success("Plantilla actualizada");
-        invalidate();
+        toast.success("Borrador guardado");
+        invalidateConsents();
+      },
+      onError
+    }),
+    publishConsentTemplate: useMutation({
+      mutationFn: ({ id, expectedVersion }: { id: string; expectedVersion: number }) =>
+        publishConsentTemplate(id, expectedVersion),
+      onSuccess: () => {
+        toast.success("Versión publicada");
+        invalidateConsents();
+      },
+      onError
+    }),
+    newConsentTemplateVersion: useMutation({
+      mutationFn: ({ id, expectedVersion }: { id: string; expectedVersion: number }) =>
+        createConsentTemplateVersion(id, expectedVersion),
+      onSuccess: () => {
+        toast.success("Nueva versión en borrador creada");
+        invalidateConsents();
+      },
+      onError
+    }),
+    duplicateConsentTemplate: useMutation({
+      mutationFn: duplicateConsentTemplate,
+      onSuccess: () => {
+        toast.success("Plantilla duplicada");
+        invalidateConsents();
       },
       onError
     }),
     deactivateConsentTemplate: useMutation({
-      mutationFn: (id: string) => deactivateConsentTemplate(id),
+      mutationFn: ({ id, expectedVersion }: { id: string; expectedVersion: number }) =>
+        deactivateConsentTemplate(id, expectedVersion),
       onSuccess: () => {
-        toast.success("Plantilla desactivada");
-        invalidate();
+        toast.success("Plantilla deshabilitada");
+        invalidateConsents();
       },
       onError
     }),
     createPatientConsent: useMutation({
-      mutationFn: ({
-        patientId,
-        templateId,
-        treatmentPlanId,
-        appointmentId
-      }: {
-        patientId: string;
-        templateId: string;
-        treatmentPlanId?: string;
-        appointmentId?: string;
-      }) => createPatientConsent(patientId, { templateId, treatmentPlanId, appointmentId }),
+      mutationFn: ({ patientId, ...payload }: Parameters<typeof createPatientConsent>[1] & { patientId: string }) =>
+        createPatientConsent(patientId, payload),
       onSuccess: () => {
         toast.success("Consentimiento generado");
-        invalidate();
+        invalidateConsents();
       },
       onError
     }),
-    signConsent: useMutation({
+    updateConsentFields: useMutation({
+      mutationFn: ({ consentId, values, expectedVersion }: { consentId: string; values: Record<string, unknown>; expectedVersion: number }) =>
+        updateConsentFields(consentId, values, expectedVersion),
+      onSuccess: () => {
+        toast.success("Datos del consentimiento actualizados");
+        invalidateConsents();
+      },
+      onError
+    }),
+    addConsentSignature: useMutation({
+      mutationFn: ({ consentId, payload }: { consentId: string; payload: Parameters<typeof addConsentSignature>[1] }) =>
+        addConsentSignature(consentId, payload),
+      onSuccess: () => {
+        toast.success("Firma registrada con evidencia");
+        invalidateConsents();
+      },
+      onError
+    }),
+    finalizeConsent: useMutation({
+      mutationFn: ({ consentId, expectedVersion, documentHash }: { consentId: string; expectedVersion: number; documentHash: string }) =>
+        finalizeConsent(consentId, expectedVersion, documentHash),
+      onSuccess: () => {
+        toast.success("Consentimiento finalizado");
+        invalidateConsents();
+      },
+      onError
+    }),
+    voidConsent: useMutation({
       mutationFn: ({
         consentId,
-        signerName,
-        signerType,
-        signatureData,
-        ipAddress
+        expectedVersion,
+        reason,
+        currentPassword
       }: {
         consentId: string;
-        signerName: string;
-        signerType: string;
-        signatureData: string;
-        ipAddress?: string;
-      }) => signConsent(consentId, { signerName, signerType, signatureData, ipAddress }),
+        expectedVersion: number;
+        reason: string;
+        currentPassword: string;
+      }) => voidConsent(consentId, expectedVersion, reason, currentPassword),
       onSuccess: () => {
-        toast.success("Consentimiento firmado");
-        invalidate();
+        toast.success("Consentimiento anulado; original conservado");
+        invalidateConsents();
       },
+      onError
+    }),
+    downloadConsentPdf: useMutation({
+      mutationFn: async ({ consentId, fileName }: { consentId: string; fileName: string }) => {
+        const blob = await downloadConsentPdf(consentId);
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      },
+      onSuccess: () => toast.success("PDF descargado"),
       onError
     })
   };

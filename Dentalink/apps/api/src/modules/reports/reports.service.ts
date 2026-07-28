@@ -12,6 +12,7 @@ import {
   UserStatus
 } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
+import { createXlsxWorkbook } from "../../common/utils/xlsx.util";
 import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
@@ -62,11 +63,18 @@ export class ReportsService {
     else if (definition.handler === "patients") response = await this.getPatientsReport(actor, query);
     else if (definition.handler === "treatments") response = await this.getTreatmentsReport(actor, query);
     else if (definition.handler === "financial") response = await this.getFinancialReport(actor, query);
-    else if (definition.handler === "professionals") response = await this.getProfessionalsReport(actor, query);
+    else if (definition.handler === "professionals")
+      response = await this.getProfessionalsReport(actor, query);
     else if (definition.handler === "users-list") response = await this.getUsersListReport(actor, query);
-    else if (definition.handler === "appointments-patients") response = await this.getAppointmentsPatientsReport(actor, query);
-    else if (definition.handler === "patient-payments") response = await this.getPatientPaymentsReport(actor, query);
-    else if (definition.handler === "dentist-contracts") response = await this.getDentistContractsReport(actor, query);
+    else if (definition.handler === "appointments-patients")
+      response = await this.getAppointmentsPatientsReport(actor, query);
+    else if (definition.handler === "patient-payments")
+      response = await this.getPatientPaymentsReport(actor, query);
+    else if (definition.handler === "cash-flow") response = await this.getCashFlowReport(actor, query);
+    else if (definition.handler === "expense-detail")
+      response = await this.getExpenseDetailReport(actor, query);
+    else if (definition.handler === "dentist-contracts")
+      response = await this.getDentistContractsReport(actor, query);
     else throw new BadRequestException("El generador del reporte no esta implementado");
 
     const completedAt = new Date();
@@ -143,11 +151,28 @@ export class ReportsService {
       byDayMap.set(key, item);
     }
 
-    const professionalGroup = new Map<string, { professionalId: string; name: string; total: number; cancelled: number; noShow: number; bookedMinutes: number }>();
+    const professionalGroup = new Map<
+      string,
+      {
+        professionalId: string;
+        name: string;
+        total: number;
+        cancelled: number;
+        noShow: number;
+        bookedMinutes: number;
+      }
+    >();
     for (const row of rows) {
       const key = row.professionalId;
       const name = `${row.professional.firstName} ${row.professional.lastName}`;
-      const item = professionalGroup.get(key) ?? { professionalId: key, name, total: 0, cancelled: 0, noShow: 0, bookedMinutes: 0 };
+      const item = professionalGroup.get(key) ?? {
+        professionalId: key,
+        name,
+        total: 0,
+        cancelled: 0,
+        noShow: 0,
+        bookedMinutes: 0
+      };
       item.total += 1;
       item.bookedMinutes += row.durationMinutes;
       if (this.isCancelled(row.status)) item.cancelled += 1;
@@ -155,18 +180,31 @@ export class ReportsService {
       professionalGroup.set(key, item);
     }
 
-    const occupancyByProfessional = await this.computeProfessionalOccupancy(actor, filters, [...professionalGroup.values()]);
+    const occupancyByProfessional = await this.computeProfessionalOccupancy(actor, filters, [
+      ...professionalGroup.values()
+    ]);
 
-    const chairGroup = new Map<string, { chairId: string; chairName: string; total: number; bookedMinutes: number }>();
+    const chairGroup = new Map<
+      string,
+      { chairId: string; chairName: string; total: number; bookedMinutes: number }
+    >();
     for (const row of rows) {
       if (!row.chairId || !row.chair) continue;
       const key = row.chairId;
-      const item = chairGroup.get(key) ?? { chairId: key, chairName: row.chair.name, total: 0, bookedMinutes: 0 };
+      const item = chairGroup.get(key) ?? {
+        chairId: key,
+        chairName: row.chair.name,
+        total: 0,
+        bookedMinutes: 0
+      };
       item.total += 1;
       item.bookedMinutes += row.durationMinutes;
       chairGroup.set(key, item);
     }
-    const occupancyByChair = this.computeChairOccupancy([...chairGroup.values()], occupancyByProfessional.totalAvailableMinutes);
+    const occupancyByChair = this.computeChairOccupancy(
+      [...chairGroup.values()],
+      occupancyByProfessional.totalAvailableMinutes
+    );
 
     const byDay = [...byDayMap.values()].sort((a, b) => a.date.localeCompare(b.date));
     const byProfessional = occupancyByProfessional.rows;
@@ -274,8 +312,13 @@ export class ReportsService {
       this.prisma.treatmentPlan.count({
         where: {
           ...baseWhere,
-          status: { in: [TreatmentPlanStatus.ACCEPTED, TreatmentPlanStatus.IN_PROGRESS, TreatmentPlanStatus.COMPLETED] },
-          OR: [{ acceptedAt: { gte: filters.start, lt: filters.end } }, { createdAt: { gte: filters.start, lt: filters.end } }]
+          status: {
+            in: [TreatmentPlanStatus.ACCEPTED, TreatmentPlanStatus.IN_PROGRESS, TreatmentPlanStatus.COMPLETED]
+          },
+          OR: [
+            { acceptedAt: { gte: filters.start, lt: filters.end } },
+            { createdAt: { gte: filters.start, lt: filters.end } }
+          ]
         }
       }),
       this.prisma.treatmentPlan.count({
@@ -353,67 +396,74 @@ export class ReportsService {
       const dayKey = this.dateKey(payment.paidAt);
       incomeByDayMap.set(dayKey, (incomeByDayMap.get(dayKey) ?? 0) + amount);
 
-      const methodKey = payment.paymentMethodId || 'none';
-      const current = incomeByMethodMap.get(methodKey) ?? { method: payment.paymentMethod?.name || 'Unknown', amount: 0 };
+      const methodKey = payment.paymentMethodId || "none";
+      const current = incomeByMethodMap.get(methodKey) ?? {
+        method: payment.paymentMethod?.name || "Unknown",
+        amount: 0
+      };
       current.amount += amount;
       incomeByMethodMap.set(methodKey, current);
     }
 
-    const [plannedTotal, allocatedTotal, delinquentInstallments, cashMovements, productionItems] = await Promise.all([
-      this.prisma.treatmentPlanItem.aggregate({
-        _sum: { total: true },
-        where: {
-          status: { not: TreatmentPlanItemStatus.CANCELLED },
-          treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
-        }
-      }),
-      this.prisma.paymentAllocation.aggregate({
-        _sum: { amount: true },
-        where: {
-          treatmentPlanItem: {
+    const [plannedTotal, allocatedTotal, delinquentInstallments, cashMovements, productionItems] =
+      await Promise.all([
+        this.prisma.treatmentPlanItem.aggregate({
+          _sum: { total: true },
+          where: {
+            status: { not: TreatmentPlanItemStatus.CANCELLED },
             treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
           }
-        }
-      }),
-      this.prisma.installment.findMany({
-        where: {
-          dueDate: { lt: new Date() },
-          status: { notIn: [InstallmentStatus.PAID, InstallmentStatus.CANCELLED] },
-          patient: { organizationId: actor.organizationId, branchId: filters.branchWhere }
-        },
-        select: { amount: true, paidAmount: true }
-      }),
-      this.prisma.cashMovement.findMany({
-        where: {
-          createdAt: { gte: filters.start, lt: filters.end },
-          cashRegister: {
-            organizationId: actor.organizationId,
-            branchId: filters.branchWhere
-          }
-        },
-        select: {
-          amount: true,
-          type: true,
-          cashRegister: { select: { branchId: true, branch: { select: { name: true } } } }
-        }
-      }),
-      this.prisma.treatmentPlanItem.findMany({
-        where: {
-          status: TreatmentPlanItemStatus.COMPLETED,
-          completedAt: { gte: filters.start, lt: filters.end },
-          treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
-        },
-        select: {
-          total: true,
-          treatmentPlan: {
-            select: {
-              professionalId: true,
-              professional: { select: { firstName: true, lastName: true } }
+        }),
+        this.prisma.paymentAllocation.aggregate({
+          _sum: { amount: true },
+          where: {
+            treatmentPlanItem: {
+              treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
             }
           }
-        }
-      })
-    ]);
+        }),
+        this.prisma.installment.findMany({
+          where: {
+            dueDate: { lt: new Date() },
+            status: { notIn: [InstallmentStatus.PAID, InstallmentStatus.CANCELLED] },
+            patient: { organizationId: actor.organizationId, branchId: filters.branchWhere }
+          },
+          select: { amount: true, paidAmount: true }
+        }),
+        this.prisma.cashMovement.findMany({
+          where: {
+            createdAt: { gte: filters.start, lt: filters.end },
+            voidedAt: null,
+            OR: [{ paymentMethodId: null }, { paymentMethod: { includeInPhysicalCashBalance: true } }],
+            cashRegister: {
+              organizationId: actor.organizationId,
+              branchId: filters.branchWhere
+            }
+          },
+          select: {
+            amount: true,
+            type: true,
+            direction: true,
+            cashRegister: { select: { branchId: true, branch: { select: { name: true } } } }
+          }
+        }),
+        this.prisma.treatmentPlanItem.findMany({
+          where: {
+            status: TreatmentPlanItemStatus.COMPLETED,
+            completedAt: { gte: filters.start, lt: filters.end },
+            treatmentPlan: { organizationId: actor.organizationId, branchId: filters.branchWhere }
+          },
+          select: {
+            total: true,
+            treatmentPlan: {
+              select: {
+                professionalId: true,
+                professional: { select: { firstName: true, lastName: true } }
+              }
+            }
+          }
+        })
+      ]);
 
     const outstandingBalance = Math.max(
       this.roundMoney(Number(plannedTotal._sum.total ?? 0) - Number(allocatedTotal._sum.amount ?? 0)),
@@ -421,7 +471,10 @@ export class ReportsService {
     );
 
     const delinquency = this.roundMoney(
-      delinquentInstallments.reduce((sum, installment) => sum + (Number(installment.amount) - Number(installment.paidAmount)), 0)
+      delinquentInstallments.reduce(
+        (sum, installment) => sum + (Number(installment.amount) - Number(installment.paidAmount)),
+        0
+      )
     );
 
     const cashByBranchMap = new Map<string, { branchId: string; branchName: string; netAmount: number }>();
@@ -433,16 +486,17 @@ export class ReportsService {
         netAmount: 0
       };
 
+      if (movement.type === CashMovementType.CLOSING || movement.type === CashMovementType.CLOSING_CARRYOVER)
+        continue;
       const amount = Number(movement.amount);
-      if (movement.type === CashMovementType.EXPENSE || movement.type === CashMovementType.REFUND) {
-        existing.netAmount -= amount;
-      } else if (movement.type !== CashMovementType.CLOSING) {
-        existing.netAmount += amount;
-      }
+      existing.netAmount += movement.direction === "OUT" ? -amount : amount;
       cashByBranchMap.set(key, existing);
     }
 
-    const productionByProfessionalMap = new Map<string, { professionalId: string; name: string; amount: number }>();
+    const productionByProfessionalMap = new Map<
+      string,
+      { professionalId: string; name: string; amount: number }
+    >();
     for (const item of productionItems) {
       const key = item.treatmentPlan.professionalId;
       const name = `${item.treatmentPlan.professional.firstName} ${item.treatmentPlan.professional.lastName}`;
@@ -457,7 +511,10 @@ export class ReportsService {
     const incomeByMethodRows = [...incomeByMethodMap.values()]
       .map((row) => ({ method: row.method, amount: this.roundMoney(row.amount) }))
       .sort((a, b) => b.amount - a.amount);
-    const cashByBranchRows = [...cashByBranchMap.values()].map((row) => ({ ...row, netAmount: this.roundMoney(row.netAmount) }));
+    const cashByBranchRows = [...cashByBranchMap.values()].map((row) => ({
+      ...row,
+      netAmount: this.roundMoney(row.netAmount)
+    }));
     const productionByProfessionalRows = [...productionByProfessionalMap.values()]
       .map((row) => ({ ...row, amount: this.roundMoney(row.amount) }))
       .sort((a, b) => b.amount - a.amount);
@@ -478,7 +535,10 @@ export class ReportsService {
     return this.withExport(response, "financial-report", incomeByDayRows, filters.format);
   }
 
-  async getProfessionalsReport(actor: AuthUser, query: ProfessionalsReportQueryDto): Promise<ReportResponse<unknown>> {
+  async getProfessionalsReport(
+    actor: AuthUser,
+    query: ProfessionalsReportQueryDto
+  ): Promise<ReportResponse<unknown>> {
     const filters = await this.resolveFilters(actor, query);
     const { page, pageSize } = resolvePagination(query);
 
@@ -596,7 +656,10 @@ export class ReportsService {
     return this.withExport(response, "professionals-report", rows, filters.format);
   }
 
-  private async getUsersListReport(actor: AuthUser, query: BaseReportQueryDto & { status?: string }): Promise<ReportResponse<unknown>> {
+  private async getUsersListReport(
+    actor: AuthUser,
+    query: BaseReportQueryDto & { status?: string }
+  ): Promise<ReportResponse<unknown>> {
     const status = query.status ?? "ALL";
     const where: Prisma.UserWhereInput = {
       organizationId: actor.organizationId,
@@ -656,7 +719,11 @@ export class ReportsService {
     query: BaseReportQueryDto & { professionalId?: string; statuses?: string[] }
   ): Promise<ReportResponse<unknown>> {
     const filters = await this.resolveFilters(actor, query);
-    const statuses = Array.isArray(query.statuses) ? query.statuses.filter((status) => Object.values(AppointmentStatus).includes(status as AppointmentStatus)) : [];
+    const statuses = Array.isArray(query.statuses)
+      ? query.statuses.filter((status) =>
+          Object.values(AppointmentStatus).includes(status as AppointmentStatus)
+        )
+      : [];
     const where: Prisma.AppointmentWhereInput = {
       organizationId: actor.organizationId,
       branchId: filters.branchWhere,
@@ -715,7 +782,9 @@ export class ReportsService {
       branchId: filters.branchWhere,
       paidAt: { gte: filters.start, lt: filters.end },
       ...(query.paymentMethodId ? { paymentMethodId: query.paymentMethodId } : {}),
-      ...(status && Object.values(PaymentStatus).includes(status as PaymentStatus) ? { status: status as PaymentStatus } : {}),
+      ...(status && Object.values(PaymentStatus).includes(status as PaymentStatus)
+        ? { status: status as PaymentStatus }
+        : {}),
       ...(query.cashRegisterId ? { cashMovements: { some: { cashRegisterId: query.cashRegisterId } } } : {})
     };
 
@@ -732,7 +801,7 @@ export class ReportsService {
         patient: { select: { firstName: true, lastName: true, email: true } },
         paymentMethod: { select: { name: true } },
         receivedBy: { select: { firstName: true, lastName: true } },
-        cashMovements: { select: { cashRegisterId: true } }
+        cashMovements: { select: { cashRegister: { select: { publicNumber: true } } } }
       },
       orderBy: { paidAt: "desc" }
     });
@@ -747,7 +816,10 @@ export class ReportsService {
       metodoPago: row.paymentMethod?.name,
       estado: row.status,
       referencia: row.reference ?? "",
-      caja: row.cashMovements.map((movement) => movement.cashRegisterId).join(", "),
+      caja: row.cashMovements
+        .map((movement) => `CAJ-${String(movement.cashRegister.publicNumber).padStart(6, "0")}`)
+        .filter((value, index, values) => values.indexOf(value) === index)
+        .join(", "),
       recibidoPor: `${row.receivedBy.firstName} ${row.receivedBy.lastName}`,
       pagadoEl: row.paidAt
     }));
@@ -756,7 +828,121 @@ export class ReportsService {
     return this.withExport(response, "patient-payments", exportRows, filters.format);
   }
 
-  private async getDentistContractsReport(actor: AuthUser, query: BaseReportQueryDto): Promise<ReportResponse<unknown>> {
+  private async getCashFlowReport(
+    actor: AuthUser,
+    query: BaseReportQueryDto
+  ): Promise<ReportResponse<unknown>> {
+    const filters = await this.resolveFilters(actor, query);
+    const rows = await this.prisma.cashMovement.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        branchId: filters.branchWhere,
+        createdAt: { gte: filters.start, lt: filters.end },
+        voidedAt: null,
+        OR: [{ paymentMethodId: null }, { paymentMethod: { includeInCashFlowReports: true } }]
+      },
+      select: {
+        type: true,
+        direction: true,
+        amount: true,
+        description: true,
+        reference: true,
+        createdAt: true,
+        cashRegister: { select: { publicNumber: true, status: true } },
+        branch: { select: { name: true } },
+        paymentMethod: { select: { name: true, type: true } },
+        payment: {
+          select: {
+            paymentNumber: true,
+            status: true,
+            patient: { select: { firstName: true, lastName: true } }
+          }
+        },
+        expense: { select: { publicNumber: true, status: true, description: true } },
+        refund: { select: { id: true, status: true, reason: true } },
+        createdBy: { select: { firstName: true, lastName: true } }
+      },
+      orderBy: { createdAt: "asc" }
+    });
+
+    const exportRows = rows.map((row) => ({
+      caja: `CAJ-${String(row.cashRegister.publicNumber).padStart(6, "0")}`,
+      sucursal: row.branch.name,
+      fecha: row.createdAt,
+      tipo: row.type,
+      direccion: row.direction,
+      importe: (row.direction === "OUT" ? -1 : 1) * Number(row.amount),
+      medioPago: row.paymentMethod?.name ?? "",
+      pago: row.payment?.paymentNumber ? String(row.payment.paymentNumber).padStart(6, "0") : "",
+      paciente: row.payment ? `${row.payment.patient.firstName} ${row.payment.patient.lastName}` : "",
+      gasto: row.expense ? `GAS-${String(row.expense.publicNumber).padStart(6, "0")}` : "",
+      referencia: row.reference ?? "",
+      detalle: row.description ?? "",
+      responsable: `${row.createdBy.firstName} ${row.createdBy.lastName}`,
+      estadoCaja: row.cashRegister.status
+    }));
+    const response = this.wrapResponse(filters, { rows: exportRows });
+    return this.withExport(response, "cash-flow", exportRows, filters.format);
+  }
+
+  private async getExpenseDetailReport(
+    actor: AuthUser,
+    query: BaseReportQueryDto
+  ): Promise<ReportResponse<unknown>> {
+    const filters = await this.resolveFilters(actor, query);
+    const rows = await this.prisma.expense.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        branchId: filters.branchWhere,
+        paidAt: { gte: filters.start, lt: filters.end }
+      },
+      select: {
+        publicNumber: true,
+        description: true,
+        supplierName: true,
+        quantity: true,
+        unitCost: true,
+        total: true,
+        invoicedAt: true,
+        paidAt: true,
+        status: true,
+        voidReason: true,
+        branch: { select: { name: true } },
+        category: { select: { name: true } },
+        paymentMethod: { select: { name: true, type: true } },
+        cashMovements: { select: { cashRegister: { select: { publicNumber: true } } } },
+        createdBy: { select: { firstName: true, lastName: true } }
+      },
+      orderBy: { paidAt: "desc" }
+    });
+
+    const exportRows = rows.map((row) => ({
+      gasto: `GAS-${String(row.publicNumber).padStart(6, "0")}`,
+      categoria: row.category.name,
+      detalle: row.description,
+      proveedor: row.supplierName ?? "",
+      cantidad: Number(row.quantity),
+      costoUnitario: Number(row.unitCost),
+      total: Number(row.total),
+      fechaFactura: row.invoicedAt ?? "",
+      fechaPago: row.paidAt,
+      sucursal: row.branch.name,
+      caja: row.cashMovements
+        .map((movement) => `CAJ-${String(movement.cashRegister.publicNumber).padStart(6, "0")}`)
+        .join(", "),
+      medioPago: row.paymentMethod?.name ?? "",
+      estado: row.status,
+      motivoAnulacion: row.voidReason ?? "",
+      registradoPor: `${row.createdBy.firstName} ${row.createdBy.lastName}`
+    }));
+    const response = this.wrapResponse(filters, { rows: exportRows });
+    return this.withExport(response, "expense-detail", exportRows, filters.format);
+  }
+
+  private async getDentistContractsReport(
+    actor: AuthUser,
+    query: BaseReportQueryDto
+  ): Promise<ReportResponse<unknown>> {
     const filters = await this.resolveFilters(actor, query);
     const rows = await this.prisma.professionalContract.findMany({
       where: {
@@ -898,14 +1084,23 @@ export class ReportsService {
     if (!normalized.dateFrom && !normalized.dateTo) return;
     const dateFrom = normalized.dateFrom ? new Date(String(normalized.dateFrom)) : null;
     const dateTo = normalized.dateTo ? new Date(String(normalized.dateTo)) : null;
-    if (!dateFrom || !dateTo || Number.isNaN(dateFrom.getTime()) || Number.isNaN(dateTo.getTime()) || dateFrom > dateTo) {
+    if (
+      !dateFrom ||
+      !dateTo ||
+      Number.isNaN(dateFrom.getTime()) ||
+      Number.isNaN(dateTo.getTime()) ||
+      dateFrom > dateTo
+    ) {
       throw new BadRequestException("El rango de fechas no es valido.");
     }
 
-    const maxRangeDays = definition.parameters.find((parameter) => parameter.key === "dateFrom" || parameter.key === "dateTo")?.maxRangeDays;
+    const maxRangeDays = definition.parameters.find(
+      (parameter) => parameter.key === "dateFrom" || parameter.key === "dateTo"
+    )?.maxRangeDays;
     if (maxRangeDays) {
       const days = Math.ceil((dateTo.getTime() - dateFrom.getTime()) / (24 * 60 * 60 * 1000)) + 1;
-      if (days > maxRangeDays) throw new BadRequestException(`El rango maximo permitido es de ${maxRangeDays} dias.`);
+      if (days > maxRangeDays)
+        throw new BadRequestException(`El rango maximo permitido es de ${maxRangeDays} dias.`);
     }
   }
 
@@ -930,7 +1125,12 @@ export class ReportsService {
 
   private estimateRowCount(data: unknown) {
     if (Array.isArray(data)) return data.length;
-    if (data && typeof data === "object" && "rows" in data && Array.isArray((data as { rows?: unknown }).rows)) {
+    if (
+      data &&
+      typeof data === "object" &&
+      "rows" in data &&
+      Array.isArray((data as { rows?: unknown }).rows)
+    ) {
       return (data as { rows: unknown[] }).rows.length;
     }
     return null;
@@ -980,7 +1180,9 @@ export class ReportsService {
     };
 
     const [newPatients, activePatients, withoutFutureAppointment, bySource] = await Promise.all([
-      this.prisma.patient.count({ where: { ...baseWhere, createdAt: { gte: filters.start, lt: filters.end } } }),
+      this.prisma.patient.count({
+        where: { ...baseWhere, createdAt: { gte: filters.start, lt: filters.end } }
+      }),
       this.prisma.patient.count({ where: { ...baseWhere, status: { in: ["ACTIVE", "IN_TREATMENT"] } } }),
       this.prisma.patient.count({
         where: {
@@ -988,7 +1190,13 @@ export class ReportsService {
           appointments: {
             none: {
               startAt: { gte: new Date() },
-              status: { notIn: [AppointmentStatus.CANCELLED_BY_CLINIC, AppointmentStatus.CANCELLED_BY_PATIENT, AppointmentStatus.NO_SHOW] }
+              status: {
+                notIn: [
+                  AppointmentStatus.CANCELLED_BY_CLINIC,
+                  AppointmentStatus.CANCELLED_BY_PATIENT,
+                  AppointmentStatus.NO_SHOW
+                ]
+              }
             }
           }
         }
@@ -1022,8 +1230,13 @@ export class ReportsService {
       this.prisma.treatmentPlan.count({
         where: {
           ...baseWhere,
-          status: { in: [TreatmentPlanStatus.ACCEPTED, TreatmentPlanStatus.IN_PROGRESS, TreatmentPlanStatus.COMPLETED] },
-          OR: [{ acceptedAt: { gte: filters.start, lt: filters.end } }, { createdAt: { gte: filters.start, lt: filters.end } }]
+          status: {
+            in: [TreatmentPlanStatus.ACCEPTED, TreatmentPlanStatus.IN_PROGRESS, TreatmentPlanStatus.COMPLETED]
+          },
+          OR: [
+            { acceptedAt: { gte: filters.start, lt: filters.end } },
+            { createdAt: { gte: filters.start, lt: filters.end } }
+          ]
         }
       }),
       this.prisma.treatmentPlan.count({ where: { ...baseWhere, status: TreatmentPlanStatus.IN_PROGRESS } }),
@@ -1077,7 +1290,9 @@ export class ReportsService {
 
     return {
       income: this.roundMoney(payments.reduce((sum, row) => sum + Number(row.amount), 0)),
-      outstanding: this.roundMoney(Math.max(Number(plannedTotal._sum.total ?? 0) - Number(allocatedTotal._sum.amount ?? 0), 0)),
+      outstanding: this.roundMoney(
+        Math.max(Number(plannedTotal._sum.total ?? 0) - Number(allocatedTotal._sum.amount ?? 0), 0)
+      ),
       delinquency: this.roundMoney(
         delinquentInstallments.reduce((sum, row) => sum + (Number(row.amount) - Number(row.paidAmount)), 0)
       )
@@ -1110,7 +1325,13 @@ export class ReportsService {
       }),
       this.prisma.collectionCase.count({
         where: {
-          status: { in: [CollectionCaseStatus.PENDING, CollectionCaseStatus.CONTACTED, CollectionCaseStatus.PROMISE_TO_PAY] },
+          status: {
+            in: [
+              CollectionCaseStatus.PENDING,
+              CollectionCaseStatus.CONTACTED,
+              CollectionCaseStatus.PROMISE_TO_PAY
+            ]
+          },
           nextContactAt: { lt: new Date() },
           patient: { organizationId: actor.organizationId, branchId: filters.branchWhere }
         }
@@ -1128,7 +1349,14 @@ export class ReportsService {
   private async computeProfessionalOccupancy(
     actor: AuthUser,
     filters: ResolvedFilters,
-    rows: Array<{ professionalId: string; name: string; total: number; cancelled: number; noShow: number; bookedMinutes: number }>
+    rows: Array<{
+      professionalId: string;
+      name: string;
+      total: number;
+      cancelled: number;
+      noShow: number;
+      bookedMinutes: number;
+    }>
   ) {
     const schedules = await this.prisma.professionalSchedule.findMany({
       where: {
@@ -1149,7 +1377,9 @@ export class ReportsService {
 
     const availableByProfessional = new Map<string, number>();
     for (const schedule of schedules) {
-      const dailyMinutes = this.minutesDiff(schedule.startTime, schedule.endTime) - this.breakMinutes(schedule.breakStartTime, schedule.breakEndTime);
+      const dailyMinutes =
+        this.minutesDiff(schedule.startTime, schedule.endTime) -
+        this.breakMinutes(schedule.breakStartTime, schedule.breakEndTime);
       const occurrences = this.countWeekdayOccurrences(filters.start, filters.end, schedule.dayOfWeek);
       const totalMinutes = Math.max(0, dailyMinutes * occurrences);
       availableByProfessional.set(
@@ -1167,7 +1397,10 @@ export class ReportsService {
       };
     });
 
-    const totalAvailableMinutes = [...availableByProfessional.values()].reduce((sum, value) => sum + value, 0);
+    const totalAvailableMinutes = [...availableByProfessional.values()].reduce(
+      (sum, value) => sum + value,
+      0
+    );
     return { rows: outRows.sort((a, b) => b.total - a.total), totalAvailableMinutes };
   }
 
@@ -1189,7 +1422,9 @@ export class ReportsService {
   private async resolveFilters(actor: AuthUser, query: BaseReportQueryDto): Promise<ResolvedFilters> {
     const now = new Date();
     const start = query.dateFrom ? new Date(query.dateFrom) : new Date(now.getFullYear(), now.getMonth(), 1);
-    const endInclusive = query.dateTo ? new Date(query.dateTo) : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const endInclusive = query.dateTo
+      ? new Date(query.dateTo)
+      : new Date(now.getFullYear(), now.getMonth() + 1, 0);
     if (Number.isNaN(start.getTime()) || Number.isNaN(endInclusive.getTime())) {
       throw new BadRequestException("Invalid date range");
     }
@@ -1228,12 +1463,12 @@ export class ReportsService {
     };
   }
 
-  private withExport<T>(
+  private async withExport<T>(
     response: ReportResponse<T>,
     baseFileName: string,
     rows: Record<string, unknown>[],
     format: ReportExportFormat
-  ): ReportResponse<T> {
+  ): Promise<ReportResponse<T>> {
     if (format === ReportExportFormat.JSON) return response;
     const normalized = rows.map((row) => this.normalizeRow(row));
 
@@ -1250,14 +1485,14 @@ export class ReportsService {
       };
     }
 
-    const tsv = this.toDelimited(normalized, "\t");
+    const xlsx = createXlsxWorkbook([{ name: "Reporte", rows: normalized }]);
     return {
       ...response,
       export: {
         format: ReportExportFormat.XLSX,
         fileName: `${baseFileName}.xlsx`,
         mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        base64: Buffer.from(tsv, "utf8").toString("base64")
+        base64: xlsx.toString("base64")
       }
     };
   }
@@ -1293,7 +1528,9 @@ export class ReportsService {
   }
 
   private isCancelled(status: AppointmentStatus) {
-    return status === AppointmentStatus.CANCELLED_BY_CLINIC || status === AppointmentStatus.CANCELLED_BY_PATIENT;
+    return (
+      status === AppointmentStatus.CANCELLED_BY_CLINIC || status === AppointmentStatus.CANCELLED_BY_PATIENT
+    );
   }
 
   private dateKey(date: Date) {

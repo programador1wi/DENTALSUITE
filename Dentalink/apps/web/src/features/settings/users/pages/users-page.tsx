@@ -676,7 +676,7 @@ export function UsersPage() {
             {canCreateUser ? (
               <Button onClick={openCreate} className="w-full sm:w-auto shrink-0">
                 <UserRoundPlus className="mr-1.5 h-4 w-4" />
-                Nuevo colaborador
+                Nuevo usuario
               </Button>
             ) : null}
           </div>
@@ -829,7 +829,7 @@ export function UsersPage() {
 
       <Modal
         open={userFormOpen}
-        title={editing ? "Editar colaborador" : "Nuevo colaborador"}
+        title={editing ? "Editar usuario" : "Nuevo usuario"}
         size="2xl"
         onClose={closeUserForm}
       >
@@ -863,6 +863,84 @@ export function UsersPage() {
               label="Perfil clinico"
               value={professionalEnabled ? selectedClinicalBranch?.name ?? "Sucursal pendiente" : "Sin agenda clinica"}
             />
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-semibold text-slate-800">Tipo de usuario</label>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setUserKind("PROFESSIONAL");
+                  setProfessionalForm((current) => ({
+                    ...current,
+                    enabled: true,
+                    branchId: current.branchId || userForm.primaryBranchId || userForm.branchIds[0] || ""
+                  }));
+                  if (!userForm.roleId) {
+                    const matchedRole = roles.data?.find((role) => /profesional|doctor|dentista|odont/i.test(role.name));
+                    if (matchedRole) setRole(matchedRole.id);
+                  }
+                }}
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-3 text-left transition-all",
+                  professionalEnabled
+                    ? "border-[var(--text-brand-strong)] bg-[var(--bg-brand-light)] text-[var(--text-brand-strong)] ring-2 ring-[var(--text-brand-strong)]/20"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                )}
+              >
+                <div
+                  className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                    professionalEnabled ? "bg-[var(--text-brand-strong)] text-white" : "bg-slate-100 text-slate-600"
+                  )}
+                >
+                  <Stethoscope className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Usuario Clínico</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Doctores, ortodoncistas y especialistas con agenda de atención a pacientes.
+                  </p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setUserKind("STAFF");
+                  setProfessionalForm((current) => ({
+                    ...current,
+                    enabled: false
+                  }));
+                  if (!userForm.roleId || userKind === "PROFESSIONAL") {
+                    const matchedRole = roles.data?.find((role) => /staff|recepci|asistente|auxiliar|admin/i.test(role.name));
+                    if (matchedRole) setRole(matchedRole.id);
+                  }
+                }}
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-3 text-left transition-all",
+                  !professionalEnabled
+                    ? "border-[var(--text-brand-strong)] bg-[var(--bg-brand-light)] text-[var(--text-brand-strong)] ring-2 ring-[var(--text-brand-strong)]/20"
+                    : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                )}
+              >
+                <div
+                  className={cn(
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                    !professionalEnabled ? "bg-[var(--text-brand-strong)] text-white" : "bg-slate-100 text-slate-600"
+                  )}
+                >
+                  <Building2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-semibold text-sm">Usuario Administrativo</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Recepcionistas, asistentes, personal de CEYE, caja y administración.
+                  </p>
+                </div>
+              </button>
+            </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -915,26 +993,6 @@ export function UsersPage() {
               />
               <FieldError message={fieldErrors.password} />
             </label>
-            <div className="grid gap-1 text-sm text-slate-700">
-              Tipo de usuario
-              <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-white p-1">
-                {userKindOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => applyUserKind(option.value)}
-                    className={cn(
-                      "h-9 rounded-md px-2 text-xs font-semibold transition-colors",
-                      userKind === option.value
-                        ? "bg-[var(--bg-brand-light)] text-[var(--text-brand-strong)]"
-                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
             <label className="grid gap-1 text-sm text-slate-700">
               Rol / perfil
               <Select
@@ -1018,33 +1076,15 @@ export function UsersPage() {
             </label>
           </section>
 
-          <section className="rounded-lg border border-slate-200 p-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
+          {professionalEnabled ? (
+            <section className="rounded-lg border border-slate-200 p-3">
+              <div className="flex flex-col gap-1">
                 <h4 className="text-sm font-semibold text-slate-900">Perfil profesional y agenda</h4>
-                <p className="mt-1 text-xs text-slate-500">
-                  Activalo para doctores, ortodoncistas, integralistas o profesionales que aparecen en agenda.
+                <p className="text-xs text-slate-500">
+                  Configuración operativa de doctor/especialista para agenda, box de atención y especialidades.
                 </p>
               </div>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={professionalEnabled}
-                  onChange={(event) =>
-                    setProfessionalForm((current) => ({
-                      ...current,
-                      enabled: event.target.checked,
-                      branchId: event.target.checked
-                        ? current.branchId || userForm.primaryBranchId || userForm.branchIds[0] || ""
-                        : current.branchId
-                    }))
-                  }
-                />
-                Crear perfil clinico
-              </label>
-            </div>
 
-            {professionalEnabled ? (
               <div className="mt-3 space-y-4">
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <label className="grid gap-1 text-sm text-slate-700">
@@ -1289,8 +1329,8 @@ export function UsersPage() {
                   </div>
                 </div>
               </div>
-            ) : null}
-          </section>
+            </section>
+          ) : null}
 
           <div className="flex flex-col gap-2 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-h-5 text-xs text-slate-500">

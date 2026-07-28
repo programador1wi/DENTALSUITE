@@ -1,8 +1,21 @@
-import { 
-  PrismaClient, Patient, Professional, Procedure, PriceList, PaymentMethod, 
-  TreatmentPlanStatus, TreatmentPlanItemStatus, BudgetStatus, PaymentStatus, 
-  TreatmentPriceSource, CashRegisterStatus, CashMovementType, InstallmentFrequency,
-  InstallmentPlanStatus, InstallmentStatus
+import {
+  PrismaClient,
+  Patient,
+  Professional,
+  Procedure,
+  PriceList,
+  PaymentMethod,
+  TreatmentPlanStatus,
+  TreatmentPlanItemStatus,
+  BudgetStatus,
+  PaymentStatus,
+  TreatmentPriceSource,
+  CashRegisterStatus,
+  CashMovementType,
+  CashMovementDirection,
+  InstallmentFrequency,
+  InstallmentPlanStatus,
+  InstallmentStatus
 } from "@prisma/client";
 
 export async function seedTier5Financial(
@@ -16,25 +29,27 @@ export async function seedTier5Financial(
 ) {
   console.log("🌱 [Tier 5] Seeding Financial Data (Plans, Budgets, Payments)...");
 
-  const cashMethod = paymentMethods.find(p => p.type === "CASH")!;
-  const cardMethod = paymentMethods.find(p => p.type === "CARD")!;
-  const baseList = priceLists.find(p => p.isDefault)!;
+  const cashMethod = paymentMethods.find((p) => p.type === "CASH")!;
+  const cardMethod = paymentMethods.find((p) => p.type === "CARD")!;
+  const baseList = priceLists.find((p) => p.isDefault)!;
   const now = new Date();
 
   // Create a Cash Register per branch
-  const branches = [...new Set(patients.map(p => p.branchId))];
+  const branches = [...new Set(patients.map((p) => p.branchId))];
   const cashRegisters = new Map();
-  for (const branchId of branches) {
-    let cr = await prisma.cashRegister.findFirst({ where: { branchId, status: CashRegisterStatus.OPEN }});
+  for (const [branchIndex, branchId] of branches.entries()) {
+    let cr = await prisma.cashRegister.findFirst({ where: { branchId, status: CashRegisterStatus.OPEN } });
     if (!cr) {
       cr = await prisma.cashRegister.create({
         data: {
           organizationId: orgId,
+          publicNumber: 900000 + branchIndex,
           branchId,
           openedById: professionals[0].userId!, // using first professional user
+          responsibleUserId: professionals[0].userId!,
           openingAmount: 1000,
           status: CashRegisterStatus.OPEN,
-          openedAt: new Date(now.setHours(8, 0, 0, 0)),
+          openedAt: new Date(now.setHours(8, 0, 0, 0))
         }
       });
     }
@@ -43,24 +58,24 @@ export async function seedTier5Financial(
 
   // Pre-fetch price list items for quick lookup
   const priceListItems = await prisma.priceListItem.findMany({ where: { priceListId: baseList.id } });
-  
+
   const getPrice = (procedureId: string) => {
-    return priceListItems.find(p => p.procedureId === procedureId)?.price || 0;
+    return priceListItems.find((p) => p.procedureId === procedureId)?.price || 0;
   };
 
-  const getProc = (code: string) => procedures.find(p => p.code === code)!;
+  const getProc = (code: string) => procedures.find((p) => p.code === code)!;
   const diagProc = getProc("D0150");
   const resinProc = getProc("D2391");
   const endoProc = getProc("D3310");
 
   for (const patient of patients) {
     // Avoid re-seeding if plans exist
-    if (await prisma.treatmentPlan.findFirst({ where: { patientId: patient.id }})) {
+    if (await prisma.treatmentPlan.findFirst({ where: { patientId: patient.id } })) {
       continue;
     }
 
     const branchId = patient.branchId;
-    const profId = professionals.find(p => p.branches?.some(pb => pb.branchId === branchId) || true)!.id;
+    const profId = professionals.find((p) => p.branches?.some((pb) => pb.branchId === branchId) || true)!.id;
     const cr = cashRegisters.get(branchId)!;
 
     // 1. DRAFT Plan
@@ -71,15 +86,15 @@ export async function seedTier5Financial(
         patientId: patient.id,
         professionalId: profId,
         name: "Plan de Diagnóstico",
-        status: TreatmentPlanStatus.DRAFT,
+        status: TreatmentPlanStatus.DRAFT
       }
     });
-    
+
     const draftSection = await prisma.treatmentPlanSection.create({
       data: {
         treatmentPlanId: draftPlan.id,
         name: "Fase Inicial",
-        sortOrder: 1,
+        sortOrder: 1
       }
     });
 
@@ -107,7 +122,7 @@ export async function seedTier5Financial(
         professionalId: profId,
         name: "Rehabilitación Integral",
         status: TreatmentPlanStatus.IN_PROGRESS,
-        acceptedAt: new Date(now.getTime() - 10 * 86400000), // 10 days ago
+        acceptedAt: new Date(now.getTime() - 10 * 86400000) // 10 days ago
       }
     });
 
@@ -115,7 +130,7 @@ export async function seedTier5Financial(
       data: {
         treatmentPlanId: inProgressPlan.id,
         name: "Fase Endodoncia",
-        sortOrder: 1,
+        sortOrder: 1
       }
     });
 
@@ -123,7 +138,7 @@ export async function seedTier5Financial(
       data: {
         treatmentPlanId: inProgressPlan.id,
         name: "Fase Operatoria",
-        sortOrder: 2,
+        sortOrder: 2
       }
     });
 
@@ -131,10 +146,15 @@ export async function seedTier5Financial(
       data: {
         treatmentPlanId: inProgressPlan.id,
         sectionId: endoSection.id,
-        procedureId: endoProc.id, toothNumber: "11", quantity: 1,
-        unitPrice: getPrice(endoProc.id), discount: 0, total: getPrice(endoProc.id),
+        procedureId: endoProc.id,
+        toothNumber: "11",
+        quantity: 1,
+        unitPrice: getPrice(endoProc.id),
+        discount: 0,
+        total: getPrice(endoProc.id),
         status: TreatmentPlanItemStatus.PAID,
-        priceSource: TreatmentPriceSource.PRICE_LIST, priceListId: baseList.id
+        priceSource: TreatmentPriceSource.PRICE_LIST,
+        priceListId: baseList.id
       }
     });
 
@@ -142,10 +162,15 @@ export async function seedTier5Financial(
       data: {
         treatmentPlanId: inProgressPlan.id,
         sectionId: resinSection.id,
-        procedureId: resinProc.id, toothNumber: "12", quantity: 1,
-        unitPrice: getPrice(resinProc.id), discount: 0, total: getPrice(resinProc.id),
+        procedureId: resinProc.id,
+        toothNumber: "12",
+        quantity: 1,
+        unitPrice: getPrice(resinProc.id),
+        discount: 0,
+        total: getPrice(resinProc.id),
         status: TreatmentPlanItemStatus.ACCEPTED,
-        priceSource: TreatmentPriceSource.PRICE_LIST, priceListId: baseList.id
+        priceSource: TreatmentPriceSource.PRICE_LIST,
+        priceListId: baseList.id
       }
     });
 
@@ -168,7 +193,7 @@ export async function seedTier5Financial(
         total: totalAmount,
         acceptedAt: inProgressPlan.acceptedAt,
         items: {
-          create: inProgressPlanWithItems.items.map(item => ({
+          create: inProgressPlanWithItems.items.map((item) => ({
             treatmentPlanItemId: item.id,
             description: "Procedimiento",
             quantity: 1,
@@ -181,7 +206,7 @@ export async function seedTier5Financial(
     });
 
     // 4. Payment for the Endodontics item (Partial or Full)
-    const endoItem = inProgressPlanWithItems.items.find(i => i.procedureId === endoProc.id)!;
+    const endoItem = inProgressPlanWithItems.items.find((i) => i.procedureId === endoProc.id)!;
     const payment = await prisma.payment.create({
       data: {
         organizationId: orgId,
@@ -203,16 +228,21 @@ export async function seedTier5Financial(
     await prisma.cashMovement.create({
       data: {
         cashRegisterId: cr.id,
+        organizationId: orgId,
+        branchId,
         type: CashMovementType.INCOME,
+        direction: CashMovementDirection.IN,
         amount: payment.amount,
         paymentId: payment.id,
+        paymentMethodId: cardMethod.id,
         description: `Pago por tratamiento ${inProgressPlan.id.slice(-5)}`,
         createdById: professionals[0].userId!
       }
     });
 
     // 6. Installment Plan (for the rest)
-    if (patient.firstName === "Juan") { // Just for one patient to have a financing plan
+    if (patient.firstName === "Juan") {
+      // Just for one patient to have a financing plan
       await prisma.installmentPlan.create({
         data: {
           organizationId: orgId,
@@ -227,8 +257,22 @@ export async function seedTier5Financial(
           status: InstallmentPlanStatus.ACTIVE,
           installments: {
             create: [
-              { patientId: patient.id, number: 1, dueDate: new Date(now.getTime() + 14 * 86400000), amount: Number(resinProc.basePrice) / 2, paidAmount: 0, status: InstallmentStatus.PENDING },
-              { patientId: patient.id, number: 2, dueDate: new Date(now.getTime() + 28 * 86400000), amount: Number(resinProc.basePrice) / 2, paidAmount: 0, status: InstallmentStatus.PENDING }
+              {
+                patientId: patient.id,
+                number: 1,
+                dueDate: new Date(now.getTime() + 14 * 86400000),
+                amount: Number(resinProc.basePrice) / 2,
+                paidAmount: 0,
+                status: InstallmentStatus.PENDING
+              },
+              {
+                patientId: patient.id,
+                number: 2,
+                dueDate: new Date(now.getTime() + 28 * 86400000),
+                amount: Number(resinProc.basePrice) / 2,
+                paidAmount: 0,
+                status: InstallmentStatus.PENDING
+              }
             ]
           }
         }

@@ -28,6 +28,8 @@ export type SendPatientEmailInput = {
   to: string;
   cc?: string;
   replyTo?: string;
+  fromAddress?: string;
+  fromName?: string;
   subject: string;
   html: string;
   text: string;
@@ -74,8 +76,13 @@ export class EmailService {
     }
 
     try {
+      const fromAddress = input.fromAddress?.trim().toLowerCase() || this.fromAddress;
+      const fromName = input.fromName?.trim() || this.fromName;
+      if (/[^\x20-\x7E]/.test(fromAddress) || /[\r\n]/.test(fromName) || !/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(fromAddress)) {
+        throw new BadRequestException('El remitente configurado no es valido');
+      }
       const result = await this.transporter.sendMail({
-        from: `"${this.fromName}" <${this.fromAddress}>`,
+        from: `"${fromName.replace(/["<>]/g, "")}" <${fromAddress}>`,
         to: input.to,
         cc: input.cc,
         replyTo: input.replyTo,

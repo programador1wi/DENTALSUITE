@@ -5,7 +5,8 @@ import {
   TreatmentPlanItemStatus,
   TreatmentPlanKind,
   TreatmentPlanStatus,
-  TreatmentPriceSource
+  TreatmentPriceSource,
+  Prisma
 } from "@prisma/client";
 import type { AuthUser } from "../../common/types/auth-user";
 import { TreatmentPlansService } from "./treatment-plans.service";
@@ -954,7 +955,7 @@ describe("TreatmentPlansService professional branch validation", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it("excludes non-discountable snapshots from bulk discounts", async () => {
+  it("rejects the full bulk operation when one snapshot is non-discountable", async () => {
     const discountActor = { ...actor, permissions: ["treatment_discount.apply"] };
     const plan = {
       id: "plan-1",
@@ -1008,34 +1009,18 @@ describe("TreatmentPlansService professional branch validation", () => {
     const service = new TreatmentPlansService(prisma as never);
     jest.spyOn(service, "getProcedures").mockResolvedValue({ items: [] } as never);
 
-    await service.applyBulkDiscount(discountActor, "plan-1", {
-      itemIds: ["item-1", "item-2"],
-      discountType: "PERCENTAGE",
-      value: 10
+    await expect(
+      service.applyBulkDiscount(discountActor, "plan-1", {
+        itemIds: ["item-1", "item-2"],
+        discountType: "PERCENTAGE",
+        value: 10
+      })
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: "PROCEDURE_DOES_NOT_ALLOW_DISCOUNT" })
     });
 
-    expect(tx.treatmentPlanItem.update).toHaveBeenCalledTimes(1);
-    expect(tx.treatmentPlanItem.update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: "item-1" },
-        data: expect.objectContaining({
-          discount: expect.objectContaining({ toString: expect.any(Function) }),
-          total: expect.objectContaining({ toString: expect.any(Function) })
-        })
-      })
-    );
-    expect(tx.treatmentPlanItem.update.mock.calls[0][0].data.discount.toString()).toBe("10");
-    expect(tx.treatmentPlanItem.update.mock.calls[0][0].data.total.toString()).toBe("90");
-    expect(prisma.auditLog.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          after: expect.objectContaining({
-            itemIds: ["item-1"],
-            skippedItemIds: ["item-2"]
-          })
-        })
-      })
-    );
+    expect(tx.treatmentPlanItem.update).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("allocates fixed bulk discounts proportionally over the discountable base", async () => {
@@ -1089,7 +1074,20 @@ describe("TreatmentPlansService professional branch validation", () => {
       },
       $transaction: jest.fn((callback) => callback(tx))
     };
-    const service = new TreatmentPlansService(prisma as never);
+    const discountAuthorization = {
+      validateRequestedDiscount: jest.fn().mockImplementation(({ requestedPercent }) => ({
+        requestedPercent: new Prisma.Decimal(requestedPercent),
+        userMaximumPercent: new Prisma.Decimal(100),
+        procedureMaximumPercent: new Prisma.Decimal(100),
+        effectiveMaximumPercent: new Prisma.Decimal(100)
+      }))
+    };
+    const service = new TreatmentPlansService(
+      prisma as never,
+      undefined,
+      undefined,
+      discountAuthorization as never
+    );
     jest.spyOn(service, "getProcedures").mockResolvedValue({ items: [] } as never);
 
     await service.applyBulkDiscount(discountActor, "plan-1", {

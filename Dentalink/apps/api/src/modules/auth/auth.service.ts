@@ -78,6 +78,27 @@ const PERMISSION_TEMPLATES = [
     "Assign active agreements to patients and treatment plans",
     "agreements"
   ],
+  ["agreements.debt_report.read", "Read agreement debt report", "View company debt balances", "agreements"],
+  [
+    "agreements.debt_report.all_branches",
+    "Read all agreement debt branches",
+    "View company debt across branches",
+    "agreements"
+  ],
+  ["agreements.payments.create", "Create company payments", "Register company remittances", "agreements"],
+  [
+    "agreements.payments.approve",
+    "Approve company payments",
+    "Confirm and allocate company remittances",
+    "agreements"
+  ],
+  [
+    "agreements.payments.void",
+    "Void company payments",
+    "Reverse company payments and allocations",
+    "agreements"
+  ],
+  ["agreements.reports.export", "Export agreement reports", "Export agreement debt reports", "agreements"],
   ["specialties.read", "Read specialties", "View specialties", "specialties"],
   ["specialties.create", "Create specialties", "Create specialties", "specialties"],
   ["specialties.update", "Update specialties", "Update specialties", "specialties"],
@@ -101,6 +122,55 @@ const PERMISSION_TEMPLATES = [
     "payment_methods.deactivate",
     "Deactivate payment methods",
     "Deactivate payment methods",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.reactivate",
+    "Reactivate payment methods",
+    "Reactivate payment methods",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.configure_retention",
+    "Configure payment retention",
+    "Configure retention percentage",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.configure_refunds",
+    "Configure payment refunds",
+    "Configure refund eligibility",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.configure_multiple_settlements",
+    "Configure payment settlements",
+    "Configure deferred receipts",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.configure_cash_impact",
+    "Configure payment cash impact",
+    "Configure cash and report impact",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.view_audit",
+    "View payment method audit",
+    "View payment method audit history",
+    "payment_methods"
+  ],
+  ["payment_settlements.read", "Read payment settlements", "View scheduled receivables", "payment_methods"],
+  [
+    "payment_settlements.receive",
+    "Receive payment settlements",
+    "Receive scheduled receivables",
+    "payment_methods"
+  ],
+  [
+    "payment_settlements.cancel",
+    "Cancel payment settlements",
+    "Cancel scheduled receivables",
     "payment_methods"
   ],
   [
@@ -188,6 +258,27 @@ const PERMISSION_TEMPLATES = [
   ["laboratory_price.edit", "Edit laboratory pricing", "Edit laboratory price and cost", "laboratories"],
   ["price_audit.view", "View pricing audit", "View price resolution and publication audit", "price_lists"],
   ["patients.read", "Read patients", "View patients", "patients"],
+  ["patient_analytics.read", "Read patient analytics", "View aggregate patient analytics", "patients"],
+  [
+    "patient_analytics.read_financial",
+    "Read financial patient analytics",
+    "View debt, payment and monetary budget metrics",
+    "patients"
+  ],
+  [
+    "patient_analytics.view_all_branches",
+    "Consolidate patient analytics",
+    "View analytics across every authorized branch",
+    "patients"
+  ],
+  ["patient_analytics.export", "Export patient analytics", "Export authorized analytics details", "patients"],
+  ["patient_analytics.refresh", "Refresh patient analytics", "Request a fresh analytics calculation", "patients"],
+  [
+    "patient_analytics.view_patient_details",
+    "View patient analytics details",
+    "Open identified patient rows from analytics",
+    "patients"
+  ],
   ["patients.create", "Create patients", "Create patients", "patients"],
   ["patients.update", "Update patients", "Update patients", "patients"],
   [
@@ -231,6 +322,9 @@ const PERMISSION_TEMPLATES = [
     "Register policy payments and activate coverage",
     "patients"
   ],
+  ["family_policies.coverage.read", "Read policy coverage", "View policy coverage rules", "patients"],
+  ["family_policies.coverage.apply", "Apply policy coverage", "Apply coverage to treatments", "patients"],
+  ["family_policies.usage.read", "Read policy usage", "View policy usage history", "patients"],
   ["patient_duplicates.review", "Review patient duplicates", "Review duplicate candidates", "patients"],
   ["patients.merge", "Merge patients", "Execute audited patient merges", "patients"],
   [
@@ -369,6 +463,10 @@ const PERMISSION_TEMPLATES = [
     "cash_register"
   ],
   ["cash_register.move", "Create cash movement", "Register manual cash movements", "cash_register"],
+  ["expenses.read", "Read expenses", "View administrative expenses", "expenses"],
+  ["expenses.create", "Create expenses", "Register administrative expenses", "expenses"],
+  ["expenses.update", "Update expenses", "Edit expenses from open cash sessions", "expenses"],
+  ["expenses.void", "Void expenses", "Void expenses without deleting financial history", "expenses"],
   [
     "accounts_receivable.read",
     "Read accounts receivable",
@@ -647,6 +745,9 @@ const ROLE_TEMPLATES = [
       "family_policies.create",
       "family_policies.manage",
       "family_policies.activate",
+      "family_policies.coverage.read",
+      "family_policies.coverage.apply",
+      "family_policies.usage.read",
       "patient_duplicates.review",
       "booking_identity.review",
       "booking_identity.resolve",
@@ -1275,6 +1376,7 @@ export class AuthService {
           }
         }
       },
+      permissions: { include: { permission: true } },
       branches: true
     } as const;
   }
@@ -1292,6 +1394,7 @@ export class AuthService {
 
     const permissions = new Set<string>();
     const permissionEntries = [
+      ...user.permissions,
       ...(user.role?.permissions ?? []),
       ...user.roles.flatMap((roleEntry) => roleEntry.role.permissions)
     ];

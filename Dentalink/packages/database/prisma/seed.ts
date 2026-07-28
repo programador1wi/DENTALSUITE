@@ -5,6 +5,8 @@ import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
 import { Pool } from "pg";
 import { APPOINTMENT_REASON_SEEDS_BY_SPECIALTY } from "./appointment-reasons";
+import { seedProductionClinic } from "./seed-production-clinic";
+import { verifyProductionClinic } from "./verify-production-clinic";
 
 loadEnv({ path: resolve(process.cwd(), "../../.env") });
 loadEnv({ path: resolve(process.cwd(), ".env") });
@@ -71,6 +73,12 @@ const permissionDefinitions = [
     "Assign active agreements to patients and treatment plans",
     "agreements"
   ],
+  ["agreements.debt_report.read", "Read agreement debt report", "View company debt balances", "agreements"],
+  ["agreements.debt_report.all_branches", "Read all agreement debt branches", "View company debt across branches", "agreements"],
+  ["agreements.payments.create", "Create company payments", "Register company remittances", "agreements"],
+  ["agreements.payments.approve", "Approve company payments", "Confirm and allocate company remittances", "agreements"],
+  ["agreements.payments.void", "Void company payments", "Reverse company payments and allocations", "agreements"],
+  ["agreements.reports.export", "Export agreement reports", "Export agreement debt reports", "agreements"],
   ["specialties.read", "Read specialties", "View specialties", "specialties"],
   ["specialties.create", "Create specialties", "Create specialties", "specialties"],
   ["specialties.update", "Update specialties", "Update specialties", "specialties"],
@@ -178,6 +186,9 @@ const permissionDefinitions = [
     "Register policy payments and activate coverage",
     "patients"
   ],
+  ["family_policies.coverage.read", "Read policy coverage", "View policy coverage rules", "patients"],
+  ["family_policies.coverage.apply", "Apply policy coverage", "Apply coverage to treatments", "patients"],
+  ["family_policies.usage.read", "Read policy usage", "View policy usage history", "patients"],
   ["patient_duplicates.review", "Review patient duplicates", "Review duplicate candidates", "patients"],
   ["patients.merge", "Merge patients", "Execute audited patient merges", "patients"],
   [
@@ -479,6 +490,9 @@ const roleDefinitions = [
       "family_policies.create",
       "family_policies.manage",
       "family_policies.activate",
+      "family_policies.coverage.read",
+      "family_policies.coverage.apply",
+      "family_policies.usage.read",
       "patient_duplicates.review",
       "booking_identity.review",
       "booking_identity.resolve",
@@ -1419,6 +1433,7 @@ async function main() {
       create: {
         organizationId: organization.id,
         code: brandSeed.code,
+        slug: brandSeed.code.toLowerCase().replace(/_/g, "-"),
         name: brandSeed.name
       }
     });
@@ -1525,12 +1540,18 @@ async function main() {
 
   for (const roleDefinition of roleDefinitions) {
     const roleCode = normalizeCode(roleDefinition.name);
-    const existingRole = await prisma.role.findFirst({
-      where: {
-        organizationId: organization.id,
-        OR: [{ name: roleDefinition.name }, { code: roleCode }]
-      }
-    });
+    const [roleByName, roleByCode] = await Promise.all([
+      prisma.role.findUnique({
+        where: { organizationId_name: { organizationId: organization.id, name: roleDefinition.name } }
+      }),
+      prisma.role.findUnique({
+        where: { organizationId_code: { organizationId: organization.id, code: roleCode } }
+      })
+    ]);
+    // Older seed versions created role codes independently from role names. The
+    // role name is the stable business identity; never rename a different row
+    // merely because it owns the desired normalized code.
+    const existingRole = roleByName ?? roleByCode;
 
     const role = existingRole
       ? await prisma.role.update({
@@ -1540,7 +1561,7 @@ async function main() {
             description: roleDefinition.description,
             isSystem: true,
             isActive: true,
-            code: roleCode
+            ...(!roleByCode || roleByCode.id === existingRole.id ? { code: roleCode } : {})
           }
         })
       : await prisma.role.create({
@@ -1663,18 +1684,17 @@ async function main() {
     new Map(allowedSpecialties.map((specialty) => [specialty.name, specialty.id]))
   );
 
-  await prisma.branchPriceList.deleteMany({ where: { organizationId: organization.id } });
-  await prisma.priceListItem.deleteMany({ where: { priceList: { organizationId: organization.id } } });
-  await prisma.priceListCategory.deleteMany({ where: { organizationId: organization.id } });
-  await prisma.agreement.updateMany({
-    where: { organizationId: organization.id, priceListId: { not: null } },
-    data: { priceListId: null }
-  });
-  await prisma.priceList.deleteMany({ where: { organizationId: organization.id } });
-
   for (const priceListSeed of seededPriceLists) {
-    const priceList = await prisma.priceList.create({
-      data: {
+    const priceList = await prisma.priceList.upsert({
+      where: {
+        organizationId_name: { organizationId: organization.id, name: priceListSeed.name }
+      },
+      update: {
+        description: priceListSeed.description,
+        isDefault: priceListSeed.isDefault,
+        isActive: true
+      },
+      create: {
         organizationId: organization.id,
         name: priceListSeed.name,
         description: priceListSeed.description,
@@ -1703,16 +1723,26 @@ async function main() {
         }
       });
 
-      await prisma.priceListCategory.create({
-        data: {
+      const existingPriceListCategory = await prisma.priceListCategory.findFirst({
+        where: { priceListId: priceList.id, procedureCategoryId: procedureCategory.id }
+      });
+      if (existingPriceListCategory) {
+        await prisma.priceListCategory.update({
+          where: { id: existingPriceListCategory.id },
+          data: { name: categoryName, sortOrder: index + 1, isActive: true }
+        });
+      } else {
+        await prisma.priceListCategory.create({
+          data: {
           organizationId: organization.id,
           priceListId: priceList.id,
           procedureCategoryId: procedureCategory.id,
           name: categoryName,
           sortOrder: index + 1,
           isActive: true
-        }
-      });
+          }
+        });
+      }
     }
 
     const assignedBranches = await prisma.branch.findMany({
@@ -1726,16 +1756,20 @@ async function main() {
     });
 
     if (assignedBranches.length) {
-      await prisma.branchPriceList.createMany({
-        data: assignedBranches.map((branch) => ({
-          organizationId: organization.id,
-          branchId: branch.id,
-          priceListId: priceList.id,
-          type: priceListSeed.type,
-          isDefault: priceListSeed.type === "BASE",
-          isActive: true
-        }))
-      });
+      for (const branch of assignedBranches) {
+        await prisma.branchPriceList.upsert({
+          where: { branchId_priceListId: { branchId: branch.id, priceListId: priceList.id } },
+          update: { type: priceListSeed.type, isDefault: priceListSeed.type === "BASE", isActive: true },
+          create: {
+            organizationId: organization.id,
+            branchId: branch.id,
+            priceListId: priceList.id,
+            type: priceListSeed.type,
+            isDefault: priceListSeed.type === "BASE",
+            isActive: true
+          }
+        });
+      }
     }
   }
 
@@ -1819,6 +1853,9 @@ async function main() {
       }
     });
   }
+
+  await seedProductionClinic(prisma, organization.id, admin.id);
+  await verifyProductionClinic(prisma, organization.id);
 
   console.log(`Seed completed. Admin: ${adminEmail}. Staff password: ${staffPassword}`);
 }

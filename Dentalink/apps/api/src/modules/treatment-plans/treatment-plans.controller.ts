@@ -172,6 +172,12 @@ export class TreatmentPlansController {
     return this.service.getTreatmentPlan(actor, id);
   }
 
+  @Get("treatment-plans/:id/financial-summary")
+  @RequirePermissions("treatment_plans.read")
+  getFinancialSummary(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.getFinancialSummary(actor, id);
+  }
+
   @Patch("treatment-plans/:id")
   @RequirePermissions("treatment_plans.update")
   updateTreatmentPlan(

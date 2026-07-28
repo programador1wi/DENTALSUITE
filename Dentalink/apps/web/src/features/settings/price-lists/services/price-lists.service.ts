@@ -46,6 +46,7 @@ export type PriceListItem = {
   price: string;
   labCost: string;
   allowsDiscount: boolean;
+  maxDiscountPercent?: string;
   currency: "MXN" | "USD" | "EUR";
   procedure: {
     id: string;
@@ -98,6 +99,7 @@ export type PriceListPayload = {
     price: string;
     labCost?: string;
     allowsDiscount?: boolean;
+    maxDiscountPercent?: string;
     currency?: "MXN" | "USD" | "EUR";
   }[];
 };

@@ -29,6 +29,10 @@ export class UpdatePriceListItemInputDto {
   allowsDiscount?: boolean;
 
   @IsOptional()
+  @IsNumberString()
+  maxDiscountPercent?: string;
+
+  @IsOptional()
   @IsIn(["MXN", "USD", "EUR"])
   currency?: "MXN" | "USD" | "EUR";
 }

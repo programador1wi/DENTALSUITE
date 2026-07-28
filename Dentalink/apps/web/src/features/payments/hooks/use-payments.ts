@@ -8,6 +8,7 @@ import {
   createPayment,
   createPaymentLink,
   createRefund,
+  cancelPaymentSettlement,
   getPatientBalance,
   getPatientBalanceByPlan,
   getPatientBillingSummary,
@@ -30,21 +31,29 @@ import {
   listPatientReimbursementRequests,
   listPatientVoidedPayments,
   listPaymentLinks,
+  listPaymentSettlements,
   listPayments,
   listRefunds,
   openCashRegister,
   payInstallment,
   removePaymentAllocation,
+  receivePaymentSettlement,
   updatePayment,
   voidPayment,
   type CancelledPendingPaymentLinkStatus,
+  type CashRegisterListParams,
   type CashReportQuery,
-  type CashRegisterStatus,
   type PaymentStatus,
+  type PaymentSettlementStatus,
   type RefundStatus
 } from "../services/payments.service";
 
-export function usePayments(params?: { patientId?: string; branchId?: string; search?: string; status?: PaymentStatus }) {
+export function usePayments(params?: {
+  patientId?: string;
+  branchId?: string;
+  search?: string;
+  status?: PaymentStatus;
+}) {
   return useQuery({
     queryKey: ["payments", params],
     queryFn: () => listPayments(params)
@@ -62,6 +71,45 @@ export function useCancelledPendingPayments(params?: {
     queryKey: ["payments", "cancelled-pending", params],
     queryFn: () => listCancelledPendingPayments(params)
   });
+}
+
+export function usePaymentSettlements(params?: {
+  branchId?: string;
+  paymentMethodId?: string;
+  status?: PaymentSettlementStatus;
+  dueFrom?: string;
+  dueTo?: string;
+}) {
+  return useQuery({
+    queryKey: ["payment-settlements", params],
+    queryFn: () => listPaymentSettlements(params)
+  });
+}
+
+export function usePaymentSettlementMutations() {
+  const queryClient = useQueryClient();
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["payment-settlements"] });
+  return {
+    receive: useMutation({
+      mutationFn: ({
+        id,
+        ...payload
+      }: {
+        id: string;
+        cashRegisterId: string;
+        expectedVersion: number;
+        receivedAt?: string;
+        reference?: string;
+        financialInstitutionId?: string;
+      }) => receivePaymentSettlement(id, payload),
+      onSuccess: invalidate
+    }),
+    cancel: useMutation({
+      mutationFn: ({ id, ...payload }: { id: string; expectedVersion: number; reason: string }) =>
+        cancelPaymentSettlement(id, payload),
+      onSuccess: invalidate
+    })
+  };
 }
 
 export function usePatientPayments(patientId: string) {
@@ -152,7 +200,10 @@ export function usePatientBalanceByPlan(patientId: string) {
   });
 }
 
-export function useRefunds(params?: { patientId?: string; treatmentPlanId?: string; status?: RefundStatus }, enabled = true) {
+export function useRefunds(
+  params?: { patientId?: string; treatmentPlanId?: string; status?: RefundStatus },
+  enabled = true
+) {
   return useQuery({
     queryKey: ["refunds", params],
     queryFn: () => listRefunds(params),
@@ -167,21 +218,29 @@ export function useAccountsReceivable(params?: { branchId?: string; patientId?: 
   });
 }
 
-export function usePaymentLinks(params?: { patientId?: string; status?: "CREATED" | "PAID" | "EXPIRED" | "CANCELLED" }) {
+export function usePaymentLinks(params?: {
+  patientId?: string;
+  status?: "CREATED" | "PAID" | "EXPIRED" | "CANCELLED";
+}) {
   return useQuery({
     queryKey: ["payment-links", params],
     queryFn: () => listPaymentLinks(params)
   });
 }
 
-export function useInstallments(params?: { patientId?: string; installmentPlanId?: string; status?: string; dueBefore?: string }) {
+export function useInstallments(params?: {
+  patientId?: string;
+  installmentPlanId?: string;
+  status?: string;
+  dueBefore?: string;
+}) {
   return useQuery({
     queryKey: ["installments", params],
     queryFn: () => listInstallments(params)
   });
 }
 
-export function useCashRegisters(params?: { branchId?: string; status?: CashRegisterStatus | ""; search?: string }) {
+export function useCashRegisters(params?: CashRegisterListParams) {
   return useQuery({
     queryKey: ["cash-register", params],
     queryFn: () => listCashRegisters(params)
@@ -259,8 +318,13 @@ export function usePaymentsMutations() {
       onError
     }),
     allocatePayment: useMutation({
-      mutationFn: ({ paymentId, allocations }: { paymentId: string; allocations: Array<{ treatmentPlanItemId: string; amount: number }> }) =>
-        addPaymentAllocations(paymentId, allocations),
+      mutationFn: ({
+        paymentId,
+        allocations
+      }: {
+        paymentId: string;
+        allocations: Array<{ treatmentPlanItemId: string; amount: number }>;
+      }) => addPaymentAllocations(paymentId, allocations),
       onSuccess: () => {
         toast.success("Pago aplicado");
         invalidate();
@@ -276,8 +340,17 @@ export function usePaymentsMutations() {
       onError
     }),
     createRefund: useMutation({
-      mutationFn: ({ paymentId, amount, reason }: { paymentId: string; amount: number; reason?: string }) =>
-        createRefund(paymentId, { amount, reason }),
+      mutationFn: ({
+        paymentId,
+        ...payload
+      }: {
+        paymentId: string;
+        amount: number;
+        reason?: string;
+        paymentMethodId?: string;
+        financialInstitutionId?: string;
+        reference?: string;
+      }) => createRefund(paymentId, payload),
       onSuccess: () => {
         toast.success("Devolucion registrada");
         invalidate();
@@ -285,7 +358,8 @@ export function usePaymentsMutations() {
       onError
     }),
     voidPayment: useMutation({
-      mutationFn: ({ paymentId, reason }: { paymentId: string; reason: string }) => voidPayment(paymentId, { reason }),
+      mutationFn: ({ paymentId, reason }: { paymentId: string; reason: string }) =>
+        voidPayment(paymentId, { reason }),
       onSuccess: () => {
         toast.success("Pago anulado");
         invalidate();
@@ -325,8 +399,19 @@ export function usePaymentsMutations() {
       onError
     }),
     closeCashRegister: useMutation({
-      mutationFn: ({ registerId, closingAmount, notes }: { registerId: string; closingAmount: number; notes?: string }) =>
-        closeCashRegister(registerId, { closingAmount, notes }),
+      mutationFn: ({
+        registerId,
+        closingAmount,
+        closingCarryover,
+        expectedVersion,
+        notes
+      }: {
+        registerId: string;
+        closingAmount: number;
+        closingCarryover?: number;
+        expectedVersion?: number;
+        notes?: string;
+      }) => closeCashRegister(registerId, { closingAmount, closingCarryover, expectedVersion, notes }),
       onSuccess: () => {
         toast.success("Caja cerrada");
         invalidate();
@@ -389,6 +474,7 @@ export function useCashPaymentsByProfessional(
   return useQuery({
     queryKey: ["cash-report", "payments-by-professional", params],
     queryFn: () => getCashPaymentsByProfessional(params),
-    enabled: enabled && Boolean(params?.branchId && params?.professionalId && params?.dateFrom && params?.dateTo)
+    enabled:
+      enabled && Boolean(params?.branchId && params?.professionalId && params?.dateFrom && params?.dateTo)
   });
 }

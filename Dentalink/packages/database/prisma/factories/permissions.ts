@@ -57,6 +57,27 @@ export const permissionDefinitions = [
     "Assign active agreements to patients and treatment plans",
     "agreements"
   ],
+  ["agreements.debt_report.read", "Read agreement debt report", "View company debt balances", "agreements"],
+  [
+    "agreements.debt_report.all_branches",
+    "Read all agreement debt branches",
+    "View company debt across branches",
+    "agreements"
+  ],
+  ["agreements.payments.create", "Create company payments", "Register company remittances", "agreements"],
+  [
+    "agreements.payments.approve",
+    "Approve company payments",
+    "Confirm and allocate company remittances",
+    "agreements"
+  ],
+  [
+    "agreements.payments.void",
+    "Void company payments",
+    "Reverse company payments and allocations",
+    "agreements"
+  ],
+  ["agreements.reports.export", "Export agreement reports", "Export agreement debt reports", "agreements"],
   ["specialties.read", "Read specialties", "View specialties", "specialties"],
   ["specialties.create", "Create specialties", "Create specialties", "specialties"],
   ["specialties.update", "Update specialties", "Update specialties", "specialties"],
@@ -80,6 +101,55 @@ export const permissionDefinitions = [
     "payment_methods.deactivate",
     "Deactivate payment methods",
     "Deactivate payment methods",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.reactivate",
+    "Reactivate payment methods",
+    "Reactivate payment methods",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.configure_retention",
+    "Configure payment retention",
+    "Configure retention percentage",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.configure_refunds",
+    "Configure payment refunds",
+    "Configure refund eligibility",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.configure_multiple_settlements",
+    "Configure multiple settlements",
+    "Configure scheduled receivables",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.configure_cash_impact",
+    "Configure cash impact",
+    "Configure cash and reporting behavior",
+    "payment_methods"
+  ],
+  [
+    "payment_methods.view_audit",
+    "View payment method audit",
+    "View payment method history",
+    "payment_methods"
+  ],
+  ["payment_settlements.read", "Read payment settlements", "View scheduled receivables", "payment_methods"],
+  [
+    "payment_settlements.receive",
+    "Receive payment settlements",
+    "Mark scheduled receivables as received",
+    "payment_methods"
+  ],
+  [
+    "payment_settlements.cancel",
+    "Cancel payment settlements",
+    "Cancel pending scheduled receivables",
     "payment_methods"
   ],
   [
@@ -114,6 +184,12 @@ export const permissionDefinitions = [
   ["price_lists.create", "Create price lists", "Create price lists", "price_lists"],
   ["price_lists.update", "Update price lists", "Update price lists", "price_lists"],
   [
+    "price_lists.configure_discount_limits",
+    "Configure procedure discount limits",
+    "Configure discount eligibility and maximum percentage by tariff item",
+    "price_lists"
+  ],
+  [
     "price_lists.override_manual",
     "Override price list prices",
     "Allow manual treatment price overrides",
@@ -124,6 +200,12 @@ export const permissionDefinitions = [
     "treatment_discount.apply",
     "Apply treatment discounts",
     "Apply allowed treatment discounts",
+    "treatment_plans"
+  ],
+  [
+    "treatment_discount.configure_user_limits",
+    "Configure user discount limits",
+    "Configure the maximum treatment discount authorized for each user",
     "treatment_plans"
   ],
   [
@@ -145,6 +227,27 @@ export const permissionDefinitions = [
     "treatment_plans"
   ],
   ["patients.read", "Read patients", "View patients", "patients"],
+  ["patient_analytics.read", "Read patient analytics", "View aggregate patient analytics", "patients"],
+  [
+    "patient_analytics.read_financial",
+    "Read financial patient analytics",
+    "View debt, payment and monetary budget metrics",
+    "patients"
+  ],
+  [
+    "patient_analytics.view_all_branches",
+    "Consolidate patient analytics",
+    "View analytics across every authorized branch",
+    "patients"
+  ],
+  ["patient_analytics.export", "Export patient analytics", "Export authorized analytics details", "patients"],
+  ["patient_analytics.refresh", "Refresh patient analytics", "Request a fresh analytics calculation", "patients"],
+  [
+    "patient_analytics.view_patient_details",
+    "View patient analytics details",
+    "Open identified patient rows from analytics",
+    "patients"
+  ],
   ["patients.create", "Create patients", "Create patients", "patients"],
   ["patients.update", "Update patients", "Update patients", "patients"],
   [
@@ -188,6 +291,9 @@ export const permissionDefinitions = [
     "Register policy payments and activate coverage",
     "patients"
   ],
+  ["family_policies.coverage.read", "Read policy coverage", "View policy coverage rules", "patients"],
+  ["family_policies.coverage.apply", "Apply policy coverage", "Apply coverage to treatments", "patients"],
+  ["family_policies.usage.read", "Read policy usage", "View policy usage history", "patients"],
   ["patient_duplicates.review", "Review patient duplicates", "Review duplicate candidates", "patients"],
   ["patients.merge", "Merge patients", "Execute audited patient merges", "patients"],
   [
@@ -330,6 +436,49 @@ export const permissionDefinitions = [
   ["payments.allocate", "Allocate payments", "Allocate payments to treatment items", "payments"],
   ["payments.refund", "Refund payments", "Register payment refunds", "payments"],
   [
+    "payment_options.cash_discounts.view",
+    "View cash discounts",
+    "View cash discount configuration",
+    "payments"
+  ],
+  [
+    "payment_options.cash_discounts.create",
+    "Create cash discounts",
+    "Create cash discount rules",
+    "payments"
+  ],
+  ["payment_options.cash_discounts.update", "Update cash discounts", "Edit cash discount rules", "payments"],
+  [
+    "payment_options.cash_discounts.disable",
+    "Disable cash discounts",
+    "Disable cash discount rules without deleting history",
+    "payments"
+  ],
+  [
+    "payment_options.cash_discounts.reactivate",
+    "Reactivate cash discounts",
+    "Reactivate valid cash discount rules",
+    "payments"
+  ],
+  [
+    "payments.cash_discounts.apply",
+    "Apply cash discounts",
+    "Apply authorized cash discounts during full settlement",
+    "payments"
+  ],
+  [
+    "payments.cash_discounts.override",
+    "Override cash discounts",
+    "Reserved override permission; disabled by default",
+    "payments"
+  ],
+  [
+    "payments.cash_discounts.view_audit",
+    "View cash discount audit",
+    "View cash discount audit and historical applications",
+    "payments"
+  ],
+  [
     "payments.override.closed_cash",
     "Override closed cash register",
     "Allow receiving payments without open cash register",
@@ -349,6 +498,10 @@ export const permissionDefinitions = [
     "cash_register"
   ],
   ["cash_register.move", "Create cash movement", "Register manual cash movements", "cash_register"],
+  ["expenses.read", "Read expenses", "View administrative expenses", "expenses"],
+  ["expenses.create", "Create expenses", "Register administrative expenses", "expenses"],
+  ["expenses.update", "Update expenses", "Edit expenses from open cash sessions", "expenses"],
+  ["expenses.void", "Void expenses", "Void expenses without deleting financial history", "expenses"],
   [
     "accounts_receivable.read",
     "Read accounts receivable",
@@ -459,6 +612,23 @@ export const permissionDefinitions = [
   ["consents.create", "Create consents", "Generate consents for patients", "documents"],
   ["consents.sign", "Sign consents", "Sign and lock consents", "documents"],
   ["consents.pdf", "Download consent PDF", "Download signed consent snapshot", "documents"],
+  ["consents.templates.read", "Consultar plantillas de consentimiento", "Ver plantillas y sus estados", "documents"],
+  ["consents.templates.create", "Crear plantillas de consentimiento", "Crear borradores de plantillas", "documents"],
+  ["consents.templates.update_draft", "Editar borradores de consentimiento", "Modificar solamente versiones en borrador", "documents"],
+  ["consents.templates.publish", "Publicar plantillas de consentimiento", "Publicar versiones inmutables", "documents"],
+  ["consents.templates.deactivate", "Deshabilitar plantillas de consentimiento", "Impedir nuevas instancias sin afectar documentos previos", "documents"],
+  ["consents.templates.view_versions", "Consultar versiones de consentimiento", "Ver historial de versiones", "documents"],
+  ["consents.templates.view_audit", "Consultar auditoría de plantillas", "Ver trazabilidad de plantillas", "documents"],
+  ["consents.instances.read", "Consultar consentimientos clínicos", "Ver consentimientos de pacientes", "documents"],
+  ["consents.instances.create", "Generar consentimientos clínicos", "Crear instancias desde versiones publicadas", "documents"],
+  ["consents.instances.complete_fields", "Completar campos de consentimiento", "Completar datos antes de la primera firma", "documents"],
+  ["consents.instances.sign_patient", "Registrar firma del paciente", "Capturar evidencia de firma del paciente", "documents"],
+  ["consents.instances.sign_professional", "Registrar firma profesional", "Capturar evidencia de firma profesional", "documents"],
+  ["consents.instances.sign_representative", "Registrar firma del representante", "Capturar evidencia de firma del representante", "documents"],
+  ["consents.instances.finalize", "Finalizar consentimientos", "Congelar contenido y generar PDF final", "documents"],
+  ["consents.instances.void", "Anular consentimientos", "Anular conservando documento y evidencia", "documents"],
+  ["consents.instances.download", "Descargar consentimientos", "Descargar PDF clínico final", "documents"],
+  ["consents.instances.view_evidence", "Consultar evidencia de consentimiento", "Ver hashes, firmas y auditoría", "documents"],
   ["reports.read", "Read reports", "View dashboards and reports", "reports"],
   ["reports.export", "Export reports", "Export reports in CSV/XLSX", "reports"],
   ["lab_providers.read", "Read lab providers", "View laboratory providers", "labs"],
@@ -537,7 +707,9 @@ export const roleDefinitions = [
   {
     name: "ADMIN",
     description: "Administrative access",
-    permissionKeys: permissionDefinitions.map(([key]) => key).filter((key) => key !== "system.manage_all")
+    permissionKeys: permissionDefinitions
+      .map(([key]) => key)
+      .filter((key) => key !== "system.manage_all" && key !== "payments.cash_discounts.override")
   },
   {
     name: "RECEPTIONIST",
@@ -568,6 +740,9 @@ export const roleDefinitions = [
       "family_policies.create",
       "family_policies.manage",
       "family_policies.activate",
+      "family_policies.coverage.read",
+      "family_policies.coverage.apply",
+      "family_policies.usage.read",
       "patient_duplicates.review",
       "booking_identity.review",
       "booking_identity.resolve",
@@ -597,6 +772,7 @@ export const roleDefinitions = [
       "payments.create",
       "payments.update",
       "payments.allocate",
+      "payments.cash_discounts.apply",
       "payment_links.create",
       "installments.read",
       "accounts_receivable.read",
@@ -707,14 +883,19 @@ export const roleDefinitions = [
     permissionKeys: [
       "dashboard.read",
       "payment_methods.read",
+      "payment_settlements.read",
+      "payment_settlements.receive",
+      "payment_settlements.cancel",
       "price_lists.read",
       "patients.read",
       "appointments.read",
       "payments.read",
+      "treatment_discount.apply",
       "payments.create",
       "payments.update",
       "payments.allocate",
       "payments.refund",
+      "payments.cash_discounts.apply",
       "payment_links.create",
       "installments.read",
       "installments.create",
@@ -786,9 +967,22 @@ export const roleDefinitions = [
       "schedules.read",
       "chairs.read",
       "payment_methods.read",
+      "payment_methods.create",
+      "payment_methods.update",
+      "payment_methods.deactivate",
+      "payment_methods.reactivate",
+      "payment_methods.configure_retention",
+      "payment_methods.configure_refunds",
+      "payment_methods.configure_multiple_settlements",
+      "payment_methods.configure_cash_impact",
+      "payment_methods.view_audit",
+      "payment_settlements.read",
+      "payment_settlements.receive",
+      "payment_settlements.cancel",
       "procedure_categories.read",
       "procedures.read",
       "price_lists.read",
+      "price_lists.configure_discount_limits",
       "patients.read",
       "patients.create",
       "patients.update",
@@ -823,9 +1017,15 @@ export const roleDefinitions = [
       "treatment_plans.status.update",
       "treatment_plans.alternatives.manage",
       "treatment_discount.apply",
+      "treatment_discount.configure_user_limits",
       "treatment_discount.override",
       "treatment_discount.view",
       "treatment_discount.audit",
+      "payment_options.cash_discounts.view",
+      "payment_options.cash_discounts.create",
+      "payment_options.cash_discounts.update",
+      "payment_options.cash_discounts.disable",
+      "payment_options.cash_discounts.reactivate",
       "budgets.read",
       "budgets.create",
       "budgets.update",
@@ -838,6 +1038,8 @@ export const roleDefinitions = [
       "payments.update",
       "payments.allocate",
       "payments.refund",
+      "payments.cash_discounts.apply",
+      "payments.cash_discounts.view_audit",
       "payment_links.create",
       "installments.read",
       "installments.create",

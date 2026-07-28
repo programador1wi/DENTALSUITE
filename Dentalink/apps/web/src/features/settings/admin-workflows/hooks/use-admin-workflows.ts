@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { ApiError } from "@/lib/api/error";
 import {
   assignAgreementPatients,
   createAgreement,
@@ -13,14 +14,22 @@ import {
   previewAgreementPrice,
   publishAgreement,
   listAgreementDebts,
-  payAgreementDebt,
+  getAgreementDebtDetails,
+  createCompanyPayment,
+  createPayrollDiscountPlan,
   listExpenses,
   finalizePayroll,
+  getExpenseSummary,
   listFinalizedPayroll,
   listPayroll,
   recalculatePayroll,
   updateAgreement,
+  updateExpense,
+  voidExpense,
+  type Expense,
   type AgreementPayload,
+  type AgreementDebtReportParams,
+  type CompanyPaymentPayload,
   type ExpensePayload
 } from "../services/admin-workflows.service";
 
@@ -137,30 +146,136 @@ export function useAssignAgreementPatients() {
   });
 }
 
-export function useAgreementDebts() {
+export function useAgreementDebts(params: AgreementDebtReportParams, enabled = true) {
   return useQuery({
-    queryKey: ["settings", "agreements", "debts"],
-    queryFn: listAgreementDebts
+    queryKey: ["settings", "agreements", "debts", params],
+    queryFn: () => listAgreementDebts(params),
+    enabled
   });
 }
 
-export function usePayAgreementDebt() {
+export function useAgreementDebtDetails(
+  agreementId: string | undefined,
+  params: AgreementDebtReportParams & {
+    patient?: string;
+    dueFrom?: string;
+    dueTo?: string;
+    status?: string;
+    installmentNumber?: number;
+    folio?: string;
+  },
+  enabled = true
+) {
+  return useQuery({
+    queryKey: ["settings", "agreements", "debts", "details", agreementId, params],
+    queryFn: () => getAgreementDebtDetails(agreementId!, params),
+    enabled: Boolean(agreementId) && enabled
+  });
+}
+
+export function useCreateCompanyPayment() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: payAgreementDebt,
-    onSuccess: (data) => {
-      toast.success(`Deuda de $${data.amountPaid} pagada correctamente`);
+    mutationFn: ({
+      agreementId,
+      payload,
+      idempotencyKey
+    }: {
+      agreementId: string;
+      payload: CompanyPaymentPayload;
+      idempotencyKey: string;
+    }) => createCompanyPayment(agreementId, payload, idempotencyKey),
+    onSuccess: () => {
+      toast.success("Pago empresarial registrado y aplicado");
       queryClient.invalidateQueries({ queryKey: ["settings", "agreements", "debts"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-register"] });
     },
     onError: (error: Error) => toast.error(error.message)
   });
 }
 
-export function useExpenses(params?: { search?: string; branchId?: string; month?: number; year?: number }) {
+export function useCreatePayrollDiscountPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      agreementId,
+      payload
+    }: {
+      agreementId: string;
+      payload: {
+        treatmentPlanId: string;
+        treatmentPlanItemIds: string[];
+        installmentCount: number;
+        firstDueDate: string;
+        periodicity: "WEEKLY" | "BIWEEKLY" | "MONTHLY";
+      };
+    }) => createPayrollDiscountPlan(agreementId, payload),
+    onSuccess: () => {
+      toast.success("Cargos empresariales generados");
+      queryClient.invalidateQueries({ queryKey: ["settings", "agreements", "debts"] });
+      queryClient.invalidateQueries({ queryKey: ["treatment-plan"] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useExpenses(params?: {
+  search?: string;
+  branchId?: string;
+  month?: number;
+  year?: number;
+  status?: string;
+  categoryId?: string;
+}) {
   return useQuery({
     queryKey: ["settings", "expenses", params],
     queryFn: () => listExpenses(params)
   });
+}
+
+export function useExpenseSummary(params?: { branchId?: string; month?: number; year?: number }) {
+  return useQuery({
+    queryKey: ["settings", "expenses", "summary", params],
+    queryFn: () => getExpenseSummary(params)
+  });
+}
+
+export function useUpdateExpense() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      payload
+    }: {
+      id: string;
+      payload: Partial<ExpensePayload> & { expectedVersion: number };
+    }) => updateExpense(id, payload),
+    onSuccess: () => {
+      toast.success("Gasto actualizado");
+      queryClient.invalidateQueries({ queryKey: ["settings", "expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-register"] });
+    },
+    onError: handleExpenseMutationError
+  });
+}
+
+export function useVoidExpense() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ expense, reason }: { expense: Expense; reason: string }) =>
+      voidExpense(expense.id, { reason, expectedVersion: expense.version }),
+    onSuccess: () => {
+      toast.success("Gasto anulado");
+      queryClient.invalidateQueries({ queryKey: ["settings", "expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["cash-register"] });
+    },
+    onError: handleExpenseMutationError
+  });
+}
+
+function handleExpenseMutationError(error: Error) {
+  if (error instanceof ApiError && error.code?.startsWith("EXPENSE_LOCKED_BY_")) return;
+  toast.error(error.message);
 }
 
 export function useCreateExpense() {

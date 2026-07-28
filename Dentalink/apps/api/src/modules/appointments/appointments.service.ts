@@ -1,5 +1,17 @@
-import { BadRequestException, Injectable, NotFoundException, ServiceUnavailableException } from "@nestjs/common";
-import { AppointmentStatus, AttendanceMode, Prisma, ProfessionalBranchStatus, TreatmentPlanStatus } from "@prisma/client";
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ServiceUnavailableException
+} from "@nestjs/common";
+import {
+  AppointmentStatus,
+  AttendanceMode,
+  Prisma,
+  ProfessionalBranchStatus,
+  TreatmentPlanStatus
+} from "@prisma/client";
 import { EmailService, AppointmentEmailData } from "../notifications/email.service";
 import { JwtService } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
@@ -7,7 +19,11 @@ import { resolvePagination } from "../../common/utils/pagination.util";
 import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
-import { isAllowedSpecialtyName, resolveAllowedSpecialtyName, withAllowedSpecialtyName } from "../../common/utils/specialty-policy.util";
+import {
+  isAllowedSpecialtyName,
+  resolveAllowedSpecialtyName,
+  withAllowedSpecialtyName
+} from "../../common/utils/specialty-policy.util";
 import { AppointmentQueryDto } from "./dto/appointment-query.dto";
 import {
   AppointmentStatusReasonDto,
@@ -18,7 +34,9 @@ import {
 import { CreateAppointmentNoteDto } from "./dto/appointment-note.dto";
 import { CreateAppointmentReminderDto, UpdateAppointmentReminderDto } from "./dto/appointment-reminder.dto";
 import { CreateAppointmentDto, CreateAppointmentsBatchDto } from "./dto/create-appointment.dto";
+import { CrmSurveysService } from "../crm-surveys/crm-surveys.service";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
+import { TreatmentPlanFinancialSummaryService } from "../treatment-plans/treatment-plan-financial-summary.service";
 
 const INITIAL_TREATMENT_PLAN_NAME = "Plan de Tratamiento Inicial";
 const PATIENT_DAILY_LIMIT_MESSAGE =
@@ -220,11 +238,15 @@ type PreparedAppointmentCreate = {
 
 @Injectable()
 export class AppointmentsService {
+  private readonly logger = new Logger(AppointmentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService: EmailService,
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService
+    private readonly configService: ConfigService,
+    private readonly financialSummaryService?: TreatmentPlanFinancialSummaryService,
+    private readonly crmSurveysService?: CrmSurveysService
   ) {}
 
   async dispatchEmailNotification(appointmentId: string, type: "SCHEDULED" | "CONFIRMATION") {
@@ -237,7 +259,7 @@ export class AppointmentsService {
         branch: { include: { brand: true } }
       }
     });
-    
+
     if (!appointment) {
       if (type === "CONFIRMATION") throw new NotFoundException("Appointment not found");
       return;
@@ -245,7 +267,8 @@ export class AppointmentsService {
 
     const patientEmail = appointment.patient?.email?.trim();
     if (!appointment.patient || !patientEmail) {
-      if (type === "CONFIRMATION") throw new BadRequestException("El paciente no tiene correo electronico registrado");
+      if (type === "CONFIRMATION")
+        throw new BadRequestException("El paciente no tiene correo electronico registrado");
       return;
     }
 
@@ -255,10 +278,20 @@ export class AppointmentsService {
     const data: AppointmentEmailData = {
       patientName: `${appointment.patient.firstName} ${appointment.patient.lastName}`.trim(),
       professionalName: `${appointment.professional.firstName} ${appointment.professional.lastName}`.trim(),
-      dateStr: new Intl.DateTimeFormat("es-MX", { month: "long", day: "numeric", timeZone: tz }).format(appointment.startAt),
+      dateStr: new Intl.DateTimeFormat("es-MX", { month: "long", day: "numeric", timeZone: tz }).format(
+        appointment.startAt
+      ),
 
-      timeStr: new Intl.DateTimeFormat("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }).format(appointment.startAt) + " hrs",
-      address: [appointment.branch.address, appointment.branch.city, appointment.branch.state].filter(Boolean).join(", "),
+      timeStr:
+        new Intl.DateTimeFormat("es-MX", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+          timeZone: tz
+        }).format(appointment.startAt) + " hrs",
+      address: [appointment.branch.address, appointment.branch.city, appointment.branch.state]
+        .filter(Boolean)
+        .join(", "),
       clinicPhone: appointment.branch.phone || branchBrand?.phone || organization?.phone || "+525555555555",
       brandName: branchBrand?.name || organization?.name || "Dental+",
       logoUrl: branchBrand?.logoUrl || organization?.logoUrl || undefined,
@@ -276,10 +309,10 @@ export class AppointmentsService {
       const secret = this.configService.get<string>("JWT_ACCESS_SECRET") || "secret";
       const frontendUrl = this.resolveConfirmationFrontendUrl();
       const expSeconds = Math.floor(appointment.startAt.getTime() / 1000) - Math.floor(Date.now() / 1000);
-      
+
       if (expSeconds > 0) {
         const token = this.jwtService.sign(
-          { sub: appointment.id, purpose: "PATIENT_PROFILE_UPDATE" }, 
+          { sub: appointment.id, purpose: "PATIENT_PROFILE_UPDATE" },
           { secret, expiresIn: expSeconds }
         );
         data.completeProfileUrl = this.buildCompleteProfileUrl(frontendUrl, appointment.id, token);
@@ -293,9 +326,9 @@ export class AppointmentsService {
         throw new BadRequestException("No se puede enviar confirmacion por email para una cita pasada");
       }
       const expSeconds = Math.floor(appointment.startAt.getTime() / 1000) - Math.floor(Date.now() / 1000);
-      
+
       if (expSeconds <= 0) return; // Ya pasó la cita
-      
+
       const token = this.jwtService.sign({ sub: appointment.id }, { secret, expiresIn: expSeconds });
       data.confirmUrl = this.buildConfirmationUrl(frontendUrl, appointment.id, token);
       await this.emailService.sendAppointmentConfirmationRequired(patientEmail, data);
@@ -305,7 +338,9 @@ export class AppointmentsService {
   private resolveConfirmationFrontendUrl() {
     const value = this.configService.get<string>("FRONTEND_URL")?.trim();
     if (!value) {
-      throw new ServiceUnavailableException("FRONTEND_URL no esta configurado para generar enlaces de confirmacion");
+      throw new ServiceUnavailableException(
+        "FRONTEND_URL no esta configurado para generar enlaces de confirmacion"
+      );
     }
 
     try {
@@ -345,12 +380,16 @@ export class AppointmentsService {
         ? { status: query.status as AppointmentStatus }
         : query.patientId
           ? {}
-          : { status: { notIn: [
-              AppointmentStatus.CANCELLED_BY_PATIENT,
-              AppointmentStatus.CANCELLED_BY_CLINIC,
-              AppointmentStatus.CANCELLED_CONFLICT,
-              AppointmentStatus.CANCELLED_RESCHEDULED
-            ] } }),
+          : {
+              status: {
+                notIn: [
+                  AppointmentStatus.CANCELLED_BY_PATIENT,
+                  AppointmentStatus.CANCELLED_BY_CLINIC,
+                  AppointmentStatus.CANCELLED_CONFLICT,
+                  AppointmentStatus.CANCELLED_RESCHEDULED
+                ]
+              }
+            }),
       ...(query.search
         ? {
             OR: [
@@ -372,7 +411,7 @@ export class AppointmentsService {
     });
 
     const mapped = appointments.map((appointment) => this.withCanonicalSpecialty(appointment));
-    return this.attachPatientBalances(actor, mapped);
+    return this.attachFinancialSituations(actor, mapped);
   }
 
   async findOne(actor: AuthUser, id: string) {
@@ -394,12 +433,14 @@ export class AppointmentsService {
 
     if (!appointment) throw new NotFoundException("Appointment not found");
     const mapped = this.withCanonicalSpecialty(appointment);
-    const [result] = await this.attachPatientBalances(actor, [mapped]);
+    const [result] = await this.attachFinancialSituations(actor, [mapped]);
     return result;
   }
 
   async listReasonSuggestions(actor: AuthUser, specialtyId?: string) {
-    const specialtyIds = specialtyId ? await this.resolveEquivalentSpecialtyIds(actor, specialtyId) : undefined;
+    const specialtyIds = specialtyId
+      ? await this.resolveEquivalentSpecialtyIds(actor, specialtyId)
+      : undefined;
     const rows = await this.prisma.appointment.groupBy({
       by: ["reason", "durationMinutes"],
       where: {
@@ -413,7 +454,15 @@ export class AppointmentsService {
 
     const byReason = new Map<
       string,
-      { id: string; name: string; durationMinutes: number; color: null; isActive: boolean; source: "history"; count: number }
+      {
+        id: string;
+        name: string;
+        durationMinutes: number;
+        color: null;
+        isActive: boolean;
+        source: "history";
+        count: number;
+      }
     >();
 
     for (const row of rows) {
@@ -435,7 +484,9 @@ export class AppointmentsService {
       }
     }
 
-    return Array.from(byReason.values()).sort((a, b) => b.count - a.count || a.name.localeCompare(b.name)).slice(0, 24);
+    return Array.from(byReason.values())
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      .slice(0, 24);
   }
 
   async create(actor: AuthUser, dto: CreateAppointmentDto) {
@@ -487,15 +538,21 @@ export class AppointmentsService {
     });
 
     const appointments = await this.prisma.appointment.findMany({
-      where: { id: { in: createdIds }, organizationId: actor.organizationId, branchId: { in: actor.branchIds } },
+      where: {
+        id: { in: createdIds },
+        organizationId: actor.organizationId,
+        branchId: { in: actor.branchIds }
+      },
       include: this.include()
     });
-    const byId = new Map(appointments.map((appointment) => [appointment.id, this.withCanonicalSpecialty(appointment)]));
+    const byId = new Map(
+      appointments.map((appointment) => [appointment.id, this.withCanonicalSpecialty(appointment)])
+    );
     const orderedAppointments = createdIds.flatMap((id) => {
       const appointment = byId.get(id);
       return appointment ? [appointment] : [];
     });
-    return this.attachPatientBalances(actor, orderedAppointments);
+    return this.attachFinancialSituations(actor, orderedAppointments);
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateAppointmentDto) {
@@ -506,10 +563,13 @@ export class AppointmentsService {
     const startAt = dto.startAt ? new Date(dto.startAt) : current.startAt;
     const endAt = dto.endAt ? new Date(dto.endAt) : current.endAt;
     const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
-    const keepCurrentChair = current.chairId && branchId === current.branchId && professionalId === current.professionalId;
+    const keepCurrentChair =
+      current.chairId && branchId === current.branchId && professionalId === current.professionalId;
     const chairId =
       dto.chairId ??
-      (keepCurrentChair ? current.chairId ?? undefined : await this.defaultChairForSchedule(actor, branchId, professionalId, startAt));
+      (keepCurrentChair
+        ? (current.chairId ?? undefined)
+        : await this.defaultChairForSchedule(actor, branchId, professionalId, startAt));
     const chairIndex = dto.chairIndex ?? current.chairIndex;
     const isOverbooking = dto.allowOverbooking ?? current.isOverbooking;
     const attendanceMode = dto.attendanceMode ?? current.attendanceMode;
@@ -624,7 +684,12 @@ export class AppointmentsService {
   }
 
   async confirmByEmail(actor: AuthUser, id: string) {
-    return this.changeStatus(actor, id, AppointmentStatus.CONFIRMED_BY_EMAIL, "Confirmado por el paciente via enlace publico de email");
+    return this.changeStatus(
+      actor,
+      id,
+      AppointmentStatus.CONFIRMED_BY_EMAIL,
+      "Confirmado por el paciente via enlace publico de email"
+    );
   }
 
   async cancel(actor: AuthUser, id: string, dto: CancelAppointmentDto) {
@@ -650,10 +715,13 @@ export class AppointmentsService {
     const startAt = new Date(dto.startAt);
     const endAt = new Date(dto.endAt);
     const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
-    const keepCurrentChair = current.chairId && branchId === current.branchId && professionalId === current.professionalId;
+    const keepCurrentChair =
+      current.chairId && branchId === current.branchId && professionalId === current.professionalId;
     const chairId =
       dto.chairId ??
-      (keepCurrentChair ? current.chairId ?? undefined : await this.defaultChairForSchedule(actor, branchId, professionalId, startAt));
+      (keepCurrentChair
+        ? (current.chairId ?? undefined)
+        : await this.defaultChairForSchedule(actor, branchId, professionalId, startAt));
     const chairIndex = dto.chairIndex ?? current.chairIndex;
     const isOverbooking = dto.allowOverbooking ?? current.isOverbooking;
     const attendanceMode = dto.attendanceMode ?? current.attendanceMode;
@@ -716,7 +784,14 @@ export class AppointmentsService {
           updatedById: actor.id
         }
       });
-      await this.createStatusHistory(tx, id, current.status, AppointmentStatus.RESCHEDULED, actor.id, dto.reason ?? "Reagendado");
+      await this.createStatusHistory(
+        tx,
+        id,
+        current.status,
+        AppointmentStatus.RESCHEDULED,
+        actor.id,
+        dto.reason ?? "Reagendado"
+      );
       await this.audit(tx, actor, id, "reschedule", { startAt, endAt });
     });
 
@@ -750,10 +825,14 @@ export class AppointmentsService {
 
     const agendaConfig = await this.resolveAgendaConfig(actor, query.branchId, query.professionalId, date);
     const slotMinutes = agendaConfig.agendaSlotMinutes;
-    const duration = query.durationMinutes ? Number(query.durationMinutes) : agendaConfig.defaultAppointmentDurationMinutes;
+    const duration = query.durationMinutes
+      ? Number(query.durationMinutes)
+      : agendaConfig.defaultAppointmentDurationMinutes;
     if (!Number.isInteger(duration) || duration < 5) throw new BadRequestException("Invalid durationMinutes");
     if (duration % slotMinutes !== 0) {
-      throw new BadRequestException(`durationMinutes must be a multiple of slot granularity (${slotMinutes} minutes)`);
+      throw new BadRequestException(
+        `durationMinutes must be a multiple of slot granularity (${slotMinutes} minutes)`
+      );
     }
 
     await this.validateReferences(actor, {
@@ -789,9 +868,19 @@ export class AppointmentsService {
         excludeId: query.excludeAppointmentId
       });
 
-      for (let cursor = new Date(dayStart); cursor.getTime() + duration * 60000 <= dayEnd.getTime(); cursor = new Date(cursor.getTime() + slotMinutes * 60000)) {
+      for (
+        let cursor = new Date(dayStart);
+        cursor.getTime() + duration * 60000 <= dayEnd.getTime();
+        cursor = new Date(cursor.getTime() + slotMinutes * 60000)
+      ) {
         const endAt = new Date(cursor.getTime() + duration * 60000);
-        const inBreak = this.isInsideBreak(cursor, endAt, date, schedule.breakStartTime, schedule.breakEndTime);
+        const inBreak = this.isInsideBreak(
+          cursor,
+          endAt,
+          date,
+          schedule.breakStartTime,
+          schedule.breakEndTime
+        );
         const overlaps = busy.some((item) => this.overlaps(cursor, endAt, item.startAt, item.endAt));
         slots.push({ startAt: new Date(cursor), endAt, available: !inBreak && !overlaps, chairIndex });
       }
@@ -871,12 +960,19 @@ export class AppointmentsService {
 
   async updateReminder(actor: AuthUser, id: string, reminderId: string, dto: UpdateAppointmentReminderDto) {
     await this.ensureAppointmentAccess(actor, id);
-    const current = await this.prisma.appointmentReminder.findFirst({ where: { id: reminderId, appointmentId: id } });
+    const current = await this.prisma.appointmentReminder.findFirst({
+      where: { id: reminderId, appointmentId: id }
+    });
     if (!current) throw new NotFoundException("Appointment reminder not found");
 
     const scheduledAt = dto.scheduledAt ? new Date(dto.scheduledAt) : undefined;
-    const sentAt = dto.sentAt ? new Date(dto.sentAt) : dto.status === "SENT" && !current.sentAt ? new Date() : undefined;
-    if (scheduledAt && Number.isNaN(scheduledAt.getTime())) throw new BadRequestException("Invalid scheduledAt");
+    const sentAt = dto.sentAt
+      ? new Date(dto.sentAt)
+      : dto.status === "SENT" && !current.sentAt
+        ? new Date()
+        : undefined;
+    if (scheduledAt && Number.isNaN(scheduledAt.getTime()))
+      throw new BadRequestException("Invalid scheduledAt");
     if (sentAt && Number.isNaN(sentAt.getTime())) throw new BadRequestException("Invalid sentAt");
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -943,6 +1039,13 @@ export class AppointmentsService {
     if (newStatus === AppointmentStatus.NOTIFIED_BY_EMAIL) {
       await this.dispatchEmailNotification(id, "CONFIRMATION");
     }
+    if (newStatus === AppointmentStatus.COMPLETED && this.crmSurveysService) {
+      try {
+        await this.crmSurveysService.handleAppointmentCompleted(id);
+      } catch (error) {
+        this.logger.error(`No fue posible generar invitaciones de encuesta para la cita ${id}`, error);
+      }
+    }
   }
 
   private defaultStatusReason(status: AppointmentStatus) {
@@ -976,20 +1079,30 @@ export class AppointmentsService {
     return appointment;
   }
 
-  private async prepareAppointmentForCreate(actor: AuthUser, dto: CreateAppointmentDto): Promise<PreparedAppointmentCreate> {
+  private async prepareAppointmentForCreate(
+    actor: AuthUser,
+    dto: CreateAppointmentDto
+  ): Promise<PreparedAppointmentCreate> {
     assertBranchAccess(actor, dto.branchId);
     const status = (dto.status ?? "SCHEDULED") as AppointmentStatus;
     const startAt = new Date(dto.startAt);
     const endAt = new Date(dto.endAt);
     const durationMinutes = dto.durationMinutes ?? this.diffMinutes(startAt, endAt);
-    const chairId = dto.chairId ?? (await this.defaultChairForSchedule(actor, dto.branchId, dto.professionalId, startAt));
+    const chairId =
+      dto.chairId ?? (await this.defaultChairForSchedule(actor, dto.branchId, dto.professionalId, startAt));
     const chairIndex = dto.chairIndex ?? 1;
     const isOverbooking = dto.allowOverbooking === true;
     const attendanceMode = dto.attendanceMode ?? AttendanceMode.PRESENTIAL;
 
     this.validateDates(startAt, endAt, durationMinutes);
     this.validateChairIndex(chairIndex);
-    await this.validateDurationSlotEnforcement(actor, dto.branchId, dto.professionalId, durationMinutes, startAt);
+    await this.validateDurationSlotEnforcement(
+      actor,
+      dto.branchId,
+      dto.professionalId,
+      durationMinutes,
+      startAt
+    );
     await this.validateReferences(actor, {
       branchId: dto.branchId,
       patientId: dto.patientId,
@@ -1012,7 +1125,17 @@ export class AppointmentsService {
       status
     });
 
-    return { dto, status, startAt, endAt, durationMinutes, chairId, chairIndex, isOverbooking, attendanceMode };
+    return {
+      dto,
+      status,
+      startAt,
+      endAt,
+      durationMinutes,
+      chairId,
+      chairIndex,
+      isOverbooking,
+      attendanceMode
+    };
   }
 
   private async createAppointmentInTransaction(
@@ -1021,7 +1144,17 @@ export class AppointmentsService {
     prepared: PreparedAppointmentCreate,
     treatmentPlanId?: string
   ) {
-    const { dto, status, startAt, endAt, durationMinutes, chairId, chairIndex, isOverbooking, attendanceMode } = prepared;
+    const {
+      dto,
+      status,
+      startAt,
+      endAt,
+      durationMinutes,
+      chairId,
+      chairIndex,
+      isOverbooking,
+      attendanceMode
+    } = prepared;
     const appointment = await tx.appointment.create({
       data: {
         organizationId: actor.organizationId,
@@ -1052,7 +1185,8 @@ export class AppointmentsService {
   }
 
   private enforceBatchSchedulingRules(actor: AuthUser, appointments: PreparedAppointmentCreate[]) {
-    const canOverbook = actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
+    const canOverbook =
+      actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
 
     for (let i = 0; i < appointments.length; i++) {
       const current = appointments[i];
@@ -1067,8 +1201,11 @@ export class AppointmentsService {
         if (current.dto.professionalId === next.dto.professionalId) {
           const currentOverbooking = this.isPreparedOverbooking(current);
           const nextOverbooking = this.isPreparedOverbooking(next);
-          const sameNormalChair = (current.chairIndex ?? 1) === (next.chairIndex ?? 1) && !currentOverbooking && !nextOverbooking;
-          const invalidOverbooking = (currentOverbooking || nextOverbooking) && (!currentOverbooking || !nextOverbooking || !canOverbook);
+          const sameNormalChair =
+            (current.chairIndex ?? 1) === (next.chairIndex ?? 1) && !currentOverbooking && !nextOverbooking;
+          const invalidOverbooking =
+            (currentOverbooking || nextOverbooking) &&
+            (!currentOverbooking || !nextOverbooking || !canOverbook);
           if (sameNormalChair || invalidOverbooking) {
             throw new BadRequestException("La cita empalma con otra cita del profesional");
           }
@@ -1222,7 +1359,9 @@ export class AppointmentsService {
         appointment.dto.professionalId !== first.dto.professionalId
     );
     if (hasMixedContext) {
-      throw new BadRequestException("Initial treatment plan can only be created for one patient, branch and professional");
+      throw new BadRequestException(
+        "Initial treatment plan can only be created for one patient, branch and professional"
+      );
     }
 
     const plan = await tx.treatmentPlan.create({
@@ -1285,14 +1424,24 @@ export class AppointmentsService {
 
     if (input.patientId) {
       const patient = await this.prisma.patient.findFirst({
-        where: { id: input.patientId, organizationId: actor.organizationId, branchId: input.branchId, deletedAt: null }
+        where: {
+          id: input.patientId,
+          organizationId: actor.organizationId,
+          branchId: input.branchId,
+          deletedAt: null
+        }
       });
       if (!patient) throw new BadRequestException("Invalid patientId for selected branch");
     }
 
     if (input.chairId) {
       const chair = await this.prisma.chair.findFirst({
-        where: { id: input.chairId, organizationId: actor.organizationId, branchId: input.branchId, isActive: true }
+        where: {
+          id: input.chairId,
+          organizationId: actor.organizationId,
+          branchId: input.branchId,
+          isActive: true
+        }
       });
       if (!chair) throw new BadRequestException("Invalid chairId for selected branch");
     }
@@ -1301,7 +1450,8 @@ export class AppointmentsService {
       const specialty = await this.prisma.specialty.findFirst({
         where: { id: input.specialtyId, organizationId: actor.organizationId }
       });
-      if (!specialty || !isAllowedSpecialtyName(specialty.name)) throw new BadRequestException("Invalid specialtyId");
+      if (!specialty || !isAllowedSpecialtyName(specialty.name))
+        throw new BadRequestException("Invalid specialtyId");
     }
 
     if (input.treatmentPlanId) {
@@ -1339,7 +1489,8 @@ export class AppointmentsService {
   ) {
     if (FREE_STATUSES.includes(input.status)) return;
 
-    const hasOverbookingPermission = actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
+    const hasOverbookingPermission =
+      actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
     const canOverbook = input.allowOverbooking === true && hasOverbookingPermission;
     if (input.allowOverbooking && !hasOverbookingPermission) {
       throw new BadRequestException("Overbooking permission is required");
@@ -1379,16 +1530,38 @@ export class AppointmentsService {
 
   private async ensureInsideProfessionalSchedule(
     actor: AuthUser,
-    input: { branchId: string; professionalId: string; chairIndex?: number; allowOverbooking?: boolean; startAt: Date; endAt: Date; status?: AppointmentStatus }
+    input: {
+      branchId: string;
+      professionalId: string;
+      chairIndex?: number;
+      allowOverbooking?: boolean;
+      startAt: Date;
+      endAt: Date;
+      status?: AppointmentStatus;
+    }
   ) {
     if (input.startAt.toDateString() !== input.endAt.toDateString()) {
       throw new BadRequestException("Appointment must start and end on the same day");
     }
 
-    const schedules = await this.effectiveSchedulesForDate(actor, input.branchId, input.professionalId, input.startAt);
-    if (!schedules.length) throw new BadRequestException("Professional has no active schedule for this day and branch");
-    const agendaConfig = await this.resolveAgendaConfig(actor, input.branchId, input.professionalId, input.startAt);
-    const branchStart = this.atTime(input.startAt, `${String(agendaConfig.agendaStartHour).padStart(2, "0")}:00`);
+    const schedules = await this.effectiveSchedulesForDate(
+      actor,
+      input.branchId,
+      input.professionalId,
+      input.startAt
+    );
+    if (!schedules.length)
+      throw new BadRequestException("Professional has no active schedule for this day and branch");
+    const agendaConfig = await this.resolveAgendaConfig(
+      actor,
+      input.branchId,
+      input.professionalId,
+      input.startAt
+    );
+    const branchStart = this.atTime(
+      input.startAt,
+      `${String(agendaConfig.agendaStartHour).padStart(2, "0")}:00`
+    );
     const branchEnd = this.atTime(input.startAt, `${String(agendaConfig.agendaEndHour).padStart(2, "0")}:00`);
     if (input.startAt < branchStart || input.endAt > branchEnd) {
       throw new BadRequestException("Appointment is outside branch agenda hours");
@@ -1407,20 +1580,38 @@ export class AppointmentsService {
 
     if (
       input.status !== AppointmentStatus.BLOCKED &&
-      this.isInsideBreak(input.startAt, input.endAt, input.startAt, matchingSchedule.breakStartTime, matchingSchedule.breakEndTime)
+      this.isInsideBreak(
+        input.startAt,
+        input.endAt,
+        input.startAt,
+        matchingSchedule.breakStartTime,
+        matchingSchedule.breakEndTime
+      )
     ) {
       throw new BadRequestException("La cita se superpone con el horario de descanso del profesional");
     }
 
-    const minutesFromScheduleStart = this.diffMinutes(this.atTime(input.startAt, matchingSchedule.startTime), input.startAt);
+    const minutesFromScheduleStart = this.diffMinutes(
+      this.atTime(input.startAt, matchingSchedule.startTime),
+      input.startAt
+    );
     if (minutesFromScheduleStart % agendaConfig.agendaSlotMinutes !== 0) {
-      throw new BadRequestException(`Appointment startAt must align to professional slot minutes (${agendaConfig.agendaSlotMinutes} minutes)`);
+      throw new BadRequestException(
+        `Appointment startAt must align to professional slot minutes (${agendaConfig.agendaSlotMinutes} minutes)`
+      );
     }
   }
 
   private async busyAppointments(
     actor: AuthUser,
-    input: { professionalId: string; chairId?: string; chairIndex?: number; startAt: Date; endAt: Date; excludeId?: string }
+    input: {
+      professionalId: string;
+      chairId?: string;
+      chairIndex?: number;
+      startAt: Date;
+      endAt: Date;
+      excludeId?: string;
+    }
   ) {
     return this.prisma.appointment.findMany({
       where: {
@@ -1431,14 +1622,26 @@ export class AppointmentsService {
         endAt: { gt: input.startAt },
         OR: [
           { professionalId: input.professionalId, chairIndex: input.chairIndex ?? 1, isOverbooking: false },
-          ...(input.chairId ? [{ chairId: input.chairId, attendanceMode: { in: [AttendanceMode.PRESENTIAL, AttendanceMode.BOTH] } }] : [])
+          ...(input.chairId
+            ? [
+                {
+                  chairId: input.chairId,
+                  attendanceMode: { in: [AttendanceMode.PRESENTIAL, AttendanceMode.BOTH] }
+                }
+              ]
+            : [])
         ]
       },
       select: { startAt: true, endAt: true }
     });
   }
 
-  private async effectiveSchedulesForDate(actor: AuthUser, branchId: string, professionalId: string, date: Date) {
+  private async effectiveSchedulesForDate(
+    actor: AuthUser,
+    branchId: string,
+    professionalId: string,
+    date: Date
+  ) {
     const dateKey = this.clinicDayKey(date);
     const specialSchedules = await this.prisma.professionalSpecialSchedule.findMany({
       where: {
@@ -1475,7 +1678,13 @@ export class AppointmentsService {
     });
   }
 
-  private async audit(tx: Prisma.TransactionClient, actor: AuthUser, entityId: string, action: string, after: Prisma.InputJsonValue) {
+  private async audit(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    entityId: string,
+    action: string,
+    after: Prisma.InputJsonValue
+  ) {
     await tx.auditLog.create({
       data: {
         organizationId: actor.organizationId,
@@ -1489,7 +1698,8 @@ export class AppointmentsService {
   }
 
   private validateDates(startAt: Date, endAt: Date, durationMinutes: number) {
-    if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) throw new BadRequestException("Invalid appointment date");
+    if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()))
+      throw new BadRequestException("Invalid appointment date");
     if (startAt >= endAt) throw new BadRequestException("startAt must be before endAt");
     if (durationMinutes !== this.diffMinutes(startAt, endAt)) {
       throw new BadRequestException("durationMinutes must match startAt/endAt");
@@ -1572,7 +1782,12 @@ export class AppointmentsService {
       .trim();
   }
 
-  private async defaultChairForSchedule(actor: AuthUser, branchId: string, professionalId: string, startAt: Date) {
+  private async defaultChairForSchedule(
+    actor: AuthUser,
+    branchId: string,
+    professionalId: string,
+    startAt: Date
+  ) {
     const schedule = await this.prisma.professionalSchedule.findFirst({
       where: {
         professionalId,
@@ -1605,7 +1820,13 @@ export class AppointmentsService {
     return new Date(Number(year), Number(month) - 1, Number(day), 0, 0, 0, 0);
   }
 
-  private isInsideBreak(startAt: Date, endAt: Date, date: Date, breakStartTime?: string | null, breakEndTime?: string | null) {
+  private isInsideBreak(
+    startAt: Date,
+    endAt: Date,
+    date: Date,
+    breakStartTime?: string | null,
+    breakEndTime?: string | null
+  ) {
     if (!breakStartTime || !breakEndTime) return false;
     return this.overlaps(startAt, endAt, this.atTime(date, breakStartTime), this.atTime(date, breakEndTime));
   }
@@ -1623,11 +1844,18 @@ export class AppointmentsService {
   ) {
     const agendaConfig = await this.resolveAgendaConfig(actor, branchId, professionalId, at);
     if (durationMinutes % agendaConfig.agendaSlotMinutes !== 0) {
-      throw new BadRequestException(`Appointment duration must be a multiple of professional slot minutes (${agendaConfig.agendaSlotMinutes} minutes)`);
+      throw new BadRequestException(
+        `Appointment duration must be a multiple of professional slot minutes (${agendaConfig.agendaSlotMinutes} minutes)`
+      );
     }
   }
 
-  private async resolveAgendaConfig(actor: AuthUser, branchId: string, professionalId: string, at = new Date()) {
+  private async resolveAgendaConfig(
+    actor: AuthUser,
+    branchId: string,
+    professionalId: string,
+    at = new Date()
+  ) {
     assertBranchAccess(actor, branchId);
 
     const assignment = await this.prisma.professionalBranch.findFirst({
@@ -1658,51 +1886,33 @@ export class AppointmentsService {
     };
   }
 
-  private async attachPatientBalances(actor: AuthUser, appointments: any[]) {
-    const patientIds = appointments
-      .map((a) => a.patientId)
+  private async attachFinancialSituations(actor: AuthUser, appointments: any[]) {
+    const treatmentPlanIds = appointments
+      .map((appointment) => appointment.treatmentPlanId)
       .filter(Boolean) as string[];
+    const summaries = this.financialSummaryService
+      ? await this.financialSummaryService.calculateBatch(actor, treatmentPlanIds)
+      : new Map();
 
-    if (patientIds.length === 0) return appointments;
-
-    const patientsWithDebt = await this.prisma.patient.findMany({
-      where: {
-        id: { in: patientIds },
-        organizationId: actor.organizationId
-      },
-      include: {
-        treatmentPlans: {
-          where: { isAlternative: false },
-          include: {
-            items: {
-              where: { status: { not: "CANCELLED" } }
+    return appointments.map((appointment) => {
+      const financialSummary = appointment.treatmentPlanId
+        ? (summaries.get(appointment.treatmentPlanId) ?? null)
+        : null;
+      if (appointment.patient) {
+        const debt = Number(financialSummary?.debtAmount ?? 0);
+        appointment.patient.hasDebt = debt > 0;
+        appointment.patient.outstandingBalance = debt;
+      }
+      return {
+        ...appointment,
+        financialSituation: financialSummary
+          ? {
+              treatmentPlanId: financialSummary.treatmentPlanId,
+              currency: financialSummary.currency,
+              ...financialSummary.situation
             }
-          }
-        },
-        payments: {
-          where: { status: { notIn: ["REFUNDED", "VOIDED"] } }
-        }
-      }
+          : null
+      };
     });
-
-    const balances = patientsWithDebt.reduce((acc: Record<string, number>, p: any) => {
-      const planned = p.treatmentPlans.reduce(
-        (sum: number, tp: any) => sum + tp.items.reduce((s: number, item: any) => s + Number(item.total), 0),
-        0
-      );
-      const paid = p.payments.reduce((sum: number, pay: any) => sum + Number(pay.amount), 0);
-      acc[p.id] = planned - paid;
-      return acc;
-    }, {});
-
-    for (const app of appointments) {
-      if (app.patient) {
-        const debt = balances[app.patient.id] ?? 0;
-        app.patient.hasDebt = debt > 0;
-        app.patient.outstandingBalance = debt;
-      }
-    }
-
-    return appointments;
   }
 }

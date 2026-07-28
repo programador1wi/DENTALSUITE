@@ -1,11 +1,11 @@
 import { Activity, ShieldCheck, Timer } from "lucide-react";
 import { Link } from "react-router-dom";
-import { LoginParticleBackground } from "@/features/auth/components/LoginParticleBackground";
+import { LoginAntigravityBackground } from "@/features/auth/components/login-antigravity-background";
 import { LoginForm } from "@/features/auth/components/login-form";
 
 const highlights = [
   {
-    title: "Control clinico centralizado",
+    title: "Control clínico centralizado",
     description: "Agenda, pacientes, cobros y reportes desde un mismo panel.",
     icon: Activity
   },
@@ -15,8 +15,8 @@ const highlights = [
     icon: ShieldCheck
   },
   {
-    title: "Flujo operativo rapido",
-    description: "Ingreso en segundos para abrir caja y empezar atencion.",
+    title: "Flujo operativo rápido",
+    description: "Ingreso en segundos para abrir caja y empezar atención.",
     icon: Timer
   }
 ];
@@ -24,7 +24,7 @@ const highlights = [
 export function LoginPage() {
   return (
     <>
-      <LoginParticleBackground />
+      <LoginAntigravityBackground />
 
       <div className="relative z-10 w-full max-w-[1020px]">
         <section className="grid items-center gap-8 lg:grid-cols-[1.1fr_420px]">
@@ -33,10 +33,10 @@ export function LoginPage() {
               Warner Suite Enterprise
             </p>
             <h1 className="max-w-[580px] text-[clamp(2rem,3.7vw,3.9rem)] font-semibold leading-[0.96] tracking-tight text-zinc-900">
-              Accede a tu operacion clinica sin friccion.
+              Accede a tu operación clínica sin fricción.
             </h1>
             <p className="mt-4 max-w-[520px] text-base leading-6 text-zinc-600">
-              Diseñado para equipos dentales que necesitan velocidad, precision y continuidad en cada turno.
+              Diseñado para equipos dentales que necesitan velocidad, precisión y continuidad en cada turno.
             </p>
 
             <div className="mt-9 space-y-4">
@@ -78,7 +78,7 @@ export function LoginPage() {
             <div className="mt-5 text-center text-xs font-medium text-zinc-500">
               ¿No tienes cuenta?{" "}
               <Link className="font-semibold text-zinc-900 underline-offset-2 hover:underline" to="/register-organization">
-                Registra tu clinica
+                Registra tu clínica
               </Link>
             </div>
 

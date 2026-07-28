@@ -31,6 +31,11 @@ import { resolveAllowedSpecialtyName } from "../../common/utils/specialty-policy
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import { PricingService } from "../pricing/pricing.service";
+import { OrthodonticProgressService } from "../orthodontics/orthodontic-progress.service";
+import {
+  DiscountAuthorizationService,
+  type UserDiscountCapability
+} from "../discount-policies/discount-authorization.service";
 import {
   BulkDiscountTreatmentPlanItemsDto,
   ChangeTreatmentPlanBranchDto,
@@ -76,6 +81,7 @@ import {
   resolveTreatmentPlanClinicalStatus,
   resolveTreatmentPlanStatusFromClinicalProgress
 } from "./treatment-plan-progress";
+import { TreatmentPlanFinancialSummaryService } from "./treatment-plan-financial-summary.service";
 
 type TreatmentAgreementSnapshot = {
   id?: string | null;
@@ -120,13 +126,24 @@ type ProcedurePriceSnapshot = {
   pricedById?: string | null;
   procedureNameSnapshot?: string | null;
   allowsDiscountSnapshot?: boolean;
+  maximumDiscountPercentSnapshot?: number;
 };
 
 type TreatmentPlanItemBuildInput = Required<
   Pick<UpdateTreatmentPlanItemDto, "procedureId" | "quantity" | "unitPrice" | "discount">
 > &
   UpdateTreatmentPlanItemDto &
-  ProcedurePriceSnapshot & { agreementPricing?: AgreementItemPricing | null };
+  ProcedurePriceSnapshot & {
+    agreementPricing?: AgreementItemPricing | null;
+    manualDiscountAuthorization?: ManualDiscountAuthorization | null;
+  };
+
+type ManualDiscountAuthorization = {
+  requestedPercent: Prisma.Decimal;
+  userMaximumPercent: Prisma.Decimal;
+  procedureMaximumPercent: Prisma.Decimal;
+  effectiveMaximumPercent: Prisma.Decimal;
+};
 
 type AgreementItemPricing = {
   agreementId: string;
@@ -940,7 +957,10 @@ const CLOSED_TREATMENT_PLAN_STATUSES = new Set<TreatmentPlanStatus>([
 export class TreatmentPlansService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly pricing?: PricingService
+    private readonly pricing?: PricingService,
+    private readonly orthodonticProgressService?: OrthodonticProgressService,
+    private readonly discountAuthorization?: DiscountAuthorizationService,
+    private readonly financialSummaryService?: TreatmentPlanFinancialSummaryService
   ) {}
 
   async listTreatmentPlans(actor: AuthUser, query: ListTreatmentPlansQueryDto) {
@@ -982,6 +1002,11 @@ export class TreatmentPlansService {
         branch: { select: { id: true, name: true } },
         items: true,
         budgets: true,
+        appointments: {
+          select: { id: true, startAt: true, status: true },
+          orderBy: { startAt: "desc" },
+          take: 1
+        },
         orthodonticControls: {
           where: {
             status: OrthodonticControlStatus.COMPLETED,
@@ -1011,12 +1036,20 @@ export class TreatmentPlansService {
       orderBy: { createdAt: "desc" }
     });
 
-    return rows.map((row) =>
-      this.withTreatmentPlanDerivedState(row, {
+    const summaries = this.financialSummaryService
+      ? await this.financialSummaryService.calculateBatch(
+          actor,
+          rows.map((row) => row.id)
+        )
+      : new Map();
+
+    return rows.map((row) => ({
+      ...this.withTreatmentPlanDerivedState(row, {
         itemsCount: row.items.length,
         budgetCount: row.budgets.length
-      })
-    );
+      }),
+      financialSummary: summaries.get(row.id) ?? null
+    }));
   }
 
   async createTreatmentPlan(actor: AuthUser, dto: CreateTreatmentPlanDto) {
@@ -1313,7 +1346,7 @@ export class TreatmentPlansService {
           include: {
             procedure: { select: { id: true, code: true, name: true } },
             section: true,
-            paymentAllocations: { select: { id: true, amount: true } }
+            paymentAllocations: { select: { id: true, amount: true, settlementDiscountAmount: true } }
           },
           orderBy: { createdAt: "asc" }
         },
@@ -1361,7 +1394,17 @@ export class TreatmentPlansService {
     });
 
     if (!plan) throw new NotFoundException("Treatment plan not found");
-    return this.withTreatmentPlanDerivedState(plan);
+    const financialSummary = this.financialSummaryService
+      ? await this.financialSummaryService.calculateForPlan(actor, id)
+      : null;
+    return { ...this.withTreatmentPlanDerivedState(plan), financialSummary };
+  }
+
+  async getFinancialSummary(actor: AuthUser, id: string) {
+    if (!this.financialSummaryService) {
+      throw new NotFoundException("Treatment plan financial summary is unavailable");
+    }
+    return this.financialSummaryService.calculateForPlan(actor, id);
   }
 
   async updateTreatmentPlan(actor: AuthUser, id: string, dto: UpdateTreatmentPlanDto) {
@@ -1802,11 +1845,49 @@ export class TreatmentPlansService {
           },
           include: this.orthodonticEvolutionInclude(),
           orderBy: { createdAt: "desc" },
-          take: 200
+          take: 1
         }
       }
     });
+
     if (!plan) throw new NotFoundException("Treatment plan not found");
+
+    // Call the new service to calculate progress.
+    const progressSummary = this.orthodonticProgressService
+      ? await this.orthodonticProgressService.getProgressSummary(id, now)
+      : null;
+
+    const profile = plan.orthodonticProfile;
+    const estimatedMonths = profile?.estimatedMonths ?? 0;
+    const completedControls = plan.orthodonticControls?.length ?? 0;
+    const plannedControls = profile?.estimatedControls ?? estimatedMonths;
+
+    // Use values from new service if available, else fallback
+    const calendarPercentage = progressSummary?.calendarProgress?.percentage ?? 0;
+    const realPercentage = progressSummary?.controlProgress?.percentage ?? 0;
+    const diffStatus = progressSummary?.progressDifference?.status ?? "NOT_CALCULABLE";
+
+    // We construct a mock calendar object to satisfy the frontend legacy fields
+    // while feeding it the exact percentage derived from OrthodonticProgressService
+    const calendar = {
+      status: plan.status,
+      percentage: calendarPercentage,
+      activeDays: progressSummary?.calendarProgress?.elapsedPeriods
+        ? Math.round(progressSummary.calendarProgress.elapsedPeriods * 30.4368)
+        : 0,
+      pausedDays: 0,
+      elapsedMonths: progressSummary?.calendarProgress?.elapsedPeriods ?? 0,
+      estimatedEndAt: null,
+      monthsExceeded: 0,
+      label: "Calculado desde servicio compartido"
+    };
+
+    const deviations = {
+      status: diffStatus,
+      percentage: progressSummary?.progressDifference?.percentagePoints ?? 0,
+      label: "Diferencia actualizada"
+    };
+
     if (plan.kind !== TreatmentPlanKind.ORTHODONTICS) {
       throw new BadRequestException("Orthodontic summary is only available for orthodontic treatment plans");
     }
@@ -2195,13 +2276,22 @@ export class TreatmentPlansService {
       select: { id: true, branchId: true, patientId: true, agreementId: true }
     });
     if (!plan) throw new NotFoundException("Treatment plan not found");
-    return this.pricing.catalog(actor, {
+    const catalog = await this.pricing.catalog(actor, {
       branchId: plan.branchId,
       patientId: plan.patientId,
       planId: plan.id,
       agreementId: plan.agreementId ?? undefined,
       clinicalDate
     });
+    const capability = await this.getDiscountCapability(actor);
+    return {
+      ...catalog,
+      discountCapability: {
+        hasPermission: capability.hasPermission,
+        maximumDiscountPercent: capability.effectiveMaximumPercent.toFixed(2),
+        configured: capability.policyVersion !== null
+      }
+    };
   }
 
   async repricePreview(actor: AuthUser, treatmentPlanId: string, dto: RepriceTreatmentPlanDto) {
@@ -2257,7 +2347,11 @@ export class TreatmentPlansService {
         results.push({
           itemId: item.id,
           procedureId: item.procedureId,
-          current: { unitPrice: item.unitPrice.toFixed(2), discount: item.discount.toFixed(2), total: item.total.toFixed(2) },
+          current: {
+            unitPrice: item.unitPrice.toFixed(2),
+            discount: item.discount.toFixed(2),
+            total: item.total.toFixed(2)
+          },
           proposed: null,
           difference: null,
           hasFinancialDependencies: item.paymentAllocations.length > 0 || item.budgetItems.length > 0,
@@ -2268,7 +2362,9 @@ export class TreatmentPlansService {
     return {
       planId: plan.id,
       status: plan.status,
-      canApply: plan.status === TreatmentPlanStatus.DRAFT && results.every((result) => !result.error && !result.hasFinancialDependencies),
+      canApply:
+        plan.status === TreatmentPlanStatus.DRAFT &&
+        results.every((result) => !result.error && !result.hasFinancialDependencies),
       requiresRevision: plan.status !== TreatmentPlanStatus.DRAFT,
       items: results
     };
@@ -2279,9 +2375,12 @@ export class TreatmentPlansService {
     const reason = dto.reason.trim();
     const preview = await this.repricePreview(actor, treatmentPlanId, dto);
     if (preview.status !== TreatmentPlanStatus.DRAFT) {
-      throw new ConflictException("Accepted, started or completed plans require a revision or addendum; prices were not changed");
+      throw new ConflictException(
+        "Accepted, started or completed plans require a revision or addendum; prices were not changed"
+      );
     }
-    if (!preview.canApply) throw new ConflictException("Plan contains pricing errors or financial dependencies");
+    if (!preview.canApply)
+      throw new ConflictException("Plan contains pricing errors or financial dependencies");
     const pricedAt = new Date();
     await this.prisma.$transaction(async (tx) => {
       for (const row of preview.items) {
@@ -2298,12 +2397,16 @@ export class TreatmentPlansService {
             total: finalTotal,
             originalPrice: normalTotal,
             allowsDiscountSnapshot: row.proposed.allowDiscount,
+            maximumDiscountPercentSnapshot: new Prisma.Decimal(row.proposed.maxDiscountPercent),
             discountType: discountAmount.gt(0) ? "AMOUNT" : null,
             discountValue: discountAmount.gt(0) ? discountAmount : null,
             discountAmount,
             finalPrice: finalTotal,
             discountAuthorizedBy: discountAmount.gt(0) ? actor.id : null,
             discountedAt: discountAmount.gt(0) ? pricedAt : null,
+            appliedDiscountPercent: 0,
+            userMaximumDiscountSnapshot: 0,
+            effectiveMaximumDiscountSnapshot: 0,
             priceListId: row.proposed.priceList.id,
             priceListItemId: null,
             priceListVersionId: row.proposed.version.id,
@@ -2330,8 +2433,12 @@ export class TreatmentPlansService {
               ? ({ ...row.proposed.agreement, rule: row.proposed.rule } as Prisma.InputJsonValue)
               : undefined,
             agreementNormalPrice: row.proposed.agreement ? new Prisma.Decimal(row.proposed.basePrice) : null,
-            agreementAppliedPrice: row.proposed.agreement ? new Prisma.Decimal(row.proposed.finalPrice) : null,
-            agreementDiscountAmount: row.proposed.agreement ? new Prisma.Decimal(row.proposed.discountAmount) : null,
+            agreementAppliedPrice: row.proposed.agreement
+              ? new Prisma.Decimal(row.proposed.finalPrice)
+              : null,
+            agreementDiscountAmount: row.proposed.agreement
+              ? new Prisma.Decimal(row.proposed.discountAmount)
+              : null,
             agreementCoverage: new Prisma.Decimal(row.proposed.coverageAmount),
             version: { increment: 1 }
           }
@@ -2412,6 +2519,8 @@ export class TreatmentPlansService {
     });
     if (!plan) throw new NotFoundException("Treatment plan not found");
 
+    const userDiscountCapability = await this.getDiscountCapability(actor);
+
     const activeItems = plan.items.filter((item) => item.status !== TreatmentPlanItemStatus.CANCELLED);
     const clinicalProgress = calculateTreatmentPlanClinicalProgress(activeItems);
     const sections = plan.sections.map((section) => ({
@@ -2421,11 +2530,11 @@ export class TreatmentPlansService {
       position: section.sortOrder,
       procedures: activeItems
         .filter((item) => item.sectionId === section.id)
-        .map((item) => this.mapProcedureListItem(plan, item))
+        .map((item) => this.mapProcedureListItem(plan, item, userDiscountCapability))
     }));
     const unsectionedProcedures = activeItems
       .filter((item) => !item.sectionId)
-      .map((item) => this.mapProcedureListItem(plan, item));
+      .map((item) => this.mapProcedureListItem(plan, item, userDiscountCapability));
 
     return {
       planId: plan.id,
@@ -2453,7 +2562,9 @@ export class TreatmentPlansService {
         canAddProcedure: !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status),
         canApplyBulkDiscount:
           !CLOSED_TREATMENT_PLAN_STATUSES.has(plan.status) &&
-          activeItems.some((item) => item.allowsDiscountSnapshot)
+          userDiscountCapability.hasPermission &&
+          userDiscountCapability.effectiveMaximumPercent.gt(0) &&
+          activeItems.some((item) => item.allowsDiscountSnapshot && item.maximumDiscountPercentSnapshot.gt(0))
       }
     };
   }
@@ -2468,6 +2579,12 @@ export class TreatmentPlansService {
       throw new BadRequestException("Percentage discount cannot exceed 100");
     }
 
+    let authorizationAudit: Array<{
+      itemId: string;
+      userMaximumPercent: string;
+      procedureMaximumPercent: string;
+      effectiveMaximumPercent: string;
+    }> = [];
     const updatedIds = await this.prisma.$transaction(async (tx) => {
       const items = await tx.treatmentPlanItem.findMany({
         where: { id: { in: itemIds }, treatmentPlanId },
@@ -2479,12 +2596,16 @@ export class TreatmentPlansService {
       if (items.length !== itemIds.length)
         throw new BadRequestException("One or more procedures do not belong to this plan");
 
-      const discountableItems = items.filter(
-        (item) => item.status !== TreatmentPlanItemStatus.CANCELLED && item.allowsDiscountSnapshot
+      const invalidItem = items.find(
+        (item) => item.status === TreatmentPlanItemStatus.CANCELLED || !item.allowsDiscountSnapshot
       );
-      if (!discountableItems.length) {
-        throw new BadRequestException("No selected procedures allow discounts");
+      if (invalidItem) {
+        throw new BadRequestException({
+          code: "PROCEDURE_DOES_NOT_ALLOW_DISCOUNT",
+          message: "Una o más prestaciones seleccionadas no admiten descuentos. No se guardó ningún cambio."
+        });
       }
+      const discountableItems = items;
 
       const touchedBudgetIds = new Set<string>();
       const budgetExtraDiscount = new Map<string, Prisma.Decimal>();
@@ -2492,7 +2613,9 @@ export class TreatmentPlansService {
       for (const item of discountableItems) {
         const payment = item.paymentAllocations.reduce(
           (sum, allocation) =>
-            allocation.payment?.status === PaymentStatus.VOIDED ? sum : sum.plus(allocation.amount),
+            allocation.payment?.status === PaymentStatus.VOIDED
+              ? sum
+              : sum.plus(allocation.amount).plus(allocation.settlementDiscountAmount ?? 0),
           new Prisma.Decimal(0)
         );
         if (item.status === TreatmentPlanItemStatus.PAID || payment.gte(item.total)) {
@@ -2527,6 +2650,40 @@ export class TreatmentPlansService {
       if (fixedDiscountTotal?.gt(discountableBase)) {
         throw new BadRequestException("Discount cannot exceed discountable subtotal");
       }
+      const requestedPercent =
+        dto.discountType === "PERCENTAGE"
+          ? new Prisma.Decimal(dto.value)
+          : discountableBase.eq(0)
+            ? new Prisma.Decimal(0)
+            : fixedDiscountTotal!.mul(100).div(discountableBase);
+      const authorizations = new Map<string, ManualDiscountAuthorization>();
+      for (const item of discountableItems) {
+        if (
+          new Prisma.Decimal(item.agreementDiscountAmount ?? 0).gt(0) ||
+          new Prisma.Decimal(item.agreementCoverage ?? 0).gt(0)
+        ) {
+          throw new BadRequestException({
+            code: "DISCOUNT_COMBINATION_POLICY_REQUIRED",
+            message:
+              "No se puede combinar un descuento manual con beneficios de convenio sin una política explícita."
+          });
+        }
+        authorizations.set(
+          item.id,
+          await this.validateManualDiscount(
+            actor,
+            item.allowsDiscountSnapshot,
+            item.maximumDiscountPercentSnapshot,
+            requestedPercent
+          )
+        );
+      }
+      authorizationAudit = [...authorizations.entries()].map(([itemId, authorization]) => ({
+        itemId,
+        userMaximumPercent: authorization.userMaximumPercent.toFixed(2),
+        procedureMaximumPercent: authorization.procedureMaximumPercent.toFixed(2),
+        effectiveMaximumPercent: authorization.effectiveMaximumPercent.toFixed(2)
+      }));
       let allocatedFixedDiscount = new Prisma.Decimal(0);
 
       for (const [index, item] of discountableItems.entries()) {
@@ -2544,6 +2701,20 @@ export class TreatmentPlansService {
         }
         if (discount.gt(base)) throw new BadRequestException("Discount cannot exceed procedure subtotal");
         const total = base.minus(discount).toDecimalPlaces(2);
+        const paidAmount = item.paymentAllocations.reduce(
+          (sum, allocation) =>
+            allocation.payment?.status === PaymentStatus.VOIDED
+              ? sum
+              : sum.plus(allocation.amount).plus(allocation.settlementDiscountAmount ?? 0),
+          new Prisma.Decimal(0)
+        );
+        if (total.lt(paidAmount)) {
+          throw new BadRequestException({
+            code: "DISCOUNT_WOULD_REDUCE_BELOW_PAID_AMOUNT",
+            message: "El nuevo precio no puede ser inferior al importe ya pagado."
+          });
+        }
+        const authorization = authorizations.get(item.id)!;
 
         await tx.treatmentPlanItem.update({
           where: { id: item.id },
@@ -2557,6 +2728,10 @@ export class TreatmentPlansService {
             finalPrice: total,
             discountAuthorizedBy: discount.gt(0) ? actor.id : null,
             discountedAt: discount.gt(0) ? new Date() : null,
+            discountReason: discount.gt(0) ? dto.discountReason?.trim() || null : null,
+            appliedDiscountPercent: discount.gt(0) ? authorization.requestedPercent.toDecimalPlaces(2) : 0,
+            userMaximumDiscountSnapshot: authorization.userMaximumPercent,
+            effectiveMaximumDiscountSnapshot: authorization.effectiveMaximumPercent,
             version: { increment: 1 }
           }
         });
@@ -2602,7 +2777,9 @@ export class TreatmentPlansService {
       itemIds: updatedIds,
       skippedItemIds: itemIds.filter((itemId) => !updatedIds.includes(itemId)),
       discountType: dto.discountType,
-      value: dto.value
+      value: dto.value,
+      discountReason: dto.discountReason?.trim() || null,
+      limits: authorizationAudit
     } as Prisma.InputJsonValue);
     return this.getProcedures(actor, treatmentPlanId);
   }
@@ -2616,9 +2793,20 @@ export class TreatmentPlansService {
     const plan = await this.ensureTreatmentPlan(actor, treatmentPlanId);
     this.ensureTreatmentPlanCanMutate(plan, "update items in");
     const current = await this.prisma.treatmentPlanItem.findFirst({
-      where: { id: itemId, treatmentPlanId }
+      where: { id: itemId, treatmentPlanId },
+      include: {
+        paymentAllocations: { include: { payment: { select: { status: true } } } },
+        budgetItems: { include: { budget: { select: { status: true } } } }
+      }
     });
     if (!current) throw new NotFoundException("Treatment plan item not found");
+    if (dto.expectedVersion && dto.expectedVersion !== current.version) {
+      throw new ConflictException({
+        code: "DISCOUNT_VERSION_CONFLICT",
+        message:
+          "El plan fue modificado por otro usuario. Actualiza la información antes de aplicar el descuento."
+      });
+    }
 
     if (
       plan.status === TreatmentPlanStatus.ACCEPTED &&
@@ -2643,6 +2831,19 @@ export class TreatmentPlansService {
         dto.odontogramSymbol !== undefined)
     ) {
       throw new BadRequestException("Paid procedures cannot be modified");
+    }
+    const changesFinancialValues =
+      dto.procedureId !== undefined ||
+      dto.quantity !== undefined ||
+      dto.unitPrice !== undefined ||
+      dto.discount !== undefined;
+    if (
+      changesFinancialValues &&
+      (current.budgetItems ?? []).some((item) => item.budget.status !== BudgetStatus.DRAFT)
+    ) {
+      throw new ConflictException(
+        "Cannot update prices or discounts for procedures in sent or accepted budgets"
+      );
     }
 
     if (dto.procedureId) await this.validateProcedure(actor, dto.procedureId);
@@ -2682,13 +2883,35 @@ export class TreatmentPlansService {
     }
 
     let discount = dto.discount ?? Number(current.discount);
+    let manualDiscountAuthorization: ManualDiscountAuthorization | null = null;
     if (dto.discount !== undefined && !this.sameMoney(dto.discount, Number(current.discount))) {
       this.ensureCanApplyTreatmentDiscount(actor);
       if (current.status === TreatmentPlanItemStatus.CANCELLED && dto.discount > 0) {
         throw new BadRequestException("Cancelled procedures cannot receive discounts");
       }
       if (!priceSnapshot.allowsDiscountSnapshot && dto.discount > 0) {
-        throw new BadRequestException("Procedure does not allow discounts according to its price list snapshot");
+        throw new BadRequestException(
+          "Procedure does not allow discounts according to its price list snapshot"
+        );
+      }
+      if (dto.discount > 0) {
+        if (current.agreementDiscountAmount?.gt(0) || current.agreementCoverage.gt(0)) {
+          throw new BadRequestException({
+            code: "DISCOUNT_COMBINATION_POLICY_REQUIRED",
+            message:
+              "No se puede combinar un descuento manual con beneficios de convenio sin una política explícita."
+          });
+        }
+        const base = new Prisma.Decimal(quantity).mul(unitPrice);
+        const requestedPercent = base.eq(0)
+          ? new Prisma.Decimal(0)
+          : new Prisma.Decimal(dto.discount).mul(100).div(base);
+        manualDiscountAuthorization = await this.validateManualDiscount(
+          actor,
+          priceSnapshot.allowsDiscountSnapshot ?? current.allowsDiscountSnapshot,
+          priceSnapshot.maximumDiscountPercentSnapshot ?? current.maximumDiscountPercentSnapshot,
+          requestedPercent
+        );
       }
     }
     let agreementCoverage = Number(current.agreementCoverage || 0);
@@ -2696,7 +2919,10 @@ export class TreatmentPlansService {
       discount = (dto.discount ?? 0) + agreementPricing.discountAmount + agreementPricing.coverageAmount;
       agreementCoverage = agreementPricing.coverageAmount;
       unitPrice = agreementPricing.normalPrice;
-    } else if ((dto.quantity !== undefined || dto.unitPrice !== undefined) && priceSnapshot.allowsDiscountSnapshot) {
+    } else if (
+      (dto.quantity !== undefined || dto.unitPrice !== undefined) &&
+      priceSnapshot.allowsDiscountSnapshot
+    ) {
       if (agreement && agreement.isActive && Number(agreement.discountPercent) > 0) {
         agreementCoverage = Number(
           (quantity * unitPrice * (Number(agreement.discountPercent) / 100)).toFixed(2)
@@ -2705,10 +2931,25 @@ export class TreatmentPlansService {
       }
     }
     if (!priceSnapshot.allowsDiscountSnapshot && discount > 0) {
-      throw new BadRequestException("Procedure does not allow discounts according to its price list snapshot");
+      throw new BadRequestException(
+        "Procedure does not allow discounts according to its price list snapshot"
+      );
     }
 
     const total = this.computeTotal(quantity, unitPrice, discount);
+    const paidAmount = (current.paymentAllocations ?? []).reduce(
+      (sum, allocation) =>
+        allocation.payment?.status === PaymentStatus.VOIDED
+          ? sum
+          : sum.plus(allocation.amount).plus(allocation.settlementDiscountAmount ?? 0),
+      new Prisma.Decimal(0)
+    );
+    if (new Prisma.Decimal(total).lt(paidAmount)) {
+      throw new BadRequestException({
+        code: "DISCOUNT_WOULD_REDUCE_BELOW_PAID_AMOUNT",
+        message: "El nuevo precio no puede ser inferior al importe ya pagado."
+      });
+    }
     const originalPrice = this.roundMoney(quantity * unitPrice);
     const discountAmount = this.roundMoney(discount);
 
@@ -2730,12 +2971,26 @@ export class TreatmentPlansService {
           total: this.decimal(total),
           originalPrice: this.decimal(originalPrice),
           allowsDiscountSnapshot: priceSnapshot.allowsDiscountSnapshot ?? current.allowsDiscountSnapshot,
+          maximumDiscountPercentSnapshot:
+            priceSnapshot.maximumDiscountPercentSnapshot ?? current.maximumDiscountPercentSnapshot,
           discountType: discountAmount > 0 ? "AMOUNT" : null,
           discountValue: discountAmount > 0 ? this.decimal(discountAmount) : null,
           discountAmount: this.decimal(discountAmount),
           finalPrice: this.decimal(total),
           discountAuthorizedBy: discountAmount > 0 ? actor.id : null,
           discountedAt: discountAmount > 0 ? new Date() : null,
+          discountReason: discountAmount > 0 ? dto.discountReason?.trim() || current.discountReason : null,
+          appliedDiscountPercent: manualDiscountAuthorization
+            ? manualDiscountAuthorization.requestedPercent.toDecimalPlaces(2)
+            : discountAmount > 0
+              ? current.appliedDiscountPercent
+              : 0,
+          userMaximumDiscountSnapshot: manualDiscountAuthorization
+            ? manualDiscountAuthorization.userMaximumPercent
+            : current.userMaximumDiscountSnapshot,
+          effectiveMaximumDiscountSnapshot: manualDiscountAuthorization
+            ? manualDiscountAuthorization.effectiveMaximumPercent
+            : current.effectiveMaximumDiscountSnapshot,
           priceListId: priceSnapshot.priceListId,
           priceListItemId: priceSnapshot.priceListItemId,
           priceSource: priceSnapshot.priceSource,
@@ -3693,7 +3948,8 @@ export class TreatmentPlansService {
 
   private mapProcedureListItem(
     plan: { professional: { id: string; firstName: string; lastName: string }; status: TreatmentPlanStatus },
-    item: any
+    item: any,
+    userDiscountCapability: UserDiscountCapability
   ) {
     const payment = this.resolveProcedurePayment(item);
     const basePrice = new Prisma.Decimal(item.quantity).mul(item.unitPrice).toDecimalPlaces(2);
@@ -3701,6 +3957,13 @@ export class TreatmentPlansService {
       item.status,
       item.completionPercentage,
       item.completionPercentage
+    );
+    const procedureMaximum = item.allowsDiscountSnapshot
+      ? new Prisma.Decimal(item.maximumDiscountPercentSnapshot ?? 0)
+      : new Prisma.Decimal(0);
+    const effectiveMaximum = Prisma.Decimal.min(
+      userDiscountCapability.effectiveMaximumPercent,
+      procedureMaximum
     );
 
     return {
@@ -3730,12 +3993,19 @@ export class TreatmentPlansService {
       discount: {
         type: item.discountType ?? "AMOUNT",
         value: (item.discountValue ?? item.discount).toString(),
-        amount: (item.discountAmount ?? item.discount).toString()
+        amount: (item.discountAmount ?? item.discount).toString(),
+        percent: (item.appliedDiscountPercent ?? 0).toString(),
+        reason: item.discountReason ?? null,
+        authorizedById: item.discountAuthorizedBy ?? null,
+        appliedAt: item.discountedAt ?? null
       },
       pricing: {
         basePrice: (item.originalPrice ?? basePrice).toString(),
         finalPrice: (item.finalPrice ?? item.total).toString(),
         allowsDiscount: item.allowsDiscountSnapshot ?? true,
+        userMaximumDiscountPercent: userDiscountCapability.effectiveMaximumPercent.toFixed(2),
+        procedureMaximumDiscountPercent: procedureMaximum.toFixed(2),
+        effectiveMaximumDiscountPercent: effectiveMaximum.toFixed(2),
         currency: "MXN"
       },
       payment: {
@@ -3772,11 +4042,15 @@ export class TreatmentPlansService {
 
   private resolveProcedurePayment(item: {
     total: Prisma.Decimal;
-    paymentAllocations?: Array<{ amount: Prisma.Decimal; payment?: { status?: PaymentStatus } | null }>;
+    paymentAllocations?: Array<{
+      amount: Prisma.Decimal;
+      settlementDiscountAmount?: Prisma.Decimal;
+      payment?: { status?: PaymentStatus } | null;
+    }>;
   }) {
     const paidAmount = (item.paymentAllocations ?? []).reduce((sum, allocation) => {
       if (allocation.payment?.status === PaymentStatus.VOIDED) return sum;
-      return sum.plus(allocation.amount);
+      return sum.plus(allocation.amount).plus(allocation.settlementDiscountAmount ?? 0);
     }, new Prisma.Decimal(0));
     const balance = new Prisma.Decimal(item.total).minus(paidAmount).toDecimalPlaces(2);
     let status: "UNPAID" | "PARTIAL" | "PAID" | "CREDIT" = "UNPAID";
@@ -3798,7 +4072,9 @@ export class TreatmentPlansService {
   ): Prisma.TreatmentPlanItemUncheckedCreateInput {
     const allowsDiscount = dto.allowsDiscountSnapshot ?? true;
     if (!allowsDiscount && dto.discount > 0) {
-      throw new BadRequestException("Procedure does not allow discounts according to its price list snapshot");
+      throw new BadRequestException(
+        "Procedure does not allow discounts according to its price list snapshot"
+      );
     }
     let finalDiscount = dto.discount;
     let agreementCoverage = 0;
@@ -3813,8 +4089,11 @@ export class TreatmentPlansService {
       finalDiscount = finalDiscount + agreementCoverage;
     }
     const total = this.computeTotal(dto.quantity, dto.unitPrice, finalDiscount);
-    const originalPrice = this.roundMoney(dto.quantity * (dto.agreementPricing?.normalPrice ?? dto.unitPrice));
+    const originalPrice = this.roundMoney(
+      dto.quantity * (dto.agreementPricing?.normalPrice ?? dto.unitPrice)
+    );
     const discountAmount = this.roundMoney(finalDiscount);
+    const manualAuthorization = dto.manualDiscountAuthorization;
     return {
       treatmentPlanId,
       sectionId: dto.sectionId,
@@ -3828,12 +4107,17 @@ export class TreatmentPlansService {
       total: this.decimal(total),
       originalPrice: this.decimal(originalPrice),
       allowsDiscountSnapshot: allowsDiscount,
+      maximumDiscountPercentSnapshot: this.decimal(dto.maximumDiscountPercentSnapshot ?? 0),
       discountType: discountAmount > 0 ? "AMOUNT" : null,
       discountValue: discountAmount > 0 ? this.decimal(discountAmount) : null,
       discountAmount: this.decimal(discountAmount),
       finalPrice: this.decimal(total),
-      discountAuthorizedBy: discountAmount > 0 ? discountedById ?? null : null,
+      discountAuthorizedBy: discountAmount > 0 ? (discountedById ?? null) : null,
       discountedAt: discountAmount > 0 ? new Date() : null,
+      discountReason: dto.discount > 0 ? dto.discountReason?.trim() || null : null,
+      appliedDiscountPercent: manualAuthorization?.requestedPercent.toDecimalPlaces(2) ?? 0,
+      userMaximumDiscountSnapshot: manualAuthorization?.userMaximumPercent ?? 0,
+      effectiveMaximumDiscountSnapshot: manualAuthorization?.effectiveMaximumPercent ?? 0,
       status: TreatmentPlanItemStatus.PLANNED,
       priceListId: dto.priceListId,
       priceListItemId: dto.priceListItemId,
@@ -3946,8 +4230,30 @@ export class TreatmentPlansService {
       unitPrice,
       agreement
     );
+    let manualDiscountAuthorization: ManualDiscountAuthorization | null = null;
+    if (discount > 0) {
+      if (agreementPricing && (agreementPricing.discountAmount > 0 || agreementPricing.coverageAmount > 0)) {
+        throw new BadRequestException({
+          code: "DISCOUNT_COMBINATION_POLICY_REQUIRED",
+          message:
+            "No se puede combinar un descuento manual con beneficios de convenio sin una política explícita."
+        });
+      }
+      const base = new Prisma.Decimal(quantity).mul(unitPrice);
+      const requestedPercent = base.eq(0)
+        ? new Prisma.Decimal(0)
+        : new Prisma.Decimal(discount).mul(100).div(base);
+      manualDiscountAuthorization = await this.validateManualDiscount(
+        actor,
+        resolved.allowsDiscountSnapshot ?? false,
+        resolved.maximumDiscountPercentSnapshot ?? 0,
+        requestedPercent
+      );
+    }
     if (!resolved.allowsDiscountSnapshot && discount > 0) {
-      throw new BadRequestException("Procedure does not allow discounts according to its price list snapshot");
+      throw new BadRequestException(
+        "Procedure does not allow discounts according to its price list snapshot"
+      );
     }
     return {
       ...dto,
@@ -3972,6 +4278,8 @@ export class TreatmentPlansService {
       pricedById: resolved.pricedById,
       procedureNameSnapshot: resolved.procedureNameSnapshot,
       allowsDiscountSnapshot: resolved.allowsDiscountSnapshot,
+      maximumDiscountPercentSnapshot: resolved.maximumDiscountPercentSnapshot,
+      manualDiscountAuthorization,
       agreementPricing
     };
   }
@@ -3996,7 +4304,8 @@ export class TreatmentPlansService {
         priceListVersionId: result.version.id,
         priceListVersionNumber: result.version.number,
         priceListVersionItemId: result.version.itemId,
-        priceSource: result.rule.source === "MANUAL" ? TreatmentPriceSource.MANUAL : TreatmentPriceSource.PRICE_LIST,
+        priceSource:
+          result.rule.source === "MANUAL" ? TreatmentPriceSource.MANUAL : TreatmentPriceSource.PRICE_LIST,
         priceSnapshotName: result.priceList.name,
         priceSnapshotCode: result.procedure.code,
         priceSnapshotCategory: result.procedure.category,
@@ -4007,7 +4316,8 @@ export class TreatmentPlansService {
         internalCostSnapshot: Number(result.internalCost),
         pricingRuleSnapshot: result.rule as Prisma.InputJsonValue,
         pricedById: result.pricedById,
-        allowsDiscountSnapshot: result.allowDiscount
+        allowsDiscountSnapshot: result.allowDiscount,
+        maximumDiscountPercentSnapshot: Number(result.maxDiscountPercent)
       };
     }
     const preferredPriceListId = patient.agreement?.priceListId;
@@ -4090,7 +4400,8 @@ export class TreatmentPlansService {
       priceSnapshotCode: procedure.code,
       priceSnapshotCategory: procedure.category?.name ?? null,
       priceResolvedAt: new Date(),
-      allowsDiscountSnapshot: true
+      allowsDiscountSnapshot: false,
+      maximumDiscountPercentSnapshot: 0
     };
   }
 
@@ -4114,7 +4425,8 @@ export class TreatmentPlansService {
       priceSnapshotCode: row.procedure.code,
       priceSnapshotCategory: row.priceListCategory?.name ?? row.procedure.category.name,
       priceResolvedAt: new Date(),
-      allowsDiscountSnapshot: row.allowsDiscount
+      allowsDiscountSnapshot: row.allowsDiscount,
+      maximumDiscountPercentSnapshot: Number(row.maxDiscountPercent)
     };
   }
 
@@ -4145,7 +4457,9 @@ export class TreatmentPlansService {
     });
     if (!procedure) return null;
     const procedureRule = version.procedureRules.find((row) => row.procedureId === procedureId);
-    const categoryRule = version.categoryRules.find((row) => row.procedureCategoryId === procedure.categoryId);
+    const categoryRule = version.categoryRules.find(
+      (row) => row.procedureCategoryId === procedure.categoryId
+    );
     const rule = procedureRule ?? categoryRule;
     if (version.categoryRules.length && !categoryRule && !procedureRule)
       throw new BadRequestException("Procedure category is not eligible for this agreement");
@@ -4196,6 +4510,7 @@ export class TreatmentPlansService {
     priceSnapshotCategory?: string | null;
     priceResolvedAt?: Date | null;
     allowsDiscountSnapshot?: boolean | null;
+    maximumDiscountPercentSnapshot?: Prisma.Decimal | number | null;
   }): ProcedurePriceSnapshot {
     return {
       unitPrice: 0,
@@ -4206,7 +4521,8 @@ export class TreatmentPlansService {
       priceSnapshotCode: item.priceSnapshotCode ?? null,
       priceSnapshotCategory: item.priceSnapshotCategory ?? null,
       priceResolvedAt: item.priceResolvedAt ?? null,
-      allowsDiscountSnapshot: item.allowsDiscountSnapshot ?? true
+      allowsDiscountSnapshot: item.allowsDiscountSnapshot ?? true,
+      maximumDiscountPercentSnapshot: Number(item.maximumDiscountPercentSnapshot ?? 0)
     };
   }
 
@@ -4229,8 +4545,44 @@ export class TreatmentPlansService {
       pricingRuleSnapshot: payload.pricingRuleSnapshot,
       pricedById: payload.pricedById,
       procedureNameSnapshot: payload.procedureNameSnapshot,
-      allowsDiscountSnapshot: payload.allowsDiscountSnapshot
+      allowsDiscountSnapshot: payload.allowsDiscountSnapshot,
+      maximumDiscountPercentSnapshot: payload.maximumDiscountPercentSnapshot
     };
+  }
+
+  private async getDiscountCapability(actor: AuthUser): Promise<UserDiscountCapability> {
+    if (!this.discountAuthorization) {
+      return {
+        userId: actor.id,
+        active: true,
+        hasPermission: false,
+        configuredMaximumPercent: new Prisma.Decimal(0),
+        effectiveMaximumPercent: new Prisma.Decimal(0),
+        policyVersion: null,
+        permissionKeys: []
+      };
+    }
+    return this.discountAuthorization.getUserCapability(actor);
+  }
+
+  private async validateManualDiscount(
+    actor: AuthUser,
+    procedureAllowsDiscount: boolean,
+    procedureMaximumPercent: Prisma.Decimal.Value,
+    requestedPercent: Prisma.Decimal.Value
+  ): Promise<ManualDiscountAuthorization> {
+    if (!this.discountAuthorization) {
+      throw new ForbiddenException({
+        code: "DISCOUNT_POLICY_UNAVAILABLE",
+        message: "La política de descuentos no está disponible."
+      });
+    }
+    return this.discountAuthorization.validateRequestedDiscount({
+      actor,
+      procedureAllowsDiscount,
+      procedureMaximumPercent,
+      requestedPercent
+    });
   }
 
   private ensureCanApplyTreatmentDiscount(actor: AuthUser) {
@@ -4849,7 +5201,7 @@ export class TreatmentPlansService {
         const discount = new Prisma.Decimal(item.discount ?? 0);
         const paid = (item.paymentAllocations ?? []).reduce((sum: Prisma.Decimal, allocation: any) => {
           if (allocation.payment?.status === PaymentStatus.VOIDED) return sum;
-          return sum.plus(allocation.amount ?? 0);
+          return sum.plus(allocation.amount ?? 0).plus(allocation.settlementDiscountAmount ?? 0);
         }, new Prisma.Decimal(0));
         const completionPercentage = Math.min(100, Math.max(0, Number(item.completionPercentage ?? 0)));
         const performed = total.mul(completionPercentage).div(100);
@@ -6175,6 +6527,46 @@ export class TreatmentPlansService {
               unitPrice: item.unitPrice,
               discount: item.discount,
               total: item.total,
+              originalPrice: item.originalPrice,
+              allowsDiscountSnapshot: item.allowsDiscountSnapshot,
+              maximumDiscountPercentSnapshot: item.maximumDiscountPercentSnapshot,
+              discountType: item.discountType,
+              discountValue: item.discountValue,
+              discountAmount: item.discountAmount,
+              finalPrice: item.finalPrice,
+              discountReason: item.discountReason,
+              discountAuthorizedBy: item.discountAuthorizedBy,
+              discountedAt: item.discountedAt,
+              appliedDiscountPercent: item.appliedDiscountPercent,
+              userMaximumDiscountSnapshot: item.userMaximumDiscountSnapshot,
+              effectiveMaximumDiscountSnapshot: item.effectiveMaximumDiscountSnapshot,
+              priceListId: item.priceListId,
+              priceListItemId: item.priceListItemId,
+              priceListVersionId: item.priceListVersionId,
+              priceListVersionNumber: item.priceListVersionNumber,
+              priceListVersionItemId: item.priceListVersionItemId,
+              priceSource: item.priceSource,
+              priceSnapshotName: item.priceSnapshotName,
+              priceSnapshotCode: item.priceSnapshotCode,
+              priceSnapshotCategory: item.priceSnapshotCategory,
+              procedureCodeSnapshot: item.procedureCodeSnapshot,
+              procedureNameSnapshot: item.procedureNameSnapshot,
+              procedureCategorySnapshot: item.procedureCategorySnapshot,
+              priceListNameSnapshot: item.priceListNameSnapshot,
+              priceResolvedAt: item.priceResolvedAt,
+              priceCurrency: item.priceCurrency,
+              laboratoryCostSnapshot: item.laboratoryCostSnapshot,
+              internalCostSnapshot: item.internalCostSnapshot,
+              pricingRuleSnapshot: item.pricingRuleSnapshot ?? undefined,
+              pricedById: item.pricedById,
+              agreementId: item.agreementId,
+              agreementVersionId: item.agreementVersionId,
+              agreementVersionNumber: item.agreementVersionNumber,
+              agreementSnapshot: item.agreementSnapshot ?? undefined,
+              agreementNormalPrice: item.agreementNormalPrice,
+              agreementAppliedPrice: item.agreementAppliedPrice,
+              agreementDiscountAmount: item.agreementDiscountAmount,
+              agreementCoverage: item.agreementCoverage,
               notes: item.notes,
               status: TreatmentPlanItemStatus.PLANNED
             }
@@ -6276,6 +6668,46 @@ export class TreatmentPlansService {
               unitPrice: item.unitPrice,
               discount: item.discount,
               total: item.total,
+              originalPrice: item.originalPrice,
+              allowsDiscountSnapshot: item.allowsDiscountSnapshot,
+              maximumDiscountPercentSnapshot: item.maximumDiscountPercentSnapshot,
+              discountType: item.discountType,
+              discountValue: item.discountValue,
+              discountAmount: item.discountAmount,
+              finalPrice: item.finalPrice,
+              discountReason: item.discountReason,
+              discountAuthorizedBy: item.discountAuthorizedBy,
+              discountedAt: item.discountedAt,
+              appliedDiscountPercent: item.appliedDiscountPercent,
+              userMaximumDiscountSnapshot: item.userMaximumDiscountSnapshot,
+              effectiveMaximumDiscountSnapshot: item.effectiveMaximumDiscountSnapshot,
+              priceListId: item.priceListId,
+              priceListItemId: item.priceListItemId,
+              priceListVersionId: item.priceListVersionId,
+              priceListVersionNumber: item.priceListVersionNumber,
+              priceListVersionItemId: item.priceListVersionItemId,
+              priceSource: item.priceSource,
+              priceSnapshotName: item.priceSnapshotName,
+              priceSnapshotCode: item.priceSnapshotCode,
+              priceSnapshotCategory: item.priceSnapshotCategory,
+              procedureCodeSnapshot: item.procedureCodeSnapshot,
+              procedureNameSnapshot: item.procedureNameSnapshot,
+              procedureCategorySnapshot: item.procedureCategorySnapshot,
+              priceListNameSnapshot: item.priceListNameSnapshot,
+              priceResolvedAt: item.priceResolvedAt,
+              priceCurrency: item.priceCurrency,
+              laboratoryCostSnapshot: item.laboratoryCostSnapshot,
+              internalCostSnapshot: item.internalCostSnapshot,
+              pricingRuleSnapshot: item.pricingRuleSnapshot ?? undefined,
+              pricedById: item.pricedById,
+              agreementId: item.agreementId,
+              agreementVersionId: item.agreementVersionId,
+              agreementVersionNumber: item.agreementVersionNumber,
+              agreementSnapshot: item.agreementSnapshot ?? undefined,
+              agreementNormalPrice: item.agreementNormalPrice,
+              agreementAppliedPrice: item.agreementAppliedPrice,
+              agreementDiscountAmount: item.agreementDiscountAmount,
+              agreementCoverage: item.agreementCoverage,
               notes: item.notes,
               status: TreatmentPlanItemStatus.PLANNED
             }

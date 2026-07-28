@@ -236,6 +236,31 @@ export type TreatmentPlanClinicalProgress = {
   readyToComplete: boolean;
 };
 
+export type TreatmentPlanFinancialSummary = {
+  treatmentPlanId: string;
+  currency: string;
+  recognitionPolicy: "PROPORTIONAL";
+  billableItemCount: number;
+  grossBudgetAmount: string;
+  discountAmount: string;
+  budgetAmount: string;
+  recognizedAmount: string;
+  paidAmount: string;
+  settlementDiscountAmount: string;
+  settledAmount: string;
+  outstandingAmount: string;
+  debtAmount: string;
+  assignedBalance: string;
+  freeCreditAmount: string;
+  refundedAmount: string;
+  situation: {
+    code: "DEBT" | "AVAILABLE_BALANCE" | "DIAGNOSTIC" | "NO_AVAILABLE_BALANCE" | "CANCELLED";
+    label: string;
+    severity: "danger" | "success" | "warning" | "neutral";
+    amount: string | null;
+  };
+};
+
 export type TreatmentPlan = {
   id: string;
   name: string;
@@ -280,6 +305,8 @@ export type TreatmentPlan = {
     specialties?: Array<{ specialty: { id: string; name: string } }>;
   };
   branch: { id: string; name: string };
+  appointments?: Array<{ id: string; startAt: string; status: string }>;
+  financialSummary?: TreatmentPlanFinancialSummary | null;
   orthodonticProfile?: OrthodonticTreatmentProfile | null;
   orthodonticSummary?: {
     calendarProgress: number;
@@ -345,6 +372,10 @@ export type TreatmentPlanItem = {
   discountType?: "PERCENTAGE" | "AMOUNT" | string | null;
   discountValue?: string | null;
   discountAmount?: string;
+  appliedDiscountPercent?: string;
+  maximumDiscountPercentSnapshot?: string;
+  userMaximumDiscountSnapshot?: string;
+  effectiveMaximumDiscountSnapshot?: string;
   finalPrice?: string;
   discountReason?: string | null;
   discountAuthorizedBy?: string | null;
@@ -362,6 +393,11 @@ export type TreatmentPlanItem = {
   priceSnapshotCode?: string | null;
   priceSnapshotCategory?: string | null;
   priceResolvedAt?: string | null;
+  agreementCoverage?: string;
+  agreementId?: string | null;
+  agreementVersionId?: string | null;
+  agreementVersionNumber?: number | null;
+  agreementCharges?: Array<{ id: string; status: string }>;
   plannedAt?: string | null;
   completedAt?: string | null;
   completionPercentage?: number;
@@ -381,6 +417,7 @@ export type TreatmentPriceCatalogItem = {
   labCost: string;
   internalCost: string;
   allowsDiscount: boolean;
+  maxDiscountPercent?: string;
   currency: string;
   priceList: { id: string; name: string };
   version: { id: string; number: number; itemId: string };
@@ -406,6 +443,11 @@ export type TreatmentPriceCatalog = {
     agreementId?: string | null;
     clinicalDate: string;
     pricedAt?: string;
+  };
+  discountCapability?: {
+    hasPermission: boolean;
+    maximumDiscountPercent: string;
+    configured: boolean;
   };
   id: string;
   name: string;
@@ -635,6 +677,7 @@ export type OrthodonticDiagnosisResult = {
 };
 
 export type TreatmentPlanItemPayload = {
+  expectedVersion?: number;
   sectionId?: string;
   procedureId?: string;
   toothNumber?: string;
@@ -694,8 +737,24 @@ export type TreatmentPlanProcedureListItem = {
     toothNumber?: string | null;
     surfaces: string[];
   };
-  discount: { type: "AMOUNT" | "PERCENTAGE" | string; value: string; amount: string };
-  pricing: { basePrice: string; finalPrice: string; allowsDiscount?: boolean; currency: string };
+  discount: {
+    type: "AMOUNT" | "PERCENTAGE" | string;
+    value: string;
+    amount: string;
+    percent?: string;
+    reason?: string | null;
+    authorizedById?: string | null;
+    appliedAt?: string | null;
+  };
+  pricing: {
+    basePrice: string;
+    finalPrice: string;
+    allowsDiscount?: boolean;
+    userMaximumDiscountPercent?: string;
+    procedureMaximumDiscountPercent?: string;
+    effectiveMaximumDiscountPercent?: string;
+    currency: string;
+  };
   payment: { paidAmount: string; balance: string; status: TreatmentPlanProcedurePaymentStatus };
   progress: {
     percentage: number;
@@ -1074,7 +1133,12 @@ export async function updateTreatmentPlanItemStatus(
 
 export async function applyBulkDiscountToTreatmentPlanItems(
   treatmentPlanId: string,
-  payload: { itemIds: string[]; discountType: "PERCENTAGE" | "AMOUNT"; value: number }
+  payload: {
+    itemIds: string[];
+    discountType: "PERCENTAGE" | "AMOUNT";
+    value: number;
+    discountReason?: string;
+  }
 ) {
   const { data } = await http.patch<TreatmentPlanProceduresResult>(
     `/treatment-plans/${treatmentPlanId}/items/bulk-discount`,

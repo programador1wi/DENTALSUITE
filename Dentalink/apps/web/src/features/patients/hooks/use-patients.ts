@@ -9,7 +9,9 @@ import {
   createPatient,
   createPatientTask,
   deactivatePatient,
+  exportPatientAnalysis,
   getPatient,
+  getPatientAnalysisDetail,
   getPatientEmail,
   getPatientsAnalysis,
   getPatientTimeline,
@@ -18,6 +20,7 @@ import {
   listPatientTasks,
   listPatients,
   mergePatients,
+  refreshPatientsAnalysis,
   searchPatients,
   sendPatientEmail,
   updatePatient,
@@ -26,6 +29,7 @@ import {
   validatePatientInsurance,
   type PatientBenefitCoveragePayload,
   type PatientAnalysisQuery,
+  type PatientAnalysisDetailQuery,
   type PatientEmailsQuery,
   type PatientMedicalAlertInput,
   type PatientPayload,
@@ -44,6 +48,44 @@ export function usePatientsAnalysis(params?: PatientAnalysisQuery) {
   return useQuery({
     queryKey: ["patients", "analysis", params],
     queryFn: () => getPatientsAnalysis(params)
+  });
+}
+
+export function usePatientAnalysisDetail(
+  metric?: string,
+  params?: PatientAnalysisDetailQuery,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: ["patients", "analysis", "detail", metric, params],
+    queryFn: () => getPatientAnalysisDetail(metric as string, params),
+    enabled: Boolean(metric) && enabled
+  });
+}
+
+export function useRefreshPatientsAnalysis() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params?: PatientAnalysisQuery) => refreshPatientsAnalysis(params),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["patients", "analysis"], data);
+      queryClient.invalidateQueries({ queryKey: ["patients", "analysis"] });
+      toast.success("Indicadores actualizados");
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useExportPatientAnalysis() {
+  return useMutation({
+    mutationFn: ({
+      metric,
+      params
+    }: {
+      metric: string;
+      params?: PatientAnalysisDetailQuery;
+    }) => exportPatientAnalysis(metric, params),
+    onError: (error: Error) => toast.error(error.message)
   });
 }
 

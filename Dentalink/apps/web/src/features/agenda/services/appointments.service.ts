@@ -57,6 +57,14 @@ export type Appointment = {
   chair?: { id: string; name: string } | null;
   specialty?: { id: string; name: string } | null;
   treatmentPlan?: { id: string; name: string; status: string } | null;
+  financialSituation?: {
+    treatmentPlanId: string;
+    code: "DEBT" | "AVAILABLE_BALANCE" | "DIAGNOSTIC" | "NO_AVAILABLE_BALANCE" | "CANCELLED";
+    label: string;
+    severity: "danger" | "success" | "warning" | "neutral";
+    amount: string | null;
+    currency: string;
+  } | null;
   createdBy?: { id: string; firstName: string; lastName: string } | null;
   statusHistory?: AppointmentStatusHistory[];
   appointmentNotes?: AppointmentNote[];
@@ -225,8 +233,15 @@ export async function createAppointmentReminder(id: string, payload: Appointment
   return data;
 }
 
-export async function updateAppointmentReminder(id: string, reminderId: string, payload: AppointmentReminderUpdatePayload) {
-  const { data } = await http.patch<AppointmentReminder>(`/appointments/${id}/reminders/${reminderId}`, payload);
+export async function updateAppointmentReminder(
+  id: string,
+  reminderId: string,
+  payload: AppointmentReminderUpdatePayload
+) {
+  const { data } = await http.patch<AppointmentReminder>(
+    `/appointments/${id}/reminders/${reminderId}`,
+    payload
+  );
   return data;
 }
 
@@ -260,7 +275,10 @@ export async function confirmAppointment(id: string) {
   return data;
 }
 
-export async function cancelAppointment(id: string, payload: { reason: string; cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled" }) {
+export async function cancelAppointment(
+  id: string,
+  payload: { reason: string; cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled" }
+) {
   const { data } = await http.post<Appointment>(`/appointments/${id}/cancel`, payload);
   return data;
 }

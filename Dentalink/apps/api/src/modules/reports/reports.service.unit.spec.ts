@@ -1,5 +1,6 @@
 import "reflect-metadata";
 import { BadRequestException, ForbiddenException } from "@nestjs/common";
+import { unzipSync } from "fflate";
 import type { AuthUser } from "../../common/types/auth-user";
 import { ReportExportFormat } from "./dto/reports.dto";
 import { ReportsService } from "./reports.service";
@@ -20,7 +21,11 @@ describe("ReportsService Excel requests", () => {
   it("keeps the existing report engine behind legacy Excel requests", async () => {
     const service = new ReportsService({} as never);
     const getAppointmentsReport = jest.spyOn(service, "getAppointmentsReport").mockResolvedValue({
-      filters: { dateFrom: "2026-07-01T00:00:00.000Z", dateTo: "2026-07-10T23:59:59.999Z", branchId: "branch-1" },
+      filters: {
+        dateFrom: "2026-07-01T00:00:00.000Z",
+        dateTo: "2026-07-10T23:59:59.999Z",
+        branchId: "branch-1"
+      },
       data: { rows: [{ total: 1 }] },
       export: {
         format: ReportExportFormat.XLSX,
@@ -51,7 +56,9 @@ describe("ReportsService Excel requests", () => {
 
     const catalog = service.getExcelCatalog(actor);
 
-    expect(catalog.map((item) => item.code)).toEqual(expect.arrayContaining(["APPOINTMENTS_SUMMARY", "APPOINTMENTS_PATIENTS", "PATIENT_PAYMENTS"]));
+    expect(catalog.map((item) => item.code)).toEqual(
+      expect.arrayContaining(["APPOINTMENTS_SUMMARY", "APPOINTMENTS_PATIENTS", "PATIENT_PAYMENTS"])
+    );
     expect(catalog.some((item) => item.code === "USERS_LIST")).toBe(false);
   });
 
@@ -126,6 +133,32 @@ describe("ReportsService Excel requests", () => {
         parameters: { status: "" }
       })
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("generates a real XLSX zip container instead of renamed tab-separated text", async () => {
+    const service = new ReportsService({} as never) as unknown as {
+      withExport: (
+        response: { filters: Record<string, unknown>; data: { rows: unknown[] } },
+        fileName: string,
+        rows: Array<Record<string, unknown>>,
+        format: ReportExportFormat
+      ) => Promise<{ export?: { base64: string; mimeType: string } }>;
+    };
+
+    const result = await service.withExport(
+      { filters: {}, data: { rows: [] } },
+      "cash-flow",
+      [{ caja: "CAJ-000001", importe: 125.5 }],
+      ReportExportFormat.XLSX
+    );
+    const bytes = Buffer.from(result.export?.base64 ?? "", "base64");
+    const archive = unzipSync(bytes);
+
+    expect(bytes.subarray(0, 2).toString("ascii")).toBe("PK");
+    expect(Object.keys(archive)).toEqual(
+      expect.arrayContaining(["[Content_Types].xml", "xl/workbook.xml", "xl/worksheets/sheet1.xml"])
+    );
+    expect(result.export?.mimeType).toBe("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   });
 
   it("generates dentist contracts scoped to an authorized branch", async () => {

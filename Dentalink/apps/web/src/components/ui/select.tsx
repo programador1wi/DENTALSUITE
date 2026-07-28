@@ -275,10 +275,10 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           )}
           disabled={disabled}
         >
-          <span className="line-clamp-2 pr-4 font-medium text-left" title={displayLabel}>{displayLabel}</span>
+          <span className="truncate pr-2 font-medium text-left" title={displayLabel}>{displayLabel}</span>
           <ChevronDown
             className={cn(
-              "h-4 w-4 transition-transform duration-[var(--duration-fast)]",
+              "h-4 w-4 shrink-0 transition-transform duration-[var(--duration-fast)]",
               theme === "dark" ? "text-[rgba(248,250,252,0.5)]" : "text-[var(--text-secondary)]",
               open && "rotate-180 text-[var(--text-brand)]"
             )}

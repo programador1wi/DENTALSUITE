@@ -1,4 +1,4 @@
-import { PaymentStatus, Prisma } from "@prisma/client";
+import { CashRegisterStatus, ExpenseStatus, PaymentStatus, Prisma } from "@prisma/client";
 import type { AuthUser } from "../../common/types/auth-user";
 import { SettingsService } from "./settings.service";
 
@@ -308,5 +308,91 @@ describe("SettingsService payroll", () => {
 
     const createCall = prisma.payrollLiquidation.create.mock.calls[0][0];
     expect(createCall.data.items.create[0].payableAmount.toString()).toBe("45");
+  });
+});
+
+describe("SettingsService expense immutability", () => {
+  const actor: AuthUser = {
+    id: "user-1",
+    organizationId: "org-1",
+    email: "admin@example.com",
+    firstName: "Admin",
+    lastName: "One",
+    roleIds: [],
+    roleNames: [],
+    branchIds: ["branch-1"],
+    permissions: ["expenses.update", "expenses.void"]
+  };
+
+  function source(status: CashRegisterStatus) {
+    return {
+      id: "expense-1",
+      publicNumber: 1245,
+      organizationId: "org-1",
+      branchId: "branch-1",
+      categoryId: "category-1",
+      category: { id: "category-1", name: "Otros" },
+      description: "Gasto administrativo",
+      supplierName: null,
+      quantity: new Prisma.Decimal(1),
+      unitCost: new Prisma.Decimal(8599),
+      total: new Prisma.Decimal(8599),
+      invoicedAt: null,
+      paidAt: new Date("2026-07-17T12:00:00.000Z"),
+      paymentMethodId: "cash-1",
+      status: ExpenseStatus.PAID,
+      documentUrl: null,
+      notes: null,
+      createdById: "user-1",
+      updatedById: null,
+      voidedAt: null,
+      voidedById: null,
+      voidReason: null,
+      version: 1,
+      createdAt: new Date("2026-07-17T12:00:00.000Z"),
+      updatedAt: new Date("2026-07-17T12:00:00.000Z"),
+      cashMovements: [
+        {
+          id: "movement-1",
+          cashRegisterId: "register-1",
+          amount: new Prisma.Decimal(8599),
+          cashRegister: {
+            id: "register-1",
+            publicNumber: 19052,
+            status,
+            closedAt: status === CashRegisterStatus.CLOSED ? new Date("2026-07-17T19:18:00.000Z") : null,
+            branch: { id: "branch-1", name: "Dental + Suc. Tuxtla" },
+            responsibleUser: { id: "user-1", firstName: "CAJA", lastName: "TUXTLA" }
+          }
+        }
+      ]
+    };
+  }
+
+  it("revalidates inside the transaction when the cash session closes after the form was opened", async () => {
+    const tx = {
+      expense: {
+        findFirst: jest.fn().mockResolvedValue(source(CashRegisterStatus.CLOSED)),
+        updateMany: jest.fn()
+      },
+      expenseCategory: { upsert: jest.fn() },
+      cashMovement: { updateMany: jest.fn() },
+      auditLog: { create: jest.fn() }
+    };
+    const prisma = {
+      expense: { findFirst: jest.fn().mockResolvedValue(source(CashRegisterStatus.OPEN)) },
+      auditLog: { create: jest.fn().mockResolvedValue({ id: "audit-1" }) },
+      $transaction: jest.fn((callback: (client: typeof tx) => unknown) => callback(tx))
+    };
+    const service = new SettingsService(prisma as never);
+
+    await expect(
+      service.updateExpense(actor, "expense-1", { description: "Alterado", expectedVersion: 1 })
+    ).rejects.toMatchObject({ status: 409 });
+    expect(tx.expense.updateMany).not.toHaveBeenCalled();
+    expect(tx.cashMovement.updateMany).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: "update_rejected" }) })
+    );
   });
 });

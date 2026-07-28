@@ -126,7 +126,10 @@ export function AppointmentCard({
           }}
         >
           {/* Color bar indicator on left side */}
-          <div className={cn("absolute left-0 top-0 bottom-0 w-[3.5px] rounded-l-[var(--radius-sm)]", palette.dotClass)} />
+          <div
+            className={cn("absolute left-0 top-0 bottom-0 w-[4px] rounded-l-[var(--radius-sm)]", !appointment.professional?.color && palette.dotClass)}
+            style={appointment.professional?.color ? { backgroundColor: appointment.professional.color } : undefined}
+          />
 
           {durationMin <= 20 ? (
             <div className="flex h-full w-full items-center justify-between gap-1 overflow-hidden">
@@ -207,11 +210,16 @@ export function AppointmentCard({
   return (
     <article
       className={cn(
-        "relative flex h-full flex-col justify-between rounded-[var(--radius-lg)] border p-[var(--space-4)] text-[var(--text-xs)] transition-[border-color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:-translate-y-px hover:shadow-[var(--shadow-card-hover)]",
+        "relative flex h-full flex-col justify-between rounded-[var(--radius-lg)] border p-[var(--space-4)] pl-[var(--space-5)] text-[var(--text-xs)] transition-[border-color,transform] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:-translate-y-px hover:shadow-[var(--shadow-card-hover)]",
         menuOpen ? "z-[80] overflow-visible menu-open" : "z-0",
         palette.cardClass
       )}
     >
+      {/* Color bar indicator on left side */}
+      <div
+        className={cn("absolute left-0 top-0 bottom-0 w-[4px] rounded-l-[var(--radius-lg)]", !appointment.professional?.color && palette.dotClass)}
+        style={appointment.professional?.color ? { backgroundColor: appointment.professional.color } : undefined}
+      />
       <div className="flex items-start justify-between gap-2.5">
         <div className="min-w-0 space-y-0.5">
           <p className="whitespace-nowrap text-[9px] font-medium text-[var(--text-secondary)]">

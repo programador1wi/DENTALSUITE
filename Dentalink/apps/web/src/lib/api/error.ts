@@ -3,11 +3,21 @@ import type { ApiErrorShape } from "@/types/common";
 
 export class ApiError extends Error {
   statusCode: number;
+  code?: string;
+  details?: Record<string, unknown>;
+  requestId?: string;
 
-  constructor(message: string, statusCode = 500) {
+  constructor(
+    message: string,
+    statusCode = 500,
+    metadata?: { code?: string; details?: Record<string, unknown>; requestId?: string }
+  ) {
     super(message);
     this.name = "ApiError";
     this.statusCode = statusCode;
+    this.code = metadata?.code;
+    this.details = metadata?.details;
+    this.requestId = metadata?.requestId;
   }
 }
 
@@ -17,7 +27,11 @@ export function parseApiError(error: unknown): ApiError {
   const rawMessage = axiosError.response?.data?.message;
   const message = Array.isArray(rawMessage)
     ? rawMessage.join(", ")
-    : rawMessage ?? axiosError.message ?? "Unexpected error";
+    : (rawMessage ?? axiosError.message ?? "Unexpected error");
 
-  return new ApiError(message, statusCode);
+  return new ApiError(message, statusCode, {
+    code: axiosError.response?.data?.code,
+    details: axiosError.response?.data?.details,
+    requestId: axiosError.response?.data?.requestId
+  });
 }

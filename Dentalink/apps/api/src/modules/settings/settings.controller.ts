@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, GoneException, Param, ParseIntPipe, Patch, Post, Put, Delete, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
@@ -12,7 +12,9 @@ import {
   CreateExpenseDto,
   FinalizePayrollDto,
   RecalculatePayrollDto,
+  UpdateExpenseDto,
   UpdateAgreementDto,
+  VoidExpenseDto,
   PublishAgreementDto,
   PreviewAgreementPriceDto
 } from "./dto/admin-workflows.dto";
@@ -21,6 +23,7 @@ import {
   UpdateFinancialInstitutionDto
 } from "./dto/financial-institution.dto";
 import { UpdateGeneralSettingsDto } from "./dto/update-general-settings.dto";
+import { UpsertBrandDto } from "./dto/upsert-brand.dto";
 import { SettingsService } from "./settings.service";
 
 @ApiTags("Settings")
@@ -86,6 +89,36 @@ export class SettingsController {
   @RequirePermissions("settings.update")
   deactivateFinancialInstitution(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.settingsService.deactivateFinancialInstitution(user, id);
+  }
+
+  @Delete("financial-institutions/:id")
+  @RequirePermissions("settings.update")
+  deleteFinancialInstitution(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.deleteFinancialInstitution(user, id);
+  }
+
+  @Get("brands")
+  @RequirePermissions("settings.read")
+  listBrands(@CurrentUser() user: AuthUser) {
+    return this.settingsService.listBrands(user);
+  }
+
+  @Post("brands")
+  @RequirePermissions("settings.update")
+  createBrand(@CurrentUser() user: AuthUser, @Body() dto: UpsertBrandDto) {
+    return this.settingsService.upsertBrand(user, undefined, dto);
+  }
+
+  @Put("brands/:id")
+  @RequirePermissions("settings.update")
+  updateBrand(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpsertBrandDto) {
+    return this.settingsService.upsertBrand(user, id, dto);
+  }
+
+  @Delete("brands/:id")
+  @RequirePermissions("settings.update")
+  deleteBrand(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.deleteBrand(user, id);
   }
 
   @Get("agreements")
@@ -170,8 +203,10 @@ export class SettingsController {
 
   @Post("agreements/:id/pay-debt")
   @RequirePermissions("settings.update")
-  payAgreementDebt(@CurrentUser() user: AuthUser, @Param("id") id: string) {
-    return this.settingsService.payAgreementDebt(user, id);
+  payAgreementDebt() {
+    throw new GoneException(
+      "Usa POST /agreements/:agreementId/payments para registrar y aplicar pagos empresariales"
+    );
   }
 
   @Post("agreements/:id/patients")
@@ -195,23 +230,64 @@ export class SettingsController {
   }
 
   @Get("expenses")
-  @RequirePermissions("settings.read")
+  @RequirePermissions("expenses.read")
   listExpenses(
     @CurrentUser() user: AuthUser,
     @Query("search") search?: string,
     @Query("branchId") branchId?: string,
     @Query("month", new ParseIntPipe({ optional: true })) month?: number,
     @Query("year", new ParseIntPipe({ optional: true })) year?: number,
+    @Query("status") status?: string,
+    @Query("categoryId") categoryId?: string,
     @Query("page") page?: number,
     @Query("pageSize") pageSize?: number
   ) {
-    return this.settingsService.listExpenses(user, search, branchId, month, year, page, pageSize);
+    return this.settingsService.listExpenses(
+      user,
+      search,
+      branchId,
+      month,
+      year,
+      page,
+      pageSize,
+      status,
+      categoryId
+    );
+  }
+
+  @Get("expenses/summary")
+  @RequirePermissions("expenses.read")
+  getExpenseSummary(
+    @CurrentUser() user: AuthUser,
+    @Query("branchId") branchId?: string,
+    @Query("month", new ParseIntPipe({ optional: true })) month?: number,
+    @Query("year", new ParseIntPipe({ optional: true })) year?: number
+  ) {
+    return this.settingsService.getExpenseSummary(user, branchId, month, year);
+  }
+
+  @Get("expenses/:id")
+  @RequirePermissions("expenses.read")
+  getExpense(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.getExpense(user, id);
   }
 
   @Post("expenses")
-  @RequirePermissions("settings.update")
+  @RequirePermissions("expenses.create")
   createExpense(@CurrentUser() user: AuthUser, @Body() dto: CreateExpenseDto) {
     return this.settingsService.createExpense(user, dto);
+  }
+
+  @Patch("expenses/:id")
+  @RequirePermissions("expenses.update")
+  updateExpense(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateExpenseDto) {
+    return this.settingsService.updateExpense(user, id, dto);
+  }
+
+  @Post("expenses/:id/void")
+  @RequirePermissions("expenses.void")
+  voidExpense(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: VoidExpenseDto) {
+    return this.settingsService.voidExpense(user, id, dto);
   }
 
   @Get("payroll")

@@ -49,7 +49,42 @@ export class PermissionsGuard implements CanActivate {
       "laboratory_price.edit": ["price_lists.update"],
       "price_audit.view": ["price_lists.read"],
       "treatment_discount.apply": ["treatment_plans.update"],
-      "treatment_discount.view": ["treatment_plans.read"]
+      "treatment_discount.view": ["treatment_plans.read"],
+      "expenses.read": ["settings.read"],
+      "expenses.create": ["settings.update"],
+      "expenses.update": ["settings.update"],
+      "expenses.void": ["settings.update"]
+      ,"agreements.debt_report.read": ["settings.read", "agreements.read"]
+      ,"agreements.debt_report.all_branches": ["branches.view_all"]
+      ,"agreements.payments.create": ["settings.update", "payments.create"]
+      ,"agreements.payments.approve": ["settings.update", "payments.allocate"]
+      ,"agreements.payments.void": ["settings.update", "payments.void"]
+      ,"agreements.reports.export": ["settings.read", "reports.export"]
+      ,"consents.templates.read": ["consent_templates.read"]
+      ,"consents.templates.create": ["consent_templates.create"]
+      ,"consents.templates.update_draft": ["consent_templates.update"]
+      ,"consents.templates.publish": ["consent_templates.update"]
+      ,"consents.templates.deactivate": ["consent_templates.deactivate"]
+      ,"consents.templates.view_versions": ["consent_templates.read"]
+      ,"consents.templates.view_audit": ["consent_templates.read"]
+      ,"consents.instances.read": ["consents.read"]
+      ,"consents.instances.create": ["consents.create"]
+      ,"consents.instances.complete_fields": ["consents.create", "consents.sign"]
+      ,"consents.instances.sign_patient": [
+        "consents.sign",
+        "consents.instances.sign_professional",
+        "consents.instances.sign_representative"
+      ]
+      ,"consents.instances.finalize": ["consents.sign"]
+      ,"consents.instances.void": ["consents.sign"]
+      ,"consents.instances.download": ["consents.pdf"]
+      ,"consents.instances.view_evidence": ["consents.pdf", "consents.read"]
+      ,"patient_analytics.read": ["patients.read", "reports.read"]
+      ,"patient_analytics.read_financial": ["payments.read", "accounts_receivable.read"]
+      ,"patient_analytics.view_all_branches": ["branches.view_all", "reports.read"]
+      ,"patient_analytics.export": ["reports.export"]
+      ,"patient_analytics.refresh": ["reports.read"]
+      ,"patient_analytics.view_patient_details": ["patients.read"]
     };
     const allowed = required.every(
       (permission) =>

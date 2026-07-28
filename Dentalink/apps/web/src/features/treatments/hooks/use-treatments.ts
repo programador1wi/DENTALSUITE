@@ -478,13 +478,21 @@ export function useTreatmentMutations() {
         treatmentPlanId,
         itemIds,
         discountType,
-        value
+        value,
+        discountReason
       }: {
         treatmentPlanId: string;
         itemIds: string[];
         discountType: "PERCENTAGE" | "AMOUNT";
         value: number;
-      }) => applyBulkDiscountToTreatmentPlanItems(treatmentPlanId, { itemIds, discountType, value }),
+        discountReason?: string;
+      }) =>
+        applyBulkDiscountToTreatmentPlanItems(treatmentPlanId, {
+          itemIds,
+          discountType,
+          value,
+          discountReason
+        }),
       onSuccess: invalidate,
       onError
     }),

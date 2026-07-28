@@ -18,14 +18,14 @@ export function useLogout() {
       clearSession();
       setActiveBranchId("");
       queryClient.removeQueries({ queryKey: ["settings", "branches"] });
-      toast.success("Sesi�n finalizada");
+      toast.success("Sesión finalizada");
       navigate("/login", { replace: true });
     },
     onError: (error) => {
       clearSession();
       setActiveBranchId("");
       queryClient.removeQueries({ queryKey: ["settings", "branches"] });
-      toast.error(error.message || "Sesi�n finalizada con advertencias");
+      toast.error(error.message || "Sesión finalizada con advertencias");
       navigate("/login", { replace: true });
     }
   });

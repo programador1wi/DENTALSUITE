@@ -19,11 +19,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function hueForAngle(angle: number) {
-  // Ya no se utiliza policromía, pero mantenemos una firma compatible si fuera necesario.
-  return 215; 
-}
-
 function buildField(maxRadius: number) {
   const dashes: Dash[] = [];
   const ringStart = 80;
@@ -117,8 +112,7 @@ export function LoginAntigravityBackground() {
         const twinkle = 0.74 + Math.sin(time * dash.twinkleSpeed + dash.twinklePhase) * 0.26;
         const alpha = clamp(dash.alpha * twinkle, 0.08, 0.9);
 
-        // Usar una paleta monocromática en escala de grises / azul pizarra sutil
-        const lightness = 64 + (dash.ringRadius % 16); // Variación de luz sutil para dar sensación de profundidad
+        const lightness = 64 + (dash.ringRadius % 16);
         context.strokeStyle = `hsla(215, 12%, ${lightness}%, ${alpha * 0.45})`;
         context.lineCap = "round";
         context.lineWidth = dash.thickness;

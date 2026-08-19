@@ -1,35 +1,14 @@
 import type { PropsWithChildren } from "react";
 import { Header } from "@/components/layout/header";
-import { LoadingState } from "@/components/feedback/loading-state";
-import { ErrorState } from "@/components/feedback/error-state";
-import { useAuthStore } from "@/stores/auth.store";
-import { useMeQuery } from "@/features/auth/hooks/use-me";
 
 export function PrivateLayout({ children }: PropsWithChildren) {
-  const token = useAuthStore((state) => state.accessToken);
-  const user = useAuthStore((state) => state.user);
-  const me = useMeQuery(Boolean(token) && !user);
-
-  if (me.isLoading) {
-    return (
-      <div className="p-5">
-        <LoadingState message="Validando sesión..." />
-      </div>
-    );
-  }
-
-  if (me.isError) {
-    return (
-      <div className="p-5">
-        <ErrorState message={me.error.message} />
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-[var(--bg-page)] text-[var(--text-primary)] flex flex-col">
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-[9999] focus:rounded-md focus:bg-white focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:shadow-lg">
+        Saltar al contenido principal
+      </a>
       <Header />
-      <main className="mx-auto w-full min-w-0 max-w-[1536px] px-4 pb-12 pt-8 sm:px-6 lg:px-8">{children}</main>
+      <main id="main-content" className="mx-auto w-full min-w-0 max-w-[1536px] px-3 pb-6 pt-3 sm:px-5 sm:pb-8 sm:pt-4 lg:px-6">{children}</main>
     </div>
   );
 }

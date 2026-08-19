@@ -1,16 +1,18 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { canDelegatePermission, getPermissionMetadata } from "@dentalwarner/shared";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { PrismaService } from "../../database/prisma.service";
 import { CreatePermissionDto } from "./dto/create-permission.dto";
 import { ListPermissionsQueryDto } from "./dto/list-permissions-query.dto";
 import { UpdatePermissionDto } from "./dto/update-permission.dto";
+import { AuthUser } from "../../common/types/auth-user";
 
 @Injectable()
 export class PermissionsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(query: ListPermissionsQueryDto) {
+  async findAll(actor: AuthUser, query: ListPermissionsQueryDto) {
     const { search, module, active } = query;
     const { skip, take } = resolvePagination(query);
 
@@ -31,7 +33,18 @@ export class PermissionsService {
         : {})
     };
 
-    return this.prisma.permission.findMany({ where, skip, take, orderBy: [{ module: "asc" }, { action: "asc" }] });
+    const permissions = await this.prisma.permission.findMany({
+      where,
+      skip,
+      take,
+      orderBy: [{ module: "asc" }, { action: "asc" }]
+    });
+
+    return permissions.map((permission) => ({
+      ...permission,
+      ...getPermissionMetadata(permission),
+      delegable: canDelegatePermission(actor.permissions, permission.key)
+    }));
   }
 
   async findOne(id: string) {
@@ -61,6 +74,7 @@ export class PermissionsService {
   async update(id: string, dto: UpdatePermissionDto) {
     const current = await this.prisma.permission.findFirst({ where: { id, deletedAt: null } });
     if (!current) throw new NotFoundException("Permission not found");
+    if (current.isSystem) throw new BadRequestException("PROTECTED_PERMISSION");
 
     const nextKey = dto.key ? this.normalizeCode(dto.key) : undefined;
 

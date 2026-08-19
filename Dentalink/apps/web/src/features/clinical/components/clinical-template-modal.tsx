@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { AlertCircle, FileText } from "lucide-react";
+import { FileText } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
@@ -43,15 +44,13 @@ export function ClinicalTemplateModal({ open, onClose, onSelectTemplate, special
     <Modal open={open} onClose={onClose} title="Usar Plantilla" size="lg">
       <div className="flex flex-col gap-4">
         {!professionalId ? (
-          <div className="flex items-center gap-2 rounded-md bg-amber-50 p-3 text-sm text-amber-800 border border-amber-200">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
-            <p>Por favor, selecciona un profesional en el formulario principal para ver sus plantillas específicas.</p>
-          </div>
+          <Alert variant="warning" size="sm">
+            Por favor, selecciona un profesional en el formulario principal para ver sus plantillas específicas.
+          </Alert>
         ) : specialties.length === 0 ? (
-          <div className="flex items-center gap-2 rounded-md bg-amber-50 p-3 text-sm text-amber-800 border border-amber-200">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
-            <p>El profesional seleccionado no tiene especialidades configuradas. No se pueden mostrar plantillas.</p>
-          </div>
+          <Alert variant="warning" size="sm">
+            El profesional seleccionado no tiene especialidades configuradas. No se pueden mostrar plantillas.
+          </Alert>
         ) : (
           specialties.length > 1 && (
             <div>
@@ -104,10 +103,9 @@ export function ClinicalTemplateModal({ open, onClose, onSelectTemplate, special
         )}
 
         {selectedTemplate && (
-          <div className="flex items-center gap-2 rounded-md bg-amber-50 p-3 text-sm text-amber-800 border border-amber-200">
-            <AlertCircle className="h-4 w-4 shrink-0 text-amber-500" />
-            <p>Al agregar la plantilla, se reemplazará el texto actual del documento.</p>
-          </div>
+          <Alert variant="warning" size="sm">
+            Al agregar la plantilla, se reemplazará el texto actual del documento.
+          </Alert>
         )}
 
         <div className="mt-4 flex justify-end gap-2">

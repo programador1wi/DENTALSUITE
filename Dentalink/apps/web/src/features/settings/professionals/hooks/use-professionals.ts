@@ -3,6 +3,7 @@ import {
   bulkUpdateProfessionalContracts,
   createProfessional,
   deactivateProfessional,
+  getProfessionalDeactivationImpact,
   listProfessionals,
   previewBulkProfessionalContracts,
   transferProfessionalBranch,
@@ -16,12 +17,15 @@ type ProfessionalQueryOptions = {
   branchId?: string;
   page?: number;
   pageSize?: number;
+  enabled?: boolean;
 };
 
 export function useProfessionals(search?: string, active?: string, options?: ProfessionalQueryOptions) {
+  const { enabled = true, ...queryOptions } = options ?? {};
   return useQuery({
-    queryKey: ["settings", "professionals", search, active, options],
-    queryFn: () => listProfessionals({ search, active, ...options })
+    queryKey: ["settings", "professionals", search, active, queryOptions],
+    queryFn: () => listProfessionals({ search, active, ...queryOptions }),
+    enabled
   });
 }
 
@@ -47,6 +51,14 @@ export function useDeactivateProfessional() {
   return useMutation({
     mutationFn: (id: string) => deactivateProfessional(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings", "professionals"] })
+  });
+}
+
+export function useProfessionalDeactivationImpact(id?: string, branchId?: string) {
+  return useQuery({
+    queryKey: ["settings", "professionals", id, "deactivation-impact", branchId],
+    queryFn: () => getProfessionalDeactivationImpact(id!, branchId),
+    enabled: Boolean(id)
   });
 }
 

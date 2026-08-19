@@ -16,9 +16,11 @@
     "prisma:seed:test-treatment-plans": "tsx prisma/seed-test-treatment-plans.ts",
     "prisma:backfill:patient-identity": "tsx prisma/backfill-patient-identity.ts",
     "prisma:sync:patient-identity-permissions": "tsx prisma/sync-patient-identity-permissions.ts",
-    "prisma:verify:patient-identity": "tsx prisma/verify-patient-identity.ts"
+    "prisma:verify:patient-identity": "tsx prisma/verify-patient-identity.ts",
+    "permissions:audit": "tsx prisma/audit-permissions.ts"
   },
   "dependencies": {
+    "@dentalwarner/shared": "file:../shared",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
     "bcryptjs": "^3.0.3",

@@ -83,4 +83,40 @@ export class UpdateOnlineSchedulingDto {
   @IsString()
   @IsOptional()
   confirmationMessage?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  patientBlockEnabled?: boolean;
+
+  @IsString()
+  @IsOptional()
+  chairScope?: string;
+
+  @IsString()
+  @IsOptional()
+  facebookPixel?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  menuByProfessional?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  menuBySpecialty?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  menuByBranch?: boolean;
+
+  @IsString()
+  @IsOptional()
+  patientDataMoment?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  askSpecialtyReason?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  showAppointmentDuration?: boolean;
 }

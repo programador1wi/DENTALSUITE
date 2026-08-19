@@ -38,6 +38,16 @@ export class ProfessionalsController {
     return this.professionalsService.findOne(user, id);
   }
 
+  @Get(":id/deactivation-impact")
+  @RequirePermissions("professionals.read")
+  deactivationImpact(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Query("branchId") branchId?: string
+  ) {
+    return this.professionalsService.deactivationImpact(user, id, branchId);
+  }
+
   @Post()
   @RequirePermissions("professionals.create")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateProfessionalDto) {

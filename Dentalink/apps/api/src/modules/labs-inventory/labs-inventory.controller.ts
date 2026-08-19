@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
   Header,
+  Headers,
   Param,
   Patch,
   Post,
@@ -10,28 +12,38 @@ import {
   UseGuards
 } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
+import { InventoryMovementType } from "@prisma/client";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import {
+  CompensateInventoryMovementDto,
+  CreateInventoryCategoryDto,
   CreateInventoryItemDto,
   CreateInventoryMovementDto,
   CreateInventoryProductSaleDto,
+  CreateInventoryStockCountDto,
+  CreateInventoryUnitDto,
   CreateInventoryWarehouseDto,
   CreateLabOrderDto,
   CreateLabOrderFromTreatmentDto,
   CreateLabProviderDto,
   CreateSupplierDto,
+  ListInventoryCatalogQueryDto,
   ListInventoryItemsQueryDto,
   ListInventoryMovementsQueryDto,
   ListInventoryWarehousesQueryDto,
   ListLabOrdersQueryDto,
   ListLabProvidersQueryDto,
   ListSuppliersQueryDto,
+  PostInventoryMovementDto,
+  ReconcileInventoryStockCountDto,
+  UpdateInventoryCategoryDto,
   UpdateInventoryItemDto,
   UpdateInventoryStockDto,
+  UpdateInventoryUnitDto,
   UpdateInventoryWarehouseDto,
   UpdateLabProcedureAssignmentsDto,
   UpdateLabOrderCostDto,
@@ -40,13 +52,17 @@ import {
   UpdateSupplierDto
 } from "./dto/labs-inventory.dto";
 import { LabsInventoryService } from "./labs-inventory.service";
+import { InventoryApplicationService } from "./inventory/inventory-application.service";
 
 @ApiTags("Labs & Inventory")
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller()
 export class LabsInventoryController {
-  constructor(private readonly service: LabsInventoryService) {}
+  constructor(
+    private readonly service: LabsInventoryService,
+    private readonly inventory: InventoryApplicationService
+  ) {}
 
   @Get("labs/providers")
   @RequirePermissions("lab_providers.read")
@@ -161,43 +177,99 @@ export class LabsInventoryController {
   @Get("inventory/items")
   @RequirePermissions("inventory.read")
   listInventoryItems(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryItemsQueryDto) {
-    return this.service.listInventoryItems(actor, query);
+    return this.inventory.listProducts(actor, query);
   }
 
   @Post("inventory/items")
   @RequirePermissions("inventory.create")
   createInventoryItem(@CurrentUser() actor: AuthUser, @Body() dto: CreateInventoryItemDto) {
-    return this.service.createInventoryItem(actor, dto);
+    return this.inventory.createProduct(actor, dto);
   }
 
   @Patch("inventory/items/:id")
   @RequirePermissions("inventory.update")
   updateInventoryItem(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateInventoryItemDto) {
-    return this.service.updateInventoryItem(actor, id, dto);
+    return this.inventory.updateProduct(actor, id, dto);
   }
 
   @Patch("inventory/items/:id/deactivate")
   @RequirePermissions("inventory.deactivate")
   deactivateInventoryItem(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
-    return this.service.deactivateInventoryItem(actor, id);
+    return this.inventory.deactivateProduct(actor, id);
+  }
+
+  @Get("inventory/items/:id")
+  @RequirePermissions("inventory.products.view")
+  getInventoryItem(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.inventory.getProduct(actor, id);
+  }
+
+  @Post("inventory/items/:id/reactivate")
+  @RequirePermissions("inventory.products.reactivate")
+  reactivateInventoryItem(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.inventory.reactivateProduct(actor, id);
+  }
+
+  @Get("inventory/categories")
+  @RequirePermissions("inventory.products.view")
+  listInventoryCategories(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryCatalogQueryDto) {
+    return this.inventory.listCategories(actor, query);
+  }
+
+  @Post("inventory/categories")
+  @RequirePermissions("inventory.products.create")
+  createInventoryCategory(@CurrentUser() actor: AuthUser, @Body() dto: CreateInventoryCategoryDto) {
+    return this.inventory.createCategory(actor, dto);
+  }
+
+  @Patch("inventory/categories/:id")
+  @RequirePermissions("inventory.products.update")
+  updateInventoryCategory(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateInventoryCategoryDto
+  ) {
+    return this.inventory.updateCategory(actor, id, dto);
+  }
+
+  @Get("inventory/units")
+  @RequirePermissions("inventory.products.view")
+  listInventoryUnits(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryCatalogQueryDto) {
+    return this.inventory.listUnits(actor, query);
+  }
+
+  @Post("inventory/units")
+  @RequirePermissions("inventory.products.create")
+  createInventoryUnit(@CurrentUser() actor: AuthUser, @Body() dto: CreateInventoryUnitDto) {
+    return this.inventory.createUnit(actor, dto);
+  }
+
+  @Patch("inventory/units/:id")
+  @RequirePermissions("inventory.products.update")
+  updateInventoryUnit(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateInventoryUnitDto
+  ) {
+    return this.inventory.updateUnit(actor, id, dto);
   }
 
   @Get("inventory/warehouses")
   @RequirePermissions("inventory.warehouses.read")
   listInventoryWarehouses(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryWarehousesQueryDto) {
-    return this.service.listInventoryWarehouses(actor, query);
+    return this.inventory.listWarehouses(actor, query);
   }
 
   @Post("inventory/warehouses")
   @RequirePermissions("inventory.warehouses.manage")
   createInventoryWarehouse(@CurrentUser() actor: AuthUser, @Body() dto: CreateInventoryWarehouseDto) {
-    return this.service.createInventoryWarehouse(actor, dto);
+    return this.inventory.createWarehouse(actor, dto);
   }
 
   @Patch("inventory/warehouses/:id")
   @RequirePermissions("inventory.warehouses.manage")
   updateInventoryWarehouse(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateInventoryWarehouseDto) {
-    return this.service.updateInventoryWarehouse(actor, id, dto);
+    return this.inventory.updateWarehouse(actor, id, dto);
   }
 
   @Patch("inventory/items/:id/stocks/:warehouseId")
@@ -208,19 +280,121 @@ export class LabsInventoryController {
     @Param("warehouseId") warehouseId: string,
     @Body() dto: UpdateInventoryStockDto
   ) {
-    return this.service.updateInventoryStock(actor, id, warehouseId, dto);
+    return this.inventory.updateSafetyStock(actor, id, warehouseId, dto);
   }
 
   @Get("inventory/movements")
   @RequirePermissions("inventory.movements.read")
   listInventoryMovements(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryMovementsQueryDto) {
-    return this.service.listInventoryMovements(actor, query);
+    return this.inventory.listMovements(actor, query);
   }
 
   @Post("inventory/movements")
   @RequirePermissions("inventory.movements.create")
   createInventoryMovement(@CurrentUser() actor: AuthUser, @Body() dto: CreateInventoryMovementDto) {
     return this.service.createInventoryMovement(actor, dto);
+  }
+
+  @Post("inventory/movements/entries")
+  @RequirePermissions("inventory.entries.create")
+  createInventoryEntry(
+    @CurrentUser() actor: AuthUser,
+    @Body() dto: PostInventoryMovementDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+    @Headers("correlation-id") correlationId?: string
+  ) {
+    return this.inventory.postMovement(actor, InventoryMovementType.ENTRY, dto, { idempotencyKey, correlationId });
+  }
+
+  @Post("inventory/movements/exits")
+  @RequirePermissions("inventory.exits.create")
+  createInventoryExit(
+    @CurrentUser() actor: AuthUser,
+    @Body() dto: PostInventoryMovementDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+    @Headers("correlation-id") correlationId?: string
+  ) {
+    return this.inventory.postMovement(actor, InventoryMovementType.EXIT, dto, { idempotencyKey, correlationId });
+  }
+
+  @Post("inventory/movements/transfers")
+  @RequirePermissions("inventory.transfers.create")
+  createInventoryTransfer(
+    @CurrentUser() actor: AuthUser,
+    @Body() dto: PostInventoryMovementDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+    @Headers("correlation-id") correlationId?: string
+  ) {
+    return this.inventory.postMovement(actor, InventoryMovementType.TRANSFER, dto, { idempotencyKey, correlationId });
+  }
+
+  @Post("inventory/movements/adjustments/positive")
+  @RequirePermissions("inventory.adjustments.create")
+  createPositiveAdjustment(
+    @CurrentUser() actor: AuthUser,
+    @Body() dto: PostInventoryMovementDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+    @Headers("correlation-id") correlationId?: string
+  ) {
+    return this.inventory.postMovement(actor, InventoryMovementType.POSITIVE_ADJUSTMENT, dto, {
+      idempotencyKey,
+      correlationId
+    });
+  }
+
+  @Post("inventory/movements/adjustments/negative")
+  @RequirePermissions("inventory.adjustments.create")
+  createNegativeAdjustment(
+    @CurrentUser() actor: AuthUser,
+    @Body() dto: PostInventoryMovementDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+    @Headers("correlation-id") correlationId?: string
+  ) {
+    return this.inventory.postMovement(actor, InventoryMovementType.NEGATIVE_ADJUSTMENT, dto, {
+      idempotencyKey,
+      correlationId
+    });
+  }
+
+  @Post("inventory/movements/waste")
+  @RequirePermissions("inventory.waste.create")
+  createWaste(
+    @CurrentUser() actor: AuthUser,
+    @Body() dto: PostInventoryMovementDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+    @Headers("correlation-id") correlationId?: string
+  ) {
+    return this.inventory.postMovement(actor, InventoryMovementType.WASTE, dto, { idempotencyKey, correlationId });
+  }
+
+  @Post("inventory/movements/:id/compensate")
+  @RequirePermissions("inventory.movements.compensate")
+  compensateMovement(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: CompensateInventoryMovementDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+    @Headers("correlation-id") correlationId?: string
+  ) {
+    return this.inventory.compensateMovement(actor, id, dto, { idempotencyKey, correlationId });
+  }
+
+  @Post("inventory/stock-counts")
+  @RequirePermissions("inventory.stock_counts.create")
+  createStockCount(@CurrentUser() actor: AuthUser, @Body() dto: CreateInventoryStockCountDto) {
+    return this.inventory.createStockCount(actor, dto);
+  }
+
+  @Post("inventory/stock-counts/:id/reconcile")
+  @RequirePermissions("inventory.stock_counts.reconcile")
+  reconcileStockCount(
+    @CurrentUser() actor: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: ReconcileInventoryStockCountDto,
+    @Headers("idempotency-key") idempotencyKey?: string,
+    @Headers("correlation-id") correlationId?: string
+  ) {
+    return this.inventory.reconcileStockCount(actor, id, dto, { idempotencyKey, correlationId });
   }
 
   @Post("inventory/sales")
@@ -236,7 +410,7 @@ export class LabsInventoryController {
     @Query("branchId") branchId?: string,
     @Query("warehouseId") warehouseId?: string
   ) {
-    return this.service.listMinStockAlerts(actor, branchId, warehouseId);
+    return this.inventory.listCriticalStock(actor, branchId, warehouseId);
   }
 
   @Get("inventory/kardex/:inventoryItemId")
@@ -246,7 +420,7 @@ export class LabsInventoryController {
     @Param("inventoryItemId") inventoryItemId: string,
     @Query("warehouseId") warehouseId?: string
   ) {
-    return this.service.getInventoryKardex(actor, inventoryItemId, warehouseId);
+    return this.inventory.getKardex(actor, inventoryItemId, warehouseId);
   }
 
   @Get("inventory/reports/current.csv")
@@ -254,7 +428,7 @@ export class LabsInventoryController {
   @Header("Content-Type", "text/csv; charset=utf-8")
   @Header("Content-Disposition", "attachment; filename=\"inventario.csv\"")
   exportInventoryCsv(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryItemsQueryDto) {
-    return this.service.exportInventoryCsv(actor, query);
+    return this.inventory.exportCurrent(actor, query);
   }
 
   @Get("inventory/reports/movements.csv")
@@ -262,6 +436,20 @@ export class LabsInventoryController {
   @Header("Content-Type", "text/csv; charset=utf-8")
   @Header("Content-Disposition", "attachment; filename=\"movimientos-inventario.csv\"")
   exportInventoryMovementsCsv(@CurrentUser() actor: AuthUser, @Query() query: ListInventoryMovementsQueryDto) {
-    return this.service.exportInventoryMovementsCsv(actor, query);
+    return this.inventory.exportMovements(actor, query);
+  }
+
+  @Get("inventory/reports/:kind.csv")
+  @RequirePermissions("inventory.reports.export")
+  @Header("Content-Type", "text/csv; charset=utf-8")
+  exportInventorySpecial(
+    @CurrentUser() actor: AuthUser,
+    @Param("kind") kind: "critical" | "valuation" | "waste" | "expiring",
+    @Query() query: ListInventoryItemsQueryDto
+  ) {
+    if (!["critical", "valuation", "waste", "expiring"].includes(kind)) {
+      throw new BadRequestException("Unsupported inventory report");
+    }
+    return this.inventory.exportSpecial(actor, kind, query);
   }
 }

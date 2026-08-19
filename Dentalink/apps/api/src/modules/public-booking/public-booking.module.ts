@@ -5,9 +5,10 @@ import { PublicBookingController } from './public-booking.controller';
 import { AppointmentsModule } from '../appointments/appointments.module';
 import { PrismaModule } from '../../database/prisma.module';
 import { PatientIdentityModule } from '../patient-identity/patient-identity.module';
+import { PatientFieldConfigModule } from '../patient-field-config/patient-field-config.module';
 
 @Module({
-  imports: [AppointmentsModule, PrismaModule, PatientIdentityModule, JwtModule.register({})],
+  imports: [AppointmentsModule, PrismaModule, PatientIdentityModule, PatientFieldConfigModule, JwtModule.register({})],
   controllers: [PublicBookingController],
   providers: [PublicBookingService],
 })

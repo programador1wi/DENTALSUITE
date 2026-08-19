@@ -35,6 +35,8 @@ const availabilityData = [
 ];
 
 vi.mock("@tanstack/react-query", () => ({
+  useQueryClient: () => ({ setQueryData: vi.fn() }),
+  useMutation: () => ({ mutateAsync: vi.fn(), isPending: false, error: null }),
   useQuery: ({ enabled = true, queryKey }: { enabled?: boolean; queryKey: unknown[] }) => {
     if (queryKey[1] === "availability-week") {
       return { data: availabilityData, isLoading: false, isError: false, error: null };
@@ -516,10 +518,10 @@ describe("AppointmentModal multiple booking", () => {
     await openPatientStep();
 
     fireEvent.click(screen.getByRole("button", { name: "Paciente nuevo" }));
-    fireEvent.change(screen.getByLabelText("Nombre legal"), { target: { value: "CHANONA" } });
-    fireEvent.change(screen.getByLabelText("Apellidos"), { target: { value: "ARREOLA" } });
-    fireEvent.change(screen.getByLabelText("E-mail"), { target: { value: "programador1.wi@gmail.com" } });
-    fireEvent.change(screen.getByLabelText("Telefono movil"), { target: { value: "9613184040" } });
+    fireEvent.change(screen.getByLabelText("Nombre legal *"), { target: { value: "CHANONA" } });
+    fireEvent.change(screen.getByLabelText("Apellidos *"), { target: { value: "ARREOLA" } });
+    fireEvent.change(screen.getByLabelText("E-mail *"), { target: { value: "programador1.wi@gmail.com" } });
+    fireEvent.change(screen.getByLabelText("Telefono movil *"), { target: { value: "9613184040" } });
     fireEvent.click(screen.getByRole("button", { name: "Guardar cita" }));
 
     await waitFor(() =>

@@ -1,9 +1,12 @@
 import { useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { DataTable } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { TableActionGroup, TableToolbar } from "@/components/ui/table-toolbar";
+import { APP_ROUTES } from "@/lib/routes";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -105,91 +108,67 @@ export function LabOrdersPage() {
           Las solicitudes se agrupan como en Warner Suite: pendiente, en proceso, en revision y finalizada.
         </LabInfoBanner>
 
-        <div className="grid gap-3 xl:grid-cols-[minmax(260px,360px)_1fr_minmax(220px,260px)]">
-          <label className="text-sm font-medium text-slate-700">
-            Laboratorio
-            <Select className="mt-1" value={labProviderId} onChange={(event) => setLabProviderId(event.target.value)}>
-              <option value="">Todos los laboratorios</option>
-              {providers.data?.map((provider) => (
-                <option key={provider.id} value={provider.id}>{provider.name}</option>
-              ))}
-            </Select>
-          </label>
-
-          <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${viewMeta.bgClass} ${viewMeta.borderClass}`}>
-            <span className={`h-3 w-3 rounded-full ${viewMeta.dotClass}`} />
-            <div>
-              <p className={`text-sm font-semibold ${viewMeta.textClass}`}>Solicitudes: {viewMeta.plural}</p>
-              <p className="text-xs text-slate-500">Estado seleccionado para esta vista</p>
+        <TableToolbar
+          filters={
+            <>
+              <label className="min-w-56 flex-1 text-[var(--text-sm)] font-medium text-[var(--text-primary)] lg:flex-none">
+                Laboratorio
+                <Select className="mt-1" value={labProviderId} onChange={(event) => setLabProviderId(event.target.value)}>
+                  <option value="">Todos los laboratorios</option>
+                  {providers.data?.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
+                </Select>
+              </label>
+              <label className="min-w-56 flex-1 text-[var(--text-sm)] font-medium text-[var(--text-primary)] lg:flex-none">
+                Mostrar
+                <Select className="mt-1" value={view} onChange={(event) => navigate(`${APP_ROUTES.laboratories.orders}?view=${event.target.value}`)}>
+                  {(Object.keys(LAB_REQUEST_STATE_META) as LabRequestView[]).map((option) => (
+                    <option key={option} value={option}>{LAB_REQUEST_STATE_META[option].label}</option>
+                  ))}
+                </Select>
+              </label>
+            </>
+          }
+          actions={
+            <div className={`flex min-h-10 items-center gap-2 rounded-[var(--radius-md)] border px-[var(--space-3)] ${viewMeta.bgClass} ${viewMeta.borderClass}`}>
+              <span className={`h-2 w-2 rounded-full ${viewMeta.dotClass}`} />
+              <span className={`text-[var(--text-sm)] font-semibold ${viewMeta.textClass}`}>Solicitudes: {viewMeta.plural}</span>
             </div>
-          </div>
-
-          <label className="text-sm font-medium text-slate-700">
-            Mostrar
-            <Select
-              className="mt-1"
-              value={view}
-              onChange={(event) => navigate(`/labs/orders?view=${event.target.value}`)}
-            >
-              {(Object.keys(LAB_REQUEST_STATE_META) as LabRequestView[]).map((option) => (
-                <option key={option} value={option}>
-                  {LAB_REQUEST_STATE_META[option].label}
-                </option>
-              ))}
-            </Select>
-          </label>
-        </div>
+          }
+        />
 
         {orders.isLoading ? (
           <LoadingState message="Cargando solicitudes de laboratorio..." />
         ) : !visibleOrders.length ? (
           <EmptyState title="Sin solicitudes" description="No hay solicitudes para esta etapa del flujo." />
         ) : (
-          <div className={`overflow-x-auto rounded-2xl border ${viewMeta.borderClass}`}>
-            <div className={`border-b px-5 py-3 ${viewMeta.bgClass} ${viewMeta.borderClass}`}>
-              <h2 className="text-base font-semibold text-slate-900">Solicitudes: {viewMeta.plural}</h2>
-            </div>
-            <table className="w-full border-collapse bg-white text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Solicitud</th>
-                  <th className="px-4 py-3">Paciente</th>
-                  <th className="px-4 py-3">Laboratorio</th>
-                  <th className="px-4 py-3">Estado</th>
-                  <th className="px-4 py-3">Costo</th>
-                  <th className="px-4 py-3">Entrega esperada</th>
-                  <th className="px-4 py-3 text-right">Opciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleOrders.map((order) => (
-                  <tr key={order.id} className="border-t border-slate-100">
-                    <td className="px-4 py-4 font-semibold text-slate-900">{order.id.slice(-8).toUpperCase()}</td>
-                    <td className="px-4 py-4">
-                      {order.patient ? `${order.patient.firstName} ${order.patient.lastName}` : order.patientId}
-                    </td>
-                    <td className="px-4 py-4">{order.labProvider?.name ?? order.labProviderId}</td>
-                    <td className="px-4 py-4"><StatusPill status={order.status} /></td>
-                    <td className="px-4 py-4">{order.cost ?? "-"}</td>
-                    <td className="px-4 py-4">{order.expectedAt ? new Date(order.expectedAt).toLocaleDateString() : "-"}</td>
-                    <td className="px-4 py-4">
-                      <div className="flex justify-end gap-2">
-                        {nextStatuses(order.status).map((status) => (
-                          <Button
-                            key={status}
-                            variant="secondary"
-                            onClick={() => mutations.updateLabOrderStatus.mutate({ id: order.id, status })}
-                          >
-                            {statusLabel(status)}
-                          </Button>
-                        ))}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            rows={visibleOrders}
+            getRowKey={(order) => order.id}
+            empty={<EmptyState title="Sin solicitudes" description="No hay solicitudes para esta etapa del flujo." />}
+            columns={[
+              { key: "id", title: "Solicitud", primary: true, cellClassName: "font-semibold text-[var(--text-brand-strong)]", render: (order) => order.id.slice(-8).toUpperCase() },
+              { key: "patientId", title: "Paciente", wrap: true, render: (order) => order.patient ? `${order.patient.firstName} ${order.patient.lastName}` : order.patientId },
+              { key: "labProviderId", title: "Laboratorio", wrap: true, render: (order) => order.labProvider?.name ?? order.labProviderId },
+              { key: "status", title: "Estado", render: (order) => <StatusPill status={order.status} /> },
+              { key: "cost", title: "Costo", render: (order) => order.cost ?? "-" },
+              { key: "expectedAt", title: "Entrega esperada", render: (order) => order.expectedAt ? new Date(order.expectedAt).toLocaleDateString() : "-" },
+              {
+                key: "id",
+                title: "Opciones",
+                actions: true,
+                headerClassName: "text-right",
+                render: (order) => (
+                  <TableActionGroup>
+                    {nextStatuses(order.status).map((status) => (
+                      <Button key={status} variant="secondary" onClick={() => mutations.updateLabOrderStatus.mutate({ id: order.id, status })}>
+                        {statusLabel(status)}
+                      </Button>
+                    ))}
+                  </TableActionGroup>
+                )
+              }
+            ]}
+          />
         )}
       </div>
 

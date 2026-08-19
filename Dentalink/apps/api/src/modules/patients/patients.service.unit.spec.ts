@@ -103,6 +103,67 @@ describe("PatientsService exact duplicate guard", () => {
     email: "programador1.wi@gmail.com"
   };
 
+  it("persists the social and legacy identity fields when creating a patient", async () => {
+    const tx = {
+      patient: {
+        create: jest.fn().mockResolvedValue({
+          id: "patient-social",
+          firstName: "Alex",
+          socialName: "Lex",
+          lastName: "Rivera",
+          email: null,
+          phone: null,
+          documentNumber: null
+        })
+      },
+      patientContact: { createMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      auditLog: { create: jest.fn().mockResolvedValue({ id: "audit-1" }) }
+    };
+    const prisma = {
+      branch: { findFirst: jest.fn().mockResolvedValue({ id: "branch-1" }) },
+      patient: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: jest.fn((callback: (transaction: typeof tx) => unknown) => callback(tx))
+    };
+    const service = new PatientsService(prisma as never);
+    jest.spyOn(service, "findOne").mockResolvedValue({ id: "patient-social" } as never);
+
+    await service.create(actor, {
+      branchId: "branch-1",
+      firstName: "Alex",
+      socialName: "Lex",
+      lastName: "Rivera",
+      internalNumber: "EXP-25",
+      sex: "NO_ESPECIFICADO",
+      employer: "Warner",
+      observations: "Usar nombre social",
+      contacts: [
+        {
+          name: "Tutor Rivera",
+          socialName: "Tutor",
+          documentNumber: "TUTOR123",
+          gender: "OTRO"
+        }
+      ]
+    });
+
+    expect(tx.patient.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          socialName: "Lex",
+          internalNumber: "EXP-25",
+          sex: "NO_ESPECIFICADO",
+          employer: "Warner",
+          observations: "Usar nombre social"
+        })
+      })
+    );
+    expect(tx.patientContact.createMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: [expect.objectContaining({ socialName: "Tutor", documentNumber: "TUTOR123", gender: "OTRO" })]
+      })
+    );
+  });
+
   function exactDuplicateService(prisma: unknown) {
     return new PatientsService(prisma as never) as unknown as {
       ensureNoExactPatientDuplicate: (
@@ -252,12 +313,14 @@ describe("PatientsService shared phone boundary", () => {
     };
     const service = new PatientsService(prisma as never, undefined, undefined, identity as never);
 
-    await expect(service.create(actor, {
-      branchId: "branch-1",
-      firstName: "Otro",
-      lastName: "Paciente",
-      phone: "961 222 2222"
-    })).rejects.toThrow("grupo familiar");
+    await expect(
+      service.create(actor, {
+        branchId: "branch-1",
+        firstName: "Otro",
+        lastName: "Paciente",
+        phone: "961 222 2222"
+      })
+    ).rejects.toThrow("grupo familiar");
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

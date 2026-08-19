@@ -10,10 +10,11 @@ import {
   Stethoscope
 } from "lucide-react";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
+import { cn } from "@/lib/utils/cn";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import { appointmentColorPalette } from "./appointment-status";
-import { AppointmentActionsMenu, type AppointmentMenuAction } from "./appointment-actions-menu";
 import { AppointmentStatusMenu } from "./appointment-status-menu";
+import type { AppointmentMenuAction } from "./appointment-actions-menu";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -69,6 +70,7 @@ type ActionHandlers = {
   onReschedule: (appointment: Appointment) => void;
   statusAction?: { appointmentId: string; status: AppointmentStatus } | null;
   onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
+  onContactWhatsApp?: (appointment: Appointment) => void;
   onConfirm: (id: string) => void;
   onArrive: (id: string) => void;
   onWaitingRoom: (id: string) => void;
@@ -188,41 +190,45 @@ export function AgendaDailyList({
       {/* ── Main content ── */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Date nav + search bar */}
-        <div className="flex items-center gap-3 px-5 py-3 border-b border-zinc-100 bg-white/80 backdrop-blur-sm flex-wrap gap-y-2 relative z-20">
+        <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-2 sm:py-3 border-b border-zinc-100 bg-white/80 backdrop-blur-sm flex-wrap gap-y-2 relative z-20">
           {/* Date navigation */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={() => navigate(-1)}
-              className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 hover:border-zinc-300 transition-all active:scale-95 shadow-sm"
+              aria-label="Día anterior"
+              title="Día anterior"
+              className="h-7 w-7 sm:h-8 sm:w-8 flex items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 hover:border-zinc-300 transition-all active:scale-95 shadow-sm"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
 
-            <div className="text-center min-w-[110px]">
-              <p className="text-[9px] font-bold uppercase tracking-widest text-zinc-400 capitalize">
+            <div className="text-center min-w-[90px] sm:min-w-[110px]">
+              <p className="text-[8px] sm:text-[9px] font-bold uppercase tracking-widest text-zinc-600 capitalize">
                 {dayName}
               </p>
-              <p className="text-2xl font-black text-zinc-900 leading-none tracking-tight">{dayNum}</p>
-              <p className="text-[10px] text-zinc-400 leading-snug capitalize">{monthYear}</p>
+              <p className="text-xl sm:text-2xl font-black text-zinc-900 leading-none tracking-tight">{dayNum}</p>
+              <p className="text-[9px] sm:text-[10px] text-zinc-600 leading-snug capitalize">{monthYear}</p>
             </div>
 
             <button
               type="button"
               onClick={() => navigate(1)}
-              className="h-8 w-8 flex items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 hover:border-zinc-300 transition-all active:scale-95 shadow-sm"
+              aria-label="Día siguiente"
+              title="Día siguiente"
+              className="h-7 w-7 sm:h-8 sm:w-8 flex items-center justify-center rounded-lg border border-zinc-200 text-zinc-500 hover:bg-zinc-50 hover:border-zinc-300 transition-all active:scale-95 shadow-sm"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="h-3.5 w-3.5 sm:h-4 sm:w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
               </svg>
             </button>
           </div>
 
           {/* Counters */}
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200/70 px-2.5 py-1 text-[11px] font-bold text-blue-700 shadow-sm">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200/70 px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-[11px] font-bold text-blue-700 shadow-sm">
               <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                   strokeLinecap="round"
@@ -237,7 +243,7 @@ export function AgendaDailyList({
               <button
                 type="button"
                 onClick={goToday}
-                className="rounded-lg border border-zinc-200 px-2.5 py-1 text-[11px] font-semibold text-zinc-600 hover:bg-zinc-50 hover:border-zinc-300 transition shadow-sm"
+                className="rounded-lg border border-zinc-200 px-2 py-0.5 sm:px-2.5 sm:py-1 text-[10px] sm:text-[11px] font-semibold text-zinc-600 hover:bg-zinc-50 hover:border-zinc-300 transition shadow-sm"
               >
                 Hoy
               </button>
@@ -245,7 +251,7 @@ export function AgendaDailyList({
           </div>
 
           {/* Search & Nueva cita */}
-          <div className="flex-1 flex items-center gap-2 justify-end min-w-[280px]">
+          <div className="flex-1 flex items-center gap-2 justify-end min-w-[180px]">
             <div className="max-w-xs flex-1">
               <EntitySearchBox
                 value={search}
@@ -268,10 +274,10 @@ export function AgendaDailyList({
                         {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-xs font-semibold text-zinc-800">
+                        <span className="block truncate text-xs font-semibold text-zinc-800" title={appointmentPatientName(appointment)}>
                           {appointmentPatientName(appointment)}
                         </span>
-                        <span className="block truncate text-[10px] text-zinc-400">{appointment.title}</span>
+                        <span className="block truncate text-[10px] text-zinc-400" title={appointment.title}>{appointment.title}</span>
                       </span>
                     </div>
                   );
@@ -280,41 +286,46 @@ export function AgendaDailyList({
             </div>
 
             {onCreateClick && (
-              <div className="relative" ref={dropdownRef}>
+              <div className="relative flex items-center shadow-sm rounded-lg" ref={dropdownRef}>
+                <button
+                  type="button"
+                  onClick={onCreateClick}
+                  className="flex h-8 shrink-0 items-center justify-center whitespace-nowrap rounded-l-lg border border-[var(--action-primary)] bg-[var(--action-primary)] px-3 text-xs text-white font-semibold transition active:scale-95 hover:bg-[var(--action-primary-hover)] hover:border-[var(--action-primary-hover)]"
+                >
+                  <span>Dar cita</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setDropdownOpen((prev) => !prev)}
-                  className="flex h-8 items-center justify-between gap-1.5 rounded-lg border border-[var(--action-primary)] bg-[var(--action-primary)] px-3 text-xs text-white font-semibold shadow-sm transition active:scale-95 hover:bg-[var(--action-primary-hover)] hover:border-[var(--action-primary-hover)]"
+                  className="flex h-8 items-center justify-center rounded-r-lg border border-l-0 border-[var(--action-primary)] border-l-white/30 bg-[var(--action-primary)] px-2 text-xs text-white font-semibold transition active:scale-95 hover:bg-[var(--action-primary-hover)] hover:border-[var(--action-primary-hover)]"
+                  aria-label="Opciones de agendamiento"
                 >
-                  <span>Nueva cita</span>
                   <ChevronDown
                     className={`h-3.5 w-3.5 transition-transform ${dropdownOpen ? "rotate-180" : ""}`}
                   />
                 </button>
                 {dropdownOpen && (
-                  <div className="absolute right-0 z-50 mt-1 w-48 rounded-lg border border-[var(--border-default)] bg-white p-1 shadow-lg animate-in fade-in zoom-in-95 duration-100">
+                  <div className="absolute right-0 top-full z-50 mt-1 min-w-[240px] rounded-lg border border-[var(--border-default)] bg-white p-1 shadow-lg animate-in fade-in zoom-in-95 duration-100">
                     <button
                       type="button"
-                      className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
+                      className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
                       onClick={() => {
                         onCreateClick();
                         setDropdownOpen(false);
                       }}
                     >
-                      <Plus className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
-                      <span>Cita individual</span>
+                      <span>Agendar una cita</span>
                     </button>
                     {onCreateMultipleClick && (
                       <button
                         type="button"
-                        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-xs text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
+                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"
                         onClick={() => {
                           onCreateMultipleClick();
                           setDropdownOpen(false);
                         }}
                       >
-                        <Layers className="h-3.5 w-3.5 text-[var(--text-secondary)]" />
-                        <span>Agendamiento múltiple</span>
+                        <span>Agendar múltiples citas para un mismo paciente</span>
                       </button>
                     )}
                   </div>
@@ -324,8 +335,8 @@ export function AgendaDailyList({
           </div>
         </div>
 
-        {/* Table */}
-        <div className="flex-1 overflow-auto">
+        {/* Table Container - 100% Width Without Horizontal Scroll */}
+        <div className="flex-1 w-full min-w-0">
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full py-24 text-center">
               <div className="h-14 w-14 rounded-full bg-zinc-100 flex items-center justify-center mb-4">
@@ -346,43 +357,69 @@ export function AgendaDailyList({
               </p>
             </div>
           ) : (
-            <table className="w-full text-xs border-collapse">
-              <thead className="sticky top-0 z-10">
-                <tr className="bg-zinc-50 border-b border-zinc-200/60">
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-[88px]">
-                    Hora
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                    Paciente
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-40">
-                    Doctor
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-44">
-                    Tratamiento
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-36">
-                    Estado
-                  </th>
-                  <th className="px-4 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-28">
-                    Situación
-                  </th>
-                  <th className="px-4 py-2.5 text-center text-[10px] font-bold uppercase tracking-wider text-zinc-400 w-28">
-                    Acciones
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100/80">
+            <>
+              {/* Compact record view (< 1280px): keeps clinical data readable without compressing columns. */}
+              <div className="space-y-2.5 p-3 xl:hidden">
                 {paginated.map((appointment) => (
-                  <AgendaListRow
+                  <AgendaMobileCard
                     key={appointment.id}
                     appointment={appointment}
                     highlighted={appointment.id === selectedAppointmentId}
                     {...handlers}
                   />
                 ))}
-              </tbody>
-            </table>
+              </div>
+
+              {/* Operational table (>= 1280px): exact column contracts require desktop width. */}
+              <div className="hidden w-full xl:block">
+                <table className="w-full table-fixed border-collapse text-xs">
+                  <colgroup>
+                    <col style={{ width: 72 }} />
+                    <col style={{ width: 180 }} />
+                    <col style={{ width: 140 }} />
+                    <col style={{ width: 180 }} />
+                    <col style={{ width: 120 }} />
+                    <col style={{ width: 120 }} />
+                    <col style={{ width: 130 }} />
+                  </colgroup>
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-zinc-50 border-b border-zinc-200/60">
+                      <th className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                        Hora
+                      </th>
+                      <th className="px-3.5 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                        Paciente
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                        Doctor
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                        Tratamiento
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                        Estado
+                      </th>
+                      <th className="px-3 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                        Situación
+                      </th>
+                      <th className="px-3.5 py-2.5 text-right text-[10px] font-bold uppercase tracking-wider text-zinc-600">
+                        Acciones
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100/80">
+                    {paginated.map((appointment) => (
+                      <AgendaListRow
+                        key={appointment.id}
+                        appointment={appointment}
+                        highlighted={appointment.id === selectedAppointmentId}
+                        {...handlers}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
 
@@ -465,6 +502,7 @@ function AgendaListRow({
   onCancel,
   onReschedule,
   onChangeStatus,
+  onContactWhatsApp,
   onConfirm,
   onArrive,
   onWaitingRoom,
@@ -542,23 +580,23 @@ function AgendaListRow({
       className={`${highlighted ? "bg-blue-50 ring-1 ring-inset ring-blue-300" : "hover:bg-blue-50/20"} transition-colors duration-100 group`}
     >
       {/* Hour block */}
-      <td className="px-3 py-2.5">
+      <td className="px-3 py-3 align-middle">
         <div
-          className={`inline-flex flex-col items-center justify-center rounded-lg px-2 py-1.5 text-center border min-w-[64px] ${pal.cardClass}`}
+          className={`inline-flex flex-col items-center justify-center rounded-md px-1.5 sm:px-2 py-1 text-center border min-w-[54px] sm:min-w-[64px] ${pal.cardClass}`}
         >
-          <span className="text-[12px] font-black leading-none tabular-nums">
+          <span className="text-[10px] sm:text-[12px] font-black leading-none tabular-nums">
             {start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
-          <span className="text-[8px] font-semibold opacity-50 mt-0.5 tabular-nums">
+          <span className="mt-0.5 text-[8px] font-bold tabular-nums">
             {end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </span>
         </div>
       </td>
 
-      {/* Patient */}
-      <td className="px-4 py-2.5">
+      {/* Patient + Inline Details for Mobile/Tablet */}
+      <td className="px-3.5 py-3 align-middle min-w-0">
         <div className="flex min-w-0 items-center gap-1.5">
-          <p className="truncate font-semibold text-zinc-900 text-[12px] leading-snug">{patientName}</p>
+          <p className="truncate font-bold text-zinc-900 text-[11px] sm:text-[12px] leading-snug" title={patientName}>{patientName}</p>
           <button
             type="button"
             aria-label={commentButtonLabel}
@@ -567,16 +605,22 @@ function AgendaListRow({
               event.stopPropagation();
               handleMenuAction("addComment");
             }}
-            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-200 ${
+            className={`flex h-4 w-4 sm:h-5 sm:w-5 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-blue-50 focus:outline-none ${
               hasAppointmentComment ? "text-blue-600" : "text-zinc-400 hover:text-blue-600"
             }`}
           >
-            <MessageSquare className="h-3.5 w-3.5" />
+            <MessageSquare className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
           </button>
         </div>
-        <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+
+        {/* Doctor & Treatment Subline for compact record view. */}
+        <p className="mt-0.5 truncate text-[10px] font-medium text-zinc-600 xl:hidden" title={`${appointment.professional.firstName} ${appointment.professional.lastName} · ${appointment.title}`}>
+          {appointment.professional.firstName} {appointment.professional.lastName} <span className="opacity-40">·</span> {appointment.title}
+        </p>
+
+        <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
           {appointment.patient?.phone && (
-            <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
+            <span className="flex items-center gap-0.5 text-[9px] font-medium text-zinc-600 sm:text-[10px]">
               <svg className="h-2.5 w-2.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                   strokeLinecap="round"
@@ -589,43 +633,70 @@ function AgendaListRow({
             </span>
           )}
           {appointment.chair && (
-            <span className="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200/70 px-1.5 py-0.5 text-[9px] font-semibold text-zinc-500">
+            <span className="inline-flex items-center rounded-full bg-zinc-100 border border-zinc-200/70 px-1.5 py-0.2 text-[8px] sm:text-[9px] font-semibold text-zinc-700">
               {appointment.chair.name}
             </span>
           )}
         </div>
+
+        {/* Status Badge inline for small mobile screens */}
+        <div className="sm:hidden flex items-center gap-1 mt-1 flex-wrap">
+          <AppointmentStatusMenu
+            appointment={appointment}
+            variant="list"
+            pendingStatus={statusAction?.appointmentId === appointment.id ? statusAction.status : undefined}
+            onChangeStatus={onChangeStatus}
+            onContactWhatsApp={onContactWhatsApp ?? (onMenuAction ? (item) => onMenuAction(item, "contactWhatsApp") : undefined)}
+            onConfirm={onConfirm}
+            onArrive={onArrive}
+            onWaitingRoom={onWaitingRoom}
+            onStart={onStart}
+            onComplete={onComplete}
+            onNoShow={onNoShow}
+            onReschedule={onReschedule}
+            onCancel={onCancel}
+            onHistory={onMenuAction ? (item) => onMenuAction(item, "viewHistory") : undefined}
+          />
+          <FinancialSituationBadge appointment={appointment} />
+        </div>
       </td>
 
-      {/* Doctor */}
-      <td className="px-4 py-2.5">
-        <div className="flex items-center gap-2">
-          <div className="h-6 w-6 rounded-full bg-zinc-900 text-white flex items-center justify-center text-[9px] font-bold shrink-0 select-none">
+      {/* Doctor (desktop operational table). */}
+      <td className="min-w-0 px-3 py-3 align-middle">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="h-5 w-5 rounded-full bg-zinc-900 text-white flex items-center justify-center text-[8px] font-bold shrink-0 select-none">
             {appointment.professional.firstName.charAt(0)}
             {appointment.professional.lastName.charAt(0)}
           </div>
-          <span className="text-[11px] font-medium text-zinc-700 truncate max-w-[120px]">
+          <span
+            className="block max-w-full truncate text-[11px] font-medium text-zinc-700"
+            title={`${appointment.professional.firstName} ${appointment.professional.lastName}`}
+          >
             {appointment.professional.firstName} {appointment.professional.lastName}
           </span>
         </div>
       </td>
 
       {/* Treatment */}
-      <td className="px-4 py-2.5">
-        <p className="text-[11px] font-semibold text-zinc-800 truncate max-w-[160px]">{appointment.title}</p>
+      <td className="px-3 py-3 align-middle min-w-0">
+        <p className="block max-w-full truncate text-[11px] font-semibold text-zinc-800" title={appointment.title}>
+          {appointment.title}
+        </p>
         {appointment.specialty && (
-          <p className="text-[9px] font-medium text-zinc-400 uppercase tracking-wide mt-0.5 truncate max-w-[160px]">
+          <p className="mt-0.5 block max-w-full truncate text-[9px] font-semibold uppercase tracking-wide text-zinc-600" title={appointment.specialty.name}>
             {appointment.specialty.name}
           </p>
         )}
       </td>
 
       {/* Status badge */}
-      <td className="px-4 py-2.5">
+      <td className="px-3 py-3 align-middle min-w-0">
         <AppointmentStatusMenu
           appointment={appointment}
           variant="list"
           pendingStatus={statusAction?.appointmentId === appointment.id ? statusAction.status : undefined}
           onChangeStatus={onChangeStatus}
+          onContactWhatsApp={onContactWhatsApp ?? (onMenuAction ? (item) => onMenuAction(item, "contactWhatsApp") : undefined)}
           onConfirm={onConfirm}
           onArrive={onArrive}
           onWaitingRoom={onWaitingRoom}
@@ -639,35 +710,41 @@ function AgendaListRow({
       </td>
 
       {/* Situación (Balance status) */}
-      <td className="px-4 py-2.5">
+      <td className="px-3 py-3 align-middle min-w-0">
         <FinancialSituationBadge appointment={appointment} />
       </td>
 
-      {/* Actions */}
-      <td className="px-3 py-2.5">
-        <div className="flex items-center justify-center gap-1">
+      {/* Actions (desktop operational table). */}
+      <td className="px-3.5 py-3 align-middle">
+        <div className="flex items-center justify-end gap-1.5">
           {primaryAction && (
             <button
               type="button"
               onClick={primaryAction.onClick}
-              className={`rounded-lg px-2.5 py-1 text-[10px] font-bold transition-all active:scale-95 whitespace-nowrap border ${primaryAction.style}`}
+              className={`h-7.5 px-3 inline-flex items-center justify-center rounded-lg text-[11px] font-bold transition-all active:scale-95 whitespace-nowrap border shadow-2xs ${primaryAction.style}`}
             >
               {primaryAction.label}
             </button>
           )}
 
-          <AppointmentActionsMenu
-            appointment={appointment}
-            triggerVariant="list"
-            placement="auto"
-            onAction={handleMenuAction}
-          />
+          <button
+            type="button"
+            onClick={() => onMenuAction?.(appointment, "details" as any)}
+            className="h-7.5 w-7.5 flex items-center justify-center rounded-lg border border-zinc-200 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 transition active:scale-95 shrink-0"
+            title="Detalles de Cita"
+            aria-label="Detalles de cita"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
+            </svg>
+          </button>
 
           <div className="hidden" ref={menuRef}>
             <button
               type="button"
               onClick={() => setMenuOpen((v) => !v)}
               className="h-7 w-7 flex items-center justify-center rounded-lg border border-zinc-200 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 transition active:scale-95"
+              aria-label="Más acciones"
             >
               <svg className="h-3.5 w-3.5" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
@@ -772,10 +849,10 @@ function AgendaListRow({
 function FinancialSituationBadge({ appointment }: { appointment: Appointment }) {
   const situation = appointment.financialSituation;
   if (!appointment.patient) return <span className="text-zinc-400 font-medium text-[10px]">-</span>;
-  if (!appointment.treatmentPlanId || !situation) {
+  if (!situation) {
     return (
       <span
-        className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[9.5px] font-bold text-slate-500 whitespace-nowrap"
+        className="inline-flex h-7 items-center rounded-full bg-slate-100 border border-slate-300 px-2.5 text-[11px] font-semibold text-slate-700 whitespace-nowrap shadow-2xs"
         title="La cita no tiene un plan de tratamiento vinculado"
       >
         Sin plan
@@ -790,11 +867,11 @@ function FinancialSituationBadge({ appointment }: { appointment: Appointment }) 
     : null;
   const title = `${appointment.treatmentPlan?.name ?? "Plan de tratamiento"}: ${situation.label}${amount ? ` ${amount}` : ""}`;
   const styles = {
-    DEBT: "bg-red-600 text-white",
-    AVAILABLE_BALANCE: "bg-emerald-600 text-white",
-    DIAGNOSTIC: "bg-emerald-600 text-white",
-    NO_AVAILABLE_BALANCE: "bg-amber-500 text-white",
-    CANCELLED: "bg-slate-500 text-white"
+    DEBT: "bg-red-700 text-white border-red-800",
+    AVAILABLE_BALANCE: "bg-emerald-700 text-white border-emerald-800",
+    DIAGNOSTIC: "bg-emerald-700 text-white border-emerald-800",
+    NO_AVAILABLE_BALANCE: "bg-amber-700 text-white border-amber-800",
+    CANCELLED: "bg-slate-700 text-white border-slate-800"
   } as const;
   const Icon =
     situation.code === "DEBT"
@@ -807,10 +884,10 @@ function FinancialSituationBadge({ appointment }: { appointment: Appointment }) 
 
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[9.5px] font-black shadow-sm whitespace-nowrap ${styles[situation.code]}`}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-bold border shadow-2xs whitespace-nowrap ${styles[situation.code]}`}
       title={title}
     >
-      <Icon className="h-3 w-3 shrink-0 stroke-[3]" />
+      <Icon className="h-3.5 w-3.5 shrink-0 stroke-[2.5]" />
       {situation.label}
     </span>
   );
@@ -855,19 +932,19 @@ function getPrimaryAction(
     case "SCHEDULED":
     case "PENDING_CONFIRMATION":
       return {
-        label: "Confirmar →",
+        label: "Confirmar",
         onClick: () => onConfirm(id),
         style: "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
       };
     case "CONFIRMED":
       return {
-        label: "Llegó →",
+        label: "Llegó",
         onClick: () => onArrive(id),
         style: "bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100"
       };
     case "ARRIVED":
       return {
-        label: "→ Sala",
+        label: "Sala",
         onClick: () => onWaitingRoom(id),
         style: "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100"
       };
@@ -893,4 +970,150 @@ function toDateInputValue(date: Date) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+// ─── Mobile Card Component (< 640px) ──────────────────────────────────────────
+
+function AgendaMobileCard({
+  appointment,
+  onEdit,
+  onCancel,
+  onReschedule,
+  onChangeStatus,
+  onContactWhatsApp,
+  onConfirm,
+  onArrive,
+  onWaitingRoom,
+  onStart,
+  onComplete,
+  onNoShow,
+  onMenuAction,
+  statusAction,
+  highlighted
+}: { appointment: Appointment; highlighted?: boolean } & ActionHandlers) {
+  const pal = appointmentColorPalette[appointment.status];
+  const start = new Date(appointment.startAt);
+  const end = new Date(appointment.endAt);
+  const patientName = appointment.patient
+    ? `${appointment.patient.firstName} ${appointment.patient.lastName}`
+    : "Bloqueo clínico";
+
+  const primaryAction = useMemo(
+    () =>
+      getPrimaryAction(appointment.status, appointment.id, {
+        onConfirm,
+        onArrive,
+        onWaitingRoom,
+        onStart,
+        onComplete
+      }),
+    [appointment.status, appointment.id, onConfirm, onArrive, onWaitingRoom, onStart, onComplete]
+  );
+
+  const commentButtonLabel = (
+    appointment.notes?.trim() ||
+    appointment.appointmentNotes?.length ||
+    (appointment._count?.appointmentNotes ?? 0) > 0
+  )
+    ? "Editar comentario de cita"
+    : "Agregar comentario de cita";
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border bg-white p-3 space-y-2 shadow-xs transition-all",
+        highlighted ? "border-blue-400 ring-1 ring-blue-300 bg-blue-50/40" : "border-zinc-200/90"
+      )}
+    >
+      {/* 1. Header Row: Hour Badge & Primary Action */}
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-100 pb-2">
+        <div className={cn("inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-2 py-0.5 rounded-md border text-xs font-bold tabular-nums", pal.cardClass)}>
+          <span>{start.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+          <span className="opacity-40">-</span>
+          <span>{end.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          {primaryAction && (
+            <button
+              type="button"
+              onClick={primaryAction.onClick}
+              className={cn("shrink-0 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-bold transition active:scale-95 border", primaryAction.style)}
+            >
+              {primaryAction.label}
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={() => onMenuAction?.(appointment, "details" as any)}
+            className="h-7 w-7 flex items-center justify-center rounded-md border border-zinc-200 text-zinc-500 hover:bg-zinc-100 text-xs font-semibold"
+            title="Opciones"
+          >
+            •••
+          </button>
+        </div>
+      </div>
+
+      {/* 2. Patient Name & Contact */}
+      <div className="space-y-0.5">
+        <div className="flex items-center gap-2 justify-between">
+          <p className="font-bold text-zinc-900 text-xs sm:text-sm tracking-tight truncate" title={patientName}>{patientName}</p>
+          <button
+            type="button"
+            aria-label={commentButtonLabel}
+            title={commentButtonLabel}
+            onClick={(e) => {
+              e.stopPropagation();
+              onMenuAction?.(appointment, "addComment" as any);
+            }}
+            className="text-zinc-400 hover:text-blue-600 p-0.5"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <p
+          className="truncate text-[11px] font-medium text-zinc-600"
+          title={`${appointment.professional.firstName} ${appointment.professional.lastName}${appointment.title ? ` · ${appointment.title}` : ""}`}
+        >
+          👨‍⚕️ {appointment.professional.firstName} {appointment.professional.lastName}
+          {appointment.title && <span className="text-zinc-400 font-normal"> · {appointment.title}</span>}
+        </p>
+
+        <div className="flex items-center gap-2 text-[10px] text-zinc-400 flex-wrap">
+          {appointment.patient?.phone && (
+            <span>📞 {appointment.patient.phone}</span>
+          )}
+          {appointment.chair && (
+            <span className="rounded bg-zinc-100 px-1 py-0.2 text-zinc-500 font-medium">
+              🪑 {appointment.chair.name}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 3. Footer Row: Status Menu & Financial Situation */}
+      <div className="flex items-center justify-between gap-2 pt-2 border-t border-zinc-100 flex-wrap">
+        <AppointmentStatusMenu
+          appointment={appointment}
+          variant="list"
+          pendingStatus={statusAction?.appointmentId === appointment.id ? statusAction.status : undefined}
+          onChangeStatus={onChangeStatus}
+          onContactWhatsApp={onContactWhatsApp ?? (onMenuAction ? (item) => onMenuAction(item, "contactWhatsApp") : undefined)}
+          onConfirm={onConfirm}
+          onArrive={onArrive}
+          onWaitingRoom={onWaitingRoom}
+          onStart={onStart}
+          onComplete={onComplete}
+          onNoShow={onNoShow}
+          onReschedule={onReschedule}
+          onCancel={onCancel}
+          onHistory={onMenuAction ? (item) => onMenuAction(item, "viewHistory") : undefined}
+        />
+
+        <FinancialSituationBadge appointment={appointment} />
+      </div>
+    </div>
+  );
 }

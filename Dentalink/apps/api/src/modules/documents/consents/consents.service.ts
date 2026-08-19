@@ -1059,8 +1059,17 @@ export class ConsentsService {
   }
 
   private async ensurePatient(actor: AuthUser, patientId: string) {
+    const trimmed = patientId.trim();
+    const isNumeric = /^\d+$/.test(trimmed);
     const patient = await this.prisma.patient.findFirst({
-      where: { id: patientId, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      where: {
+        organizationId: actor.organizationId,
+        branchId: branchScope(actor),
+        deletedAt: null,
+        ...(isNumeric
+          ? { OR: [{ id: trimmed }, { patientNumber: parseInt(trimmed, 10) }] }
+          : { id: trimmed })
+      },
       select: { id: true, branchId: true }
     });
     if (!patient) throw new NotFoundException("Paciente no encontrado.");

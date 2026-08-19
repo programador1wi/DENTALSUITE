@@ -1,4 +1,10 @@
-import { BadRequestException, GoneException, InternalServerErrorException, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  GoneException,
+  InternalServerErrorException,
+  NotFoundException,
+  UnauthorizedException
+} from "@nestjs/common";
 import { PublicBookingService } from "./public-booking.service";
 
 const rolePermission = (permissionId: string) => ({
@@ -43,6 +49,10 @@ function buildService({
     },
     appointment: {
       findUnique: jest.fn().mockResolvedValue(appointment)
+    },
+    agreement: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null)
     }
   };
   const appointmentsService = {
@@ -56,6 +66,10 @@ function buildService({
     get: jest.fn((key: string) => (key === "JWT_ACCESS_SECRET" ? "secret" : undefined))
   };
   const patientIdentityService = {};
+  const patientFieldConfig = {
+    getByOrganization: jest.fn().mockResolvedValue([]),
+    assertRequiredFields: jest.fn().mockResolvedValue(undefined)
+  };
 
   return {
     prisma,
@@ -66,7 +80,8 @@ function buildService({
       appointmentsService as never,
       jwtService as never,
       configService as never,
-      patientIdentityService as never
+      patientIdentityService as never,
+      patientFieldConfig as never
     )
   };
 }
@@ -210,14 +225,18 @@ describe("PublicBookingService - email confirmation actor", () => {
 
   it("does not convert an already confirmed appointment error into a token error", async () => {
     const { service, appointmentsService } = buildService();
-    appointmentsService.confirmByEmail.mockRejectedValueOnce(new BadRequestException("Invalid status transition"));
+    appointmentsService.confirmByEmail.mockRejectedValueOnce(
+      new BadRequestException("Invalid status transition")
+    );
 
     await expect(service.confirmEmail("appt-1", "valid-token")).rejects.toThrow(BadRequestException);
   });
 
   it("does not convert an already cancelled appointment error into a token error", async () => {
     const { service, appointmentsService } = buildService();
-    appointmentsService.cancel.mockRejectedValueOnce(new BadRequestException("Appointment already cancelled"));
+    appointmentsService.cancel.mockRejectedValueOnce(
+      new BadRequestException("Appointment already cancelled")
+    );
 
     await expect(service.cancelEmail("appt-1", "valid-token")).rejects.toThrow(BadRequestException);
   });
@@ -254,7 +273,9 @@ describe("PublicBookingService - email confirmation actor", () => {
           branch: { organizationId: "org-1" }
         }
       });
-      await expect(service.getPatientProfile("appt-cancelled", "token")).rejects.toThrow("Cannot update profile for a cancelled appointment");
+      await expect(service.getPatientProfile("appt-cancelled", "token")).rejects.toThrow(
+        "Cannot update profile for a cancelled appointment"
+      );
     });
 
     it("returns profile data for valid token", async () => {
@@ -270,15 +291,30 @@ describe("PublicBookingService - email confirmation actor", () => {
       const profile = await service.getPatientProfile("appt-valid", "token");
       expect(profile).toEqual({
         firstName: "John",
+        socialName: undefined,
         lastName: "Doe",
+        agreementId: undefined,
+        internalNumber: undefined,
         email: "john@example.com",
         phone: undefined,
         documentType: undefined,
         documentNumber: undefined,
         birthDate: null,
+        sex: undefined,
         gender: undefined,
         alternatePhone: undefined,
-        address: null
+        occupation: undefined,
+        employer: undefined,
+        observations: undefined,
+        referredBy: undefined,
+        type: undefined,
+        guardianName: null,
+        guardianSocialName: null,
+        guardianDocumentNumber: null,
+        guardianGender: null,
+        address: null,
+        patientFieldConfigs: [],
+        agreements: []
       });
     });
 
@@ -293,11 +329,15 @@ describe("PublicBookingService - email confirmation actor", () => {
           patient: { id: "patient-1", firstName: "John" }
         }
       });
-      
+
       const txOperations: any[] = [];
       const txMock = {
-        patient: { update: jest.fn().mockImplementation((args) => txOperations.push({ type: "patient.update", args })) },
-        auditLog: { create: jest.fn().mockImplementation((args) => txOperations.push({ type: "auditLog.create", args })) }
+        patient: {
+          update: jest.fn().mockImplementation((args) => txOperations.push({ type: "patient.update", args }))
+        },
+        auditLog: {
+          create: jest.fn().mockImplementation((args) => txOperations.push({ type: "auditLog.create", args }))
+        }
       };
       (prisma as any)["$transaction"] = jest.fn().mockImplementation(async (cb) => cb(txMock));
 

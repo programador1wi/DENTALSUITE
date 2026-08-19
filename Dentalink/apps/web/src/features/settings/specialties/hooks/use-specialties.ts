@@ -24,10 +24,11 @@ export type SpecialtyClinicalTemplateWithSpecialty = SpecialtyClinicalTemplate &
   specialtyName: string;
 };
 
-export function useSpecialties(search?: string, active?: string) {
+export function useSpecialties(search?: string, active?: string, enabled = true) {
   return useQuery({
     queryKey: ["settings", "specialties", search, active],
-    queryFn: () => listSpecialties({ search, active })
+    queryFn: () => listSpecialties({ search, active }),
+    enabled
   });
 }
 

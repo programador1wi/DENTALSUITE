@@ -3,6 +3,7 @@ import { http } from "@/lib/api/http-client";
 export type Agreement = {
   id: string;
   name: string;
+  code?: string | null;
   entityName?: string | null;
   entityTaxId?: string | null;
   type: "CORPORATE" | "INSURANCE" | "MEMBERSHIP" | "PAYROLL" | "OTHER";
@@ -22,6 +23,7 @@ export type Agreement = {
   appliesToOtherCategories: boolean;
   payrollDiscount: boolean;
   isPublic: boolean;
+  isDefault?: boolean;
   isActive: boolean;
   _count: { patients: number };
   versions?: AgreementVersion[];
@@ -410,6 +412,118 @@ export async function assignAgreementPatients(id: string, patientIds: string[]) 
   const { data } = await http.post<{ updated: number }>(`/settings/agreements/${id}/patients`, {
     patientIds
   });
+  return data;
+}
+
+export async function listCompanies(search?: string) {
+  const { data } = await http.get<Array<{
+    id: string;
+    legalName: string;
+    taxId?: string | null;
+    billingEmail?: string | null;
+    phone?: string | null;
+    contactName?: string | null;
+    address?: string | null;
+    notes?: string | null;
+    status: string;
+    agreements?: Array<{ id: string; name: string; status: string; isActive: boolean }>;
+    _count?: { agreements: number; charges: number; payments: number };
+  }>>("/settings/companies", { params: { search } });
+  return data;
+}
+
+export async function getCompany(id: string) {
+  const { data } = await http.get<{
+    id: string;
+    legalName: string;
+    taxId?: string | null;
+    billingEmail?: string | null;
+    phone?: string | null;
+    contactName?: string | null;
+    address?: string | null;
+    notes?: string | null;
+    status: string;
+    agreements?: Array<{ id: string; name: string; status: string; isActive: boolean }>;
+    _count?: { agreements: number; charges: number; payments: number };
+  }>(`/settings/companies/${id}`);
+  return data;
+}
+
+export async function createCompany(payload: {
+  legalName: string;
+  taxId?: string;
+  billingEmail?: string;
+  phone?: string;
+  contactName?: string;
+  address?: string;
+  notes?: string;
+}) {
+  const { data } = await http.post("/settings/companies", payload);
+  return data;
+}
+
+export async function updateCompany(id: string, payload: {
+  legalName?: string;
+  taxId?: string;
+  billingEmail?: string;
+  phone?: string;
+  contactName?: string;
+  address?: string;
+  notes?: string;
+  status?: string;
+}) {
+  const { data } = await http.patch(`/settings/companies/${id}`, payload);
+  return data;
+}
+
+export async function setDefaultAgreement(id: string, isDefault: boolean) {
+  const { data } = await http.post<Agreement>(`/settings/agreements/${id}/default`, { isDefault });
+  return data;
+}
+
+export async function getAgreementDeactivationImpact(id: string) {
+  const { data } = await http.get<{
+    agreementId: string;
+    name: string;
+    activeAffiliates: number;
+    activePlans: number;
+    openChargeCount: number;
+    outstandingDebt: number;
+  }>(`/settings/agreements/${id}/impact`);
+  return data;
+}
+
+export async function importAffiliates(
+  id: string,
+  payload: {
+    items: Array<{
+      patientId?: string;
+      documentNumber?: string;
+      email?: string;
+      internalNumber?: string;
+      name?: string;
+    }>;
+    dryRun?: boolean;
+    replaceExisting?: boolean;
+  }
+) {
+  const { data } = await http.post<{
+    dryRun: boolean;
+    total: number;
+    valid?: number;
+    imported?: number;
+    notFound: number;
+    duplicates: number;
+    alreadyAffiliated: number;
+    details: Array<{
+      rowNumber: number;
+      patientId?: string;
+      status: "VALID" | "NOT_FOUND" | "DUPLICATE" | "ALREADY_AFFILIATED";
+      name: string;
+      identifier: string;
+      reason: string | null;
+    }>;
+  }>(`/settings/agreements/${id}/import-affiliates`, payload);
   return data;
 }
 

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useCashRegisterDetail } from "../hooks/use-payments";
 import { CashRegisterDetailPanel } from "./cash-register-page";
 import { downloadCashRegisterReport } from "../services/payments.service";
+import { APP_ROUTES } from "@/lib/routes";
 
 export function CashRegisterDetailPage() {
   const navigate = useNavigate();
@@ -31,7 +32,7 @@ export function CashRegisterDetailPage() {
         .cash-report-page tr { break-inside: avoid; }
       }`}</style>
       <div className="cash-report-actions flex flex-wrap items-center justify-between gap-3">
-        <Button variant="ghost" onClick={() => navigate("/cash-register/closed")}>
+        <Button variant="ghost" onClick={() => navigate(APP_ROUTES.cashRegister.closed)}>
           <ArrowLeft className="h-4 w-4" /> Volver a cajas
         </Button>
         <div className="flex flex-wrap gap-2">

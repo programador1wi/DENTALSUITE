@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, ShieldCheck } from "lucide-react";
-import { HelpTooltip } from "@/components/ui/help-tooltip";
-import { getPermissionDescription, getPermissionLabel } from "@/features/settings/permissions/permission-labels";
+import { Check, Info, Save, Search } from "lucide-react";
+import { getPermissionMetadata, type PermissionPresentationTier } from "@dentalwarner/shared";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import type { PermissionListItem } from "@/features/settings/permissions/services/permissions.service";
 import { cn } from "@/lib/utils/cn";
 
@@ -10,50 +11,43 @@ type PermissionChecklistProps = {
   selectedIds: string[];
   onChange: (ids: string[]) => void;
   readonly?: boolean;
+  onSave?: () => void;
+  isSaving?: boolean;
+  canSave?: boolean;
+  roles?: Array<{ id: string; name: string; permissions: Array<{ id: string }> }>;
+  onCopyFromRole?: (roleId: string) => void;
 };
 
-const MODULE_LABELS: Record<string, string> = {
-  accounts_receivable: "Cuentas por cobrar",
-  agenda: "Agenda",
-  appointments: "Citas",
-  branches: "Sucursales",
-  budgets: "Presupuestos",
-  cash_register: "Caja",
-  chairs: "Sillones",
-  clinical: "Clinica",
-  clinical_documents: "Documentos clinicos",
-  collections: "Cobranzas",
-  consent_templates: "Consentimientos",
-  consents: "Consentimientos",
-  files: "Archivos",
-  installments: "Cuotas",
-  inventory: "Inventario",
-  lab_orders: "Ordenes de laboratorio",
-  lab_providers: "Laboratorios",
-  labs: "Laboratorios",
-  payment_methods: "Metodos de pago",
-  payments: "Pagos / Cobranzas",
-  permissions: "Permisos",
-  price_lists: "Listas de precio",
-  procedure_categories: "Categorias de procedimientos",
-  procedures: "Procedimientos",
-  professionals: "Profesionales",
-  reports: "Reportes",
-  roles: "Perfiles",
-  schedules: "Horarios",
-  settings: "Configuracion",
-  specialties: "Especialidades",
-  suppliers: "Proveedores",
-  system: "Sistema",
-  treatment_plans: "Planes de tratamiento",
-  users: "Usuarios"
+type PresentedPermission = PermissionListItem & {
+  label: string;
+  businessGroup: string;
+  presentationTier: PermissionPresentationTier;
+  delegable: boolean;
 };
 
-function getModuleLabel(module: string) {
-  return MODULE_LABELS[module] ?? module.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+const GROUP_ORDER = [
+  "Gestión económica",
+  "Tratamientos",
+  "Reportes de gestión",
+  "Administración",
+  "Pacientes",
+  "Agenda",
+  "Cajas",
+  "CRM"
+];
+
+function normalizePermission(permission: PermissionListItem): PresentedPermission {
+  const metadata = getPermissionMetadata(permission);
+  return {
+    ...permission,
+    label: permission.label ?? metadata.label,
+    businessGroup: permission.businessGroup ?? metadata.businessGroup,
+    presentationTier: permission.presentationTier ?? metadata.presentationTier,
+    delegable: permission.delegable ?? true
+  };
 }
 
-function PermissionRow({
+function PermissionItemRow({
   checked,
   onToggle,
   permission,
@@ -61,197 +55,215 @@ function PermissionRow({
 }: {
   checked: boolean;
   onToggle: () => void;
-  permission: PermissionListItem;
+  permission: PresentedPermission;
   readonly: boolean;
 }) {
-  const label = getPermissionLabel(permission);
-  const description = getPermissionDescription(permission);
+  const disabled = readonly || !permission.delegable;
+  const description = permission.description || "Facultad operativa del perfil.";
+  const [showTooltip, setShowTooltip] = useState(false);
 
   return (
-    <label
+    <div
+      onClick={disabled ? undefined : onToggle}
       className={cn(
-        "group flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 transition-colors",
-        !readonly && "hover:bg-slate-50",
-        readonly && "cursor-default"
+        "group flex items-center gap-3 py-2 px-3 rounded-md transition-colors select-none",
+        !disabled && "cursor-pointer hover:bg-slate-50",
+        disabled && "cursor-default opacity-60"
       )}
     >
-      <span
-        onClick={readonly ? undefined : onToggle}
+      {/* Dentalink style circular check indicator */}
+      <div
         className={cn(
-          "relative flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border-2 transition-all duration-150",
-          checked ? "border-emerald-500 bg-emerald-500" : "border-slate-300 bg-white group-hover:border-slate-400"
+          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-all duration-150",
+          checked
+            ? "bg-[#16a34a] text-white shadow-xs"
+            : "border-2 border-slate-300 bg-white group-hover:border-slate-400"
         )}
-        aria-hidden="true"
       >
-        {checked ? (
-          <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 12 12" fill="none">
-            <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        ) : null}
-      </span>
+        {checked && <Check className="h-3 w-3 stroke-[3]" />}
+      </div>
 
       <input
         type="checkbox"
         className="sr-only"
         checked={checked}
-        disabled={readonly}
-        onChange={readonly ? undefined : onToggle}
-        aria-label={label}
+        disabled={disabled}
+        readOnly
+        aria-label={permission.label}
       />
 
-      <span className="flex-1 text-sm leading-snug text-slate-700">{label}</span>
+      <span className="text-[13.5px] font-normal text-slate-700 leading-tight">
+        {permission.label}
+      </span>
 
-      {description ? <HelpTooltip content={description} position="left" /> : null}
-    </label>
-  );
-}
-
-function ModuleSection({
-  module,
-  onToggle,
-  onToggleAll,
-  permissions,
-  readonly,
-  selectedIds
-}: {
-  module: string;
-  onToggle: (id: string) => void;
-  onToggleAll: (ids: string[], checked: boolean) => void;
-  permissions: PermissionListItem[];
-  readonly: boolean;
-  selectedIds: string[];
-}) {
-  const [open, setOpen] = useState(true);
-  const moduleIds = permissions.map((permission) => permission.id);
-  const activeCount = permissions.filter((permission) => selectedIds.includes(permission.id)).length;
-  const allSelected = activeCount === permissions.length;
-  const someSelected = activeCount > 0 && !allSelected;
-  const label = getModuleLabel(module);
-
-  return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      {/* Info tooltip trigger */}
       <div
-        className={cn(
-          "flex select-none items-center gap-3 px-4 py-3",
-          !readonly && "cursor-pointer hover:bg-slate-50",
-          readonly && "cursor-default"
-        )}
-        onClick={() => setOpen((value) => !value)}
+        className="relative ml-1 inline-flex items-center"
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+        onClick={(e) => e.stopPropagation()}
       >
-        <span
-          className={cn(
-            "flex h-7 w-7 shrink-0 items-center justify-center rounded-md",
-            activeCount > 0 ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-400"
-          )}
-        >
-          <ShieldCheck className="h-4 w-4" />
+        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-slate-700 text-[10px] font-bold text-white cursor-help">
+          i
         </span>
 
-        <span className="flex-1 text-sm font-semibold text-slate-800">{label}</span>
-
-        <span
-          className={cn(
-            "rounded-full px-2.5 py-0.5 text-xs font-medium",
-            activeCount > 0 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
-          )}
-        >
-          {activeCount}/{permissions.length}
-        </span>
-
-        {!readonly ? (
-          <HelpTooltip content={allSelected ? "Desmarcar todos los permisos del modulo." : "Marcar todos los permisos del modulo."} position="left">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onToggleAll(moduleIds, !allSelected);
-              }}
-              className={cn(
-                "relative flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded border-2 transition-all",
-                allSelected
-                  ? "border-emerald-500 bg-emerald-500"
-                  : someSelected
-                    ? "border-emerald-400 bg-emerald-100"
-                    : "border-slate-300 bg-white hover:border-slate-400"
-              )}
-              aria-label={`${allSelected ? "Desmarcar" : "Marcar"} todos los permisos de ${label}`}
-            >
-              {allSelected ? (
-                <svg className="h-2.5 w-2.5 text-white" viewBox="0 0 12 12" fill="none">
-                  <path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              ) : null}
-              {someSelected && !allSelected ? <span className="block h-[2px] w-2.5 rounded bg-emerald-600" /> : null}
-            </button>
-          </HelpTooltip>
-        ) : null}
-
-        <span className="text-slate-400 transition-transform duration-200">
-          {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-        </span>
+        {showTooltip && (
+          <div className="absolute left-6 top-1/2 z-50 -translate-y-1/2 w-64 rounded-md bg-slate-900 px-3 py-2 text-xs font-normal leading-relaxed text-white shadow-xl">
+            {description}
+            <div className="absolute -left-1 top-1/2 -translate-y-1/2 border-4 border-transparent border-r-slate-900" />
+          </div>
+        )}
       </div>
-
-      {open ? (
-        <div className="space-y-0.5 border-t border-slate-100 px-3 py-2">
-          {permissions.map((permission) => (
-            <PermissionRow
-              key={permission.id}
-              permission={permission}
-              checked={selectedIds.includes(permission.id)}
-              readonly={readonly}
-              onToggle={() => onToggle(permission.id)}
-            />
-          ))}
-        </div>
-      ) : null}
     </div>
   );
 }
 
-export function PermissionChecklist({ allPermissions, onChange, readonly = false, selectedIds }: PermissionChecklistProps) {
+export function PermissionChecklist({
+  allPermissions,
+  canSave = false,
+  isSaving = false,
+  onChange,
+  onCopyFromRole,
+  onSave,
+  readonly = false,
+  roles = [],
+  selectedIds
+}: PermissionChecklistProps) {
+  const [search, setSearch] = useState("");
+
+  const permissions = useMemo(() => allPermissions.map(normalizePermission), [allPermissions]);
+
+  const visiblePermissions = useMemo(() => {
+    const normalizedSearch = search.trim().toLocaleLowerCase("es");
+    return permissions.filter((permission) => {
+      if (permission.presentationTier === "INTERNAL") return false;
+      if (!normalizedSearch) return true;
+      return [permission.label, permission.description, permission.key, permission.businessGroup]
+        .filter(Boolean)
+        .some((value) => String(value).toLocaleLowerCase("es").includes(normalizedSearch));
+    });
+  }, [permissions, search]);
+
   const grouped = useMemo(() => {
-    const map = new Map<string, PermissionListItem[]>();
-    for (const permission of allPermissions) {
-      if (!map.has(permission.module)) map.set(permission.module, []);
-      map.get(permission.module)!.push(permission);
+    const map = new Map<string, PresentedPermission[]>();
+    for (const permission of visiblePermissions) {
+      const group = permission.businessGroup;
+      if (!map.has(group)) map.set(group, []);
+      map.get(group)!.push(permission);
     }
-    return Array.from(map.entries()).sort(([left], [right]) => left.localeCompare(right));
-  }, [allPermissions]);
+    return [...map.entries()].sort(([left], [right]) => GROUP_ORDER.indexOf(left) - GROUP_ORDER.indexOf(right));
+  }, [visiblePermissions]);
+
+  const delegableVisibleIds = useMemo(
+    () => visiblePermissions.filter((p) => p.delegable).map((p) => p.id),
+    [visiblePermissions]
+  );
+
+  const allVisibleSelected =
+    delegableVisibleIds.length > 0 && delegableVisibleIds.every((id) => selectedIds.includes(id));
 
   const handleToggle = (id: string) => {
     if (readonly) return;
-    const next = selectedIds.includes(id) ? selectedIds.filter((selectedId) => selectedId !== id) : [...selectedIds, id];
-    onChange(next);
+    onChange(selectedIds.includes(id) ? selectedIds.filter((selectedId) => selectedId !== id) : [...selectedIds, id]);
   };
 
-  const handleToggleAll = (ids: string[], selectAll: boolean) => {
+  const handleSelectAll = (selectAll: boolean) => {
     if (readonly) return;
-    const next = selectAll ? [...new Set([...selectedIds, ...ids])] : selectedIds.filter((id) => !ids.includes(id));
-    onChange(next);
+    onChange(selectAll ? [...new Set([...selectedIds, ...delegableVisibleIds])] : selectedIds.filter((id) => !delegableVisibleIds.includes(id)));
   };
-
-  if (grouped.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-400">
-        <ShieldCheck className="h-8 w-8" />
-        <p className="text-sm">No hay permisos disponibles.</p>
-      </div>
-    );
-  }
 
   return (
-    <div className="space-y-3">
-      {grouped.map(([module, permissions]) => (
-        <ModuleSection
-          key={module}
-          module={module}
-          permissions={permissions}
-          selectedIds={selectedIds}
-          readonly={readonly}
-          onToggle={handleToggle}
-          onToggleAll={handleToggleAll}
-        />
-      ))}
+    <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+      {/* Top Dentalink Action Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+        <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-700">
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            disabled={readonly}
+            onChange={(e) => handleSelectAll(e.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+          />
+          <span className="font-medium">Marcar todos los permisos</span>
+        </label>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Search */}
+          <div className="relative min-w-[200px]">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filtrar permisos..."
+              className="h-8 pl-8 text-xs"
+            />
+          </div>
+
+          {/* Copy from role selector */}
+          {roles.length > 0 && onCopyFromRole && !readonly && (
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) onCopyFromRole(e.target.value);
+              }}
+              className="h-8 rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-700 shadow-2xs hover:bg-slate-50 focus:border-emerald-500 focus:outline-hidden"
+              aria-label="Definir permisos en base a un perfil"
+            >
+              <option value="">Definir permisos en base a un perfil</option>
+              {roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name} ({r.permissions.length})
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Dentalink Green Save Button */}
+          {onSave && !readonly && (
+            <Button
+              type="button"
+              size="sm"
+              disabled={!canSave || isSaving}
+              onClick={onSave}
+              className="h-8 bg-[#22c55e] hover:bg-[#16a34a] text-white font-medium gap-1.5 shadow-2xs text-xs px-3"
+            >
+              <Save className="h-3.5 w-3.5" />
+              {isSaving ? "Guardando..." : "Guardar permisos"}
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Permission Categories and Lists */}
+      <div className="space-y-6">
+        {grouped.length > 0 ? (
+          grouped.map(([groupName, groupPermissions]) => (
+            <div key={groupName} className="space-y-1.5">
+              {/* Dentalink Category Header Bar */}
+              <div className="rounded-sm bg-[#f1f5f9] px-4 py-2 text-center text-xs font-semibold text-slate-700 tracking-wide uppercase">
+                {groupName}
+              </div>
+
+              {/* Permission Items List */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-0.5 px-2">
+                {groupPermissions.map((permission) => (
+                  <PermissionItemRow
+                    key={permission.id}
+                    permission={permission}
+                    checked={selectedIds.includes(permission.id)}
+                    readonly={readonly}
+                    onToggle={() => handleToggle(permission.id)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="py-12 text-center text-sm text-slate-400">
+            No se encontraron facultades con el criterio de búsqueda especificado.
+          </div>
+        )}
+      </div>
     </div>
   );
 }

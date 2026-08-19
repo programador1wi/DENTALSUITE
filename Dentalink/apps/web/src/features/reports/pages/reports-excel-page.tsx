@@ -23,6 +23,7 @@ import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { TablePagination } from "@/components/ui/table-pagination";
 import { Tabs } from "@/components/ui/tabs";
 import { ReportRequestModal } from "../components/report-request-modal";
 import { useExcelCatalog } from "../hooks/use-reports";
@@ -307,6 +308,7 @@ export function ReportsExcelPage() {
                       <div
                         key={item.code}
                         role="button"
+                        data-allow-multiline
                         tabIndex={0}
                         aria-label={`Solicitar generacion de reporte de ${item.name}`}
                         onClick={() => openReport(item)}
@@ -396,18 +398,13 @@ export function ReportsExcelPage() {
             ]}
           />
 
-          <div className="flex items-center justify-between gap-3 text-[13px] text-[var(--text-secondary)]">
-            <span>{filteredHistory.length} solicitudes</span>
-            <div className="flex items-center gap-2">
-              <Button type="button" size="sm" variant="secondary" onClick={() => setHistoryPage((page) => Math.max(1, page - 1))} disabled={historyPage <= 1}>
-                Anterior
-              </Button>
-              <span>Pagina {historyPage} de {totalPages}</span>
-              <Button type="button" size="sm" variant="secondary" onClick={() => setHistoryPage((page) => Math.min(totalPages, page + 1))} disabled={historyPage >= totalPages}>
-                Siguiente
-              </Button>
-            </div>
-          </div>
+          <TablePagination
+            page={historyPage}
+            totalPages={totalPages}
+            totalItems={filteredHistory.length}
+            itemLabel="solicitudes"
+            onPageChange={setHistoryPage}
+          />
         </div>
       )}
 

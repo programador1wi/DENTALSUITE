@@ -15,10 +15,11 @@ import {
   type PriceListPayload
 } from "../services/price-lists.service";
 
-export function usePriceLists(search?: string, active?: string, branchId?: string) {
+export function usePriceLists(search?: string, active?: string, branchId?: string, enabled = true) {
   return useQuery({
     queryKey: ["settings", "price-lists", search, active, branchId],
-    queryFn: () => listPriceLists({ search, active, branchId })
+    queryFn: () => listPriceLists({ search, active, branchId }),
+    enabled
   });
 }
 

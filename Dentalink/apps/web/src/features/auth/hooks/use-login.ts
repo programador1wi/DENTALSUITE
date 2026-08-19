@@ -17,9 +17,10 @@ export function useLogin() {
     onSuccess: (response) => {
       setSession(response);
       setActiveBranchId("");
+      queryClient.removeQueries({ queryKey: ["auth", "me"] });
       queryClient.removeQueries({ queryKey: ["settings", "branches"] });
       toast.success("Sesión iniciada");
-      navigate("/agenda/list", { replace: true });
+      navigate("/", { replace: true });
     },
     onError: (error) => {
       toast.error(error.message || "No se pudo iniciar sesión");

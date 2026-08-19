@@ -1,26 +1,42 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
-import { InventoryMovementType, LabOrderStatus, Prisma } from "@prisma/client";
+import {
+  InventoryMovementStatus,
+  InventoryMovementType,
+  InventoryStockCountStatus,
+  LabOrderStatus,
+  Prisma
+} from "@prisma/client";
+import { randomUUID } from "node:crypto";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
   CreateInventoryItemDto,
+  CreateInventoryCategoryDto,
   CreateInventoryMovementDto,
   CreateInventoryProductSaleDto,
+  CreateInventoryStockCountDto,
+  CreateInventoryUnitDto,
   CreateInventoryWarehouseDto,
+  CompensateInventoryMovementDto,
   CreateLabOrderDto,
   CreateLabOrderFromTreatmentDto,
   CreateLabProviderDto,
   CreateSupplierDto,
+  ListInventoryCatalogQueryDto,
   ListInventoryItemsQueryDto,
   ListInventoryMovementsQueryDto,
   ListInventoryWarehousesQueryDto,
   ListLabOrdersQueryDto,
   ListLabProvidersQueryDto,
   ListSuppliersQueryDto,
+  PostInventoryMovementDto,
+  ReconcileInventoryStockCountDto,
+  UpdateInventoryCategoryDto,
   UpdateInventoryItemDto,
   UpdateInventoryStockDto,
+  UpdateInventoryUnitDto,
   UpdateInventoryWarehouseDto,
   UpdateLabProcedureAssignmentsDto,
   UpdateLabOrderCostDto,
@@ -28,9 +44,13 @@ import {
   UpdateLabProviderDto,
   UpdateSupplierDto
 } from "./dto/labs-inventory.dto";
+import type {
+  InventoryCommandContext,
+  InventoryProviderPort
+} from "./inventory/inventory-provider.port";
 
 @Injectable()
-export class LabsInventoryService {
+export class LabsInventoryService implements InventoryProviderPort {
   constructor(private readonly prisma: PrismaService) {}
 
   async listLabProviders(actor: AuthUser, query: ListLabProvidersQueryDto) {
@@ -629,6 +649,7 @@ export class LabsInventoryService {
         data: {
           organizationId: actor.organizationId,
           branchId: dto.branchId,
+          code: dto.code?.trim().toUpperCase() || this.inventoryCode(dto.name),
           name: dto.name.trim(),
           description: dto.description?.trim(),
           isDefault: dto.isDefault ?? false
@@ -696,6 +717,23 @@ export class LabsInventoryService {
   async createInventoryItem(actor: AuthUser, dto: CreateInventoryItemDto) {
     await this.ensureBranch(actor, dto.branchId);
     if (dto.supplierId) await this.ensureSupplier(actor, dto.supplierId);
+    if (dto.tracksExpiration && !dto.tracksLots) {
+      throw new BadRequestException("Expiration tracking requires lot tracking");
+    }
+    if (dto.categoryId) {
+      const category = await this.prisma.inventoryCategory.findFirst({
+        where: { id: dto.categoryId, organizationId: actor.organizationId, isActive: true },
+        select: { id: true }
+      });
+      if (!category) throw new BadRequestException("Inventory category is not active or does not belong to the organization");
+    }
+    if (dto.unitId) {
+      const unit = await this.prisma.inventoryUnit.findFirst({
+        where: { id: dto.unitId, organizationId: actor.organizationId, isActive: true },
+        select: { id: true }
+      });
+      if (!unit) throw new BadRequestException("Inventory unit is not active or does not belong to the organization");
+    }
     const warehouse = dto.warehouseId
       ? await this.ensureWarehouse(actor, dto.warehouseId, dto.branchId)
       : await this.ensureDefaultWarehouse(actor, dto.branchId);
@@ -715,14 +753,26 @@ export class LabsInventoryService {
           organizationId: actor.organizationId,
           name: dto.name.trim(),
           sku: dto.sku.trim(),
+          barcode: dto.barcode?.trim() || null,
           category: dto.category.trim(),
+          categoryId: dto.categoryId ?? null,
           unit: dto.unit.trim(),
+          unitId: dto.unitId ?? null,
+          description: dto.description?.trim() || null,
+          presentation: dto.presentation?.trim() || null,
+          brand: dto.brand?.trim() || null,
+          manufacturer: dto.manufacturer?.trim() || null,
           stock: this.toDecimal(dto.stock),
           minStock: this.toDecimal(dto.minStock),
           salePrice: dto.salePrice !== undefined ? this.toDecimal(dto.salePrice) : null,
           isSellable: dto.isSellable ?? false,
+          tracksLots: dto.tracksLots ?? false,
+          tracksExpiration: dto.tracksExpiration ?? false,
+          allowFractionalQuantity: dto.allowFractionalQuantity ?? false,
           branchId: dto.branchId,
-          supplierId: dto.supplierId ?? null
+          supplierId: dto.supplierId ?? null,
+          createdById: actor.id,
+          updatedById: actor.id
         }
       });
 
@@ -739,6 +789,7 @@ export class LabsInventoryService {
 
       const movement = await tx.inventoryMovement.create({
         data: {
+          organizationId: actor.organizationId,
           inventoryItemId: item.id,
           branchId: item.branchId,
           warehouseId: warehouse.id,
@@ -749,7 +800,24 @@ export class LabsInventoryService {
           source: "INITIAL",
           stockBefore: this.toDecimal(0),
           stockAfter: this.toDecimal(dto.stock),
+          occurredAt: new Date(),
+          postedAt: new Date(),
           createdById: actor.id
+        }
+      });
+
+      await tx.inventoryMovementLine.create({
+        data: {
+          movementId: movement.id,
+          inventoryItemId: item.id,
+          quantity: this.toDecimal(dto.stock),
+          unitCost: this.toDecimal(dto.averageCost ?? 0),
+          totalCost: this.toDecimal(dto.stock * (dto.averageCost ?? 0)),
+          stockBefore: this.toDecimal(0),
+          stockAfter: this.toDecimal(dto.stock),
+          averageCostBefore: this.toDecimal(0),
+          averageCostAfter: this.toDecimal(dto.averageCost ?? 0),
+          notes: "Initial stock"
         }
       });
 
@@ -782,6 +850,28 @@ export class LabsInventoryService {
   async updateInventoryItem(actor: AuthUser, id: string, dto: UpdateInventoryItemDto) {
     const current = await this.ensureInventoryItem(actor, id);
     if (dto.supplierId) await this.ensureSupplier(actor, dto.supplierId);
+    if (dto.version !== undefined && dto.version !== current.version) {
+      throw new ConflictException("Inventory item was modified by another user");
+    }
+    const resultingTracksLots = dto.tracksLots ?? current.tracksLots;
+    const resultingTracksExpiration = dto.tracksExpiration ?? current.tracksExpiration;
+    if (resultingTracksExpiration && !resultingTracksLots) {
+      throw new BadRequestException("Expiration tracking requires lot tracking");
+    }
+    if (dto.categoryId) {
+      const category = await this.prisma.inventoryCategory.findFirst({
+        where: { id: dto.categoryId, organizationId: actor.organizationId, isActive: true },
+        select: { id: true }
+      });
+      if (!category) throw new BadRequestException("Inventory category is not active or does not belong to the organization");
+    }
+    if (dto.unitId) {
+      const unit = await this.prisma.inventoryUnit.findFirst({
+        where: { id: dto.unitId, organizationId: actor.organizationId, isActive: true },
+        select: { id: true }
+      });
+      if (!unit) throw new BadRequestException("Inventory unit is not active or does not belong to the organization");
+    }
 
     if (dto.sku && dto.sku.trim() !== current.sku) {
       const duplicate = await this.prisma.inventoryItem.findFirst({
@@ -796,17 +886,31 @@ export class LabsInventoryService {
     }
 
     const updated = await this.prisma.inventoryItem.update({
-      where: { id },
+      where: { id, ...(dto.version !== undefined ? { version: dto.version } : {}) },
       data: {
         name: dto.name?.trim(),
         sku: dto.sku?.trim(),
         category: dto.category?.trim(),
+        ...(dto.categoryId !== undefined ? { categoryId: dto.categoryId || null } : {}),
         unit: dto.unit?.trim(),
+        ...(dto.unitId !== undefined ? { unitId: dto.unitId || null } : {}),
+        ...(dto.barcode !== undefined ? { barcode: dto.barcode?.trim() || null } : {}),
+        ...(dto.description !== undefined ? { description: dto.description?.trim() || null } : {}),
+        ...(dto.presentation !== undefined ? { presentation: dto.presentation?.trim() || null } : {}),
+        ...(dto.brand !== undefined ? { brand: dto.brand?.trim() || null } : {}),
+        ...(dto.manufacturer !== undefined ? { manufacturer: dto.manufacturer?.trim() || null } : {}),
         ...(dto.minStock !== undefined ? { minStock: this.toDecimal(dto.minStock) } : {}),
         ...(dto.salePrice !== undefined ? { salePrice: dto.salePrice === null ? null : this.toDecimal(dto.salePrice) } : {}),
         ...(typeof dto.isSellable === "boolean" ? { isSellable: dto.isSellable } : {}),
+        ...(typeof dto.tracksLots === "boolean" ? { tracksLots: dto.tracksLots } : {}),
+        ...(typeof dto.tracksExpiration === "boolean" ? { tracksExpiration: dto.tracksExpiration } : {}),
+        ...(typeof dto.allowFractionalQuantity === "boolean"
+          ? { allowFractionalQuantity: dto.allowFractionalQuantity }
+          : {}),
         ...(dto.supplierId !== undefined ? { supplierId: dto.supplierId || null } : {}),
-        ...(typeof dto.isActive === "boolean" ? { isActive: dto.isActive } : {})
+        ...(typeof dto.isActive === "boolean" ? { isActive: dto.isActive } : {}),
+        updatedById: actor.id,
+        version: { increment: 1 }
       },
       include: {
         branch: { select: { id: true, name: true } },
@@ -844,7 +948,13 @@ export class LabsInventoryService {
     await this.ensureInventoryItem(actor, id);
     const updated = await this.prisma.inventoryItem.update({
       where: { id },
-      data: { isActive: false }
+      data: {
+        isActive: false,
+        deactivatedAt: new Date(),
+        deactivatedById: actor.id,
+        updatedById: actor.id,
+        version: { increment: 1 }
+      }
     });
     await this.audit(actor, {
       entity: "InventoryItem",
@@ -898,6 +1008,7 @@ export class LabsInventoryService {
     }
 
     const created = await this.prisma.$transaction(async (tx) => {
+      await this.lockStockTx(tx, actor.organizationId, warehouse.id, item.id);
       const stockRow = await this.ensureStockTx(tx, actor, item, warehouse.id);
       const currentStock = Number(stockRow.stock);
       const nextStock =
@@ -911,6 +1022,7 @@ export class LabsInventoryService {
 
       const movement = await tx.inventoryMovement.create({
         data: {
+          organizationId: actor.organizationId,
           inventoryItemId: item.id,
           branchId: dto.branchId,
           warehouseId: warehouse.id,
@@ -919,9 +1031,29 @@ export class LabsInventoryService {
           unitCost: dto.unitCost !== undefined ? this.toDecimal(dto.unitCost) : null,
           reason: dto.reason?.trim(),
           source: "MANUAL",
+          occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+          postedAt: new Date(),
+          sourceWarehouseId: dto.type === InventoryMovementType.OUT ? warehouse.id : null,
+          destinationWarehouseId: dto.type === InventoryMovementType.OUT ? null : warehouse.id,
           stockBefore: this.toDecimal(currentStock),
           stockAfter: this.toDecimal(nextStock),
           createdById: actor.id
+        }
+      });
+
+      const updatedStock = await tx.inventoryStock.findUniqueOrThrow({ where: { id: stockRow.id } });
+      await tx.inventoryMovementLine.create({
+        data: {
+          movementId: movement.id,
+          inventoryItemId: item.id,
+          quantity: this.toDecimal(quantity),
+          unitCost: this.toDecimal(dto.unitCost ?? Number(stockRow.averageCost)),
+          totalCost: this.toDecimal(quantity * (dto.unitCost ?? Number(stockRow.averageCost))),
+          stockBefore: this.toDecimal(currentStock),
+          stockAfter: this.toDecimal(nextStock),
+          averageCostBefore: stockRow.averageCost,
+          averageCostAfter: updatedStock.averageCost,
+          notes: dto.reason?.trim()
         }
       });
 
@@ -988,6 +1120,7 @@ export class LabsInventoryService {
     const total = this.roundMoney(quantity * unitPrice);
 
     const created = await this.prisma.$transaction(async (tx) => {
+      await this.lockStockTx(tx, actor.organizationId, warehouse.id, item.id);
       const stockRow = await this.ensureStockTx(tx, actor, item, warehouse.id);
       const currentStock = Number(stockRow.stock);
       const nextStock = this.roundMoney(currentStock - quantity);
@@ -996,6 +1129,7 @@ export class LabsInventoryService {
 
       const movement = await tx.inventoryMovement.create({
         data: {
+          organizationId: actor.organizationId,
           inventoryItemId: item.id,
           branchId: item.branchId,
           warehouseId: warehouse.id,
@@ -1004,10 +1138,29 @@ export class LabsInventoryService {
           unitCost: item.salePrice ?? this.toDecimal(unitPrice),
           reason: dto.reason?.trim() || "Venta de producto",
           source: "SALE",
+          occurredAt: new Date(),
+          postedAt: new Date(),
+          sourceWarehouseId: warehouse.id,
           stockBefore: this.toDecimal(currentStock),
           stockAfter: this.toDecimal(nextStock),
           patientId: dto.patientId ?? null,
           createdById: actor.id
+        }
+      });
+
+      await tx.inventoryMovementLine.create({
+        data: {
+          movementId: movement.id,
+          inventoryItemId: item.id,
+          quantity: this.toDecimal(quantity),
+          unitCost: stockRow.averageCost,
+          salePriceSnapshot: this.toDecimal(unitPrice),
+          totalCost: this.toDecimal(quantity * Number(stockRow.averageCost)),
+          stockBefore: this.toDecimal(currentStock),
+          stockAfter: this.toDecimal(nextStock),
+          averageCostBefore: stockRow.averageCost,
+          averageCostAfter: stockRow.averageCost,
+          notes: dto.reason?.trim()
         }
       });
 
@@ -1089,7 +1242,7 @@ export class LabsInventoryService {
   async exportInventoryCsv(actor: AuthUser, query: ListInventoryItemsQueryDto) {
     const rows = await this.listInventoryItems(actor, query);
     const header = ["Producto", "SKU", "Categoria", "Sucursal", "Bodega", "Stock", "Minimo", "Costo promedio", "Precio venta", "Proveedor"];
-    const body = rows.flatMap((row: any) =>
+    const body = rows.flatMap((row) =>
       this.stockRows(row).map((stock) => [
         row.name,
         row.sku,
@@ -1109,7 +1262,7 @@ export class LabsInventoryService {
   async exportInventoryMovementsCsv(actor: AuthUser, query: ListInventoryMovementsQueryDto) {
     const rows = await this.listInventoryMovements(actor, query);
     const header = ["Fecha", "Operacion", "Producto", "SKU", "Sucursal", "Bodega", "Cantidad", "Costo", "Stock antes", "Stock despues", "Detalle", "Responsable"];
-    const body = rows.map((row: any) => [
+    const body = rows.map((row) => [
       row.createdAt.toISOString(),
       row.type,
       row.inventoryItem?.name ?? "",
@@ -1126,7 +1279,970 @@ export class LabsInventoryService {
     return this.toCsv([header, ...body]);
   }
 
-  private stockRows(row: { stocks?: Array<any> }) {
+  async getInventoryProductDetails(actor: AuthUser, id: string) {
+    const item = await this.prisma.inventoryItem.findFirst({
+      where: { id, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      include: {
+        branch: { select: { id: true, name: true } },
+        supplier: { select: { id: true, name: true, phone: true, email: true } },
+        categoryRef: true,
+        unitRef: true,
+        stocks: {
+          include: { warehouse: { select: { id: true, code: true, name: true, branchId: true } } },
+          orderBy: { warehouse: { name: "asc" } }
+        },
+        lots: {
+          include: { warehouse: { select: { id: true, name: true } } },
+          orderBy: [{ expirationDate: "asc" }, { receivedAt: "asc" }]
+        },
+        movements: {
+          include: {
+            warehouse: { select: { id: true, name: true } },
+            sourceWarehouse: { select: { id: true, name: true } },
+            destinationWarehouse: { select: { id: true, name: true } },
+            createdBy: { select: { id: true, firstName: true, lastName: true } },
+            lines: true
+          },
+          orderBy: { occurredAt: "desc" },
+          take: 100
+        }
+      }
+    });
+    if (!item) throw new NotFoundException({ code: "INVENTORY_PRODUCT_NOT_FOUND", message: "Inventory product not found" });
+    const audit = await this.prisma.auditLog.findMany({
+      where: { organizationId: actor.organizationId, entityId: id, entity: { in: ["InventoryItem", "InventoryStock"] } },
+      include: { user: { select: { id: true, firstName: true, lastName: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 100
+    });
+    return { ...item, audit };
+  }
+
+  async listInventoryCategories(actor: AuthUser, query: ListInventoryCatalogQueryDto) {
+    const { skip, take } = resolvePagination(query);
+    return this.prisma.inventoryCategory.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        ...(query.search ? { name: { contains: query.search, mode: "insensitive" } } : {}),
+        ...(query.active === "true" ? { isActive: true } : {}),
+        ...(query.active === "false" ? { isActive: false } : {})
+      },
+      skip,
+      take,
+      orderBy: { name: "asc" }
+    });
+  }
+
+  async createInventoryCategory(actor: AuthUser, dto: CreateInventoryCategoryDto) {
+    const duplicate = await this.prisma.inventoryCategory.findFirst({
+      where: { organizationId: actor.organizationId, name: { equals: dto.name.trim(), mode: "insensitive" } }
+    });
+    if (duplicate) {
+      throw new ConflictException({ code: "INVENTORY_DUPLICATE_CATEGORY", message: "Inventory category already exists", field: "name" });
+    }
+    const category = await this.prisma.inventoryCategory.create({
+      data: {
+        organizationId: actor.organizationId,
+        name: dto.name.trim(),
+        description: dto.description?.trim(),
+        createdById: actor.id,
+        updatedById: actor.id
+      }
+    });
+    await this.audit(actor, {
+      entity: "InventoryCategory",
+      entityId: category.id,
+      action: "create",
+      after: { name: category.name }
+    });
+    return category;
+  }
+
+  async updateInventoryCategory(actor: AuthUser, id: string, dto: UpdateInventoryCategoryDto) {
+    const current = await this.prisma.inventoryCategory.findFirst({
+      where: { id, organizationId: actor.organizationId }
+    });
+    if (!current) throw new NotFoundException({ code: "INVENTORY_CATEGORY_NOT_FOUND", message: "Inventory category not found" });
+    const updated = await this.prisma.inventoryCategory.updateMany({
+      where: { id, organizationId: actor.organizationId, version: dto.version },
+      data: {
+        name: dto.name?.trim(),
+        description: dto.description === null ? null : dto.description?.trim(),
+        ...(typeof dto.isActive === "boolean" ? { isActive: dto.isActive } : {}),
+        updatedById: actor.id,
+        version: { increment: 1 }
+      }
+    });
+    if (updated.count !== 1) {
+      throw new ConflictException({ code: "INVENTORY_CONCURRENCY_CONFLICT", message: "Category was changed by another user" });
+    }
+    const result = await this.prisma.inventoryCategory.findUniqueOrThrow({ where: { id } });
+    await this.audit(actor, {
+      entity: "InventoryCategory",
+      entityId: id,
+      action: "update",
+      before: { name: current.name, isActive: current.isActive, version: current.version },
+      after: { name: result.name, isActive: result.isActive, version: result.version }
+    });
+    return result;
+  }
+
+  async listInventoryUnits(actor: AuthUser, query: ListInventoryCatalogQueryDto) {
+    const { skip, take } = resolvePagination(query);
+    return this.prisma.inventoryUnit.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        ...(query.search
+          ? {
+              OR: [
+                { name: { contains: query.search, mode: "insensitive" } },
+                { code: { contains: query.search, mode: "insensitive" } },
+                { abbreviation: { contains: query.search, mode: "insensitive" } }
+              ]
+            }
+          : {}),
+        ...(query.active === "true" ? { isActive: true } : {}),
+        ...(query.active === "false" ? { isActive: false } : {})
+      },
+      skip,
+      take,
+      orderBy: { name: "asc" }
+    });
+  }
+
+  async createInventoryUnit(actor: AuthUser, dto: CreateInventoryUnitDto) {
+    const duplicate = await this.prisma.inventoryUnit.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        OR: [
+          { code: { equals: dto.code.trim(), mode: "insensitive" } },
+          { name: { equals: dto.name.trim(), mode: "insensitive" } }
+        ]
+      }
+    });
+    if (duplicate) {
+      throw new ConflictException({ code: "INVENTORY_DUPLICATE_UNIT", message: "Inventory unit already exists" });
+    }
+    const unit = await this.prisma.inventoryUnit.create({
+      data: {
+        organizationId: actor.organizationId,
+        code: dto.code.trim().toUpperCase(),
+        name: dto.name.trim(),
+        abbreviation: dto.abbreviation.trim(),
+        decimalAllowed: dto.decimalAllowed ?? false,
+        precision: dto.precision ?? 0
+      }
+    });
+    await this.audit(actor, {
+      entity: "InventoryUnit",
+      entityId: unit.id,
+      action: "create",
+      after: { code: unit.code, name: unit.name }
+    });
+    return unit;
+  }
+
+  async updateInventoryUnit(actor: AuthUser, id: string, dto: UpdateInventoryUnitDto) {
+    const current = await this.prisma.inventoryUnit.findFirst({
+      where: { id, organizationId: actor.organizationId }
+    });
+    if (!current) throw new NotFoundException("Inventory unit not found");
+    if (current.version !== dto.version) {
+      throw new ConflictException("Inventory unit was modified by another user");
+    }
+    if (dto.code && dto.code.trim().toUpperCase() !== current.code) {
+      const duplicate = await this.prisma.inventoryUnit.findFirst({
+        where: {
+          organizationId: actor.organizationId,
+          code: dto.code.trim().toUpperCase(),
+          id: { not: id }
+        },
+        select: { id: true }
+      });
+      if (duplicate) throw new ConflictException("Inventory unit code already exists");
+    }
+    return this.prisma.inventoryUnit.update({
+      where: { id, version: dto.version },
+      data: {
+        ...(dto.code !== undefined ? { code: dto.code.trim().toUpperCase() } : {}),
+        ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
+        ...(dto.abbreviation !== undefined ? { abbreviation: dto.abbreviation.trim() } : {}),
+        ...(dto.decimalAllowed !== undefined ? { decimalAllowed: dto.decimalAllowed } : {}),
+        ...(dto.precision !== undefined ? { precision: dto.precision } : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
+        version: { increment: 1 },
+        updatedById: actor.id
+      }
+    });
+  }
+
+  async reactivateInventoryItem(actor: AuthUser, id: string) {
+    const current = await this.ensureInventoryItem(actor, id);
+    if (current.isActive) return current;
+    const updated = await this.prisma.inventoryItem.update({
+      where: { id },
+      data: {
+        isActive: true,
+        deactivatedAt: null,
+        deactivatedById: null,
+        updatedById: actor.id,
+        version: { increment: 1 }
+      }
+    });
+    await this.audit(actor, {
+      entity: "InventoryItem",
+      entityId: id,
+      action: "reactivate",
+      before: { isActive: false },
+      after: { isActive: true }
+    });
+    return updated;
+  }
+
+  async postInventoryMovement(
+    actor: AuthUser,
+    type: InventoryMovementType,
+    dto: PostInventoryMovementDto,
+    context: InventoryCommandContext
+  ) {
+    const inboundTypes = new Set<InventoryMovementType>([
+      InventoryMovementType.IN,
+      InventoryMovementType.ENTRY,
+      InventoryMovementType.RETURN_IN,
+      InventoryMovementType.INITIAL_BALANCE,
+      InventoryMovementType.POSITIVE_ADJUSTMENT
+    ]);
+    const outboundTypes = new Set<InventoryMovementType>([
+      InventoryMovementType.OUT,
+      InventoryMovementType.EXIT,
+      InventoryMovementType.WASTE,
+      InventoryMovementType.SUPPLIER_RETURN,
+      InventoryMovementType.NEGATIVE_ADJUSTMENT
+    ]);
+    const isTransfer = type === InventoryMovementType.TRANSFER;
+    if (!inboundTypes.has(type) && !outboundTypes.has(type) && !isTransfer) {
+      throw new BadRequestException({ code: "INVENTORY_INVALID_MOVEMENT_TYPE", message: "Movement type is not supported by this command" });
+    }
+    if (!dto.lines.length) {
+      throw new BadRequestException({ code: "INVENTORY_MOVEMENT_LINES_REQUIRED", message: "At least one movement line is required" });
+    }
+
+    await this.ensureBranch(actor, dto.branchId);
+    const sourceWarehouse =
+      outboundTypes.has(type) || isTransfer
+        ? await this.ensureWarehouseRequired(actor, dto.sourceWarehouseId, dto.branchId, "sourceWarehouseId")
+        : null;
+    const destinationWarehouse =
+      inboundTypes.has(type) || isTransfer
+        ? await this.ensureWarehouseRequired(actor, dto.destinationWarehouseId, dto.branchId, "destinationWarehouseId")
+        : null;
+    if (isTransfer && sourceWarehouse?.id === destinationWarehouse?.id) {
+      throw new BadRequestException({ code: "INVENTORY_TRANSFER_SAME_WAREHOUSE", message: "Source and destination warehouses must be different" });
+    }
+    if (dto.supplierId) await this.ensureSupplier(actor, dto.supplierId);
+
+    const itemIds = [...new Set(dto.lines.map((line) => line.inventoryItemId))];
+    const items = await this.prisma.inventoryItem.findMany({
+      where: {
+        id: { in: itemIds },
+        organizationId: actor.organizationId,
+        branchId: branchScope(actor, dto.branchId),
+        isActive: true
+      }
+    });
+    if (items.length !== itemIds.length) {
+      throw new BadRequestException({ code: "INVENTORY_PRODUCT_INACTIVE", message: "One or more products are unavailable in this branch" });
+    }
+    const itemMap = new Map(items.map((item) => [item.id, item]));
+    for (const line of dto.lines) {
+      const item = itemMap.get(line.inventoryItemId)!;
+      if (!item.allowFractionalQuantity && !Number.isInteger(line.quantity)) {
+        throw new BadRequestException({
+          code: "INVENTORY_INVALID_QUANTITY",
+          message: `${item.name} does not allow fractional quantities`,
+          field: "quantity"
+        });
+      }
+      if (item.tracksLots && !line.lotNumber && inboundTypes.has(type)) {
+        throw new BadRequestException({ code: "INVENTORY_LOT_REQUIRED", message: `Lot is required for ${item.name}` });
+      }
+      if (item.tracksExpiration && !line.expirationDate && inboundTypes.has(type)) {
+        throw new BadRequestException({ code: "INVENTORY_EXPIRATION_REQUIRED", message: `Expiration date is required for ${item.name}` });
+      }
+    }
+
+    const idempotencyKey = context.idempotencyKey?.trim();
+    const correlationId = context.correlationId?.trim() || randomUUID();
+    const movementId = await this.prisma.$transaction(async (tx) => {
+      if (idempotencyKey) {
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`${actor.organizationId}:inventory:${idempotencyKey}`}))`;
+        const existing = await tx.inventoryMovement.findFirst({
+          where: { organizationId: actor.organizationId, idempotencyKey }
+        });
+        if (existing) return existing.id;
+      }
+
+      const lockKeys = dto.lines.flatMap((line) => [
+        ...(sourceWarehouse ? [`${sourceWarehouse.id}:${line.inventoryItemId}`] : []),
+        ...(destinationWarehouse ? [`${destinationWarehouse.id}:${line.inventoryItemId}`] : [])
+      ]);
+      for (const key of [...new Set(lockKeys)].sort()) {
+        const [warehouseId, inventoryItemId] = key.split(":");
+        await this.lockStockTx(tx, actor.organizationId, warehouseId, inventoryItemId);
+      }
+
+      const lineRecords: Prisma.InventoryMovementLineCreateWithoutMovementInput[] = [];
+      for (const input of dto.lines) {
+        const item = itemMap.get(input.inventoryItemId)!;
+        const quantity = this.roundQuantity(input.quantity);
+        const sourceStock = sourceWarehouse
+          ? await this.ensureStockTx(tx, actor, item, sourceWarehouse.id)
+          : null;
+        const destinationStock = destinationWarehouse
+          ? await this.ensureStockTx(tx, actor, item, destinationWarehouse.id)
+          : null;
+        const sourceBefore = sourceStock ? Number(sourceStock.stock) : 0;
+        const destinationBefore = destinationStock ? Number(destinationStock.stock) : 0;
+        const available = sourceStock ? sourceBefore - Number(sourceStock.reservedStock) : 0;
+        if (sourceStock && available < quantity) {
+          throw new BadRequestException({
+            code: "INVENTORY_INSUFFICIENT_STOCK",
+            message: `Insufficient available stock for ${item.name}`,
+            details: { available, requested: quantity }
+          });
+        }
+
+        const unitCost =
+          input.unitCost !== undefined
+            ? this.roundMoney(input.unitCost)
+            : Number(sourceStock?.averageCost ?? destinationStock?.averageCost ?? 0);
+        const sourceAfter = sourceStock ? this.roundQuantity(sourceBefore - quantity) : 0;
+        const destinationAfter = destinationStock ? this.roundQuantity(destinationBefore + quantity) : 0;
+        if (sourceStock) {
+          await this.updateStockTx(tx, item.id, sourceStock.id, sourceAfter);
+        }
+        if (destinationStock) {
+          await this.updateStockTx(tx, item.id, destinationStock.id, destinationAfter, unitCost, quantity);
+        }
+
+        const lotSegments = item.tracksLots
+          ? await this.applyLotMovementTx(
+              tx,
+              actor,
+              item,
+              sourceWarehouse?.id,
+              destinationWarehouse?.id,
+              input,
+              quantity,
+              unitCost
+            )
+          : [{ sourceLotId: null, destinationLotId: null, lotNumber: null, expirationDate: null, quantity }];
+
+        for (const segment of lotSegments) {
+          lineRecords.push({
+            inventoryItem: { connect: { id: item.id } },
+            sourceLot: segment.sourceLotId ? { connect: { id: segment.sourceLotId } } : undefined,
+            destinationLot: segment.destinationLotId ? { connect: { id: segment.destinationLotId } } : undefined,
+            lotNumberSnapshot: segment.lotNumber,
+            expirationSnapshot: segment.expirationDate,
+            quantity: this.toDecimal(segment.quantity),
+            unitCost: this.toDecimal(unitCost),
+            salePriceSnapshot: item.salePrice,
+            totalCost: this.toDecimal(segment.quantity * unitCost),
+            stockBefore: this.toDecimal(sourceStock ? sourceBefore : destinationBefore),
+            stockAfter: this.toDecimal(sourceStock ? sourceAfter : destinationAfter),
+            averageCostBefore: sourceStock?.averageCost ?? destinationStock?.averageCost ?? this.toDecimal(0),
+            averageCostAfter: destinationStock
+              ? (await tx.inventoryStock.findUniqueOrThrow({ where: { id: destinationStock.id } })).averageCost
+              : sourceStock?.averageCost ?? this.toDecimal(0),
+            notes: input.notes?.trim()
+          });
+        }
+      }
+
+      const firstItem = items.find((item) => item.id === dto.lines[0].inventoryItemId)!;
+      const totalQuantity = dto.lines.reduce((sum, line) => sum + line.quantity, 0);
+      const movement = await tx.inventoryMovement.create({
+        data: {
+          organizationId: actor.organizationId,
+          inventoryItemId: firstItem.id,
+          branchId: dto.branchId,
+          warehouseId: sourceWarehouse?.id ?? destinationWarehouse?.id,
+          sourceWarehouseId: sourceWarehouse?.id,
+          destinationWarehouseId: destinationWarehouse?.id,
+          type,
+          status: InventoryMovementStatus.POSTED,
+          quantity: this.toDecimal(totalQuantity),
+          unitCost: dto.lines.length === 1 ? this.toDecimal(dto.lines[0].unitCost ?? 0) : null,
+          source: "MANUAL",
+          reason: dto.reason.trim(),
+          notes: dto.notes?.trim(),
+          supplierId: dto.supplierId,
+          occurredAt: dto.occurredAt ? new Date(dto.occurredAt) : new Date(),
+          documentDate: dto.documentDate ? new Date(dto.documentDate) : null,
+          documentType: dto.documentType?.trim(),
+          documentNumber: dto.documentNumber?.trim(),
+          reference: dto.reference?.trim(),
+          idempotencyKey,
+          correlationId,
+          postedAt: new Date(),
+          createdById: actor.id,
+          lines: { create: lineRecords }
+        }
+      });
+
+      await this.auditTx(tx, actor, {
+        entity: "InventoryMovement",
+        entityId: movement.id,
+        action: "post",
+        after: {
+          type,
+          branchId: dto.branchId,
+          sourceWarehouseId: sourceWarehouse?.id,
+          destinationWarehouseId: destinationWarehouse?.id,
+          lineCount: lineRecords.length,
+          correlationId
+        }
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: actor.organizationId,
+          aggregateType: "InventoryMovement",
+          aggregateId: movement.id,
+          eventType: type === InventoryMovementType.TRANSFER ? "inventory.transfer.completed" : "inventory.movement.posted",
+          payload: {
+            movementId: movement.id,
+            type,
+            branchId: dto.branchId,
+            sourceWarehouseId: sourceWarehouse?.id ?? null,
+            destinationWarehouseId: destinationWarehouse?.id ?? null
+          },
+          correlationId,
+          idempotencyKey: idempotencyKey ? `inventory:${idempotencyKey}` : undefined
+        }
+      });
+      return movement.id;
+    });
+
+    return this.prisma.inventoryMovement.findUnique({
+      where: { id: movementId },
+      include: {
+        lines: { include: { inventoryItem: { select: { id: true, name: true, sku: true } } } },
+        sourceWarehouse: { select: { id: true, name: true } },
+        destinationWarehouse: { select: { id: true, name: true } },
+        createdBy: { select: { id: true, firstName: true, lastName: true } }
+      }
+    });
+  }
+
+  async compensateInventoryMovement(
+    actor: AuthUser,
+    id: string,
+    dto: CompensateInventoryMovementDto,
+    context: InventoryCommandContext
+  ) {
+    const original = await this.prisma.inventoryMovement.findFirst({
+      where: { id, organizationId: actor.organizationId, branchId: branchScope(actor), status: InventoryMovementStatus.POSTED },
+      include: { lines: true }
+    });
+    if (!original) {
+      throw new NotFoundException({ code: "INVENTORY_MOVEMENT_NOT_FOUND", message: "Posted inventory movement not found" });
+    }
+    const priorCompensation = await this.prisma.inventoryMovement.findFirst({
+      where: { reversalOfMovementId: id, status: InventoryMovementStatus.POSTED }
+    });
+    if (priorCompensation) {
+      throw new ConflictException({ code: "INVENTORY_MOVEMENT_ALREADY_COMPENSATED", message: "Movement already has a compensation" });
+    }
+
+    const inbound = new Set<InventoryMovementType>([
+      InventoryMovementType.IN,
+      InventoryMovementType.ENTRY,
+      InventoryMovementType.RETURN_IN,
+      InventoryMovementType.INITIAL_BALANCE,
+      InventoryMovementType.POSITIVE_ADJUSTMENT
+    ]);
+    const compensationType =
+      original.type === InventoryMovementType.TRANSFER
+        ? InventoryMovementType.TRANSFER
+        : inbound.has(original.type)
+          ? InventoryMovementType.EXIT
+          : InventoryMovementType.RETURN_IN;
+    const compensated = await this.postInventoryMovement(
+      actor,
+      compensationType,
+      {
+        branchId: original.branchId,
+        sourceWarehouseId:
+          original.type === InventoryMovementType.TRANSFER
+            ? original.destinationWarehouseId ?? undefined
+            : inbound.has(original.type)
+              ? original.destinationWarehouseId ?? original.warehouseId ?? undefined
+              : undefined,
+        destinationWarehouseId:
+          original.type === InventoryMovementType.TRANSFER
+            ? original.sourceWarehouseId ?? undefined
+            : inbound.has(original.type)
+              ? undefined
+              : original.sourceWarehouseId ?? original.warehouseId ?? undefined,
+        reason: dto.reason,
+        reference: `Compensation of ${original.id}`,
+        lines: original.lines.map((line) => ({
+          inventoryItemId: line.inventoryItemId,
+          quantity: Number(line.quantity),
+          unitCost: Number(line.unitCost),
+          lotNumber: line.lotNumberSnapshot ?? undefined,
+          expirationDate: line.expirationSnapshot?.toISOString()
+        }))
+      },
+      context
+    );
+    if (compensated && typeof compensated === "object" && "id" in compensated) {
+      await this.prisma.inventoryMovement.update({
+        where: { id: String(compensated.id) },
+        data: { reversalOfMovementId: original.id, type: InventoryMovementType.COMPENSATION }
+      });
+    }
+    return compensated;
+  }
+
+  async createInventoryStockCount(actor: AuthUser, dto: CreateInventoryStockCountDto) {
+    const warehouse = await this.ensureWarehouse(actor, dto.warehouseId, dto.branchId);
+    const itemIds = [...new Set(dto.lines.map((line) => line.inventoryItemId))];
+    const items = await this.prisma.inventoryItem.findMany({
+      where: { id: { in: itemIds }, organizationId: actor.organizationId, branchId: branchScope(actor, dto.branchId) }
+    });
+    if (items.length !== itemIds.length) {
+      throw new BadRequestException({ code: "INVENTORY_PRODUCT_NOT_FOUND", message: "One or more count products were not found" });
+    }
+    return this.prisma.$transaction(async (tx) => {
+      const count = await tx.inventoryStockCount.create({
+        data: {
+          organizationId: actor.organizationId,
+          branchId: dto.branchId,
+          warehouseId: warehouse.id,
+          notes: dto.notes?.trim(),
+          createdById: actor.id
+        }
+      });
+      for (const line of dto.lines) {
+        const item = items.find((candidate) => candidate.id === line.inventoryItemId)!;
+        const stock = await this.ensureStockTx(tx, actor, item, warehouse.id);
+        const counted = line.countedQuantity;
+        await tx.inventoryStockCountLine.create({
+          data: {
+            stockCountId: count.id,
+            inventoryItemId: item.id,
+            systemQuantity: stock.stock,
+            countedQuantity: counted !== undefined ? this.toDecimal(counted) : null,
+            difference: counted !== undefined ? this.toDecimal(counted - Number(stock.stock)) : null,
+            notes: line.notes?.trim()
+          }
+        });
+      }
+      await this.auditTx(tx, actor, {
+        entity: "InventoryStockCount",
+        entityId: count.id,
+        action: "create",
+        after: { branchId: dto.branchId, warehouseId: warehouse.id, lineCount: dto.lines.length }
+      });
+      return tx.inventoryStockCount.findUniqueOrThrow({ where: { id: count.id }, include: { lines: true } });
+    });
+  }
+
+  async reconcileInventoryStockCount(
+    actor: AuthUser,
+    id: string,
+    dto: ReconcileInventoryStockCountDto,
+    context: InventoryCommandContext
+  ) {
+    const count = await this.prisma.inventoryStockCount.findFirst({
+      where: { id, organizationId: actor.organizationId, branchId: branchScope(actor) },
+      include: { lines: { include: { inventoryItem: true } } }
+    });
+    if (!count) throw new NotFoundException({ code: "INVENTORY_STOCK_COUNT_NOT_FOUND", message: "Stock count not found" });
+    if (count.status === InventoryStockCountStatus.RECONCILED) {
+      throw new ConflictException({ code: "INVENTORY_STOCK_COUNT_RECONCILED", message: "Stock count is already reconciled" });
+    }
+    const overrides = new Map(dto.lines?.map((line) => [line.inventoryItemId, line]) ?? []);
+    const correlationId = context.correlationId?.trim() || randomUUID();
+
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.inventoryStockCount.updateMany({
+        where: { id, version: dto.version, status: { in: [InventoryStockCountStatus.DRAFT, InventoryStockCountStatus.COUNTED] } },
+        data: { status: InventoryStockCountStatus.COUNTED, version: { increment: 1 } }
+      });
+      if (locked.count !== 1) {
+        throw new ConflictException({ code: "INVENTORY_CONCURRENCY_CONFLICT", message: "Stock count was changed by another user" });
+      }
+
+      for (const line of count.lines) {
+        const override = overrides.get(line.inventoryItemId);
+        const counted = override?.countedQuantity ?? (line.countedQuantity === null ? undefined : Number(line.countedQuantity));
+        if (counted === undefined) {
+          throw new BadRequestException({ code: "INVENTORY_COUNT_INCOMPLETE", message: `Missing count for ${line.inventoryItem.name}` });
+        }
+        await this.lockStockTx(tx, actor.organizationId, count.warehouseId, line.inventoryItemId);
+        const stock = await this.ensureStockTx(tx, actor, line.inventoryItem, count.warehouseId);
+        const before = Number(stock.stock);
+        const difference = this.roundQuantity(counted - before);
+        let resultingMovementId: string | null = null;
+        if (difference !== 0) {
+          await this.updateStockTx(tx, line.inventoryItemId, stock.id, counted);
+          const movement = await tx.inventoryMovement.create({
+            data: {
+              organizationId: actor.organizationId,
+              inventoryItemId: line.inventoryItemId,
+              branchId: count.branchId,
+              warehouseId: count.warehouseId,
+              sourceWarehouseId: difference < 0 ? count.warehouseId : null,
+              destinationWarehouseId: difference > 0 ? count.warehouseId : null,
+              type: InventoryMovementType.PHYSICAL_COUNT_ADJUSTMENT,
+              status: InventoryMovementStatus.POSTED,
+              quantity: this.toDecimal(Math.abs(difference)),
+              reason: `Conciliacion de conteo fisico ${count.id}`,
+              source: "PHYSICAL_COUNT",
+              occurredAt: new Date(),
+              postedAt: new Date(),
+              correlationId,
+              idempotencyKey: context.idempotencyKey ? `${context.idempotencyKey}:${line.inventoryItemId}` : null,
+              stockBefore: this.toDecimal(before),
+              stockAfter: this.toDecimal(counted),
+              createdById: actor.id,
+              lines: {
+                create: {
+                  inventoryItemId: line.inventoryItemId,
+                  quantity: this.toDecimal(Math.abs(difference)),
+                  unitCost: stock.averageCost,
+                  totalCost: this.toDecimal(Math.abs(difference) * Number(stock.averageCost)),
+                  stockBefore: this.toDecimal(before),
+                  stockAfter: this.toDecimal(counted),
+                  averageCostBefore: stock.averageCost,
+                  averageCostAfter: stock.averageCost
+                }
+              }
+            }
+          });
+          resultingMovementId = movement.id;
+        }
+        await tx.inventoryStockCountLine.update({
+          where: { id: line.id },
+          data: {
+            countedQuantity: this.toDecimal(counted),
+            difference: this.toDecimal(difference),
+            resultingMovementId,
+            notes: override?.notes?.trim() ?? line.notes
+          }
+        });
+      }
+
+      const reconciled = await tx.inventoryStockCount.update({
+        where: { id },
+        data: {
+          status: InventoryStockCountStatus.RECONCILED,
+          countedAt: new Date(),
+          approvedAt: new Date(),
+          approvedById: actor.id,
+          version: { increment: 1 }
+        },
+        include: { lines: true }
+      });
+      await this.auditTx(tx, actor, {
+        entity: "InventoryStockCount",
+        entityId: id,
+        action: "reconcile",
+        after: { warehouseId: count.warehouseId, lineCount: count.lines.length, correlationId }
+      });
+      await tx.outboxEvent.create({
+        data: {
+          organizationId: actor.organizationId,
+          aggregateType: "InventoryStockCount",
+          aggregateId: id,
+          eventType: "inventory.stock_count.reconciled",
+          payload: { stockCountId: id, warehouseId: count.warehouseId },
+          correlationId,
+          idempotencyKey: context.idempotencyKey ? `inventory-count:${context.idempotencyKey}` : undefined
+        }
+      });
+      return reconciled;
+    });
+  }
+
+  async exportInventorySpecialReport(
+    actor: AuthUser,
+    kind: "critical" | "valuation" | "waste" | "expiring",
+    query: ListInventoryItemsQueryDto
+  ) {
+    if (kind === "critical") {
+      const rows = await this.listMinStockAlerts(actor, query.branchId, query.warehouseId);
+      return this.toCsv([
+        ["Producto", "SKU", "Sucursal", "Bodega", "Stock actual", "Stock seguridad", "Diferencia", "Estado"],
+        ...rows.map((row) => {
+          const current = Number(row.stock);
+          const safety = Number(row.minStock);
+          return [
+            row.inventoryItem.name,
+            row.inventoryItem.sku,
+            row.warehouse.branch.name,
+            row.warehouse.name,
+            current,
+            safety,
+            current - safety,
+            current <= 0 ? "AGOTADO" : "CRITICO"
+          ];
+        })
+      ]);
+    }
+    if (kind === "valuation") {
+      const rows = await this.listInventoryItems(actor, query);
+      return this.toCsv([
+        ["Producto", "SKU", "Bodega", "Cantidad", "Costo promedio", "Valor"],
+        ...rows.flatMap((row) =>
+          this.stockRows(row).map((stock) => [
+            row.name,
+            row.sku,
+            stock.warehouse?.name ?? "",
+            Number(stock.stock),
+            Number(stock.averageCost),
+            this.roundMoney(Number(stock.stock) * Number(stock.averageCost))
+          ])
+        )
+      ]);
+    }
+    if (kind === "waste") {
+      const rows = await this.prisma.inventoryMovement.findMany({
+        where: {
+          organizationId: actor.organizationId,
+          branchId: branchScope(actor, query.branchId),
+          type: InventoryMovementType.WASTE,
+          ...(query.warehouseId ? { sourceWarehouseId: query.warehouseId } : {})
+        },
+        include: { lines: { include: { inventoryItem: true } }, sourceWarehouse: true },
+        orderBy: { occurredAt: "desc" }
+      });
+      return this.toCsv([
+        ["Fecha", "Producto", "SKU", "Bodega", "Cantidad", "Costo", "Motivo"],
+        ...rows.flatMap((movement) =>
+          movement.lines.map((line) => [
+            movement.occurredAt.toISOString(),
+            line.inventoryItem.name,
+            line.inventoryItem.sku,
+            movement.sourceWarehouse?.name ?? "",
+            Number(line.quantity),
+            Number(line.totalCost),
+            movement.reason ?? ""
+          ])
+        )
+      ]);
+    }
+    const lots = await this.prisma.inventoryLot.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        warehouse: { branchId: branchScope(actor, query.branchId) },
+        ...(query.warehouseId ? { warehouseId: query.warehouseId } : {}),
+        expirationDate: { not: null }
+      },
+      include: { inventoryItem: true, warehouse: { include: { branch: true } } },
+      orderBy: { expirationDate: "asc" }
+    });
+    return this.toCsv([
+      ["Producto", "SKU", "Sucursal", "Bodega", "Lote", "Caducidad", "Existencia", "Estado"],
+      ...lots.map((lot) => [
+        lot.inventoryItem.name,
+        lot.inventoryItem.sku,
+        lot.warehouse.branch.name,
+        lot.warehouse.name,
+        lot.lotNumber,
+        lot.expirationDate?.toISOString().slice(0, 10) ?? "",
+        Number(lot.stock),
+        lot.status
+      ])
+    ]);
+  }
+
+  private async ensureWarehouseRequired(
+    actor: AuthUser,
+    warehouseId: string | undefined,
+    branchId: string,
+    field: string
+  ) {
+    if (!warehouseId) {
+      throw new BadRequestException({
+        code: "INVENTORY_WAREHOUSE_REQUIRED",
+        message: "Warehouse is required for this movement",
+        field
+      });
+    }
+    return this.ensureWarehouse(actor, warehouseId, branchId);
+  }
+
+  private async applyLotMovementTx(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    item: {
+      id: string;
+      name: string;
+      tracksExpiration: boolean;
+    },
+    sourceWarehouseId: string | undefined,
+    destinationWarehouseId: string | undefined,
+    input: PostInventoryMovementDto["lines"][number],
+    quantity: number,
+    unitCost: number
+  ) {
+    type LotSegment = {
+      sourceLotId: string | null;
+      destinationLotId: string | null;
+      lotNumber: string | null;
+      expirationDate: Date | null;
+      quantity: number;
+    };
+    const segments: LotSegment[] = [];
+
+    if (!sourceWarehouseId) {
+      if (!input.lotNumber) {
+        throw new BadRequestException({ code: "INVENTORY_LOT_REQUIRED", message: `Lot is required for ${item.name}` });
+      }
+      const expirationDate = input.expirationDate ? new Date(input.expirationDate) : null;
+      if (item.tracksExpiration && !expirationDate) {
+        throw new BadRequestException({ code: "INVENTORY_EXPIRATION_REQUIRED", message: `Expiration date is required for ${item.name}` });
+      }
+      const existing = await tx.inventoryLot.findUnique({
+        where: {
+          warehouseId_inventoryItemId_lotNumber: {
+            warehouseId: destinationWarehouseId!,
+            inventoryItemId: item.id,
+            lotNumber: input.lotNumber.trim()
+          }
+        }
+      });
+      const currentQuantity = Number(existing?.stock ?? 0);
+      const currentCost = Number(existing?.averageCost ?? 0);
+      const nextAverageCost =
+        currentQuantity + quantity > 0
+          ? (currentQuantity * currentCost + quantity * unitCost) / (currentQuantity + quantity)
+          : unitCost;
+      const destinationLot = await tx.inventoryLot.upsert({
+        where: {
+          warehouseId_inventoryItemId_lotNumber: {
+            warehouseId: destinationWarehouseId!,
+            inventoryItemId: item.id,
+            lotNumber: input.lotNumber.trim()
+          }
+        },
+        create: {
+          organizationId: actor.organizationId,
+          warehouseId: destinationWarehouseId!,
+          inventoryItemId: item.id,
+          lotNumber: input.lotNumber.trim(),
+          expirationDate,
+          stock: this.toDecimal(quantity),
+          averageCost: this.toDecimal(unitCost)
+        },
+        update: {
+          stock: { increment: this.toDecimal(quantity) },
+          averageCost: this.toDecimal(nextAverageCost),
+          expirationDate: expirationDate ?? undefined,
+          status: "ACTIVE",
+          version: { increment: 1 }
+        }
+      });
+      return [
+        {
+          sourceLotId: null,
+          destinationLotId: destinationLot.id,
+          lotNumber: destinationLot.lotNumber,
+          expirationDate: destinationLot.expirationDate,
+          quantity
+        }
+      ];
+    }
+
+    const sourceLots = await tx.inventoryLot.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        warehouseId: sourceWarehouseId,
+        inventoryItemId: item.id,
+        stock: { gt: 0 },
+        status: "ACTIVE",
+        ...(input.lotNumber ? { lotNumber: input.lotNumber.trim() } : {})
+      },
+      orderBy: [{ expirationDate: "asc" }, { receivedAt: "asc" }]
+    });
+    let remaining = quantity;
+    for (const lot of sourceLots) {
+      if (remaining <= 0) break;
+      if (lot.expirationDate && lot.expirationDate.getTime() < Date.now()) {
+        if (input.lotNumber) {
+          throw new BadRequestException({ code: "INVENTORY_LOT_EXPIRED", message: `Lot ${lot.lotNumber} is expired` });
+        }
+        continue;
+      }
+      const consumed = Math.min(remaining, Number(lot.stock));
+      await tx.inventoryLot.update({
+        where: { id: lot.id },
+        data: {
+          stock: { decrement: this.toDecimal(consumed) },
+          status: Number(lot.stock) - consumed <= 0 ? "DEPLETED" : "ACTIVE",
+          version: { increment: 1 }
+        }
+      });
+
+      let destinationLotId: string | null = null;
+      if (destinationWarehouseId) {
+        const destinationLot = await tx.inventoryLot.upsert({
+          where: {
+            warehouseId_inventoryItemId_lotNumber: {
+              warehouseId: destinationWarehouseId,
+              inventoryItemId: item.id,
+              lotNumber: lot.lotNumber
+            }
+          },
+          create: {
+            organizationId: actor.organizationId,
+            warehouseId: destinationWarehouseId,
+            inventoryItemId: item.id,
+            lotNumber: lot.lotNumber,
+            expirationDate: lot.expirationDate,
+            stock: this.toDecimal(consumed),
+            averageCost: this.toDecimal(unitCost)
+          },
+          update: {
+            stock: { increment: this.toDecimal(consumed) },
+            expirationDate: lot.expirationDate,
+            status: "ACTIVE",
+            version: { increment: 1 }
+          }
+        });
+        destinationLotId = destinationLot.id;
+      }
+      segments.push({
+        sourceLotId: lot.id,
+        destinationLotId,
+        lotNumber: lot.lotNumber,
+        expirationDate: lot.expirationDate,
+        quantity: consumed
+      });
+      remaining = this.roundQuantity(remaining - consumed);
+    }
+    if (remaining > 0) {
+      throw new BadRequestException({
+        code: "INVENTORY_INSUFFICIENT_LOT_STOCK",
+        message: `Insufficient non-expired lot stock for ${item.name}`,
+        details: { requested: quantity, allocated: quantity - remaining }
+      });
+    }
+    return segments;
+  }
+
+  private stockRows(row: {
+    stocks?: Array<{
+      stock: Prisma.Decimal;
+      minStock: Prisma.Decimal;
+      averageCost: Prisma.Decimal;
+      warehouse?: { name: string } | null;
+    }>;
+  }) {
     return row.stocks?.length ? row.stocks : [{ stock: new Prisma.Decimal(0), minStock: new Prisma.Decimal(0), averageCost: new Prisma.Decimal(0) }];
   }
 
@@ -1148,6 +2264,7 @@ export class LabsInventoryService {
       data: {
         organizationId: actor.organizationId,
         branchId,
+        code: this.inventoryCode("Bodega central"),
         name: "Bodega central",
         description: "Bodega creada automaticamente para migrar inventario existente.",
         isDefault: true
@@ -1199,7 +2316,11 @@ export class LabsInventoryService {
   ) {
     const current = await tx.inventoryStock.findUnique({ where: { id: stockId } });
     if (!current) throw new NotFoundException("Inventory stock not found");
-    const data: Prisma.InventoryStockUpdateInput = { stock: this.toDecimal(nextStock) };
+    const data: Prisma.InventoryStockUpdateInput = {
+      stock: this.toDecimal(nextStock),
+      lastMovementAt: new Date(),
+      version: { increment: 1 }
+    };
     if (incomingUnitCost !== undefined && incomingQuantity !== undefined) {
       const currentStock = Number(current.stock);
       const currentCost = Number(current.averageCost);
@@ -1209,6 +2330,16 @@ export class LabsInventoryService {
     }
     await tx.inventoryStock.update({ where: { id: stockId }, data });
     await this.syncLegacyItemStock(inventoryItemId, tx);
+  }
+
+  private async lockStockTx(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    warehouseId: string,
+    inventoryItemId: string
+  ) {
+    const key = `${organizationId}:${warehouseId}:${inventoryItemId}`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
   }
 
   private async syncLegacyItemStock(inventoryItemId: string, tx?: Prisma.TransactionClient) {
@@ -1241,6 +2372,21 @@ export class LabsInventoryService {
           .join(",")
       )
       .join("\r\n");
+  }
+
+  private inventoryCode(value: string) {
+    const normalized = value
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 20);
+    return `${normalized || "WH"}-${randomUUID().slice(0, 6).toUpperCase()}`;
+  }
+
+  private roundQuantity(value: number) {
+    return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
   }
 
   private async ensurePatient(actor: AuthUser, patientId: string) {

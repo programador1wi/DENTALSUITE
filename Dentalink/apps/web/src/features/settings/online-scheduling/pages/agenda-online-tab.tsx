@@ -33,9 +33,10 @@ export function AgendaOnlineTab() {
     <OnlineSchedulingNav>
       <div className="px-5 py-4">
         <h2 className="mb-2 text-sm font-bold text-slate-800">Dirección de Agendamiento:</h2>
-        <div className="mb-4 flex flex-col gap-3 md:flex-row">
+        <div className="mb-4 flex min-w-0 flex-col gap-3 md:flex-row">
           <Select 
-            className="border-slate-300 md:w-64"
+            className="border-slate-300"
+            containerClassName="md:w-64 md:shrink-0"
             value={selectedProfessional}
             onChange={(e) => setSelectedProfessional(e.target.value)}
           >
@@ -44,10 +45,10 @@ export function AgendaOnlineTab() {
               <option key={p.id} value={p.id}>{p.firstName} {p.lastName}</option>
             ))}
           </Select>
-          <div className="flex flex-1 overflow-hidden rounded border border-slate-300">
+          <div className="flex min-w-0 flex-1 overflow-hidden rounded border border-slate-300">
             <input
               readOnly
-              className="flex-1 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
+              className="min-w-0 flex-1 bg-white px-3 py-2 text-sm text-slate-700 outline-none"
               value={linkUrl}
             />
             <HelpTooltip content="Copiar link" position="left">

@@ -107,9 +107,72 @@ export class AgreementCategoryRuleDto {
   coverageRules?: Record<string, unknown>;
 }
 
+export class AgreementBranchConfigDto {
+  @IsString()
+  branchId!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  discountOverride?: number;
+
+  @IsOptional()
+  @IsString()
+  priceListOverrideId?: string;
+}
+
+export class CreateCompanyDto {
+  @IsString()
+  legalName!: string;
+
+  @IsOptional()
+  @IsString()
+  taxId?: string;
+
+  @IsOptional()
+  @IsString()
+  billingEmail?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  contactName?: string;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
+}
+
+export class UpdateCompanyDto extends CreateCompanyDto {}
+
 export class CreateAgreementDto {
   @IsString()
   name!: string;
+
+  @IsOptional()
+  @IsString()
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  companyId?: string;
 
   @IsOptional()
   @IsString()
@@ -177,6 +240,12 @@ export class CreateAgreementDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  @Type(() => AgreementBranchConfigDto)
+  branches?: AgreementBranchConfigDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
   @Type(() => AgreementProcedureRuleDto)
   procedureRules?: AgreementProcedureRuleDto[];
 
@@ -201,12 +270,53 @@ export class CreateAgreementDto {
   @IsOptional()
   @IsBoolean()
   isPublic?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isDefault?: boolean;
 }
 
 export class UpdateAgreementDto extends CreateAgreementDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+}
+
+export class ImportAffiliatesItemDto {
+  @IsOptional()
+  @IsString()
+  patientId?: string;
+
+  @IsOptional()
+  @IsString()
+  documentNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  internalNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  name?: string;
+}
+
+export class ImportAffiliatesDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ImportAffiliatesItemDto)
+  items!: ImportAffiliatesItemDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  replaceExisting?: boolean;
 }
 
 export class PublishAgreementDto {

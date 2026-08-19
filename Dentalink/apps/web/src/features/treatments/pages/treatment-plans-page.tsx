@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { APP_ROUTES } from "@/lib/routes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
@@ -46,7 +47,7 @@ export function TreatmentPlansPage() {
         helpText="Los planes de tratamiento agrupan las fases, el diagnóstico dental y las prestaciones propuestas para resolver las necesidades del paciente. Permiten estructurar diferentes alternativas clínicas antes de generar el presupuesto financiero final."
       />
 
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-4">
+      <div className="grid gap-3 rounded-[var(--radius-lg)] border border-slate-200 bg-white p-4 md:grid-cols-4">
         {/* Filtro paciente */}
         <div className="flex items-center gap-1.5">
           <Input
@@ -87,7 +88,7 @@ export function TreatmentPlansPage() {
         {/* Crear desde paciente */}
         <div className="flex items-center justify-end gap-1.5">
           <HelpTooltip content="Para iniciar un plan de tratamiento, ve a la ficha de un paciente desde el módulo de Pacientes y presiona 'Crear Plan'. Esto asociará el plan directamente a su expediente clínico." />
-          <Link to="/patients">
+          <Link to={APP_ROUTES.patients.root}>
             <Button variant="secondary">Crear desde paciente</Button>
           </Link>
         </div>
@@ -124,6 +125,7 @@ export function TreatmentPlansPage() {
           },
           {
             key: "id",
+            actions: true,
             title: (
               <span className="flex items-center gap-1.5">
                 Acciones
@@ -131,11 +133,12 @@ export function TreatmentPlansPage() {
               </span>
             ),
             render: (row) => (
-              <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={() => setSelectedPlanId(row.id)}>
+              <div className="grid w-full min-w-0 gap-2 sm:flex sm:flex-wrap">
+                <Button className="w-full sm:w-auto" variant="secondary" onClick={() => setSelectedPlanId(row.id)}>
                   Ver detalle
                 </Button>
                 <Button
+                  className="w-full sm:w-auto"
                   disabled={CLOSED_PLAN_STATUSES.has(row.status)}
                   onClick={() => mutations.createBudget.mutate({ treatmentPlanId: row.id })}
                 >
@@ -148,7 +151,7 @@ export function TreatmentPlansPage() {
       />
 
       {selected ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-[var(--radius-lg)] border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-base font-semibold text-slate-900">{selected.name}</h3>

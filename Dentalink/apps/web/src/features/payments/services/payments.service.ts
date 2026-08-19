@@ -463,6 +463,9 @@ export type CashRegisterMovement = {
     reference?: string | null;
     paidAt: string;
     status: PaymentStatus;
+    voidReason?: string | null;
+    voidedAt?: string | null;
+    voidedBy?: { id: string; firstName: string; lastName: string } | null;
     patient: {
       id: string;
       firstName: string;

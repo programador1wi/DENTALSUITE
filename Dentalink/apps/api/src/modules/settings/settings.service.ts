@@ -23,12 +23,15 @@ import {
   AgreementCategoryRuleDto,
   AgreementProcedureRuleDto,
   CreateAgreementDto,
+  CreateCompanyDto,
   CreateExpenseDto,
   FinalizePayrollDto,
+  ImportAffiliatesDto,
   PreviewAgreementPriceDto,
+  UpdateAgreementDto,
+  UpdateCompanyDto,
   UpdateExpenseDto,
-  VoidExpenseDto,
-  UpdateAgreementDto
+  VoidExpenseDto
 } from "./dto/admin-workflows.dto";
 import { UpdateGeneralSettingsDto } from "./dto/update-general-settings.dto";
 import { ExpensePolicy, type ExpensePolicySource } from "./domain/expense.policy";
@@ -661,6 +664,268 @@ export class SettingsService {
       sourceVersion: version.version
     });
     return duplicate;
+  }
+
+  async listCompanies(actor: AuthUser, search?: string) {
+    return this.prisma.company.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        ...(search
+          ? {
+              OR: [
+                { legalName: { contains: search, mode: "insensitive" } },
+                { taxId: { contains: search, mode: "insensitive" } },
+                { billingEmail: { contains: search, mode: "insensitive" } }
+              ]
+            }
+          : {})
+      },
+      include: {
+        agreements: { select: { id: true, name: true, status: true, isActive: true } },
+        _count: { select: { agreements: true, charges: true, payments: true } }
+      },
+      orderBy: { legalName: "asc" }
+    });
+  }
+
+  async getCompany(actor: AuthUser, id: string) {
+    const company = await this.prisma.company.findFirst({
+      where: { id, organizationId: actor.organizationId },
+      include: {
+        agreements: { orderBy: { createdAt: "desc" } },
+        _count: { select: { agreements: true, charges: true, payments: true } }
+      }
+    });
+    if (!company) throw new NotFoundException("Company not found");
+    return company;
+  }
+
+  async createCompany(actor: AuthUser, dto: CreateCompanyDto) {
+    const legalName = dto.legalName.trim();
+    if (!legalName) throw new BadRequestException("Company legalName is required");
+    const existing = await this.prisma.company.findFirst({
+      where: { organizationId: actor.organizationId, legalName }
+    });
+    if (existing) throw new ConflictException("A company with this legalName already exists");
+    return this.prisma.company.create({
+      data: {
+        organizationId: actor.organizationId,
+        legalName,
+        taxId: this.cleanAgreementText(dto.taxId),
+        billingEmail: this.cleanAgreementText(dto.billingEmail),
+        phone: this.cleanAgreementText(dto.phone),
+        contactName: this.cleanAgreementText(dto.contactName),
+        address: this.cleanAgreementText(dto.address),
+        notes: this.cleanAgreementText(dto.notes),
+        status: dto.status ?? "ACTIVE"
+      }
+    });
+  }
+
+  async updateCompany(actor: AuthUser, id: string, dto: UpdateCompanyDto) {
+    const company = await this.getCompany(actor, id);
+    const legalName = dto.legalName?.trim() || company.legalName;
+    return this.prisma.company.update({
+      where: { id: company.id },
+      data: {
+        legalName,
+        taxId: dto.taxId !== undefined ? this.cleanAgreementText(dto.taxId) : company.taxId,
+        billingEmail: dto.billingEmail !== undefined ? this.cleanAgreementText(dto.billingEmail) : company.billingEmail,
+        phone: dto.phone !== undefined ? this.cleanAgreementText(dto.phone) : company.phone,
+        contactName: dto.contactName !== undefined ? this.cleanAgreementText(dto.contactName) : company.contactName,
+        address: dto.address !== undefined ? this.cleanAgreementText(dto.address) : company.address,
+        notes: dto.notes !== undefined ? this.cleanAgreementText(dto.notes) : company.notes,
+        status: dto.status ?? company.status
+      }
+    });
+  }
+
+  async setDefaultAgreement(actor: AuthUser, id: string, isDefault: boolean) {
+    const agreement = await this.ensureAgreement(actor, id);
+    return this.prisma.$transaction(async (tx) => {
+      if (isDefault) {
+        await tx.agreement.updateMany({
+          where: { organizationId: actor.organizationId, id: { not: id } },
+          data: { isDefault: false }
+        });
+      }
+      const updated = await tx.agreement.update({
+        where: { id },
+        data: { isDefault }
+      });
+      await this.auditConfiguration(actor, "Agreement", id, "set_default", { isDefault });
+      return updated;
+    });
+  }
+
+  async getAgreementDeactivationImpact(actor: AuthUser, id: string) {
+    const agreement = await this.ensureAgreement(actor, id);
+    const [activeAffiliates, activePlans, openCharges] = await Promise.all([
+      this.prisma.patient.count({
+        where: { organizationId: actor.organizationId, agreementId: id, status: { not: "INACTIVE" } }
+      }),
+      this.prisma.treatmentPlan.count({
+        where: { organizationId: actor.organizationId, agreementId: id, status: { in: ["DRAFT", "ACCEPTED", "IN_PROGRESS"] } }
+      }),
+      this.prisma.agreementCharge.findMany({
+        where: { organizationId: actor.organizationId, agreementId: id, status: { in: ["PENDING", "OVERDUE", "PARTIALLY_PAID"] } },
+        select: { outstandingAmount: true }
+      })
+    ]);
+    const outstandingDebt = openCharges.reduce((sum, c) => sum + Number(c.outstandingAmount), 0);
+    return {
+      agreementId: agreement.id,
+      name: agreement.name,
+      activeAffiliates,
+      activePlans,
+      openChargeCount: openCharges.length,
+      outstandingDebt: this.roundMoney(outstandingDebt)
+    };
+  }
+
+  async importAffiliates(actor: AuthUser, id: string, dto: ImportAffiliatesDto) {
+    const agreement = await this.ensureUsableAgreement(actor, id);
+    const version = await this.currentAgreementVersion(actor, agreement);
+    if (!version) throw new ConflictException("Agreement has no active version");
+
+    const items = dto.items ?? [];
+    if (!items.length) throw new BadRequestException("Import items array cannot be empty");
+
+    const patientIds = items.map((i) => i.patientId).filter(Boolean) as string[];
+    const docs = items.map((i) => i.documentNumber).filter(Boolean) as string[];
+    const emails = items.map((i) => i.email).filter(Boolean) as string[];
+    const internalNumbers = items.map((i) => i.internalNumber).filter(Boolean) as string[];
+
+    const matchedPatients = await this.prisma.patient.findMany({
+      where: {
+        organizationId: actor.organizationId,
+        deletedAt: null,
+        OR: [
+          ...(patientIds.length ? [{ id: { in: patientIds } }] : []),
+          ...(docs.length ? [{ documentNumber: { in: docs } }] : []),
+          ...(emails.length ? [{ email: { in: emails } }] : []),
+          ...(internalNumbers.length ? [{ internalNumber: { in: internalNumbers } }] : [])
+        ]
+      },
+      select: { id: true, documentNumber: true, email: true, internalNumber: true, firstName: true, lastName: true, agreementId: true, branchId: true }
+    });
+
+    const byId = new Map(matchedPatients.map((p) => [p.id, p]));
+    const byDoc = new Map(matchedPatients.filter((p) => p.documentNumber).map((p) => [p.documentNumber!, p]));
+    const byEmail = new Map(matchedPatients.filter((p) => p.email).map((p) => [p.email!, p]));
+    const byInternal = new Map(matchedPatients.filter((p) => p.internalNumber).map((p) => [p.internalNumber!, p]));
+
+    const seenIds = new Set<string>();
+    const details = items.map((item, idx) => {
+      const patient =
+        (item.patientId ? byId.get(item.patientId) : null) ??
+        (item.documentNumber ? byDoc.get(item.documentNumber) : null) ??
+        (item.email ? byEmail.get(item.email) : null) ??
+        (item.internalNumber ? byInternal.get(item.internalNumber) : null);
+
+      if (!patient) {
+        return {
+          rowNumber: idx + 1,
+          status: "NOT_FOUND",
+          name: item.name ?? "Desconocido",
+          identifier: item.documentNumber ?? item.email ?? item.internalNumber ?? item.patientId ?? `Fila ${idx + 1}`,
+          reason: "Paciente no encontrado en la base de datos"
+        };
+      }
+
+      if (seenIds.has(patient.id)) {
+        return {
+          rowNumber: idx + 1,
+          patientId: patient.id,
+          status: "DUPLICATE",
+          name: `${patient.firstName} ${patient.lastName}`.trim(),
+          identifier: patient.documentNumber ?? patient.email ?? patient.id,
+          reason: "Fila duplicada en el archivo de importación"
+        };
+      }
+      seenIds.add(patient.id);
+
+      if (patient.agreementId === agreement.id) {
+        return {
+          rowNumber: idx + 1,
+          patientId: patient.id,
+          status: "ALREADY_AFFILIATED",
+          name: `${patient.firstName} ${patient.lastName}`.trim(),
+          identifier: patient.documentNumber ?? patient.email ?? patient.id,
+          reason: "El paciente ya está afiliado a este convenio"
+        };
+      }
+
+      return {
+        rowNumber: idx + 1,
+        patientId: patient.id,
+        status: "VALID",
+        name: `${patient.firstName} ${patient.lastName}`.trim(),
+        identifier: patient.documentNumber ?? patient.email ?? patient.id,
+        reason: null
+      };
+    });
+
+    const validPatients = details.filter((d) => d.status === "VALID" && d.patientId);
+    const validCount = validPatients.length;
+    const notFoundCount = details.filter((d) => d.status === "NOT_FOUND").length;
+    const duplicateCount = details.filter((d) => d.status === "DUPLICATE").length;
+    const alreadyAffiliatedCount = details.filter((d) => d.status === "ALREADY_AFFILIATED").length;
+
+    if (dto.dryRun) {
+      return {
+        dryRun: true,
+        total: items.length,
+        valid: validCount,
+        notFound: notFoundCount,
+        duplicates: duplicateCount,
+        alreadyAffiliated: alreadyAffiliatedCount,
+        details
+      };
+    }
+
+    const validIds = validPatients.map((d) => d.patientId!);
+    if (validIds.length) {
+      await this.prisma.$transaction(async (tx) => {
+        if (dto.replaceExisting) {
+          await tx.agreementPatientAssignment.updateMany({
+            where: { organizationId: actor.organizationId, agreementId: agreement.id, revokedAt: null },
+            data: { revokedAt: new Date(), revokedById: actor.id }
+          });
+          await tx.patient.updateMany({
+            where: { organizationId: actor.organizationId, agreementId: agreement.id },
+            data: { agreementId: null }
+          });
+        }
+        await tx.agreementPatientAssignment.createMany({
+          data: validIds.map((patientId) => ({
+            organizationId: actor.organizationId,
+            agreementId: agreement.id,
+            patientId,
+            version: agreement.version,
+            assignedById: actor.id
+          }))
+        });
+        await tx.patient.updateMany({
+          where: { id: { in: validIds } },
+          data: { agreementId: agreement.id }
+        });
+      });
+      await this.auditConfiguration(actor, "Agreement", agreement.id, "import_affiliates", {
+        validCount,
+        replaceExisting: dto.replaceExisting ?? false
+      });
+    }
+
+    return {
+      dryRun: false,
+      total: items.length,
+      imported: validCount,
+      notFound: notFoundCount,
+      duplicates: duplicateCount,
+      alreadyAffiliated: alreadyAffiliatedCount,
+      details
+    };
   }
 
   async previewAgreementPrice(actor: AuthUser, id: string, dto: PreviewAgreementPriceDto) {

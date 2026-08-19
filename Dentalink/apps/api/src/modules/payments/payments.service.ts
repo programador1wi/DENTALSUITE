@@ -2318,6 +2318,9 @@ export class PaymentsService {
                 reference: true,
                 paidAt: true,
                 status: true,
+                voidReason: true,
+                voidedAt: true,
+                voidedBy: { select: { id: true, firstName: true, lastName: true } },
                 patient: {
                   select: {
                     id: true,
@@ -2443,6 +2446,7 @@ export class PaymentsService {
     line("Total recaudado", this.formatCurrency(register.incomeTotal));
     line("Gastos", this.formatCurrency(register.expenseTotal));
     line("Devoluciones", this.formatCurrency(register.refundTotal));
+    line("Pagos anulados", this.formatCurrency(register.voidTotal));
     line("Efectivo esperado", this.formatCurrency(register.expectedCashBalance ?? register.expectedClosing));
     line("Efectivo declarado", this.formatCurrency(register.declaredCashBalance ?? 0));
     line(
@@ -2462,8 +2466,16 @@ export class PaymentsService {
         movement.direction === CashMovementDirection.OUT
           ? Number(movement.amount) * -1
           : Number(movement.amount);
+      const voidDetails =
+        movement.type === CashMovementType.PAYMENT_VOID
+          ? ` | Motivo: ${movement.payment?.voidReason ?? movement.voidReason ?? "-"} | Anulado por: ${
+              movement.payment?.voidedBy
+                ? this.displayName(movement.payment.voidedBy)
+                : this.displayName(movement.createdBy)
+            }`
+          : "";
       line(
-        `${new Date(movement.createdAt).toLocaleString("es-MX")} | ${movement.type} | Pago ${paymentNumber} | ${method} | ${this.formatCurrency(signedAmount)}`
+        `${new Date(movement.createdAt).toLocaleString("es-MX")} | ${movement.type} | Pago ${paymentNumber} | ${method} | ${this.formatCurrency(signedAmount)}${voidDetails}`
       );
     }
     const bytes = await document.save();
@@ -2488,11 +2500,15 @@ export class PaymentsService {
       "Medio",
       "Referencia",
       "Importe",
-      "Estado"
+      "Estado",
+      "Fecha anulacion",
+      "Anulado por",
+      "Motivo anulacion"
     ];
     const number = `CAJ-${String(register.publicNumber).padStart(6, "0")}`;
     const rows = register.movements.map((movement) => {
       const patient = movement.payment?.patient ? this.displayName(movement.payment.patient) : "";
+      const isPaymentVoid = movement.type === CashMovementType.PAYMENT_VOID;
       return [
         number,
         new Date(movement.createdAt).toISOString(),
@@ -2505,7 +2521,14 @@ export class PaymentsService {
         movement.direction === CashMovementDirection.OUT
           ? Number(movement.amount) * -1
           : Number(movement.amount),
-        movement.voidedAt ? "VOIDED" : "ACTIVE"
+        movement.voidedAt ? "MOVEMENT_VOIDED" : isPaymentVoid ? "PAYMENT_VOIDED" : "ACTIVE",
+        isPaymentVoid ? new Date(movement.payment?.voidedAt ?? movement.createdAt).toISOString() : "",
+        isPaymentVoid
+          ? movement.payment?.voidedBy
+            ? this.displayName(movement.payment.voidedBy)
+            : this.displayName(movement.createdBy)
+          : "",
+        isPaymentVoid ? (movement.payment?.voidReason ?? movement.voidReason ?? "") : ""
       ]
         .map((value) => this.csvCell(value))
         .join(",");
@@ -2557,7 +2580,25 @@ export class PaymentsService {
         movement.direction === CashMovementDirection.OUT
           ? Number(movement.amount) * -1
           : Number(movement.amount),
-      status: movement.voidedAt ? "VOIDED" : "ACTIVE"
+      status: movement.voidedAt
+        ? "MOVEMENT_VOIDED"
+        : movement.type === CashMovementType.PAYMENT_VOID
+          ? "PAYMENT_VOIDED"
+          : "ACTIVE",
+      voidedAt:
+        movement.type === CashMovementType.PAYMENT_VOID
+          ? new Date(movement.payment?.voidedAt ?? movement.createdAt)
+          : "",
+      voidedBy:
+        movement.type === CashMovementType.PAYMENT_VOID
+          ? movement.payment?.voidedBy
+            ? this.displayName(movement.payment.voidedBy)
+            : this.displayName(movement.createdBy)
+          : "",
+      voidReason:
+        movement.type === CashMovementType.PAYMENT_VOID
+          ? (movement.payment?.voidReason ?? movement.voidReason ?? "")
+          : ""
     }));
     const bytes = createXlsxWorkbook([
       { name: "Conciliacion", rows: summaryRows },
@@ -2671,26 +2712,27 @@ export class PaymentsService {
   }
 
   async getPatientPayments(actor: AuthUser, patientId: string) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
     const [payments, links, installments, treatmentPlans] = await Promise.all([
       this.prisma.payment.findMany({
-        where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) },
+        where: { organizationId: actor.organizationId, patientId: resolvedId, branchId: branchScope(actor) },
         include: this.paymentDetailInclude(),
         orderBy: { paidAt: "desc" }
       }),
       this.prisma.paymentLink.findMany({
-        where: { organizationId: actor.organizationId, patientId },
+        where: { organizationId: actor.organizationId, patientId: resolvedId },
         orderBy: { createdAt: "desc" }
       }),
       this.prisma.installment.findMany({
-        where: { patientId, patient: { organizationId: actor.organizationId, branchId: branchScope(actor) } },
+        where: { patientId: resolvedId, patient: { organizationId: actor.organizationId, branchId: branchScope(actor) } },
         include: { installmentPlan: { include: { treatmentPlan: { select: { id: true, name: true } } } } },
         orderBy: [{ dueDate: "asc" }, { number: "asc" }]
       }),
       this.prisma.treatmentPlan.findMany({
         where: {
           organizationId: actor.organizationId,
-          patientId,
+          patientId: resolvedId,
           branchId: branchScope(actor),
           isAlternative: false
         },
@@ -2738,7 +2780,7 @@ export class PaymentsService {
       })
     ]);
 
-    const balance = await this.getPatientBalance(actor, patientId);
+    const balance = await this.getPatientBalance(actor, resolvedId);
     const { payablePlans, payableItems } = this.buildPayableTreatmentSummaries(treatmentPlans);
     return {
       payments: payments.map((payment) => this.enrichPayment(payment)),
@@ -2751,43 +2793,44 @@ export class PaymentsService {
   }
 
   async getPatientBillingSummary(actor: AuthUser, patientId: string) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
     const [balance, documents, reimbursements, onlineBenefits, refunds, voidedPayments, ledgerEntries] =
       await Promise.all([
-        this.getPatientBalance(actor, patientId),
+        this.getPatientBalance(actor, resolvedId),
         this.prisma.financialDocument.count({
-          where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) }
+          where: { organizationId: actor.organizationId, patientId: resolvedId, branchId: branchScope(actor) }
         }),
         this.prisma.coverageCase.count({
-          where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) }
+          where: { organizationId: actor.organizationId, patientId: resolvedId, branchId: branchScope(actor) }
         }),
         this.prisma.coverageAuthorization.count({
           where: {
             coverageCase: {
               organizationId: actor.organizationId,
-              patientId,
+              patientId: resolvedId,
               branchId: branchScope(actor)
             }
           }
         }),
         this.prisma.refund.count({
-          where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) }
+          where: { organizationId: actor.organizationId, patientId: resolvedId, branchId: branchScope(actor) }
         }),
         this.prisma.payment.count({
           where: {
             organizationId: actor.organizationId,
-            patientId,
+            patientId: resolvedId,
             branchId: branchScope(actor),
             status: PaymentStatus.VOIDED
           }
         }),
         this.prisma.patientLedgerEntry.count({
-          where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) }
+          where: { organizationId: actor.organizationId, patientId: resolvedId, branchId: branchScope(actor) }
         })
       ]);
 
     return {
-      patientId,
+      patientId: resolvedId,
       balance,
       counts: {
         documents,
@@ -2805,12 +2848,13 @@ export class PaymentsService {
     patientId: string,
     query: ListPatientFinancialDocumentsQueryDto
   ) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
     const { skip, take } = resolvePagination(query);
     return this.prisma.financialDocument.findMany({
       where: {
         organizationId: actor.organizationId,
-        patientId,
+        patientId: resolvedId,
         branchId: branchScope(actor),
         ...(query.type ? { type: query.type } : {}),
         ...(query.status ? { status: query.status } : {})
@@ -2833,12 +2877,13 @@ export class PaymentsService {
     patientId: string,
     query: ListPatientCoverageCasesQueryDto
   ) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
     const { skip, take } = resolvePagination(query);
     const cases = await this.prisma.coverageCase.findMany({
       where: {
         organizationId: actor.organizationId,
-        patientId,
+        patientId: resolvedId,
         branchId: branchScope(actor),
         ...(query.status ? { status: query.status } : {})
       },
@@ -2878,13 +2923,14 @@ export class PaymentsService {
     patientId: string,
     query: ListPatientCoverageAuthorizationsQueryDto
   ) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
     const { skip, take } = resolvePagination(query);
     return this.prisma.coverageAuthorization.findMany({
       where: {
         coverageCase: {
           organizationId: actor.organizationId,
-          patientId,
+          patientId: resolvedId,
           branchId: branchScope(actor)
         },
         ...(query.status ? { status: query.status } : {})
@@ -2907,11 +2953,12 @@ export class PaymentsService {
   }
 
   async listPatientVoidedPayments(actor: AuthUser, patientId: string) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
     const payments = await this.prisma.payment.findMany({
       where: {
         organizationId: actor.organizationId,
-        patientId,
+        patientId: resolvedId,
         branchId: branchScope(actor),
         status: PaymentStatus.VOIDED
       },
@@ -2922,7 +2969,8 @@ export class PaymentsService {
   }
 
   async getPatientBalance(actor: AuthUser, patientId: string) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
 
     const billablePaymentStatus = { notIn: [PaymentStatus.REFUNDED, PaymentStatus.VOIDED] };
     const [
@@ -2938,7 +2986,7 @@ export class PaymentsService {
         where: {
           treatmentPlan: {
             organizationId: actor.organizationId,
-            patientId,
+            patientId: resolvedId,
             branchId: branchScope(actor),
             isAlternative: false
           },
@@ -2950,13 +2998,13 @@ export class PaymentsService {
         where: {
           payment: {
             organizationId: actor.organizationId,
-            patientId,
+            patientId: resolvedId,
             status: billablePaymentStatus
           },
           treatmentPlanItem: {
             treatmentPlan: {
               organizationId: actor.organizationId,
-              patientId,
+              patientId: resolvedId,
               branchId: branchScope(actor),
               isAlternative: false
             }
@@ -2967,13 +3015,13 @@ export class PaymentsService {
         _sum: { amount: true },
         where: {
           organizationId: actor.organizationId,
-          patientId,
+          patientId: resolvedId,
           status: billablePaymentStatus
         }
       }),
       this.prisma.installment.count({
         where: {
-          patientId,
+          patientId: resolvedId,
           patient: { organizationId: actor.organizationId },
           dueDate: { lt: new Date() },
           status: { notIn: [InstallmentStatus.PAID, InstallmentStatus.CANCELLED] }
@@ -2983,7 +3031,7 @@ export class PaymentsService {
         _sum: { amount: true },
         where: {
           organizationId: actor.organizationId,
-          patientId,
+          patientId: resolvedId,
           branchId: branchScope(actor),
           status: RefundStatus.PROCESSED
         }
@@ -2994,7 +3042,7 @@ export class PaymentsService {
           status: { in: [AuthorizationStatus.AUTHORIZED, AuthorizationStatus.PARTIALLY_AUTHORIZED] },
           coverageCase: {
             organizationId: actor.organizationId,
-            patientId,
+            patientId: resolvedId,
             branchId: branchScope(actor)
           }
         }
@@ -3013,7 +3061,7 @@ export class PaymentsService {
     const projectedBalance = this.roundMoney(Math.max(outstanding - coverage, 0));
 
     return {
-      patientId,
+      patientId: resolvedId,
       plannedAmount: planned,
       allocatedPaidAmount: allocatedCash,
       settlementDiscountAmount: settlementDiscount,
@@ -3033,9 +3081,10 @@ export class PaymentsService {
   }
 
   async getPatientLedger(actor: AuthUser, patientId: string) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
     return this.prisma.patientLedgerEntry.findMany({
-      where: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) },
+      where: { organizationId: actor.organizationId, patientId: resolvedId, branchId: branchScope(actor) },
       include: {
         branch: { select: { id: true, name: true } },
         treatmentPlan: { select: { id: true, name: true } }
@@ -3045,12 +3094,13 @@ export class PaymentsService {
   }
 
   async getPatientPaymentBehavior(actor: AuthUser, patientId: string) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
     const [ledgerEntries, treatmentItems, payments] = await Promise.all([
       this.prisma.patientLedgerEntry.findMany({
         where: {
           organizationId: actor.organizationId,
-          patientId,
+          patientId: resolvedId,
           branchId: branchScope(actor),
           status: LedgerEntryStatus.APPLIED,
           entryType: {
@@ -3068,7 +3118,7 @@ export class PaymentsService {
         where: {
           treatmentPlan: {
             organizationId: actor.organizationId,
-            patientId,
+            patientId: resolvedId,
             branchId: branchScope(actor),
             isAlternative: false
           },
@@ -3079,7 +3129,7 @@ export class PaymentsService {
       this.prisma.payment.findMany({
         where: {
           organizationId: actor.organizationId,
-          patientId,
+          patientId: resolvedId,
           branchId: branchScope(actor),
           status: { notIn: [PaymentStatus.REFUNDED, PaymentStatus.VOIDED] }
         },
@@ -3128,13 +3178,14 @@ export class PaymentsService {
   }
 
   async getPatientPaymentDistribution(actor: AuthUser, patientId: string) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
     const [treatmentAllocations, installmentAllocations] = await Promise.all([
       this.prisma.paymentAllocation.findMany({
         where: {
           payment: {
             organizationId: actor.organizationId,
-            patientId,
+            patientId: resolvedId,
             branchId: branchScope(actor),
             status: { notIn: [PaymentStatus.REFUNDED, PaymentStatus.VOIDED] }
           }
@@ -3155,7 +3206,7 @@ export class PaymentsService {
         where: {
           payment: {
             organizationId: actor.organizationId,
-            patientId,
+            patientId: resolvedId,
             branchId: branchScope(actor),
             status: { notIn: [PaymentStatus.REFUNDED, PaymentStatus.VOIDED] }
           }
@@ -3226,12 +3277,13 @@ export class PaymentsService {
   }
 
   async getPatientBalanceByPlan(actor: AuthUser, patientId: string) {
-    await this.ensurePatient(actor, patientId);
+    const patient = await this.ensurePatient(actor, patientId);
+    const resolvedId = patient.id;
     const [plans, coverageAuthorizations, refunds] = await Promise.all([
       this.prisma.treatmentPlan.findMany({
         where: {
           organizationId: actor.organizationId,
-          patientId,
+          patientId: resolvedId,
           branchId: branchScope(actor),
           isAlternative: false
         },
@@ -3249,7 +3301,7 @@ export class PaymentsService {
       }),
       this.prisma.coverageAuthorization.findMany({
         where: {
-          coverageCase: { organizationId: actor.organizationId, patientId, branchId: branchScope(actor) },
+          coverageCase: { organizationId: actor.organizationId, patientId: resolvedId, branchId: branchScope(actor) },
           treatmentPlanId: { not: null }
         },
         select: { treatmentPlanId: true, authorizedAmount: true, consumedAmount: true, status: true }
@@ -4504,12 +4556,16 @@ export class PaymentsService {
   }
 
   private async ensurePatient(actor: AuthUser, patientId: string) {
+    const trimmed = patientId.trim();
+    const isNumeric = /^\d+$/.test(trimmed);
     const patient = await this.prisma.patient.findFirst({
       where: {
-        id: patientId,
         organizationId: actor.organizationId,
         branchId: branchScope(actor),
-        deletedAt: null
+        deletedAt: null,
+        ...(isNumeric
+          ? { OR: [{ id: trimmed }, { patientNumber: parseInt(trimmed, 10) }] }
+          : { id: trimmed })
       }
     });
     if (!patient) throw new NotFoundException("Patient not found");

@@ -23,6 +23,7 @@ import {
   User,
   Users
 } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,9 +43,19 @@ import {
   useSpecialties,
   useSpecialtyAppointmentReasons
 } from "@/features/settings/specialties/hooks/use-specialties";
+import { usePatientSearch } from "@/features/patients/hooks/use-patients";
+import {
+  usePatientFieldContext,
+  getVisibleFormFields,
+  getRequiredFormFields
+} from "@/features/patients/config/patient-field-settings";
 import { specialtyMatchesSelection } from "@/features/settings/specialties/utils/allowed-specialties";
 import { useTreatmentPlans } from "@/features/treatments/hooks/use-treatments";
-import type { CreateTreatmentPlanPayload, TreatmentPlan } from "@/features/treatments/services/treatments.service";
+import { useAgreements } from "@/features/settings/admin-workflows/hooks/use-admin-workflows";
+import type {
+  CreateTreatmentPlanPayload,
+  TreatmentPlan
+} from "@/features/treatments/services/treatments.service";
 import {
   getAvailability,
   listAppointments,
@@ -74,11 +85,33 @@ type FormState = {
 
 type NewPatientState = {
   firstName: string;
+  socialName: string;
   lastName: string;
+  agreementId: string;
+  internalNumber: string;
+  birthDate: string;
+  sex: string;
+  gender: string;
   email: string;
   phone: string;
+  alternatePhone: string;
+  documentType: string;
   documentNumber: string;
-  type: string;
+  occupation: string;
+  employer: string;
+  observations: string;
+  referredBy: string;
+  status: string;
+  addressStreet: string;
+  addressCity: string;
+  addressState: string;
+  emergencyName: string;
+  emergencySocialName: string;
+  emergencyDocumentNumber: string;
+  emergencyGender: string;
+  emergencyRelationship: string;
+  emergencyPhone: string;
+  emergencyEmail: string;
   comment: string;
 };
 
@@ -138,13 +171,40 @@ const defaultForm: FormState = {
 
 const defaultNewPatient: NewPatientState = {
   firstName: "",
+  socialName: "",
   lastName: "",
+  agreementId: "",
+  internalNumber: "",
+  birthDate: "",
+  sex: "",
+  gender: "",
   email: "",
   phone: "",
+  alternatePhone: "",
+  documentType: "",
   documentNumber: "",
-  type: "",
+  occupation: "",
+  employer: "",
+  observations: "",
+  referredBy: "",
+  status: "",
+  addressStreet: "",
+  addressCity: "",
+  addressState: "",
+  emergencyName: "",
+  emergencySocialName: "",
+  emergencyDocumentNumber: "",
+  emergencyGender: "",
+  emergencyRelationship: "",
+  emergencyPhone: "",
+  emergencyEmail: "",
   comment: ""
 };
+
+function hasNewPatientFieldValue(patient: NewPatientState, field: string) {
+  const value = patient[field as keyof NewPatientState];
+  return typeof value === "string" && value.trim().length > 0;
+}
 
 export const SAME_DAY_APPOINTMENT_MESSAGE =
   'Sólo puede agendar una cita por día para el mismo paciente. Si desea darle mas duración, hágalo desde el menu "Duración" al lado izquierdo de esta agenda.';
@@ -210,24 +270,55 @@ export function AppointmentModal({
   const [selectedTreatmentPlanId, setSelectedTreatmentPlanId] = useState("");
   const [lockedScheduleContext, setLockedScheduleContext] = useState(false);
   const [notifyByEmail, setNotifyByEmail] = useState(false);
+  const [debouncedPatientSearch, setDebouncedPatientSearch] = useState("");
+
+  const appointmentConfig = usePatientFieldContext("appointment");
+  const visibleAppointmentFields = useMemo(
+    () => getVisibleFormFields(appointmentConfig),
+    [appointmentConfig]
+  );
+  const requiredAppointmentFields = useMemo(
+    () => getRequiredFormFields(appointmentConfig),
+    [appointmentConfig]
+  );
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedPatientSearch(patientSearch);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [patientSearch]);
+
+  const patientSearchQuery = usePatientSearch({
+    q: debouncedPatientSearch.length >= 2 ? debouncedPatientSearch : ""
+  });
 
   const { hasPermission } = usePermissions();
-  const canReadTreatmentPlans =
-    hasPermission("treatment_plans.read") || hasPermission("system.manage_all");
+  const canReadTreatmentPlans = hasPermission("treatment_plans.read") || hasPermission("system.manage_all");
   const canCreateTreatmentPlans =
     hasPermission("treatment_plans.create") || hasPermission("system.manage_all");
   const specialties = useSpecialties(undefined, "true");
   const reasons = useSpecialtyAppointmentReasons(form.specialtyId);
-  const selectedSlotsLookupRange = useMemo(() => buildSelectedSlotsLookupRange(selectedSlots), [selectedSlots]);
+  const selectedSlotsLookupRange = useMemo(
+    () => buildSelectedSlotsLookupRange(selectedSlots),
+    [selectedSlots]
+  );
 
   useEffect(() => {
     if (!open) return;
     const nextForm = appointment ? toFormFromAppointment(appointment) : toFormDefaults(initialValues);
-    const initialDate = nextForm.startAt ? nextForm.startAt.slice(0, 10) : defaultDate || toDateInputValue(new Date());
+    const initialDate = nextForm.startAt
+      ? nextForm.startAt.slice(0, 10)
+      : defaultDate || toDateInputValue(new Date());
     setForm(nextForm);
     setSelectedSlots(
       nextForm.startAt && nextForm.endAt
-        ? [{ startAt: new Date(nextForm.startAt).toISOString(), endAt: new Date(nextForm.endAt).toISOString() }]
+        ? [
+            {
+              startAt: new Date(nextForm.startAt).toISOString(),
+              endAt: new Date(nextForm.endAt).toISOString()
+            }
+          ]
         : []
     );
     setWeekStart(getWeekStartDateInput(initialDate));
@@ -238,10 +329,14 @@ export function AppointmentModal({
     setNewPatient(defaultNewPatient);
     setBookingProblems([]);
     setLockedScheduleContext(
-      Boolean(!appointment && nextForm.branchId && nextForm.professionalId && nextForm.startAt && nextForm.endAt)
+      Boolean(
+        !appointment && nextForm.branchId && nextForm.professionalId && nextForm.startAt && nextForm.endAt
+      )
     );
     setSelectedTreatmentPlanId(appointment?.treatmentPlanId ?? initialValues?.treatmentPlanId ?? "");
-    setTreatmentPlanChoice(appointment?.treatmentPlanId ?? initialValues?.treatmentPlanId ? "existing" : "new");
+    setTreatmentPlanChoice(
+      (appointment?.treatmentPlanId ?? initialValues?.treatmentPlanId) ? "existing" : "new"
+    );
     setNotifyByEmail(false);
   }, [appointment, defaultDate, initialValues, open]);
 
@@ -266,7 +361,7 @@ export function AppointmentModal({
     [patients, form.patientId]
   );
   const notificationEmail = (
-    patientMode === "new" ? newPatient.email : selectedPatient?.email ?? ""
+    patientMode === "new" ? newPatient.email : (selectedPatient?.email ?? "")
   ).trim();
   const canNotifyByEmail = requiresClinicalPatient(form.status) && Boolean(notificationEmail);
   useEffect(() => {
@@ -280,7 +375,11 @@ export function AppointmentModal({
     [appointment?.specialty, form.specialtyId, specialties.data]
   );
   const shouldLoadTreatmentPlans = Boolean(
-    open && canReadTreatmentPlans && patientMode === "existing" && requiresClinicalPatient(form.status) && form.patientId
+    open &&
+    canReadTreatmentPlans &&
+    patientMode === "existing" &&
+    requiresClinicalPatient(form.status) &&
+    form.patientId
   );
   const treatmentPlans = useTreatmentPlans(
     { patientId: form.patientId || undefined },
@@ -288,11 +387,11 @@ export function AppointmentModal({
   );
   const shouldLoadPatientDayAppointments = Boolean(
     open &&
-      requiresClinicalPatient(form.status) &&
-      patientMode === "existing" &&
-      form.branchId &&
-      form.patientId &&
-      selectedSlotsLookupRange
+    requiresClinicalPatient(form.status) &&
+    patientMode === "existing" &&
+    form.branchId &&
+    form.patientId &&
+    selectedSlotsLookupRange
   );
   const patientDayAppointments = useQuery({
     queryKey: [
@@ -387,8 +486,7 @@ export function AppointmentModal({
         days.map(async (day): Promise<DayAvailability> => {
           const professionalBranchForDay = selectedProfessional?.branches.find(
             (branch) =>
-              branch.id === form.branchId &&
-              isBranchAssignmentActiveAt(branch, `${day.date}T00:00:00`)
+              branch.id === form.branchId && isBranchAssignmentActiveAt(branch, `${day.date}T00:00:00`)
           );
           if (!professionalBranchForDay) {
             return {
@@ -426,11 +524,11 @@ export function AppointmentModal({
     },
     enabled: Boolean(
       open &&
-        form.branchId &&
-        form.professionalId &&
-        selectedProfessionalIsAvailable &&
-        selectedDuration &&
-        !durationAvailabilityError
+      form.branchId &&
+      form.professionalId &&
+      selectedProfessionalIsAvailable &&
+      selectedDuration &&
+      !durationAvailabilityError
     )
   });
 
@@ -447,7 +545,7 @@ export function AppointmentModal({
   );
   const requiresPatient = form.status !== "BLOCKED";
   const visibleTreatmentPlans = useMemo(
-    () => (shouldLoadTreatmentPlans ? treatmentPlans.data ?? [] : []),
+    () => (shouldLoadTreatmentPlans ? (treatmentPlans.data ?? []) : []),
     [shouldLoadTreatmentPlans, treatmentPlans.data]
   );
   const selectableTreatmentPlans = useMemo(
@@ -475,20 +573,17 @@ export function AppointmentModal({
         return selectedSlots.some((slot) => isSameAppointmentLocalDay(item.startAt, slot.startAt));
       }) ?? null
     );
-  }, [
-    appointment?.id,
-    patientDayAppointments.data,
-    selectedSlots,
-    shouldLoadPatientDayAppointments
-  ]);
-  const patientDayConflictLoading = Boolean(shouldLoadPatientDayAppointments && patientDayAppointments.isFetching);
+  }, [appointment?.id, patientDayAppointments.data, selectedSlots, shouldLoadPatientDayAppointments]);
+  const patientDayConflictLoading = Boolean(
+    shouldLoadPatientDayAppointments && patientDayAppointments.isFetching
+  );
   const needsTreatmentPlanDecision = Boolean(
     requiresPatient &&
-      patientMode === "existing" &&
-      form.patientId &&
-      canReadTreatmentPlans &&
-      !treatmentPlans.isLoading &&
-      (selectableTreatmentPlans.length > 0 || canCreateTreatmentPlans)
+    patientMode === "existing" &&
+    form.patientId &&
+    canReadTreatmentPlans &&
+    !treatmentPlans.isLoading &&
+    (selectableTreatmentPlans.length > 0 || canCreateTreatmentPlans)
   );
   const hasTreatmentPlanDecision =
     !needsTreatmentPlanDecision ||
@@ -500,7 +595,10 @@ export function AppointmentModal({
     canContinueReason && form.professionalId && selectedProfessionalIsAvailable && selectedSlots.length > 0
   );
   const scheduleResolvedFromContext = Boolean(
-    lockedScheduleContext && form.professionalId && selectedProfessionalIsAvailable && selectedSlots.length > 0
+    lockedScheduleContext &&
+    form.professionalId &&
+    selectedProfessionalIsAvailable &&
+    selectedSlots.length > 0
   );
   const canSubmitPatient =
     canContinueSchedule &&
@@ -512,19 +610,32 @@ export function AppointmentModal({
       (patientMode === "existing" && Boolean(form.patientId)) ||
       (patientMode === "new" &&
         newPatient.firstName.trim().length >= 2 &&
-        newPatient.lastName.trim().length >= 2));
+        newPatient.lastName.trim().length >= 2 &&
+        Array.from(requiredAppointmentFields).every((field) => hasNewPatientFieldValue(newPatient, field))));
 
   const searchedPatients = useMemo(() => {
     const query = normalizeSearch(patientSearch);
     if (!query) return [];
-    return filteredPatients
+
+    const localMatches = filteredPatients
       .filter((patient) =>
         normalizeSearch(
           `${patient.firstName} ${patient.lastName} ${patient.documentNumber ?? ""} ${patient.phone ?? ""} ${patient.email ?? ""}`
         ).includes(query)
       )
       .slice(0, 12);
-  }, [filteredPatients, patientSearch]);
+
+    const remoteMatches = patientSearchQuery.data ?? [];
+    const all = [...localMatches];
+
+    for (const remote of remoteMatches) {
+      if (!all.some((p) => p.id === remote.id)) {
+        all.push(remote);
+      }
+    }
+
+    return all.slice(0, 12);
+  }, [filteredPatients, patientSearch, patientSearchQuery.data]);
 
   useEffect(() => {
     if (!open) return;
@@ -619,12 +730,45 @@ export function AppointmentModal({
         const created = await onCreatePatient({
           branchId: form.branchId,
           firstName: newPatient.firstName.trim(),
+          socialName: newPatient.socialName.trim() || undefined,
           lastName: newPatient.lastName.trim(),
+          agreementId: newPatient.agreementId || undefined,
+          internalNumber: newPatient.internalNumber.trim() || undefined,
+          birthDate: newPatient.birthDate || undefined,
+          sex: newPatient.sex || undefined,
+          gender: newPatient.gender || undefined,
           email: newPatient.email.trim() || undefined,
           phone: newPatient.phone.trim() || undefined,
+          alternatePhone: newPatient.alternatePhone.trim() || undefined,
+          documentType: newPatient.documentType.trim() || undefined,
           documentNumber: newPatient.documentNumber.trim() || undefined,
-          source: newPatient.type || undefined,
-          status: "NEW"
+          occupation: newPatient.occupation.trim() || undefined,
+          employer: newPatient.employer.trim() || undefined,
+          observations: newPatient.observations.trim() || undefined,
+          referredBy: newPatient.referredBy.trim() || undefined,
+          status: (newPatient.status || "NEW") as PatientPayload["status"],
+          address:
+            newPatient.addressStreet || newPatient.addressCity || newPatient.addressState
+              ? {
+                  street: newPatient.addressStreet.trim() || undefined,
+                  city: newPatient.addressCity.trim() || undefined,
+                  state: newPatient.addressState.trim() || undefined
+                }
+              : undefined,
+          contacts: newPatient.emergencyName.trim()
+            ? [
+                {
+                  name: newPatient.emergencyName.trim(),
+                  socialName: newPatient.emergencySocialName.trim() || undefined,
+                  documentNumber: newPatient.emergencyDocumentNumber.trim() || undefined,
+                  gender: newPatient.emergencyGender.trim() || undefined,
+                  relationship: newPatient.emergencyRelationship.trim() || undefined,
+                  phone: newPatient.emergencyPhone.trim() || undefined,
+                  email: newPatient.emergencyEmail.trim() || undefined,
+                  isEmergencyContact: true
+                }
+              ]
+            : undefined
         });
         patientId = created.id;
         patientName = `${created.firstName} ${created.lastName}`;
@@ -704,12 +848,19 @@ export function AppointmentModal({
           return prev.filter((_, i) => i !== index);
         }
 
-        const sameDaySlots = prev.filter((selectedSlot) => isSameAppointmentLocalDay(selectedSlot.startAt, slot.startAt));
+        const sameDaySlots = prev.filter((selectedSlot) =>
+          isSameAppointmentLocalDay(selectedSlot.startAt, slot.startAt)
+        );
         if (sameDaySlots.length) {
-          const mergeableSlots = sameDaySlots.filter((selectedSlot) => slotsTouchOrOverlap(selectedSlot, slot));
+          const mergeableSlots = sameDaySlots.filter((selectedSlot) =>
+            slotsTouchOrOverlap(selectedSlot, slot)
+          );
           if (mergeableSlots.length) {
             const mergedSlot = mergeSlots([slot, ...mergeableSlots]);
-            const next = [...prev.filter((selectedSlot) => !mergeableSlots.includes(selectedSlot)), mergedSlot];
+            const next = [
+              ...prev.filter((selectedSlot) => !mergeableSlots.includes(selectedSlot)),
+              mergedSlot
+            ];
             next.sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
             return next;
           }
@@ -776,179 +927,184 @@ export function AppointmentModal({
   return (
     <>
       <Modal open={open} title={appointment ? "Editar cita" : "Dar cita"} onClose={onClose} size="2xl">
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-        <div className="grid min-h-[500px] gap-0 lg:grid-cols-[310px_minmax(0,1fr)]">
-          <aside className="border-b border-slate-200 bg-slate-50/80 p-5 lg:border-b-0 lg:border-r">
-            <div className="mb-5 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">Nueva atencion</p>
-                <h3 className="mt-1 text-xl font-semibold text-slate-950">Agenda inteligente</h3>
-              </div>
-              <div className="rounded-md bg-cyan-50 p-3 text-cyan-700">
-                <CalendarDays className="h-5 w-5" />
-              </div>
-            </div>
-
-            <div className="mb-5 rounded-md border border-cyan-100 bg-white px-3 py-2 text-sm text-slate-700">
-              <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
-                Sucursal activa
-              </p>
-              <p className="mt-1 font-semibold text-slate-950">
-                {selectedBranch?.name ?? "Sin sucursal seleccionada"}
-              </p>
-            </div>
-
-            <StepRail step={step} />
-
-            <div className="mt-5 grid gap-3">
-              <FieldLabel label="Especialidad">
-                <Select
-                  value={form.specialtyId}
-                  onChange={(event) => {
-                    if (!lockedScheduleContext) setSelectedSlots([]);
-                    setReasonSearch("");
-                    setForm((prev) => ({
-                      ...prev,
-                      specialtyId: event.target.value,
-                      professionalId: lockedScheduleContext ? prev.professionalId : "",
-                      reason: "",
-                      startAt: lockedScheduleContext ? prev.startAt : "",
-                      endAt: lockedScheduleContext ? prev.endAt : ""
-                    }));
-                  }}
-                  disabled={step !== "reason"}
-                >
-                  <option value="">Todas las especialidades</option>
-                  {(specialties.data ?? []).map((specialty) => (
-                    <option key={specialty.id} value={specialty.id}>
-                      {specialty.name}
-                    </option>
-                  ))}
-                </Select>
-              </FieldLabel>
-
-              <FieldLabel label="Doctor">
-                <Select
-                  value={form.professionalId}
-                  onChange={(event) => handleProfessionalChange(event.target.value)}
-                  disabled={!canContinueReason || step !== "schedule"}
-                >
-                  <option value="">Seleccionar doctor</option>
-                  {filteredProfessionals.map((professional) => (
-                    <option key={professional.id} value={professional.id}>
-                      {professional.firstName} {professional.lastName}
-                    </option>
-                  ))}
-                </Select>
-              </FieldLabel>
-
-              <FieldLabel label="Recurso / box">
-                <Select
-                  value={form.chairId}
-                  onChange={(event) => {
-                    setSelectedSlots([]);
-                    setForm((prev) => ({ ...prev, chairId: event.target.value, startAt: "", endAt: "" }));
-                  }}
-                  disabled={!canContinueReason || step !== "schedule"}
-                >
-                  <option value="">Sin recurso especifico</option>
-                  {filteredChairs.map((chair) => (
-                    <option key={chair.id} value={chair.id}>
-                      {chair.name}
-                    </option>
-                  ))}
-                </Select>
-              </FieldLabel>
-
-              <FieldLabel label="Duracion del motivo">
-                <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
-                  {selectedReason ? `${selectedReason.durationMinutes} minutos` : "Selecciona motivo"}
+        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="grid min-h-[500px] gap-0 lg:grid-cols-[310px_minmax(0,1fr)]">
+            <aside className="border-b border-slate-200 bg-slate-50/80 p-5 lg:border-b-0 lg:border-r">
+              <div className="mb-5 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-cyan-700">
+                    Nueva atencion
+                  </p>
+                  <h3 className="mt-1 text-xl font-semibold text-slate-950">Agenda inteligente</h3>
                 </div>
-              </FieldLabel>
-            </div>
-          </aside>
+                <div className="rounded-md bg-cyan-50 p-3 text-cyan-700">
+                  <CalendarDays className="h-5 w-5" />
+                </div>
+              </div>
 
-          <main className="min-w-0 p-5">
-            {step === "reason" ? (
-              <ReasonStep
-                activeReasons={activeReasons}
-                form={form}
-                loadingReasons={reasons.isLoading}
-                reasonSearch={reasonSearch}
-                selectedReasonId={selectedReason?.id ?? ""}
-                selectedSlots={selectedSlots}
-                selectedSpecialtyName={selectedSpecialty?.name ?? ""}
-                onBack={closeOrStepBack}
-                onContinue={() => setStep(scheduleResolvedFromContext ? "patient" : "schedule")}
-                onReasonSearchChange={handleReasonSearchChange}
-                onReasonSelect={handleReasonSelect}
-                continueLabel={scheduleResolvedFromContext ? "Continuar a paciente" : "Continuar a horario"}
-              />
-            ) : step === "schedule" ? (
-              <ScheduleStep
-                availability={availability}
-                availabilityError={durationAvailabilityError}
-                canContinue={canContinueSchedule}
-                days={days}
-                form={form}
-                selectedProfessionalIsAvailable={selectedProfessionalIsAvailable}
-                selectedSlots={selectedSlots}
-                weekStart={weekStart}
-                onContinue={() => setStep("patient")}
-                onSelectSlot={handleSlotSelect}
-                onWeekChange={setWeekStart}
-                onRemoveSlot={(slot) => setSelectedSlots((prev) => prev.filter((s) => s.startAt !== slot.startAt))}
-                multipleMode={multipleMode}
-                selectedDuration={selectedDuration}
-                appointmentIntervalMinutes={appointmentIntervalMinutes}
-              />
-            ) : (
-              <PatientStep
-                canSubmit={canSubmitPatient}
-                filteredPatients={searchedPatients}
-                form={form}
-                mode={patientMode}
-                newPatient={newPatient}
-                patientSearch={patientSearch}
-                requiresPatient={requiresPatient}
-                selectedBranchName={selectedBranch?.name ?? ""}
-                selectedPatient={selectedPatient}
-                selectedProfessional={selectedProfessional}
-                selectedSlots={selectedSlots}
-                patientDayConflict={patientDayConflict}
-                patientDayConflictLoading={patientDayConflictLoading}
-                canCreateTreatmentPlans={canCreateTreatmentPlans}
-                canReadTreatmentPlans={canReadTreatmentPlans}
-                currentProfessionalTreatmentPlans={currentProfessionalTreatmentPlans}
-                historicalTreatmentPlans={historicalTreatmentPlans}
-                otherProfessionalTreatmentPlans={otherProfessionalTreatmentPlans}
-                selectedTreatmentPlanId={selectedTreatmentPlanId}
-                canNotifyByEmail={canNotifyByEmail}
-                notificationEmail={notificationEmail}
-                notifyByEmail={notifyByEmail}
-                submitting={submitting}
-                treatmentPlanChoice={treatmentPlanChoice}
-                treatmentPlansLoading={treatmentPlans.isLoading}
-                onBack={closeOrStepBack}
-                onFormChange={setForm}
-                onModeChange={setPatientMode}
-                onNewPatientChange={setNewPatient}
-                onNotifyByEmailChange={setNotifyByEmail}
-                onPatientSearchChange={setPatientSearch}
-                onTreatmentPlanChoiceChange={(choice) => {
-                  setTreatmentPlanChoice(choice);
-                  if (choice === "new") setSelectedTreatmentPlanId("");
-                }}
-                onTreatmentPlanSelect={(planId) => {
-                  setTreatmentPlanChoice("existing");
-                  setSelectedTreatmentPlanId(planId);
-                }}
-                onSubmit={() => void submit()}
-              />
-            )}
-          </main>
+              <div className="mb-5 rounded-md border border-cyan-100 bg-white px-3 py-2 text-sm text-slate-700">
+                <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  Sucursal activa
+                </p>
+                <p className="mt-1 font-semibold text-slate-950">
+                  {selectedBranch?.name ?? "Sin sucursal seleccionada"}
+                </p>
+              </div>
+
+              <StepRail step={step} />
+
+              <div className="mt-5 grid gap-3">
+                <FieldLabel label="Especialidad">
+                  <Select
+                    value={form.specialtyId}
+                    onChange={(event) => {
+                      if (!lockedScheduleContext) setSelectedSlots([]);
+                      setReasonSearch("");
+                      setForm((prev) => ({
+                        ...prev,
+                        specialtyId: event.target.value,
+                        professionalId: lockedScheduleContext ? prev.professionalId : "",
+                        reason: "",
+                        startAt: lockedScheduleContext ? prev.startAt : "",
+                        endAt: lockedScheduleContext ? prev.endAt : ""
+                      }));
+                    }}
+                    disabled={step !== "reason"}
+                  >
+                    <option value="">Todas las especialidades</option>
+                    {(specialties.data ?? []).map((specialty) => (
+                      <option key={specialty.id} value={specialty.id}>
+                        {specialty.name}
+                      </option>
+                    ))}
+                  </Select>
+                </FieldLabel>
+
+                <FieldLabel label="Doctor">
+                  <Select
+                    value={form.professionalId}
+                    onChange={(event) => handleProfessionalChange(event.target.value)}
+                    disabled={!canContinueReason || step !== "schedule"}
+                  >
+                    <option value="">Seleccionar doctor</option>
+                    {filteredProfessionals.map((professional) => (
+                      <option key={professional.id} value={professional.id}>
+                        {professional.firstName} {professional.lastName}
+                      </option>
+                    ))}
+                  </Select>
+                </FieldLabel>
+
+                <FieldLabel label="Recurso / box">
+                  <Select
+                    value={form.chairId}
+                    onChange={(event) => {
+                      setSelectedSlots([]);
+                      setForm((prev) => ({ ...prev, chairId: event.target.value, startAt: "", endAt: "" }));
+                    }}
+                    disabled={!canContinueReason || step !== "schedule"}
+                  >
+                    <option value="">Sin recurso especifico</option>
+                    {filteredChairs.map((chair) => (
+                      <option key={chair.id} value={chair.id}>
+                        {chair.name}
+                      </option>
+                    ))}
+                  </Select>
+                </FieldLabel>
+
+                <FieldLabel label="Duracion del motivo">
+                  <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900">
+                    {selectedReason ? `${selectedReason.durationMinutes} minutos` : "Selecciona motivo"}
+                  </div>
+                </FieldLabel>
+              </div>
+            </aside>
+
+            <main className="min-w-0 p-5">
+              {step === "reason" ? (
+                <ReasonStep
+                  activeReasons={activeReasons}
+                  form={form}
+                  loadingReasons={reasons.isLoading}
+                  reasonSearch={reasonSearch}
+                  selectedReasonId={selectedReason?.id ?? ""}
+                  selectedSlots={selectedSlots}
+                  selectedSpecialtyName={selectedSpecialty?.name ?? ""}
+                  onBack={closeOrStepBack}
+                  onContinue={() => setStep(scheduleResolvedFromContext ? "patient" : "schedule")}
+                  onReasonSearchChange={handleReasonSearchChange}
+                  onReasonSelect={handleReasonSelect}
+                  continueLabel={scheduleResolvedFromContext ? "Continuar a paciente" : "Continuar a horario"}
+                />
+              ) : step === "schedule" ? (
+                <ScheduleStep
+                  availability={availability}
+                  availabilityError={durationAvailabilityError}
+                  canContinue={canContinueSchedule}
+                  days={days}
+                  form={form}
+                  selectedProfessionalIsAvailable={selectedProfessionalIsAvailable}
+                  selectedSlots={selectedSlots}
+                  weekStart={weekStart}
+                  onContinue={() => setStep("patient")}
+                  onSelectSlot={handleSlotSelect}
+                  onWeekChange={setWeekStart}
+                  onRemoveSlot={(slot) =>
+                    setSelectedSlots((prev) => prev.filter((s) => s.startAt !== slot.startAt))
+                  }
+                  multipleMode={multipleMode}
+                  selectedDuration={selectedDuration}
+                  appointmentIntervalMinutes={appointmentIntervalMinutes}
+                />
+              ) : (
+                <PatientStep
+                  canSubmit={canSubmitPatient}
+                  filteredPatients={searchedPatients}
+                  form={form}
+                  mode={patientMode}
+                  newPatient={newPatient}
+                  patientSearch={patientSearch}
+                  requiresPatient={requiresPatient}
+                  selectedBranchName={selectedBranch?.name ?? ""}
+                  selectedPatient={selectedPatient}
+                  selectedProfessional={selectedProfessional}
+                  selectedSlots={selectedSlots}
+                  patientDayConflict={patientDayConflict}
+                  patientDayConflictLoading={patientDayConflictLoading}
+                  canCreateTreatmentPlans={canCreateTreatmentPlans}
+                  canReadTreatmentPlans={canReadTreatmentPlans}
+                  currentProfessionalTreatmentPlans={currentProfessionalTreatmentPlans}
+                  historicalTreatmentPlans={historicalTreatmentPlans}
+                  otherProfessionalTreatmentPlans={otherProfessionalTreatmentPlans}
+                  selectedTreatmentPlanId={selectedTreatmentPlanId}
+                  canNotifyByEmail={canNotifyByEmail}
+                  notificationEmail={notificationEmail}
+                  notifyByEmail={notifyByEmail}
+                  submitting={submitting}
+                  treatmentPlanChoice={treatmentPlanChoice}
+                  treatmentPlansLoading={treatmentPlans.isLoading}
+                  onBack={closeOrStepBack}
+                  onFormChange={setForm}
+                  onModeChange={setPatientMode}
+                  onNewPatientChange={setNewPatient}
+                  onNotifyByEmailChange={setNotifyByEmail}
+                  onPatientSearchChange={setPatientSearch}
+                  patientSearchQueryFetching={patientSearchQuery.isFetching}
+                  onTreatmentPlanChoiceChange={(choice) => {
+                    setTreatmentPlanChoice(choice);
+                    if (choice === "new") setSelectedTreatmentPlanId("");
+                  }}
+                  onTreatmentPlanSelect={(planId) => {
+                    setTreatmentPlanChoice("existing");
+                    setSelectedTreatmentPlanId(planId);
+                  }}
+                  onSubmit={() => void submit()}
+                />
+              )}
+            </main>
+          </div>
         </div>
-      </div>
       </Modal>
       <BookingProblemsModal
         open={bookingProblems.length > 0}
@@ -1001,16 +1157,13 @@ function BookingProblemsModal({
 }) {
   return (
     <Modal open={open} title="Han ocurrido los siguientes problemas:" onClose={onClose} size="lg">
-      <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-        <div className="flex gap-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <ul className="list-disc space-y-1 pl-4">
-            {problems.map((problem) => (
-              <li key={problem}>{problem}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
+      <Alert variant="danger" size="sm">
+        <ul className="list-disc space-y-1 pl-4">
+          {problems.map((problem) => (
+            <li key={problem}>{problem}</li>
+          ))}
+        </ul>
+      </Alert>
       <div className="mt-4 flex justify-end">
         <Button variant="secondary" onClick={onClose} type="button">
           Cerrar
@@ -1063,11 +1216,14 @@ function ScheduleStep({
             Duración requerida: {selectedDuration} minutos
             {Number(form.durationMinutes) !== selectedDuration && (
               <span className="text-cyan-700 font-semibold ml-1">
-                (ajustado de {form.durationMinutes} min para calzar con intervalos de {appointmentIntervalMinutes} min)
+                (ajustado de {form.durationMinutes} min para calzar con intervalos de{" "}
+                {appointmentIntervalMinutes} min)
               </span>
             )}
           </p>
-          {availabilityError ? <p className="mt-1 text-xs font-semibold text-red-600">{availabilityError}</p> : null}
+          {availabilityError ? (
+            <p className="mt-1 text-xs font-semibold text-red-600">{availabilityError}</p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -1097,7 +1253,9 @@ function ScheduleStep({
           return (
             <section key={day.date} className="min-h-[280px] rounded-md border border-slate-200 bg-white">
               <div className={`border-b border-slate-100 px-3 py-2.5 ${day.isToday ? "bg-cyan-50" : ""}`}>
-                <p className="text-center text-[10px] font-bold uppercase text-slate-500 tracking-wider">{day.weekday}</p>
+                <p className="text-center text-[10px] font-bold uppercase text-slate-500 tracking-wider">
+                  {day.weekday}
+                </p>
                 <p className="text-center text-base font-bold text-slate-950 leading-tight">{day.day}</p>
                 <p className="text-center text-[10px] text-slate-500">{day.month}</p>
               </div>
@@ -1116,7 +1274,9 @@ function ScheduleStep({
                   dayAvailability.slots
                     .filter((slot) => slot.available)
                     .map((slot) => {
-                      const selected = selectedSlots.some((selectedSlot) => slotInsideSelectedRange(selectedSlot, slot));
+                      const selected = selectedSlots.some((selectedSlot) =>
+                        slotInsideSelectedRange(selectedSlot, slot)
+                      );
                       return (
                         <button
                           key={slot.startAt}
@@ -1151,15 +1311,15 @@ function ScheduleStep({
                 {!multipleMode && selectedSlots.length > 0
                   ? formatSelectedSlot(selectedSlots[0])
                   : selectedSlots.length === 0
-                  ? "0 horas seleccionadas"
-                  : `${selectedSlots.length} hora(s) seleccionada(s)`}
+                    ? "0 horas seleccionadas"
+                    : `${selectedSlots.length} hora(s) seleccionada(s)`}
               </p>
               <p className="text-xs text-slate-500">
                 {selectedSlots.length === 0
                   ? "Selecciona un horario libre para continuar con el paciente."
                   : !multipleMode
-                  ? "Presiona continuar para asignar el paciente."
-                  : "Puedes cambiar de semana usando los controles de arriba para seleccionar más horarios."}
+                    ? "Presiona continuar para asignar el paciente."
+                    : "Puedes cambiar de semana usando los controles de arriba para seleccionar más horarios."}
               </p>
             </div>
           </div>
@@ -1170,7 +1330,9 @@ function ScheduleStep({
 
         {multipleMode && selectedSlots.length > 0 && (
           <div className="border-t border-slate-100 pt-3">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Carrito de horarios seleccionados</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">
+              Carrito de horarios seleccionados
+            </p>
             <div className="flex flex-wrap gap-2 max-h-[85px] overflow-y-auto pr-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-slate-300">
               {selectedSlots.map((slot) => {
                 const start = new Date(slot.startAt);
@@ -1189,7 +1351,12 @@ function ScheduleStep({
                       className="text-cyan-600 hover:text-cyan-900 rounded hover:bg-cyan-100 p-0.5 transition-colors"
                     >
                       <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2.5}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
                       </svg>
                     </button>
                   </span>
@@ -1255,15 +1422,11 @@ function ReasonStep({
             </div>
           </div>
           <div className="hidden rounded-md border border-cyan-100 bg-cyan-50 px-3 py-2 text-right text-sm text-cyan-900 sm:block">
-            {selectedSlots.length > 0 ? (
-              selectedSlots.length === 1 ? (
-                formatSelectedSlot(selectedSlots[0])
-              ) : (
-                `${selectedSlots.length} citas seleccionadas`
-              )
-            ) : (
-              "Horario pendiente"
-            )}
+            {selectedSlots.length > 0
+              ? selectedSlots.length === 1
+                ? formatSelectedSlot(selectedSlots[0])
+                : `${selectedSlots.length} citas seleccionadas`
+              : "Horario pendiente"}
           </div>
         </div>
 
@@ -1273,7 +1436,9 @@ function ReasonStep({
               <Search className="pointer-events-none absolute left-6 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 className="pl-9"
-                placeholder={form.specialtyId ? "Buscar motivo existente" : "Primero selecciona una especialidad..."}
+                placeholder={
+                  form.specialtyId ? "Buscar motivo existente" : "Primero selecciona una especialidad..."
+                }
                 value={reasonSearch}
                 onChange={(event) => onReasonSearchChange(event.target.value)}
                 disabled={!form.specialtyId}
@@ -1290,7 +1455,8 @@ function ReasonStep({
                   <div className="flex flex-col items-center justify-center text-center py-2">
                     <span className="font-semibold text-amber-800">Selecciona una especialidad primero</span>
                     <span className="text-xs text-slate-500 mt-1">
-                      Debes escoger una especialidad en el panel izquierdo para poder ver y seleccionar un tratamiento.
+                      Debes escoger una especialidad en el panel izquierdo para poder ver y seleccionar un
+                      tratamiento.
                     </span>
                   </div>
                 </div>
@@ -1378,6 +1544,7 @@ function PatientStep({
   onNewPatientChange,
   onNotifyByEmailChange,
   onPatientSearchChange,
+  patientSearchQueryFetching,
   onTreatmentPlanChoiceChange,
   onTreatmentPlanSelect,
   onSubmit
@@ -1413,14 +1580,28 @@ function PatientStep({
   onNewPatientChange: React.Dispatch<React.SetStateAction<NewPatientState>>;
   onNotifyByEmailChange: (checked: boolean) => void;
   onPatientSearchChange: (value: string) => void;
+  patientSearchQueryFetching: boolean;
   onTreatmentPlanChoiceChange: (choice: TreatmentPlanChoice) => void;
   onTreatmentPlanSelect: (planId: string) => void;
-  onSubmit: () => void;
+  onSubmit?: () => void;
 }) {
+  const appointmentConfig = usePatientFieldContext("appointment");
+  const visibleAppointmentFields = useMemo(
+    () => getVisibleFormFields(appointmentConfig),
+    [appointmentConfig]
+  );
+  const requiredAppointmentFields = useMemo(
+    () => getRequiredFormFields(appointmentConfig),
+    [appointmentConfig]
+  );
+  const agreementsQuery = useAgreements(undefined, "true", visibleAppointmentFields.has("agreementId"));
+
   return (
     <div className="mx-auto max-w-4xl space-y-4">
       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
-        <p className="font-semibold">{selectedSlots.length === 1 ? "Cita seleccionada" : "Citas seleccionadas"}</p>
+        <p className="font-semibold">
+          {selectedSlots.length === 1 ? "Cita seleccionada" : "Citas seleccionadas"}
+        </p>
         <div className="mt-1 space-y-1">
           {selectedSlots.map((slot, index) => (
             <p key={index} className="text-xs">
@@ -1500,56 +1681,62 @@ function PatientStep({
                   onChange={(event) => {
                     const newValue = event.target.value;
                     onPatientSearchChange(newValue);
-                    if (selectedPatient && newValue !== `${selectedPatient.firstName} ${selectedPatient.lastName}`) {
+                    if (
+                      selectedPatient &&
+                      newValue !== `${selectedPatient.firstName} ${selectedPatient.lastName}`
+                    ) {
                       onFormChange((prev) => ({ ...prev, patientId: "" }));
                     }
                   }}
                 />
+                {patientSearchQueryFetching && (
+                  <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-cyan-600" />
+                )}
               </div>
 
               {patientSearch.trim().length > 0 && (
                 <div className="max-h-[290px] overflow-y-auto rounded-md border border-slate-200">
                   {filteredPatients.length ? (
-                  filteredPatients.map((patient) => {
-                    const selected = patient.id === form.patientId;
-                    return (
-                      <button
-                        key={patient.id}
-                        type="button"
-                        className={`grid w-full gap-1 border-b border-slate-100 px-3 py-3 text-left last:border-b-0 ${selected ? "bg-cyan-50" : "bg-white hover:bg-slate-50"}`}
-                        onClick={() => {
-                          onFormChange((prev) => ({
-                            ...prev,
-                            patientId: patient.id,
-                            title: prev.title || `Cita - ${patient.firstName} ${patient.lastName}`
-                          }));
-                          onPatientSearchChange(`${patient.firstName} ${patient.lastName}`);
-                        }}
-                      >
-                        <span className="flex items-center justify-between gap-3">
-                          <span className="font-semibold uppercase text-slate-900">
-                            {patient.firstName} {patient.lastName}
+                    filteredPatients.map((patient) => {
+                      const selected = patient.id === form.patientId;
+                      return (
+                        <button
+                          key={patient.id}
+                          type="button"
+                          className={`grid w-full gap-1 border-b border-slate-100 px-3 py-3 text-left last:border-b-0 ${selected ? "bg-cyan-50" : "bg-white hover:bg-slate-50"}`}
+                          onClick={() => {
+                            onFormChange((prev) => ({
+                              ...prev,
+                              patientId: patient.id,
+                              title: prev.title || `Cita - ${patient.firstName} ${patient.lastName}`
+                            }));
+                            onPatientSearchChange(`${patient.firstName} ${patient.lastName}`);
+                          }}
+                        >
+                          <span className="flex items-center justify-between gap-3">
+                            <span className="font-semibold uppercase text-slate-900">
+                              {patient.firstName} {patient.lastName}
+                            </span>
+                            {selected ? <Check className="h-4 w-4 text-cyan-700" /> : null}
                           </span>
-                          {selected ? <Check className="h-4 w-4 text-cyan-700" /> : null}
-                        </span>
-                        <span className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
-                          <span className="inline-flex items-center gap-1">
-                            <Phone className="h-3.5 w-3.5" />
-                            {patient.phone || "Sin telefono"}
+                          <span className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                            <span className="inline-flex items-center gap-1">
+                              <Phone className="h-3.5 w-3.5" />
+                              {patient.phone || "Sin telefono"}
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                              <Mail className="h-3.5 w-3.5" />
+                              {patient.email || "Sin correo"}
+                            </span>
                           </span>
-                          <span className="inline-flex items-center gap-1">
-                            <Mail className="h-3.5 w-3.5" />
-                            {patient.email || "Sin correo"}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })
-                ) : (
-                  <div className="p-4 text-sm text-slate-500">
-                    No hay pacientes para la busqueda en esta sucursal.
-                  </div>
-                )}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="p-4 text-sm text-slate-500">
+                      No hay pacientes para la busqueda en esta sucursal.
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1592,69 +1779,379 @@ function PatientStep({
           ) : (
             <div className="grid gap-3">
               <div className="grid gap-3 sm:grid-cols-2">
-                <FieldLabel label="Nombre legal">
-                  <Input
-                    value={newPatient.firstName}
-                    onChange={(event) =>
-                      onNewPatientChange((prev) => ({ ...prev, firstName: event.target.value }))
-                    }
-                  />
-                </FieldLabel>
-                <FieldLabel label="Apellidos">
-                  <Input
-                    value={newPatient.lastName}
-                    onChange={(event) =>
-                      onNewPatientChange((prev) => ({ ...prev, lastName: event.target.value }))
-                    }
-                  />
-                </FieldLabel>
+                {visibleAppointmentFields.has("firstName") && (
+                  <FieldLabel label="Nombre legal" required={requiredAppointmentFields.has("firstName")}>
+                    <Input
+                      value={newPatient.firstName}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, firstName: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("socialName") && (
+                  <FieldLabel label="Nombre social" required={requiredAppointmentFields.has("socialName")}>
+                    <Input
+                      value={newPatient.socialName}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, socialName: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("lastName") && (
+                  <FieldLabel label="Apellidos" required={requiredAppointmentFields.has("lastName")}>
+                    <Input
+                      value={newPatient.lastName}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, lastName: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <FieldLabel label="E-mail">
-                  <Input
-                    type="email"
-                    value={newPatient.email}
-                    onChange={(event) =>
-                      onNewPatientChange((prev) => ({ ...prev, email: event.target.value }))
-                    }
-                  />
-                </FieldLabel>
-                <FieldLabel label="Telefono movil">
-                  <Input
-                    placeholder="+52 12221234567"
-                    value={newPatient.phone}
-                    onChange={(event) =>
-                      onNewPatientChange((prev) => ({ ...prev, phone: event.target.value }))
-                    }
-                  />
-                </FieldLabel>
+                {visibleAppointmentFields.has("sex") && (
+                  <FieldLabel label="Sexo" required={requiredAppointmentFields.has("sex")}>
+                    <Select
+                      value={newPatient.sex}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, sex: event.target.value }))
+                      }
+                    >
+                      <option value="">Selecciona...</option>
+                      <option value="MASCULINO">Masculino</option>
+                      <option value="FEMENINO">Femenino</option>
+                      <option value="INTERSEXUAL">Intersexual</option>
+                      <option value="NO_ESPECIFICADO">No especificado</option>
+                    </Select>
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("birthDate") && (
+                  <FieldLabel label="Fecha nacimiento" required={requiredAppointmentFields.has("birthDate")}>
+                    <Input
+                      type="date"
+                      value={newPatient.birthDate}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, birthDate: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("gender") && (
+                  <FieldLabel label="Genero" required={requiredAppointmentFields.has("gender")}>
+                    <Select
+                      value={newPatient.gender}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, gender: event.target.value }))
+                      }
+                    >
+                      <option value="">Selecciona...</option>
+                      <option value="MASCULINO">Masculino</option>
+                      <option value="FEMENINO">Femenino</option>
+                      <option value="OTRO">Otro</option>
+                    </Select>
+                  </FieldLabel>
+                )}
               </div>
 
               <div className="grid gap-3 sm:grid-cols-2">
-                <FieldLabel label="Documento">
-                  <Input
-                    value={newPatient.documentNumber}
-                    onChange={(event) =>
-                      onNewPatientChange((prev) => ({ ...prev, documentNumber: event.target.value }))
-                    }
-                  />
-                </FieldLabel>
-                <FieldLabel label="Tipo">
-                  <Select
-                    value={newPatient.type}
-                    onChange={(event) =>
-                      onNewPatientChange((prev) => ({ ...prev, type: event.target.value }))
-                    }
+                {visibleAppointmentFields.has("email") && (
+                  <FieldLabel label="E-mail" required={requiredAppointmentFields.has("email")}>
+                    <Input
+                      type="email"
+                      value={newPatient.email}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, email: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("phone") && (
+                  <FieldLabel label="Telefono movil" required={requiredAppointmentFields.has("phone")}>
+                    <Input
+                      placeholder="+52 12221234567"
+                      value={newPatient.phone}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, phone: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("alternatePhone") && (
+                  <FieldLabel
+                    label="Telefono fijo"
+                    required={requiredAppointmentFields.has("alternatePhone")}
                   >
-                    <option value="">Selecciona un tipo</option>
-                    <option value="Primera vez">Primera vez</option>
-                    <option value="Referido">Referido</option>
-                    <option value="Urgencia">Urgencia</option>
-                    <option value="Control">Control</option>
-                  </Select>
-                </FieldLabel>
+                    <Input
+                      value={newPatient.alternatePhone}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, alternatePhone: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
               </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {visibleAppointmentFields.has("documentType") && (
+                  <FieldLabel label="Tipo documento" required={requiredAppointmentFields.has("documentType")}>
+                    <Input
+                      value={newPatient.documentType}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, documentType: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("documentNumber") && (
+                  <FieldLabel label="Documento" required={requiredAppointmentFields.has("documentNumber")}>
+                    <Input
+                      value={newPatient.documentNumber}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, documentNumber: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("status") && (
+                  <FieldLabel label="Tipo" required={requiredAppointmentFields.has("status")}>
+                    <Select
+                      value={newPatient.status}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, status: event.target.value }))
+                      }
+                    >
+                      <option value="">Selecciona un tipo</option>
+                      <option value="NEW">Nuevo</option>
+                      <option value="ACTIVE">Activo</option>
+                      <option value="IN_TREATMENT">En tratamiento</option>
+                    </Select>
+                  </FieldLabel>
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                {visibleAppointmentFields.has("agreementId") && (
+                  <FieldLabel label="Convenio" required={requiredAppointmentFields.has("agreementId")}>
+                    <Select
+                      value={newPatient.agreementId}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, agreementId: event.target.value }))
+                      }
+                    >
+                      <option value="">Sin convenio</option>
+                      {(agreementsQuery.data ?? []).map((agreement) => (
+                        <option key={agreement.id} value={agreement.id}>
+                          {agreement.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("internalNumber") && (
+                  <FieldLabel
+                    label="Numero interno"
+                    required={requiredAppointmentFields.has("internalNumber")}
+                  >
+                    <Input
+                      value={newPatient.internalNumber}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, internalNumber: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("occupation") && (
+                  <FieldLabel
+                    label="Actividad o profesion"
+                    required={requiredAppointmentFields.has("occupation")}
+                  >
+                    <Input
+                      value={newPatient.occupation}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, occupation: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("employer") && (
+                  <FieldLabel label="Empleador" required={requiredAppointmentFields.has("employer")}>
+                    <Input
+                      value={newPatient.employer}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, employer: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+                {visibleAppointmentFields.has("referredBy") && (
+                  <FieldLabel label="Referencia" required={requiredAppointmentFields.has("referredBy")}>
+                    <Input
+                      value={newPatient.referredBy}
+                      onChange={(event) =>
+                        onNewPatientChange((prev) => ({ ...prev, referredBy: event.target.value }))
+                      }
+                    />
+                  </FieldLabel>
+                )}
+              </div>
+
+              {(visibleAppointmentFields.has("addressStreet") ||
+                visibleAppointmentFields.has("addressCity") ||
+                visibleAppointmentFields.has("addressState")) && (
+                <div className="grid gap-3 rounded-md border border-slate-200 p-3 sm:grid-cols-2">
+                  {visibleAppointmentFields.has("addressStreet") && (
+                    <FieldLabel label="Direccion" required={requiredAppointmentFields.has("addressStreet")}>
+                      <Input
+                        value={newPatient.addressStreet}
+                        onChange={(event) =>
+                          onNewPatientChange((prev) => ({ ...prev, addressStreet: event.target.value }))
+                        }
+                      />
+                    </FieldLabel>
+                  )}
+                  {visibleAppointmentFields.has("addressCity") && (
+                    <FieldLabel label="Ciudad" required={requiredAppointmentFields.has("addressCity")}>
+                      <Input
+                        value={newPatient.addressCity}
+                        onChange={(event) =>
+                          onNewPatientChange((prev) => ({ ...prev, addressCity: event.target.value }))
+                        }
+                      />
+                    </FieldLabel>
+                  )}
+                  {visibleAppointmentFields.has("addressState") && (
+                    <FieldLabel label="Delegacion" required={requiredAppointmentFields.has("addressState")}>
+                      <Input
+                        value={newPatient.addressState}
+                        onChange={(event) =>
+                          onNewPatientChange((prev) => ({ ...prev, addressState: event.target.value }))
+                        }
+                      />
+                    </FieldLabel>
+                  )}
+                </div>
+              )}
+
+              {(visibleAppointmentFields.has("emergencyName") ||
+                visibleAppointmentFields.has("emergencySocialName") ||
+                visibleAppointmentFields.has("emergencyDocumentNumber") ||
+                visibleAppointmentFields.has("emergencyGender") ||
+                visibleAppointmentFields.has("emergencyRelationship") ||
+                visibleAppointmentFields.has("emergencyPhone") ||
+                visibleAppointmentFields.has("emergencyEmail")) && (
+                <div className="grid gap-3 rounded-md border border-slate-200 p-3 sm:grid-cols-2">
+                  {visibleAppointmentFields.has("emergencyName") && (
+                    <FieldLabel label="Apoderado" required={requiredAppointmentFields.has("emergencyName")}>
+                      <Input
+                        value={newPatient.emergencyName}
+                        onChange={(event) =>
+                          onNewPatientChange((prev) => ({ ...prev, emergencyName: event.target.value }))
+                        }
+                      />
+                    </FieldLabel>
+                  )}
+                  {visibleAppointmentFields.has("emergencySocialName") && (
+                    <FieldLabel
+                      label="Nombre social tutor"
+                      required={requiredAppointmentFields.has("emergencySocialName")}
+                    >
+                      <Input
+                        value={newPatient.emergencySocialName}
+                        onChange={(event) =>
+                          onNewPatientChange((prev) => ({ ...prev, emergencySocialName: event.target.value }))
+                        }
+                      />
+                    </FieldLabel>
+                  )}
+                  {visibleAppointmentFields.has("emergencyDocumentNumber") && (
+                    <FieldLabel
+                      label="CURP/RFC tutor legal"
+                      required={requiredAppointmentFields.has("emergencyDocumentNumber")}
+                    >
+                      <Input
+                        value={newPatient.emergencyDocumentNumber}
+                        onChange={(event) =>
+                          onNewPatientChange((prev) => ({
+                            ...prev,
+                            emergencyDocumentNumber: event.target.value
+                          }))
+                        }
+                      />
+                    </FieldLabel>
+                  )}
+                  {visibleAppointmentFields.has("emergencyGender") && (
+                    <FieldLabel
+                      label="Genero tutor"
+                      required={requiredAppointmentFields.has("emergencyGender")}
+                    >
+                      <Input
+                        value={newPatient.emergencyGender}
+                        onChange={(event) =>
+                          onNewPatientChange((prev) => ({ ...prev, emergencyGender: event.target.value }))
+                        }
+                      />
+                    </FieldLabel>
+                  )}
+                  {visibleAppointmentFields.has("emergencyRelationship") && (
+                    <FieldLabel
+                      label="Relacion"
+                      required={requiredAppointmentFields.has("emergencyRelationship")}
+                    >
+                      <Input
+                        value={newPatient.emergencyRelationship}
+                        onChange={(event) =>
+                          onNewPatientChange((prev) => ({
+                            ...prev,
+                            emergencyRelationship: event.target.value
+                          }))
+                        }
+                      />
+                    </FieldLabel>
+                  )}
+                  {visibleAppointmentFields.has("emergencyPhone") && (
+                    <FieldLabel
+                      label="Telefono apoderado"
+                      required={requiredAppointmentFields.has("emergencyPhone")}
+                    >
+                      <Input
+                        value={newPatient.emergencyPhone}
+                        onChange={(event) =>
+                          onNewPatientChange((prev) => ({ ...prev, emergencyPhone: event.target.value }))
+                        }
+                      />
+                    </FieldLabel>
+                  )}
+                  {visibleAppointmentFields.has("emergencyEmail") && (
+                    <FieldLabel
+                      label="Email apoderado"
+                      required={requiredAppointmentFields.has("emergencyEmail")}
+                    >
+                      <Input
+                        type="email"
+                        value={newPatient.emergencyEmail}
+                        onChange={(event) =>
+                          onNewPatientChange((prev) => ({ ...prev, emergencyEmail: event.target.value }))
+                        }
+                      />
+                    </FieldLabel>
+                  )}
+                </div>
+              )}
+
+              {visibleAppointmentFields.has("observations") && (
+                <FieldLabel label="Observaciones" required={requiredAppointmentFields.has("observations")}>
+                  <Textarea
+                    rows={2}
+                    value={newPatient.observations}
+                    onChange={(event) =>
+                      onNewPatientChange((prev) => ({ ...prev, observations: event.target.value }))
+                    }
+                  />
+                </FieldLabel>
+              )}
 
               <FieldLabel label="Comentario">
                 <Textarea
@@ -1671,7 +2168,7 @@ function PatientStep({
         </div>
       </div>
 
-      <div className="flex flex-col gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="sticky bottom-0 z-30 flex flex-col gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 shadow-[0_-4px_12px_rgba(0,0,0,0.06)] sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-slate-600">
           {requiresPatient
             ? "Selecciona o crea el paciente antes de guardar."
@@ -1699,13 +2196,7 @@ function PatientStep({
   );
 }
 
-function PatientDailyLimitNotice({
-  conflict,
-  loading
-}: {
-  conflict: Appointment | null;
-  loading: boolean;
-}) {
+function PatientDailyLimitNotice({ conflict, loading }: { conflict: Appointment | null; loading: boolean }) {
   if (loading) {
     return (
       <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-500">
@@ -1721,19 +2212,11 @@ function PatientDailyLimitNotice({
     : "profesional asignado";
 
   return (
-    <div className="rounded-md border border-red-200 bg-red-50 px-3 py-3 text-sm text-red-800">
-      <div className="flex gap-2">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-        <div>
-          <p className="font-semibold">
-            Este paciente ya tiene una cita activa este dia: {formatTime(conflict.startAt)} - {formatTime(conflict.endAt)} con {professionalName}.
-          </p>
-          <p className="mt-1 text-xs">
-            Por regla de la clinica, un paciente solo puede tener 1 cita al dia (incluso con diferentes profesionales). Para darle mas duracion, edita la cita existente en la agenda de {professionalName}.
-          </p>
-        </div>
-      </div>
-    </div>
+    <Alert variant="warning" size="sm" title={`Este paciente ya tiene una cita activa este dia: ${formatTime(conflict.startAt)} - ${formatTime(conflict.endAt)} con ${professionalName}.`}>
+      <p className="mt-0.5">
+        Por regla de la clinica, un paciente solo puede tener 1 cita al dia (incluso con diferentes profesionales). Para darle mas duracion, edita la cita existente en la agenda de {professionalName}.
+      </p>
+    </Alert>
   );
 }
 
@@ -1804,10 +2287,17 @@ function TreatmentPlanSelector({
             Selecciona el plan que quedará asociado a esta cita.
           </p>
         </div>
-        {loading ? <Badge value="Cargando" tone="default" /> : <Badge value={`${currentProfessionalPlans.length + otherProfessionalPlans.length} activos`} tone="brand" />}
+        {loading ? (
+          <Badge value="Cargando" tone="default" />
+        ) : (
+          <Badge
+            value={`${currentProfessionalPlans.length + otherProfessionalPlans.length} activos`}
+            tone="brand"
+          />
+        )}
       </div>
 
-      <div className="grid gap-[var(--space-3)] p-[var(--space-3)] max-h-[380px] overflow-y-auto overflow-x-hidden pr-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300">
+      <div className="grid gap-[var(--space-3)] p-[var(--space-3)] max-h-[220px] overflow-y-auto overflow-x-hidden pr-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-200 hover:[&::-webkit-scrollbar-thumb]:bg-slate-300">
         {loading ? (
           <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border-strong)] bg-[var(--bg-subtle)] px-[var(--space-3)] py-[var(--space-4)] text-center text-[var(--text-sm)] text-[var(--text-secondary)]">
             Consultando planes del paciente...
@@ -1851,7 +2341,9 @@ function TreatmentPlanSelector({
                   <PlusCircle className="h-4 w-4" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <span className={`block text-sm font-semibold transition-colors ${treatmentPlanChoice === "new" ? "text-[var(--text-brand)]" : "text-slate-700 group-hover:text-slate-900"}`}>
+                  <span
+                    className={`block text-sm font-semibold transition-colors ${treatmentPlanChoice === "new" ? "text-[var(--text-brand)]" : "text-slate-700 group-hover:text-slate-900"}`}
+                  >
                     Crear nuevo plan de tratamiento
                   </span>
                   <span className="block text-xs text-slate-500">
@@ -1915,7 +2407,12 @@ function TreatmentPlanGroup({
       {plans.length ? (
         <div className="grid gap-[var(--space-2)]">
           {plans.map((plan) => (
-            <button key={plan.id} type="button" onClick={() => onPlanSelect(plan.id)} className="text-left w-full outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-[var(--radius-md)]">
+            <button
+              key={plan.id}
+              type="button"
+              onClick={() => onPlanSelect(plan.id)}
+              className="text-left w-full outline-none focus-visible:ring-2 focus-visible:ring-brand-500 rounded-[var(--radius-md)]"
+            >
               <TreatmentPlanSummary plan={plan} selected={selectedPlanId === plan.id} />
             </button>
           ))}
@@ -1945,17 +2442,22 @@ function TreatmentPlanSummary({
         selected
           ? "border-[var(--border-brand)] bg-[var(--bg-brand-light)] shadow-sm"
           : disabled
-          ? "border-slate-200 bg-slate-50 opacity-70"
-          : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+            ? "border-slate-200 bg-slate-50 opacity-70"
+            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
       }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className={`truncate text-sm font-semibold ${selected ? "text-[var(--text-brand)]" : "text-slate-800"}`}>
+            <span
+              className={`truncate text-sm font-semibold ${selected ? "text-[var(--text-brand)]" : "text-slate-800"}`}
+            >
               {plan.name}
             </span>
-            <Badge value={treatmentPlanStatusLabel(plan.status)} tone={treatmentPlanStatusTone(plan.status)} />
+            <Badge
+              value={treatmentPlanStatusLabel(plan.status)}
+              tone={treatmentPlanStatusTone(plan.status)}
+            />
             {disabled ? (
               <span className="rounded-[var(--radius-sm)] bg-[var(--status-danger-bg)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--status-danger-text)]">
                 No seleccionable
@@ -1982,12 +2484,14 @@ function TreatmentPlanSummary({
             </span>
           </div>
         </div>
-        
+
         <div className="flex shrink-0 items-center justify-center pl-2">
           {selected ? (
             <CheckCircle2 className="h-5 w-5 text-[var(--text-brand)]" />
           ) : (
-            <div className={`h-5 w-5 rounded-full border ${disabled ? "border-slate-200" : "border-slate-300"}`} />
+            <div
+              className={`h-5 w-5 rounded-full border ${disabled ? "border-slate-200" : "border-slate-300"}`}
+            />
           )}
         </div>
       </div>
@@ -2004,10 +2508,20 @@ function TreatmentPlanSummary({
   );
 }
 
-function FieldLabel({ label, children }: { label: string; children: React.ReactNode }) {
+function FieldLabel({
+  label,
+  required,
+  children
+}: {
+  label: string;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <label className="grid gap-1.5">
-      <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">{label}</span>
+      <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+        {label} {required ? <span className="text-red-500">*</span> : null}
+      </span>
       {children}
     </label>
   );
@@ -2046,7 +2560,8 @@ function toFormFromAppointment(appointment: Appointment): FormState {
 function toFormDefaults(initialValues?: Partial<AppointmentPayload> | null): FormState {
   const startAt = initialValues?.startAt ? toLocalInput(initialValues.startAt) : "";
   const endAt = initialValues?.endAt ? toLocalInput(initialValues.endAt) : "";
-  const initialDuration = initialValues?.durationMinutes ?? (startAt && endAt ? diffMinutes(startAt, endAt) : undefined);
+  const initialDuration =
+    initialValues?.durationMinutes ?? (startAt && endAt ? diffMinutes(startAt, endAt) : undefined);
   return {
     ...defaultForm,
     branchId: initialValues?.branchId ?? "",
@@ -2162,9 +2677,11 @@ function buildSelectedSlotsLookupRange(slots: SelectedSlot[]) {
 }
 
 function appointmentCountsAgainstPatientDailyLimit(appointment: Appointment) {
-  return Boolean(appointment.patientId) &&
+  return (
+    Boolean(appointment.patientId) &&
     appointment.status !== "BLOCKED" &&
-    !PATIENT_DAILY_LIMIT_FREE_STATUSES.includes(appointment.status);
+    !PATIENT_DAILY_LIMIT_FREE_STATUSES.includes(appointment.status)
+  );
 }
 
 function roundDurationToInterval(durationMinutes: number, intervalMinutes: number) {

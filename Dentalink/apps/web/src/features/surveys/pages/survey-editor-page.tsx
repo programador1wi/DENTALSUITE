@@ -17,6 +17,7 @@ import {
   Trash2
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { APP_ROUTES } from "@/lib/routes";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -154,7 +155,7 @@ export function SurveyEditorPage({ surveyId }: { surveyId: string }) {
 
   const goBack = () => {
     if (dirty && !window.confirm("Hay cambios sin guardar. ¿Deseas salir del constructor?")) return;
-    navigate("/crm/surveys/list");
+    navigate(APP_ROUTES.crm.surveysList);
   };
 
   if (query.isLoading) return <LoadingState message="Preparando constructor..." />;

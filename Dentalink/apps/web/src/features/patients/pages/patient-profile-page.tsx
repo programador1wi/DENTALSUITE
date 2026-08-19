@@ -2,6 +2,8 @@ import { type BaseSyntheticEvent, type FormEvent, type ReactNode, useEffect, use
 import { useForm, type UseFormReturn } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Link, useParams, useLocation } from "react-router-dom";
+import { APP_ROUTES } from "@/lib/routes";
+import { getPatientRouteId } from "@/lib/utils/patient-id";
 import {
   Bold,
   Calendar,
@@ -89,29 +91,26 @@ type ProfileTab = "data" | "benefits-coverages" | "appointments" | "comments" | 
 
 function profileTabs(patientId: string, appointmentCount?: number) {
   return [
-    { to: `/patients/${patientId}/profile`, label: "Datos personales" },
-    { to: `/patients/${patientId}/profile/benefits-coverages`, label: "Beneficios y coberturas" },
+    { to: APP_ROUTES.patients.profile(patientId), label: "Datos personales" },
+    { to: APP_ROUTES.patients.profileBenefitsCoverages(patientId), label: "Beneficios y coberturas" },
     {
-      to: `/patients/${patientId}/profile/appointments`,
+      to: APP_ROUTES.patients.profileAppointments(patientId),
       label: "Citas",
       permission: "appointments.read",
       count: appointmentCount
     },
-    { to: `/patients/${patientId}/profile/comments`, label: "Comentarios administrativos" },
-    { to: `/patients/${patientId}/profile/tasks`, label: "Tareas de gestion" },
-    { to: `/patients/${patientId}/profile/emails`, label: "Emails" }
+    { to: APP_ROUTES.patients.profileComments(patientId), label: "Comentarios administrativos" },
+    { to: APP_ROUTES.patients.profileTasks(patientId), label: "Tareas de gestion" },
+    { to: APP_ROUTES.patients.profileEmails(patientId), label: "Emails" }
   ];
 }
 
 function normalizeProfileTab(value?: string): ProfileTab {
-  if (
-    value === "benefits-coverages" ||
-    value === "appointments" ||
-    value === "comments" ||
-    value === "tasks" ||
-    value === "emails"
-  )
-    return value;
+  if (value === "benefits-coverages" || value === "coberturas") return "benefits-coverages";
+  if (value === "appointments" || value === "citas") return "appointments";
+  if (value === "comments" || value === "comentarios") return "comments";
+  if (value === "tasks" || value === "tareas") return "tasks";
+  if (value === "emails" || value === "correos") return "emails";
   return "data";
 }
 
@@ -122,7 +121,7 @@ function isEmailNote(note: string) {
 export function PatientProfilePage() {
   const { id = "" } = useParams();
   const location = useLocation();
-  const activeTabMatch = location.pathname.match(/\/profile\/([^/]+)/);
+  const activeTabMatch = location.pathname.match(/\/(?:profile|perfil)\/([^/]+)/);
   const activeTab = normalizeProfileTab(activeTabMatch ? activeTabMatch[1] : undefined);
   const { activeBranchId } = useBranchStore();
   const patientQuery = usePatient(id);
@@ -266,12 +265,14 @@ export function PatientProfilePage() {
     await updatePatient.mutateAsync({ id, payload });
   });
 
+  const canonicalId = getPatientRouteId(patient) || id;
+
   return (
     <div className="space-y-4">
       <PatientHeader patientId={id} />
       <PatientSubnav patientId={id} />
       <PatientSecondaryNav
-        tabs={profileTabs(id, appointmentCountQuery.data?.length)}
+        tabs={profileTabs(canonicalId, appointmentCountQuery.data?.length)}
         label="Datos personales"
       />
 
@@ -623,7 +624,7 @@ function PatientDataTab({
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-base font-semibold text-slate-900">Timeline</h3>
           <Link
-            to={`/patients/${patientId}/clinical/history`}
+            to={APP_ROUTES.patients.clinicalHistory(getPatientRouteId(patient) || patientId)}
             className="text-sm text-brand-700 hover:underline"
           >
             Ir a clinico

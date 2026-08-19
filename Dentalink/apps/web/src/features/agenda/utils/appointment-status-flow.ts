@@ -1,6 +1,7 @@
 import type { AppointmentStatus } from "../services/appointments.service";
 
 export type AppointmentStatusMenuAction =
+  | "contactWhatsApp"
   | "markPendingConfirmation"
   | "markScheduled"
   | "confirm"
@@ -34,9 +35,9 @@ export type DirectAppointmentStatusMenuItem = AppointmentStatusMenuItem & {
 
 export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatusMenuItem[]> = {
   SCHEDULED: [
-    { action: "markPendingConfirmation", label: "Marcar por confirmar", nextStatus: "PENDING_CONFIRMATION", tone: "warning" },
-    { action: "notifyWhatsApp", label: "Notificar por WhatsApp", nextStatus: "NOTIFIED_BY_WHATSAPP", tone: "warning" },
+    { action: "contactWhatsApp", label: "Contactar paciente por WhatsApp", tone: "brand" },
     { action: "notifyEmail", label: "Enviar confirmación por email", nextStatus: "NOTIFIED_BY_EMAIL", tone: "warning" },
+    { action: "markPendingConfirmation", label: "Marcar por confirmar", nextStatus: "PENDING_CONFIRMATION", tone: "warning" },
     { action: "confirm", label: "Confirmar cita", nextStatus: "CONFIRMED", tone: "success" },
     { action: "confirmWhatsApp", label: "Confirmar por WhatsApp", nextStatus: "CONFIRMED_BY_WHATSAPP", tone: "success" },
     { action: "confirmPhone", label: "Confirmar por teléfono", nextStatus: "CONFIRMED_BY_PHONE", tone: "success" },
@@ -51,8 +52,8 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "history", label: "Ver historial" }
   ],
   PENDING_CONFIRMATION: [
+    { action: "contactWhatsApp", label: "Contactar paciente por WhatsApp", tone: "brand" },
     { action: "markScheduled", label: "Volver a agendada", nextStatus: "SCHEDULED" },
-    { action: "notifyWhatsApp", label: "Notificar por WhatsApp", nextStatus: "NOTIFIED_BY_WHATSAPP", tone: "warning" },
     { action: "notifyEmail", label: "Enviar confirmación por email", nextStatus: "NOTIFIED_BY_EMAIL", tone: "warning" },
     { action: "confirm", label: "Confirmar cita", nextStatus: "CONFIRMED", tone: "success" },
     { action: "confirmWhatsApp", label: "Confirmar por WhatsApp", nextStatus: "CONFIRMED_BY_WHATSAPP", tone: "success" },
@@ -68,6 +69,7 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "history", label: "Ver historial" }
   ],
   NOTIFIED_BY_WHATSAPP: [
+    { action: "contactWhatsApp", label: "Volver a contactar por WhatsApp", tone: "brand" },
     { action: "markScheduled", label: "Volver a agendada", nextStatus: "SCHEDULED" },
     { action: "markPendingConfirmation", label: "Marcar por confirmar", nextStatus: "PENDING_CONFIRMATION", tone: "warning" },
     { action: "confirm", label: "Confirmar cita", nextStatus: "CONFIRMED", tone: "success" },
@@ -84,6 +86,7 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "history", label: "Ver historial" }
   ],
   NOTIFIED_BY_EMAIL: [
+    { action: "contactWhatsApp", label: "Contactar paciente por WhatsApp", tone: "brand" },
     { action: "markScheduled", label: "Volver a agendada", nextStatus: "SCHEDULED" },
     { action: "markPendingConfirmation", label: "Marcar por confirmar", nextStatus: "PENDING_CONFIRMATION", tone: "warning" },
     { action: "confirm", label: "Confirmar cita", nextStatus: "CONFIRMED", tone: "success" },
@@ -100,6 +103,7 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "history", label: "Ver historial" }
   ],
   CONFIRMED: [
+    { action: "contactWhatsApp", label: "Contactar paciente por WhatsApp", tone: "brand" },
     { action: "arrive", label: "Llegó a clínica", nextStatus: "ARRIVED", tone: "brand" },
     { action: "waitingRoom", label: "Pasar a sala de espera", nextStatus: "WAITING_ROOM", tone: "brand" },
     { action: "noShow", label: "No asistió", nextStatus: "NO_SHOW", tone: "danger" },
@@ -111,6 +115,7 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "history", label: "Ver historial" }
   ],
   CONFIRMED_BY_WHATSAPP: [
+    { action: "contactWhatsApp", label: "Contactar paciente por WhatsApp", tone: "brand" },
     { action: "arrive", label: "Llegó a clínica", nextStatus: "ARRIVED", tone: "brand" },
     { action: "waitingRoom", label: "Pasar a sala de espera", nextStatus: "WAITING_ROOM", tone: "brand" },
     { action: "noShow", label: "No asistió", nextStatus: "NO_SHOW", tone: "danger" },
@@ -122,6 +127,7 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "history", label: "Ver historial" }
   ],
   CONFIRMED_BY_PHONE: [
+    { action: "contactWhatsApp", label: "Contactar paciente por WhatsApp", tone: "brand" },
     { action: "arrive", label: "Llegó a clínica", nextStatus: "ARRIVED", tone: "brand" },
     { action: "waitingRoom", label: "Pasar a sala de espera", nextStatus: "WAITING_ROOM", tone: "brand" },
     { action: "noShow", label: "No asistió", nextStatus: "NO_SHOW", tone: "danger" },
@@ -133,6 +139,7 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "history", label: "Ver historial" }
   ],
   CONFIRMED_BY_EMAIL: [
+    { action: "contactWhatsApp", label: "Contactar paciente por WhatsApp", tone: "brand" },
     { action: "arrive", label: "Llegó a clínica", nextStatus: "ARRIVED", tone: "brand" },
     { action: "waitingRoom", label: "Pasar a sala de espera", nextStatus: "WAITING_ROOM", tone: "brand" },
     { action: "noShow", label: "No asistió", nextStatus: "NO_SHOW", tone: "danger" },
@@ -144,6 +151,7 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
     { action: "history", label: "Ver historial" }
   ],
   ARRIVED: [
+    { action: "contactWhatsApp", label: "Contactar paciente por WhatsApp", tone: "brand" },
     { action: "waitingRoom", label: "Pasar a sala de espera", nextStatus: "WAITING_ROOM", tone: "brand" },
     { action: "start", label: "Iniciar atención", nextStatus: "IN_PROGRESS", tone: "success" },
     { action: "noShow", label: "No asistió", nextStatus: "NO_SHOW", tone: "danger" },
@@ -176,9 +184,9 @@ export const APPOINTMENT_STATUS_MENU: Record<AppointmentStatus, AppointmentStatu
   CANCELLED_RESCHEDULED: [{ action: "history", label: "Ver historial" }],
   NO_SHOW: [{ action: "history", label: "Ver historial" }],
   RESCHEDULED: [
+    { action: "contactWhatsApp", label: "Contactar paciente por WhatsApp", tone: "brand" },
     { action: "markScheduled", label: "Volver a agendada", nextStatus: "SCHEDULED" },
     { action: "markPendingConfirmation", label: "Marcar por confirmar", nextStatus: "PENDING_CONFIRMATION", tone: "warning" },
-    { action: "notifyWhatsApp", label: "Notificar por WhatsApp", nextStatus: "NOTIFIED_BY_WHATSAPP", tone: "warning" },
     { action: "notifyEmail", label: "Enviar confirmación por email", nextStatus: "NOTIFIED_BY_EMAIL", tone: "warning" },
     { action: "confirm", label: "Confirmar cita", nextStatus: "CONFIRMED", tone: "success" },
     { action: "confirmWhatsApp", label: "Confirmar por WhatsApp", nextStatus: "CONFIRMED_BY_WHATSAPP", tone: "success" },

@@ -502,7 +502,9 @@ export class PricingService {
     });
     if (!procedure) throw new BadRequestException("Invalid or inactive procedureId");
     const agreement = await this.resolveAgreement(actor, dto, at);
-    const item = await this.resolveVersionItem(actor, dto, at, agreement?.version.priceListId ?? null);
+    const branchConfig = agreement?.version.branches.find((b) => b.branchId === dto.branchId);
+    const effectivePriceListId = branchConfig?.priceListOverrideId ?? agreement?.version.priceListId ?? null;
+    const item = await this.resolveVersionItem(actor, dto, at, effectivePriceListId);
     if (!item) throw new BadRequestException("No active price exists for this procedure, branch, date and currency");
 
     const base = item.basePrice;
@@ -521,7 +523,8 @@ export class PricingService {
         throw new BadRequestException("Procedure category is not eligible for this agreement");
       if (rule && !rule.isEligible) throw new BadRequestException("Procedure is not eligible for this agreement");
       if (rule?.preferredPrice !== null && rule?.preferredPrice !== undefined) applied = rule.preferredPrice;
-      discountPercent = rule?.discountPercent ?? agreement.version.discountPercent;
+      const defaultDiscount = branchConfig?.discountOverride ?? agreement.version.discountPercent;
+      discountPercent = rule?.discountPercent ?? defaultDiscount;
       coveragePercent = rule?.coveragePercent ?? agreement.version.coveragePercent;
       copay = rule?.copayAmount ?? agreement.version.copayAmount;
       coverageLimit = rule?.coverageLimitAmount ?? agreement.version.coverageLimitAmount;
@@ -1280,6 +1283,19 @@ export class PricingService {
         orderBy: { assignedAt: "desc" }
       });
       agreementId = assignment?.agreementId;
+      if (!agreementId) {
+        const patient = await this.prisma.patient.findFirst({
+          where: { id: dto.patientId, organizationId: actor.organizationId },
+          select: { agreementId: true }
+        });
+        agreementId = patient?.agreementId ?? undefined;
+      }
+    }
+    if (!agreementId) {
+      const defaultAgreement = await this.prisma.agreement.findFirst({
+        where: { organizationId: actor.organizationId, isDefault: true, isActive: true, status: "ACTIVE" }
+      });
+      agreementId = defaultAgreement?.id;
     }
     if (!agreementId) return null;
     const agreement = await this.prisma.agreement.findFirst({
@@ -1298,8 +1314,9 @@ export class PricingService {
       }
     });
     if (!agreement?.versions[0]) throw new BadRequestException("Agreement has no active version for the clinical date");
-    if (!agreement.versions[0].branches.some((branch) => branch.branchId === dto.branchId))
-      throw new BadRequestException("Agreement is not valid for this branch");
+    const branchConfig = agreement.versions[0].branches.find((branch) => branch.branchId === dto.branchId);
+    if (!branchConfig || branchConfig.enabled === false)
+      throw new BadRequestException("Agreement is not valid or is disabled for this branch");
     return { ...agreement, version: agreement.versions[0] };
   }
 

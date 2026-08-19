@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, CheckCircle2, ClipboardList, ShieldCheck } from "lucide-react";
+import { ArrowRight, CheckCircle2, ClipboardList, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
@@ -52,15 +53,14 @@ export function PatientMergePage() {
         </div>
 
         <div className="space-y-5 p-5">
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            <div className="flex gap-3">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
-              <div>
-                <p className="font-semibold">Teléfono compartido no es motivo de fusión.</p>
-                <p className="mt-1 text-amber-800">Compara documento, nacimiento, historial clínico y financiero. Ficha secundaria queda como MERGED; no se elimina.</p>
-              </div>
-            </div>
-          </div>
+          <Alert
+            variant="warning"
+            size="sm"
+            dismissible
+            title="Teléfono compartido no es motivo de fusión"
+          >
+            Compara documento, nacimiento, historial clínico y financiero. La ficha secundaria quedará como MERGED; no se eliminará.
+          </Alert>
 
           <div className="grid gap-5 md:grid-cols-[1fr_auto_1fr] md:items-start">
             <PatientSelection

@@ -215,8 +215,8 @@ function TemplatesPanel() {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <Card className="p-0 hover:translate-y-0">
-        <div className="flex items-center justify-between gap-4 border-b border-[var(--border-default)] px-5 py-4">
-          <div>
+        <div className="flex min-w-0 flex-col items-start gap-3 border-b border-[var(--border-default)] px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <h3 className="font-semibold text-[var(--text-primary)]">Biblioteca de plantillas</h3>
             <p className="mt-1 text-[13px] text-[var(--text-secondary)]">
               Cada modificación crea una versión; las campañas enviadas conservan su copia.
@@ -233,10 +233,10 @@ function TemplatesPanel() {
         ) : (
           <div className="divide-y divide-[var(--border-default)]">
             {(query.data ?? []).map((template) => (
-              <div key={template.id} className="flex items-center justify-between gap-4 px-5 py-4">
+              <div key={template.id} className="flex min-w-0 flex-col items-start gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate font-medium text-[var(--text-primary)]">{template.name}</p>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <p className="min-w-0 flex-1 truncate font-medium text-[var(--text-primary)]" title={template.name}>{template.name}</p>
                     <Badge value={`v${template.version}`} tone="default" />
                     <Badge
                       value={template.status}

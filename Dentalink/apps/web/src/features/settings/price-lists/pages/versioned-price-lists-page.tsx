@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { APP_ROUTES } from "@/lib/routes";
 import { CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Copy, Edit3, FileClock, History, Plus, Search, ShieldCheck, Trash2, Upload } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -178,11 +180,11 @@ export function VersionedPriceListsPage() {
   };
 
   const openCategoryRoute = (categoryId: string) => {
-    navigate(`/settings/price-lists/categories/${categoryId}${priceListSearch()}`);
+    navigate(`${APP_ROUTES.settings.priceLists}/categories/${categoryId}${priceListSearch()}`);
   };
 
   const openCategoriesRoute = (overrides?: { listId?: string; section?: "clinical" | "lab"; includeInactive?: boolean }, replace = false) => {
-    navigate(`/settings/price-lists${priceListSearch(overrides)}`, { replace });
+    navigate(`${APP_ROUTES.settings.priceLists}${priceListSearch(overrides)}`, { replace });
   };
 
   const changeSection = (nextSection: "clinical" | "lab") => {
@@ -193,7 +195,7 @@ export function VersionedPriceListsPage() {
   const changeSelectedList = (nextListId: string) => {
     setSelectedId(nextListId);
     if (selectedCategoryId) {
-      navigate(`/settings/price-lists/categories/${selectedCategoryId}${priceListSearch({ listId: nextListId })}`, { replace: true });
+      navigate(`${APP_ROUTES.settings.priceLists}/categories/${selectedCategoryId}${priceListSearch({ listId: nextListId })}`, { replace: true });
     } else {
       openCategoriesRoute({ listId: nextListId }, true);
     }
@@ -202,7 +204,7 @@ export function VersionedPriceListsPage() {
   const changeIncludeInactive = (nextIncludeInactive: boolean) => {
     setIncludeInactive(nextIncludeInactive);
     if (selectedCategoryId) {
-      navigate(`/settings/price-lists/categories/${selectedCategoryId}${priceListSearch({ includeInactive: nextIncludeInactive })}`, { replace: true });
+      navigate(`${APP_ROUTES.settings.priceLists}/categories/${selectedCategoryId}${priceListSearch({ includeInactive: nextIncludeInactive })}`, { replace: true });
     } else {
       openCategoriesRoute({ includeInactive: nextIncludeInactive }, true);
     }
@@ -414,9 +416,9 @@ export function VersionedPriceListsPage() {
       <Card className="overflow-hidden p-0">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3">
           <div className="flex items-center gap-1 text-sm">
-            <button type="button" className="rounded-md bg-[var(--bg-brand-light)] px-3 py-2 font-semibold text-[var(--text-brand)]">Listado de precios</button>
-            <button type="button" onClick={() => changeSection("clinical")} className={`px-3 py-2 ${section === "clinical" ? "font-semibold text-[var(--text-brand)]" : "text-[var(--text-secondary)]"}`}>De acciones clinicas</button>
-            <button type="button" onClick={() => changeSection("lab")} className={`px-3 py-2 ${section === "lab" ? "font-semibold text-[var(--text-brand)]" : "text-[var(--text-secondary)]"}`}>De laboratorio</button>
+            <button type="button" data-allow-multiline className="rounded-md bg-[var(--bg-brand-light)] px-3 py-2 font-semibold text-[var(--text-brand)]">Listado de precios</button>
+            <button type="button" data-allow-multiline onClick={() => changeSection("clinical")} className={`px-3 py-2 ${section === "clinical" ? "font-semibold text-[var(--text-brand)]" : "text-[var(--text-secondary)]"}`}>De acciones clinicas</button>
+            <button type="button" data-allow-multiline onClick={() => changeSection("lab")} className={`px-3 py-2 ${section === "lab" ? "font-semibold text-[var(--text-brand)]" : "text-[var(--text-secondary)]"}`}>De laboratorio</button>
           </div>
           {can("price_list.create") ? <Button size="sm" onClick={() => setWizardOpen(true)}><Plus className="h-4 w-4" /> Nuevo listado</Button> : null}
         </div>
@@ -444,8 +446,25 @@ export function VersionedPriceListsPage() {
               {latestVersion.status === "DRAFT" && can("price_list.publish") ? <Button size="sm" onClick={openPublication}><ShieldCheck className="h-4 w-4" /> Previsualizar y publicar</Button> : null}
             </div>
           </div>
-          <div className="overflow-x-auto">
+          <div className="min-w-0">
             {!selectedCategory ? (
+              <>
+                <div className="grid gap-3 p-3 2xl:hidden">
+                  {activeCategories.map(({ category, configuredItems, catalogProcedures }) => (
+                    <article key={category.id} className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+                      <button type="button" data-allow-multiline onClick={() => openCategoryRoute(category.id)} className="flex max-w-full items-center gap-2 text-left font-semibold text-[var(--text-brand)]">
+                        <span className="min-w-0 break-words">{category.name}</span><ChevronRight className="h-4 w-4 shrink-0" />
+                      </button>
+                      <dl className="mt-3 grid grid-cols-2 gap-3 border-y border-[var(--border-default)] py-3 text-sm">
+                        <div><dt className="text-xs text-[var(--text-secondary)]">Tipo</dt><dd className="mt-0.5 font-medium">{typeLabel[category.type]}</dd></div>
+                        <div><dt className="text-xs text-[var(--text-secondary)]">Prestaciones</dt><dd className="mt-0.5 font-medium tabular-nums">{configuredItems.length} / {catalogProcedures.length}</dd></div>
+                      </dl>
+                      <div className="mt-3 flex justify-end"><Button variant="secondary" size="sm" onClick={() => openCategoryRoute(category.id)}>Entrar</Button></div>
+                    </article>
+                  ))}
+                  {!procedureCategories.isLoading && !activeCategories.length ? <div className="py-12 text-center text-[var(--text-secondary)]">No hay categorias para el filtro seleccionado.</div> : null}
+                </div>
+                <div className="hidden overflow-x-auto 2xl:block">
               <table className="w-full border-collapse text-sm">
                 <thead className="bg-[var(--bg-subtle)] text-left"><tr><th className="px-4 py-3">Categoria</th><th className="px-4 py-3">Tipo</th><th className="px-4 py-3 text-right">Prestaciones</th><th className="px-4 py-3 text-right">Acciones</th></tr></thead>
                 <tbody>
@@ -464,6 +483,8 @@ export function VersionedPriceListsPage() {
                   {!procedureCategories.isLoading && !activeCategories.length ? <tr><td colSpan={4} className="px-4 py-12 text-center text-[var(--text-secondary)]">No hay categorias para el filtro seleccionado.</td></tr> : null}
                 </tbody>
               </table>
+                </div>
+              </>
             ) : (
               <div>
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3">
@@ -794,7 +815,7 @@ export function VersionedPriceListsPage() {
               <h3 className="mb-2 text-sm font-semibold text-[var(--text-primary)]">Versiones</h3>
               <div className="overflow-x-auto rounded-md border border-[var(--border-default)]">
                 <table className="w-full text-sm">
-                  <thead className="bg-[var(--bg-subtle)] text-left text-xs text-[var(--text-secondary)]"><tr><th className="px-3 py-2">Versión</th><th className="px-3 py-2">Estado</th><th className="px-3 py-2">Publicación</th><th className="px-3 py-2">Autor</th><th className="px-3 py-2 text-right">Prestaciones</th><th className="px-3 py-2 text-right">Tratamientos</th><th className="px-3 py-2">Resumen / checksum</th></tr></thead>
+                  <thead className="bg-[var(--bg-subtle)] text-left text-xs text-[var(--text-secondary)]"><tr><th className="px-3 py-2">Versión</th><th className="px-3 py-2">Estado</th><th className="px-3 py-2">Publicación</th><th className="px-3 py-2">Autor</th><th className="px-3 py-2 text-right">Prestaciones</th><th className="px-3 py-2 text-right">Tratamientos</th><th className="px-3 py-2">Resumen de cambios</th></tr></thead>
                   <tbody>
                     {(history.data?.versions ?? []).map((version) => (
                       <tr key={version.id} className="border-t border-[var(--border-default)] align-top">
@@ -804,7 +825,7 @@ export function VersionedPriceListsPage() {
                         <td className="px-3 py-3 text-[var(--text-secondary)]">{version.publishedBy ? `${version.publishedBy.firstName} ${version.publishedBy.lastName}` : "—"}</td>
                         <td className="px-3 py-3 text-right">{version._count.items}</td>
                         <td className="px-3 py-3 text-right">{version._count.treatmentItems}</td>
-                        <td className="max-w-[280px] px-3 py-3"><p>{version.changeSummary ?? "Sin resumen"}</p>{version.checksum ? <p className="mt-1 truncate font-mono text-[10px] text-[var(--text-secondary)]" title={version.checksum}>{version.checksum}</p> : null}</td>
+                        <td className="max-w-[280px] px-3 py-3"><p className="font-medium text-slate-800">{version.changeSummary || "Versión registrada sin notas"}</p></td>
                       </tr>
                     ))}
                   </tbody>
@@ -819,7 +840,6 @@ export function VersionedPriceListsPage() {
                   <article key={event.id} className="rounded-md border border-[var(--border-default)] p-3 text-sm">
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div><p className="font-semibold text-[var(--text-primary)]">{auditActionLabel[event.action] ?? event.action}</p><p className="text-xs text-[var(--text-secondary)]">{event.actor ? `${event.actor.firstName} ${event.actor.lastName}` : "Sistema"} · {historyDate(event.createdAt)}</p></div>
-                      {event.correlationId ? <span className="font-mono text-[10px] text-[var(--text-secondary)]">{event.correlationId}</span> : null}
                     </div>
                     {event.reason ? <p className="mt-2 text-[var(--text-secondary)]">Motivo: {event.reason}</p> : null}
                     {event.oldValue !== undefined || event.newValue !== undefined ? (
@@ -841,8 +861,12 @@ export function VersionedPriceListsPage() {
 
       <Modal open={publishOpen} onClose={() => setPublishOpen(false)} title="Previsualizar publicacion" size="lg">
         {!validation ? <LoadingState /> : <div className="space-y-4">
-          <div className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-medium text-amber-900">Esta publicación no modificará tratamientos existentes.</div>
-          <div className={`rounded-md border p-4 ${validation.valid ? "border-green-300 bg-green-50" : "border-red-300 bg-red-50"}`}><div className="flex items-center gap-2 font-semibold">{validation.valid ? <CheckCircle2 className="h-5 w-5 text-green-700" /> : <CalendarClock className="h-5 w-5 text-red-700" />}{validation.valid ? "Validacion aprobada" : "Publicacion bloqueada"}</div></div>
+          <Alert variant="warning" size="sm">
+            Esta publicación no modificará tratamientos existentes.
+          </Alert>
+          <Alert variant={validation.valid ? "success" : "danger"} size="sm" title={validation.valid ? "Validación aprobada" : "Publicación bloqueada"}>
+            {validation.valid ? "La lista de precios es consistente y puede publicarse de forma inmutable." : "Corrige los errores indicados a continuación para poder publicar."}
+          </Alert>
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-md border border-[var(--border-default)] bg-[var(--bg-subtle)] p-4 text-sm">
             <dt className="text-[var(--text-secondary)]">Versión que será reemplazada</dt><dd className="font-semibold">{history.data?.activeVersion ? `v${history.data.activeVersion.versionNumber}` : "Ninguna"}</dd>
             <dt className="text-[var(--text-secondary)]">Tratamientos que conservan precio histórico</dt><dd className="font-semibold">{history.data?.activeVersion?._count.treatmentItems ?? 0}</dd>
@@ -865,32 +889,62 @@ function AuditDiffViewer({ oldValue, newValue }: { oldValue: unknown; newValue: 
   const IGNORED_KEYS = new Set([
     "id", "checksum", "organizationId", "priceListId", "scopes", "replacedVersions",
     "previousVersionId", "updatedById", "validTo", "validFrom", "createdAt", "updatedAt",
-    "sourceVersionId", "version"
+    "sourceVersionId", "version", "rawPayload", "meta", "tenantId", "actorId", "userId",
+    "correlationId", "entityId"
   ]);
 
   const FIELD_LABELS: Record<string, string> = {
     versionNumber: "Número de versión",
-    status: "Estado",
-    currency: "Moneda",
+    status: "Estado del listado",
+    currency: "Moneda de cobro",
     changeSummary: "Resumen de cambios",
     itemCount: "Total de prestaciones",
     name: "Nombre del tarifario",
-    code: "Código",
+    code: "Código de referencia",
+    description: "Descripción",
     basePrice: "Precio base",
     maxDiscountPercent: "% Descuento máx.",
     allowDiscount: "Permite descuento",
-    laboratoryCost: "Costo laboratorio"
+    laboratoryCost: "Costo laboratorio",
+    internalCost: "Costo interno / insumos",
+    branchIds: "Sucursales asignadas",
+    branches: "Sucursales",
+    type: "Tipo de arancel",
+    isDefault: "Listado predeterminado"
   };
 
-  const formatSimpleValue = (val: any) => {
+  const formatSimpleValue = (key: string, val: any) => {
     if (val === null || val === undefined || val === "") return <span className="text-slate-400 font-normal italic">Sin registro</span>;
     if (typeof val === "boolean") return <Badge value={val ? "Sí" : "No"} tone={val ? "success" : "default"} />;
-    if (typeof val === "number" || typeof val === "string") return <span className="font-semibold text-slate-800">{String(val)}</span>;
-    return <span className="text-slate-600 font-mono text-[11px]">{JSON.stringify(val)}</span>;
+    if (key === "status" && typeof val === "string") {
+      const label = statusLabel[val as PriceListStatus] ?? val;
+      return <Badge value={label} tone={statusTone(val as PriceListStatus)} />;
+    }
+    if (key === "currency" && typeof val === "string") {
+      return <span className="font-semibold text-slate-800">{val}</span>;
+    }
+    if ((key === "basePrice" || key === "laboratoryCost" || key === "internalCost") && (typeof val === "number" || typeof val === "string")) {
+      return <span className="font-semibold text-slate-800">${Number(val).toLocaleString("es-MX", { minimumFractionDigits: 2 })}</span>;
+    }
+    if (key === "maxDiscountPercent" && (typeof val === "number" || typeof val === "string")) {
+      return <span className="font-semibold text-slate-800">{val}%</span>;
+    }
+    if (Array.isArray(val)) {
+      return <span className="text-slate-700 font-medium">{val.length} elementos</span>;
+    }
+    if (typeof val === "object") {
+      return <span className="text-slate-500 italic">Configuración avanzada</span>;
+    }
+    return <span className="font-semibold text-slate-800">{String(val)}</span>;
   };
 
   const getCleanEntries = (obj: Record<string, any>) => {
-    return Object.entries(obj).filter(([key]) => !IGNORED_KEYS.has(key) && key !== "items");
+    return Object.entries(obj).filter(([key, val]) => {
+      if (IGNORED_KEYS.has(key)) return false;
+      if (/id$/i.test(key) || /_id$/i.test(key) || /hash$/i.test(key) || /checksum$/i.test(key)) return false;
+      if (key === "items") return false;
+      return val !== undefined;
+    });
   };
 
   const oldEntries = getCleanEntries(oldObj);
@@ -955,9 +1009,9 @@ function AuditDiffViewer({ oldValue, newValue }: { oldValue: unknown; newValue: 
         <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Estado</span>
           <div className="mt-1 flex items-center gap-2">
-            {oldObj.status ? <Badge value={oldObj.status} tone="default" /> : null}
+            {oldObj.status ? <Badge value={statusLabel[oldObj.status as PriceListStatus] ?? oldObj.status} tone="default" /> : null}
             {oldObj.status && newObj.status ? <span className="text-slate-400 font-bold">➔</span> : null}
-            {newObj.status ? <Badge value={newObj.status} tone={newObj.status === "ACTIVE" ? "success" : "brand"} /> : <span className="text-xs text-slate-400">-</span>}
+            {newObj.status ? <Badge value={statusLabel[newObj.status as PriceListStatus] ?? newObj.status} tone={statusTone(newObj.status as PriceListStatus)} /> : <span className="text-xs text-slate-400">-</span>}
           </div>
         </div>
 
@@ -984,8 +1038,8 @@ function AuditDiffViewer({ oldValue, newValue }: { oldValue: unknown; newValue: 
               return (
                 <div key={key} className="grid grid-cols-3 gap-2 px-3 py-2 hover:bg-slate-50/50">
                   <span className="font-medium text-slate-500 capitalize">{label}</span>
-                  <div className="text-slate-600">{formatSimpleValue(valOld)}</div>
-                  <div className="text-slate-900 font-semibold">{formatSimpleValue(valNew)}</div>
+                  <div className="text-slate-600">{formatSimpleValue(key, valOld)}</div>
+                  <div className="text-slate-900 font-semibold">{formatSimpleValue(key, valNew)}</div>
                 </div>
               );
             })}

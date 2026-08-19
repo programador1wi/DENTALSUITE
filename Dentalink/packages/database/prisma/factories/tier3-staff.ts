@@ -4,8 +4,28 @@ import bcrypt from "bcryptjs";
 export async function seedTier3Staff(prisma: PrismaClient, orgId: string, branches: Branch[], specialties: Specialty[]) {
   console.log("🌱 [Tier 3] Seeding Staff (Chairs & Professionals)...");
 
-  const dentistRole = await prisma.role.findFirst({ where: { organizationId: orgId, name: "DENTIST" } });
-  const receptionistRole = await prisma.role.findFirst({ where: { organizationId: orgId, name: "RECEPTIONIST" } });
+  const dentistRole = await prisma.role.findFirst({
+    where: {
+      organizationId: orgId,
+      OR: [
+        { code: "dentista" },
+        { name: "Dentista" },
+        { code: "dentist" },
+        { name: "DENTIST" }
+      ]
+    }
+  });
+  const receptionistRole = await prisma.role.findFirst({
+    where: {
+      organizationId: orgId,
+      OR: [
+        { code: "recepcion" },
+        { name: "Recepción" },
+        { code: "receptionist" },
+        { name: "RECEPTIONIST" }
+      ]
+    }
+  });
 
   const createdProfessionals = [];
   const createdChairs = [];

@@ -36,3 +36,5 @@ export const PERMISSIONS = {
 
 export type RoleCode = (typeof ROLE_CODES)[keyof typeof ROLE_CODES];
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
+
+export * from "./access-control";

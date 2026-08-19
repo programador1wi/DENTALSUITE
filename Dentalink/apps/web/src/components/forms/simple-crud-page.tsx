@@ -1,10 +1,12 @@
 import { type ReactNode, useMemo, useState } from "react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { TableActionGroup } from "@/components/ui/table-toolbar";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
@@ -79,7 +81,8 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
   fields,
   columns,
   actions,
-  useModal = false
+  useModal = false,
+  createButtonLabel
 }: {
   title: string;
   description: string;
@@ -96,6 +99,7 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
   columns: ColumnConfig<T>[];
   actions: CrudActions<T>;
   useModal?: boolean;
+  createButtonLabel?: string;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<Record<string, unknown>>(() => normalizeInitial(fields));
@@ -235,7 +239,10 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
           </div>
           {useModal ? (
             <div className="flex items-center justify-end">
-              <Button onClick={onNew}>Nuevo</Button>
+              <Button onClick={onNew}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                {createButtonLabel ?? `Nuevo ${title}`}
+              </Button>
             </div>
           ) : null}
         </div>
@@ -286,12 +293,14 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
             {
               key: columns[0].key,
               title: "Acciones",
+              actions: true,
+              headerClassName: "text-right",
               render: (row) => {
                 const id = actions.getId(row);
                 const canDeactivate = (row as { isActive?: boolean }).isActive !== false;
 
                 return (
-                  <div className="flex gap-2">
+                  <TableActionGroup>
                     <Button variant="secondary" onClick={() => onEdit(row)}>
                       Editar
                     </Button>
@@ -305,7 +314,7 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
                     >
                       Desactivar
                     </Button>
-                  </div>
+                  </TableActionGroup>
                 );
               }
             }

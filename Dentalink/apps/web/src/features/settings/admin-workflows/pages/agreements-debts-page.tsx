@@ -12,6 +12,7 @@ import {
   UsersRound
 } from "lucide-react";
 import { toast } from "sonner";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -66,8 +67,21 @@ export function AgreementsDebtsPage() {
   const [paymentSelection, setPaymentSelection] = useState<DebtSelection | null>(null);
   const [exporting, setExporting] = useState(false);
   const report = useAgreementDebts(filters, canRead);
+  const [showZeroDebt, setShowZeroDebt] = useState(false);
 
-  const agreements = report.data?.filters.agreements ?? [];
+  const data = report.data;
+
+  const visibleConsolidated = useMemo(() => {
+    if (showZeroDebt) return data?.consolidated ?? [];
+    return (data?.consolidated ?? []).filter((row) => row.outstandingDebt > 0);
+  }, [data?.consolidated, showZeroDebt]);
+
+  const visibleByBranch = useMemo(() => {
+    if (showZeroDebt) return data?.byBranch ?? [];
+    return (data?.byBranch ?? []).filter((row) => row.outstandingDebt > 0);
+  }, [data?.byBranch, showZeroDebt]);
+
+  const agreements = data?.filters.agreements ?? [];
   const filteredAgreements = draftFilters.companyId
     ? agreements.filter((agreement) => agreement.companyId === draftFilters.companyId)
     : agreements;
@@ -102,39 +116,54 @@ export function AgreementsDebtsPage() {
   if (report.isError && !report.data)
     return <ErrorState message={report.error.message || "No fue posible calcular el reporte"} />;
 
-  const data = report.data;
-
   return (
-    <div className="space-y-5">
+    <div className="space-y-3.5">
       <PageHeader
-        title="Reporte de deudas"
-        description="Cargos que empresas asociadas a convenios deben entregar a la clínica. No modifica la deuda particular del paciente."
-        helpText="La fecha de corte incluye cuotas con vencimiento hasta ese día y descuenta únicamente pagos empresariales confirmados y aplicados."
+        title="Cuentas por cobrar"
+        description="Cargos que empresas asociadas a convenios deben entregar a la clínica."
       />
 
-      <Card className="overflow-hidden border-sky-100 bg-[linear-gradient(135deg,rgba(240,249,255,0.94),rgba(255,255,255,0.98)_58%,rgba(236,253,245,0.72))] p-0">
-        <form onSubmit={consult} className="space-y-4 p-5">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.16em] text-sky-700">
+      <Card className="overflow-hidden border-sky-100 bg-white p-3.5 shadow-xs">
+        <form onSubmit={consult} className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-sky-50 pb-2">
+            <div className="flex items-center gap-2">
+              <span className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-sky-700">
                 <CalendarDays className="h-4 w-4" /> Corte contable
-              </div>
-              <p className="mt-1 text-sm text-slate-600">
-                Consulta por identidad, no por nombre: empresa, convenio, sucursal y moneda.
-              </p>
+              </span>
+              {data?.reconciliation.matches ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-800">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Consolidado conciliado
+                </span>
+              ) : null}
             </div>
-            {data?.reconciliation.matches ? (
-              <div className="flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800">
-                <CheckCircle2 className="h-4 w-4" /> Consolidado conciliado con sucursales
-              </div>
-            ) : null}
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-1.5 text-xs font-medium text-slate-700 cursor-pointer mr-2">
+                <input
+                  type="checkbox"
+                  checked={showZeroDebt}
+                  onChange={(e) => setShowZeroDebt(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+                />
+                Mostrar sin deuda ($0)
+              </label>
+              {canExport ? (
+                <Button type="button" variant="secondary" size="sm" className="h-8 text-xs px-3" onClick={() => void download()} disabled={exporting}>
+                  <Download className="h-3.5 w-3.5 mr-1" /> {exporting ? "..." : "Exportar CSV"}
+                </Button>
+              ) : null}
+              <Button type="submit" size="sm" className="h-8 text-xs px-3 bg-emerald-600 hover:bg-emerald-700" disabled={report.isFetching}>
+                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${report.isFetching ? "animate-spin" : ""}`} />
+                {report.isFetching ? "..." : "Consultar"}
+              </Button>
+            </div>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-6">
+          <div className="grid gap-2.5 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
             <Field label="Fecha de corte">
               <Input
                 type="date"
                 required
+                className="h-8 text-xs"
                 value={draftFilters.cutoffDate}
                 onChange={(event) =>
                   setDraftFilters((current) => ({ ...current, cutoffDate: event.target.value }))
@@ -143,6 +172,7 @@ export function AgreementsDebtsPage() {
             </Field>
             <Field label="Empresa">
               <Select
+                className="h-8 text-xs"
                 value={draftFilters.companyId ?? ""}
                 onChange={(event) =>
                   setDraftFilters((current) => ({
@@ -160,6 +190,7 @@ export function AgreementsDebtsPage() {
             </Field>
             <Field label="Convenio">
               <Select
+                className="h-8 text-xs"
                 value={draftFilters.agreementId ?? ""}
                 onChange={(event) =>
                   setDraftFilters((current) => ({
@@ -176,6 +207,7 @@ export function AgreementsDebtsPage() {
             </Field>
             <Field label="Sucursal">
               <Select
+                className="h-8 text-xs"
                 value={draftFilters.branchId ?? ""}
                 onChange={(event) =>
                   setDraftFilters((current) => ({
@@ -192,6 +224,7 @@ export function AgreementsDebtsPage() {
             </Field>
             <Field label="Moneda">
               <Select
+                className="h-8 text-xs"
                 value={draftFilters.currencyId ?? ""}
                 onChange={(event) =>
                   setDraftFilters((current) => ({
@@ -208,6 +241,7 @@ export function AgreementsDebtsPage() {
             </Field>
             <Field label="Alcance">
               <Select
+                className="h-8 text-xs"
                 value={draftFilters.scope ?? "AUTHORIZED"}
                 disabled={!data?.filters.canViewAllBranches}
                 onChange={(event) =>
@@ -222,22 +256,8 @@ export function AgreementsDebtsPage() {
               </Select>
             </Field>
           </div>
-
-          <div className="flex flex-wrap justify-end gap-2 border-t border-sky-100 pt-4">
-            {canExport ? (
-              <Button type="button" variant="secondary" onClick={() => void download()} disabled={exporting}>
-                <Download className="h-4 w-4" /> {exporting ? "Exportando..." : "Exportar CSV"}
-              </Button>
-            ) : null}
-            <Button type="submit" disabled={report.isFetching}>
-              <RefreshCw className={`h-4 w-4 ${report.isFetching ? "animate-spin" : ""}`} />
-              {report.isFetching ? "Calculando..." : "Consultar"}
-            </Button>
-          </div>
         </form>
       </Card>
-
-      {data ? <SummaryBand data={data.totals} byCurrency={data.totalsByCurrency} cutoffDate={data.cutoffDate} /> : null}
 
       <DebtSection
         title="Deudas consolidadas"
@@ -245,9 +265,14 @@ export function AgreementsDebtsPage() {
         icon={<Building2 className="h-5 w-5" />}
         emptyReason={data?.diagnostics.emptyReason}
         futureChargeCount={data?.diagnostics.futureChargeCount ?? 0}
+        headerExtra={
+          data ? (
+            <CompactSummaryPills data={data.totals} byCurrency={data.totalsByCurrency} />
+          ) : null
+        }
       >
         <DataTable
-          rows={(data?.consolidated ?? []) as Array<AgreementDebt & Record<string, unknown>>}
+          rows={visibleConsolidated as Array<AgreementDebt & Record<string, unknown>>}
           tableClassName="min-w-[1180px]"
           containerClassName="max-h-[520px]"
           empty={<DebtEmptyState reason={data?.diagnostics.emptyReason} futureCount={data?.diagnostics.futureChargeCount ?? 0} />}
@@ -267,9 +292,13 @@ export function AgreementsDebtsPage() {
               render: (row) => (
                 <div className="flex items-center gap-1">
                   <Button size="sm" variant="ghost" onClick={() => setDetailSelection(row)}><Eye className="h-4 w-4" /> Detalle</Button>
-                  {canCreatePayment && row.outstandingDebt > 0 ? (
-                    <Button size="sm" onClick={() => setPaymentSelection(row)}>Registrar pago</Button>
-                  ) : null}
+                  {row.outstandingDebt > 0 ? (
+                    canCreatePayment ? (
+                      <Button size="sm" onClick={() => setPaymentSelection(row)}>Cobrar</Button>
+                    ) : null
+                  ) : (
+                    <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">Sin deuda</span>
+                  )}
                 </div>
               )
             }
@@ -285,7 +314,7 @@ export function AgreementsDebtsPage() {
         futureChargeCount={data?.diagnostics.futureChargeCount ?? 0}
       >
         <DataTable
-          rows={(data?.byBranch ?? []) as Array<AgreementBranchDebt & Record<string, unknown>>}
+          rows={visibleByBranch as Array<AgreementBranchDebt & Record<string, unknown>>}
           tableClassName="min-w-[1080px]"
           containerClassName="max-h-[520px]"
           empty={<DebtEmptyState reason={data?.diagnostics.emptyReason} futureCount={data?.diagnostics.futureChargeCount ?? 0} branch />}
@@ -303,9 +332,13 @@ export function AgreementsDebtsPage() {
               render: (row) => (
                 <div className="flex items-center gap-1">
                   <Button size="sm" variant="ghost" onClick={() => setDetailSelection(row)}><Eye className="h-4 w-4" /> Detalle</Button>
-                  {canCreatePayment && row.outstandingDebt > 0 ? (
-                    <Button size="sm" onClick={() => setPaymentSelection(row)}>Registrar pago</Button>
-                  ) : null}
+                  {row.outstandingDebt > 0 ? (
+                    canCreatePayment ? (
+                      <Button size="sm" onClick={() => setPaymentSelection(row)}>Cobrar</Button>
+                    ) : null
+                  ) : (
+                    <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">Sin deuda</span>
+                  )}
                 </div>
               )
             }
@@ -324,33 +357,35 @@ export function AgreementsDebtsPage() {
   );
 }
 
-function SummaryBand({ data, byCurrency, cutoffDate }: { data: { patients: number; charges: number }; byCurrency: Array<{ currency: string; generatedCharges: number; paid: number; debt: number }>; cutoffDate: string }) {
-  const items = [
-    ...byCurrency.map((total) => ({ label: `Deuda ${total.currency}`, value: money(total.debt, total.currency), secondary: `${money(total.generatedCharges, total.currency)} cargos · ${money(total.paid, total.currency)} aplicado`, icon: CircleDollarSign, accent: total.debt > 0 })),
-    { label: "Pacientes", value: String(data.patients), secondary: "Afiliados con cargos al corte", icon: UsersRound, accent: false },
-    { label: "Cuotas", value: String(data.charges), secondary: `Incluidas al ${formatDate(cutoffDate)}`, icon: FileSearch, accent: false }
-  ];
+function CompactSummaryPills({ data, byCurrency }: { data: { patients: number; charges: number }; byCurrency: Array<{ currency: string; generatedCharges: number; paid: number; debt: number }> }) {
   return (
-    <div className="grid overflow-hidden rounded-xl border border-slate-200 bg-white sm:grid-cols-2 lg:grid-cols-4">
-      {items.map((item) => (
-        <div key={item.label} className="flex items-center gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 sm:border-r lg:border-b-0">
-          <div className={`rounded-lg p-2 ${item.accent ? "bg-amber-100 text-amber-800" : "bg-sky-50 text-sky-700"}`}><item.icon className="h-4 w-4" /></div>
-          <div className="min-w-0"><p className="text-xs font-medium text-slate-500">{item.label}</p><p className="truncate text-sm font-bold text-slate-900">{item.value}</p><p className="truncate text-[11px] text-slate-500">{item.secondary}</p></div>
-        </div>
+    <div className="flex flex-wrap items-center gap-2">
+      {byCurrency.map((total) => (
+        <span key={total.currency} className={`inline-flex items-center gap-1 rounded-md px-2.5 py-0.5 text-xs font-bold ${total.debt > 0 ? "bg-amber-100 text-amber-900 border border-amber-200" : "bg-slate-100 text-slate-700"}`}>
+          <CircleDollarSign className="h-3.5 w-3.5" /> Deuda {total.currency}: {money(total.debt, total.currency)}
+        </span>
       ))}
-      <span className="sr-only">Fecha de corte {cutoffDate}</span>
+      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
+        <UsersRound className="h-3.5 w-3.5 text-sky-600" /> {data.patients} Pacientes
+      </span>
+      <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-700">
+        <FileSearch className="h-3.5 w-3.5 text-sky-600" /> {data.charges} Cuotas
+      </span>
     </div>
   );
 }
 
-function DebtSection({ title, eyebrow, icon, children }: { title: string; eyebrow: string; icon: React.ReactNode; emptyReason?: string | null; futureChargeCount: number; children: React.ReactNode }) {
+function DebtSection({ title, eyebrow, icon, headerExtra, children }: { title: string; eyebrow: string; icon: React.ReactNode; headerExtra?: React.ReactNode; emptyReason?: string | null; futureChargeCount: number; children: React.ReactNode }) {
   return (
     <Card className="p-0">
-      <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-4">
-        <div className="rounded-lg bg-slate-900 p-2 text-white">{icon}</div>
-        <div><p className="text-[11px] font-bold uppercase tracking-[0.14em] text-sky-700">{eyebrow}</p><h3 className="text-lg font-semibold text-slate-950">{title}</h3></div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-2.5">
+        <div className="flex items-center gap-2.5">
+          <div className="rounded-md bg-slate-900 p-1.5 text-white">{icon}</div>
+          <div><p className="text-[10px] font-bold uppercase tracking-[0.12em] text-sky-700">{eyebrow}</p><h3 className="text-sm font-bold text-slate-950">{title}</h3></div>
+        </div>
+        {headerExtra ? <div>{headerExtra}</div> : null}
       </div>
-      <div className="p-5">{children}</div>
+      <div className="p-3">{children}</div>
     </Card>
   );
 }
@@ -521,7 +556,11 @@ function CompanyPaymentModal({ selection, reportFilters, canApprove, onClose }: 
           </div>
         ) : null}
         <Field label="Observaciones"><textarea className="min-h-24 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-100" value={notes} onChange={(event) => setNotes(event.target.value)} /></Field>
-        {!canApprove ? <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">El pago se guardará como borrador porque no tienes permiso de aprobación.</p> : null}
+        {!canApprove ? (
+          <Alert variant="warning" size="sm">
+            El pago se guardará como borrador porque no tienes permiso de aprobación.
+          </Alert>
+        ) : null}
         <div className="flex justify-end gap-2 border-t border-slate-100 pt-4"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" disabled={createPayment.isPending}>{createPayment.isPending ? "Registrando..." : canApprove ? "Registrar y aplicar" : "Guardar borrador"}</Button></div>
       </form>
     </Modal>

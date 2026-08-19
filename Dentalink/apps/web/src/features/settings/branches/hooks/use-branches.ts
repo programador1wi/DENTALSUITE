@@ -68,7 +68,7 @@ export function sortBranches<T extends { name: string }>(branches: T[]): T[] {
   });
 }
 
-export function useBranches(search?: string, status?: string) {
+export function useBranches(search?: string, status?: string, enabled = true) {
   const accessToken = useAuthStore((state) => state.accessToken);
 
   return useQuery({
@@ -77,7 +77,7 @@ export function useBranches(search?: string, status?: string) {
       const data = await listBranches({ search, status });
       return sortBranches(data);
     },
-    enabled: Boolean(accessToken)
+    enabled: Boolean(accessToken) && enabled
   });
 }
 

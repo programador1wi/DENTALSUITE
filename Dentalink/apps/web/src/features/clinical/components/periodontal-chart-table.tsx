@@ -281,7 +281,7 @@ export function PeriodontalChartTable({
   );
 
   const renderTable = (teeth: readonly string[], positions: readonly Position[]) => (
-    <div className="mx-auto w-fit max-w-full overflow-x-auto rounded border border-slate-200 bg-white">
+    <div className="mx-auto w-fit max-w-full overflow-x-auto rounded border border-slate-200 bg-white" data-responsive-overflow="contained" aria-label="Periodontograma desplazable">
       <table className="border-collapse table-fixed font-mono text-[10px] text-slate-700" style={{ width: LABEL_WIDTH + CHART_WIDTH }}>
         {renderColGroup(teeth)}
         <tbody>
@@ -422,7 +422,7 @@ export function PeriodontalChartTable({
     const positionGroups = [OUTER_POSITIONS, INNER_POSITIONS] as const;
 
     return (
-      <div className="mx-auto w-fit max-w-full overflow-x-auto rounded border border-slate-200 bg-white py-2">
+      <div className="mx-auto w-fit max-w-full overflow-x-auto rounded border border-slate-200 bg-white py-2" data-responsive-overflow="contained" aria-label="Comparación periodontal desplazable">
         <div className="grid w-max" style={{ gridTemplateColumns: `${LABEL_WIDTH}px ${CHART_WIDTH}px` }}>
           <div className="grid text-center font-sans text-sm font-medium text-slate-600" style={{ height: imageHeight, gridTemplateRows: `repeat(2, ${rowHeight}px)` }}>
             {labels.map((label) => (

@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, Copy, Edit, Eye, FileText, Plus, Power, Video } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Copy, Edit, Eye, Plus, Power, Video } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { TableActionGroup } from "@/components/ui/table-toolbar";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -35,7 +36,6 @@ export function ClinicalDocumentTemplatesSettingsPage() {
   const [form, setForm] = useState<TemplateForm>(emptyForm);
   const [editorOpen, setEditorOpen] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<ClinicalDocumentTemplateSettings | null>(null);
-  const [actionsOpen, setActionsOpen] = useState<string | null>(null);
 
   const templates = useClinicalDocumentTemplatesSettings(search || undefined, active || undefined);
   const createTemplate = useCreateClinicalDocumentTemplateSettings();
@@ -56,7 +56,6 @@ export function ClinicalDocumentTemplatesSettingsPage() {
     setEditingId(template.id);
     setForm({ name: template.name, description: template.description ?? "", content: normalizeClinicalDocumentContent(template.content) });
     setEditorOpen(true);
-    setActionsOpen(null);
   };
 
   const submit = async () => {
@@ -70,12 +69,12 @@ export function ClinicalDocumentTemplatesSettingsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Documentos clinicos" description="Plantillas para documentos del expediente del paciente." />
+      <PageHeader title="Documentos clínicos" description="Plantillas para documentos del expediente del paciente." />
 
       <Card>
         <div className="grid gap-3 lg:grid-cols-[1fr_220px_auto]">
           <EntitySearchBox
-            placeholder="Buscar documento clinico"
+            placeholder="Buscar documento clínico"
             value={search}
             onValueChange={setSearch}
             items={search.trim() ? rows : []}
@@ -85,7 +84,7 @@ export function ClinicalDocumentTemplatesSettingsPage() {
             renderItem={(template) => (
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-slate-900">{template.name}</p>
-                <p className="truncate text-xs text-slate-500">{template.description || "Sin descripcion"}</p>
+                <p className="truncate text-xs text-slate-500">{template.description || "Sin descripción"}</p>
               </div>
             )}
           />
@@ -101,44 +100,86 @@ export function ClinicalDocumentTemplatesSettingsPage() {
             </Button>
             <Button type="button" onClick={openNew}>
               <Plus className="h-4 w-4" />
-              Nuevo documento clinico
+              Nuevo documento clínico
             </Button>
           </div>
         </div>
       </Card>
 
-      {templates.isLoading ? <LoadingState message="Cargando documentos clinicos..." /> : null}
+      {templates.isLoading ? <LoadingState message="Cargando documentos clínicos..." /> : null}
       {templates.error ? <ErrorState message={templates.error.message} /> : null}
 
       <DataTable
         rows={rows}
-        empty={<EmptyState title="Sin documentos clinicos" description="No hay plantillas para mostrar." />}
+        empty={<EmptyState title="Sin documentos clínicos" description="No hay plantillas para mostrar." />}
         columns={[
-          { key: "name", title: "Nombre", render: (row) => <button className="text-left font-medium text-[var(--text-brand)]" onClick={() => setPreviewTemplate(row)}>{row.name}</button> },
+          { key: "name", title: "Nombre", render: (row) => <button className="text-left font-medium text-[var(--text-brand)] hover:underline" onClick={() => setPreviewTemplate(row)}>{row.name}</button> },
           { key: "isActive", title: "Estado", render: (row) => <Badge value={row.isActive ? "Activa" : "Inactiva"} tone={row.isActive ? "success" : "warning"} /> },
           {
             key: "id",
             title: "Acciones",
+            actions: true,
+            headerClassName: "text-right",
+            cellClassName: "text-right",
             render: (row) => (
-              <div className="relative flex justify-end">
-                <Button type="button" variant="secondary" size="sm" onClick={() => setActionsOpen(actionsOpen === row.id ? null : row.id)}>
-                  Acciones <ChevronDown className="h-4 w-4" />
+              <TableActionGroup>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPreviewTemplate(row)}
+                  title="Vista previa"
+                >
+                  <Eye className="h-4 w-4" />
+                  <span className="hidden xl:inline">Vista previa</span>
                 </Button>
-                {actionsOpen === row.id ? (
-                  <div className="absolute right-0 top-9 z-20 w-56 rounded border border-slate-200 bg-white p-1 shadow-lg">
-                    <ActionButton icon={<Eye className="h-4 w-4" />} label="Vista previa" onClick={() => { setPreviewTemplate(row); setActionsOpen(null); }} />
-                    <ActionButton icon={<Edit className="h-4 w-4" />} label="Editar" onClick={() => openEdit(row)} />
-                    <ActionButton icon={<Copy className="h-4 w-4" />} label="Duplicar documento" onClick={() => { void duplicateTemplate.mutateAsync(row.id); setActionsOpen(null); }} />
-                    <ActionButton icon={<Power className="h-4 w-4" />} label="Deshabilitar" disabled={!row.isActive} onClick={() => { void deactivateTemplate.mutateAsync(row.id); setActionsOpen(null); }} />
-                  </div>
-                ) : null}
-              </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => openEdit(row)}
+                >
+                  <Edit className="h-4 w-4" />
+                  Editar
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void duplicateTemplate.mutateAsync(row.id)}
+                  title="Duplicar plantilla"
+                >
+                  <Copy className="h-4 w-4" />
+                  <span className="hidden xl:inline">Duplicar</span>
+                </Button>
+                {row.isActive ? (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    size="sm"
+                    onClick={() => void deactivateTemplate.mutateAsync(row.id)}
+                  >
+                    <Power className="h-4 w-4" />
+                    Deshabilitar
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void updateTemplate.mutateAsync({ id: row.id, payload: { isActive: true } })}
+                  >
+                    <Power className="h-4 w-4" />
+                    Habilitar
+                  </Button>
+                )}
+              </TableActionGroup>
             )
           }
         ]}
       />
 
-      <Modal open={editorOpen} title={editingId ? "Editar documento clinico" : "Nuevo documento clinico"} onClose={() => setEditorOpen(false)} size="2xl">
+      <Modal open={editorOpen} title={editingId ? "Editar documento clínico" : "Nuevo documento clínico"} onClose={() => setEditorOpen(false)} size="2xl">
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2">
             <label className="text-sm font-medium text-slate-700">
@@ -146,7 +187,7 @@ export function ClinicalDocumentTemplatesSettingsPage() {
               <Input className="mt-1" value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} />
             </label>
             <label className="text-sm font-medium text-slate-700">
-              Descripcion
+              Descripción
               <Input className="mt-1" value={form.description} onChange={(event) => setForm((prev) => ({ ...prev, description: event.target.value }))} />
             </label>
           </div>
@@ -168,19 +209,5 @@ export function ClinicalDocumentTemplatesSettingsPage() {
         {previewTemplate ? <ClinicalDocumentPreview content={normalizeClinicalDocumentContent(previewTemplate.content)} /> : null}
       </Modal>
     </div>
-  );
-}
-
-function ActionButton({ icon, label, onClick, disabled }: { icon: ReactNode; label: string; onClick: () => void; disabled?: boolean }) {
-  return (
-    <button
-      type="button"
-      className="flex w-full items-center gap-2 rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {icon}
-      {label}
-    </button>
   );
 }

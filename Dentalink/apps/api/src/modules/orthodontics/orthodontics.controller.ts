@@ -16,19 +16,19 @@ export class OrthodonticsController {
   constructor(private readonly orthodonticsService: OrthodonticsService) {}
 
   @Get("patients-report")
-  @RequirePermissions("orthodontics.report.read")
+  @RequirePermissions("patients.read")
   getPatientsReport(@CurrentUser() user: AuthUser, @Query() query: any) {
     return this.orthodonticsService.getPatientsReport(user, query);
   }
 
   @Get("patients-report/summary")
-  @RequirePermissions("orthodontics.report.read")
+  @RequirePermissions("patients.read")
   getPatientsReportSummary(@CurrentUser() user: AuthUser, @Query() query: any) {
     return this.orthodonticsService.getPatientsReportSummary(user, query);
   }
 
   @Get("patients-report/export")
-  @RequirePermissions("orthodontics.report.read")
+  @RequirePermissions("patients.read")
   async exportPatientsReport(@CurrentUser() user: AuthUser, @Query() query: any, @Res({ passthrough: true }) res: Response) {
     const csvStream = await this.orthodonticsService.exportPatientsReportStream(user, query);
     
@@ -41,7 +41,7 @@ export class OrthodonticsController {
   }
 
   @Post("treatments/:id/appointment-draft")
-  @RequirePermissions("orthodontics.update")
+  @RequirePermissions("treatment_plans.update")
   createAppointmentDraft(
     @CurrentUser() user: AuthUser,
     @Param("id") id: string,
@@ -51,7 +51,7 @@ export class OrthodonticsController {
   }
 
   @Post("treatments/:id/recalculate-progress")
-  @RequirePermissions("orthodontics.update")
+  @RequirePermissions("treatment_plans.update")
   recalculateProgress(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.orthodonticsService.recalculateProgress(user, id);
   }

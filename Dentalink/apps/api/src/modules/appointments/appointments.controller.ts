@@ -18,13 +18,23 @@ import { AppointmentsService } from "./appointments.service";
 import { CreateAppointmentDto, CreateAppointmentsBatchDto } from "./dto/create-appointment.dto";
 import { UpdateAppointmentStatusDto } from "./dto/update-appointment-status.dto";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
+import { AttendanceAnalyticsService } from "./domain/services/attendance-analytics.service";
 
 @ApiTags("Appointments")
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("appointments")
 export class AppointmentsController {
-  constructor(private readonly appointmentsService: AppointmentsService) {}
+  constructor(
+    private readonly appointmentsService: AppointmentsService,
+    private readonly attendanceAnalyticsService: AttendanceAnalyticsService
+  ) {}
+
+  @Get("patient/:patientId/attendance-stats")
+  @RequirePermissions("appointments.read")
+  getPatientAttendanceStats(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string) {
+    return this.attendanceAnalyticsService.getPatientAttendanceStats(patientId, user.organizationId);
+  }
 
   @Get()
   @RequirePermissions("appointments.read")

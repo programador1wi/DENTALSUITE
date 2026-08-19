@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useNavigate } from "react-router-dom";
+import { APP_ROUTES } from "@/lib/routes";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -37,7 +38,7 @@ import {
   useUpdateExpense,
   useVoidExpense
 } from "../hooks/use-admin-workflows";
-import type { Expense } from "../services/admin-workflows.service";
+import type { Expense, ExpenseSummary } from "../services/admin-workflows.service";
 
 const MONTHS = [
   "Enero",
@@ -142,11 +143,11 @@ export function ExpensesSettingsPage() {
     hasPermission("expenses.void") || hasPermission("settings.update") || hasPermission("system.manage_all");
 
   const rows = expenses.data ?? [];
-  const activeRows = rows.filter((expense) => expense.status !== "VOIDED");
+  const activeRows = rows.filter((expense: Expense) => expense.status !== "VOIDED");
   const total = expenseSummary.data?.total ?? 0;
   const assignedTotal = activeRows
-    .filter((expense) => expense.cashMovements.length > 0)
-    .reduce((sum, expense) => sum + Number(expense.total), 0);
+    .filter((expense: Expense) => expense.cashMovements.length > 0)
+    .reduce((sum: number, expense: Expense) => sum + Number(expense.total), 0);
   const summaryRows = expenseSummary.data?.rows ?? [];
 
   const setField = <K extends keyof ExpenseForm>(key: K, value: ExpenseForm[K]) => {
@@ -348,7 +349,7 @@ export function ExpensesSettingsPage() {
           </div>
 
           <DataTable
-            rows={rows}
+            rows={rows as Array<Expense & Record<string, unknown>>}
             empty={<EmptyState title="Sin gastos" description="No hay gastos registrados en el periodo." />}
             columns={[
               {
@@ -482,7 +483,7 @@ export function ExpensesSettingsPage() {
                           aria-label={`Ver ${row.cashAssociation.cashSessionNumber}`}
                           title={`Ver ${row.cashAssociation.cashSessionNumber}`}
                           className="rounded-md p-2 text-cyan-700 hover:bg-cyan-50"
-                          onClick={() => navigate(`/cash-register/${row.cashAssociation.cashSessionNumber}`)}
+                          onClick={() => navigate(APP_ROUTES.cashRegister.detail(row.cashAssociation.cashSessionNumber))}
                         >
                           <ExternalLink className="h-4 w-4" />
                         </button>
@@ -495,7 +496,7 @@ export function ExpensesSettingsPage() {
         </Card>
       ) : (
         <Card className="space-y-5">
-          {expenseSummary.data?.trend.some((point) => point.amount > 0) ? (
+          {expenseSummary.data?.trend.some((point: { amount: number }) => point.amount > 0) ? (
             <div>
               <h3 className="mb-3 text-sm font-semibold text-slate-700">Tendencia mensual</h3>
               <ResponsiveContainer width="100%" height={240}>
@@ -515,7 +516,7 @@ export function ExpensesSettingsPage() {
             </div>
           ) : null}
           <DataTable
-            rows={summaryRows}
+            rows={summaryRows as Array<ExpenseSummary["rows"][number] & Record<string, unknown>>}
             empty={<EmptyState title="Sin gastos" description="No hay gastos registrados para resumir." />}
             columns={[
               {
@@ -547,9 +548,9 @@ export function ExpensesSettingsPage() {
                   <span
                     className={`block text-right tabular-nums ${Number(row.comparisonPercent ?? 0) > 0 ? "text-red-600" : "text-emerald-700"}`}
                   >
-                    {row.comparisonPercent === null
+                    {row.comparisonPercent === null || row.comparisonPercent === undefined
                       ? "Sin base"
-                      : `${row.comparisonPercent > 0 ? "+" : ""}${row.comparisonPercent}%`}
+                      : `${Number(row.comparisonPercent) > 0 ? "+" : ""}${row.comparisonPercent}%`}
                   </span>
                 )
               }
@@ -796,7 +797,7 @@ export function ExpensesSettingsPage() {
               {lockedExpense.cashAssociation.cashSessionNumber ? (
                 <Button
                   onClick={() => {
-                    navigate(`/cash-register/${lockedExpense.cashAssociation.cashSessionNumber}`);
+                    navigate(APP_ROUTES.cashRegister.detail(lockedExpense.cashAssociation.cashSessionNumber));
                     setLockedExpense(null);
                   }}
                 >

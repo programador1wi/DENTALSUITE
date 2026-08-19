@@ -24,6 +24,18 @@ export class UpdatePatientContactInputDto {
 
   @IsOptional()
   @IsString()
+  socialName?: string;
+
+  @IsOptional()
+  @IsString()
+  documentNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  gender?: string;
+
+  @IsOptional()
+  @IsString()
   relationship?: string;
 
   @IsOptional()
@@ -94,13 +106,26 @@ export class UpdatePatientDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
+  socialName?: string;
+
+  @IsOptional()
+  @IsString()
   @MinLength(2)
   @MaxLength(100)
   lastName?: string;
 
   @IsOptional()
+  @IsString()
+  internalNumber?: string;
+
+  @IsOptional()
   @IsDateString()
   birthDate?: string;
+
+  @IsOptional()
+  @IsString()
+  sex?: string;
 
   @IsOptional()
   @IsString()
@@ -131,6 +156,14 @@ export class UpdatePatientDto {
   @IsOptional()
   @IsString()
   occupation?: string;
+
+  @IsOptional()
+  @IsString()
+  employer?: string;
+
+  @IsOptional()
+  @IsString()
+  observations?: string;
 
   @IsOptional()
   @IsString()

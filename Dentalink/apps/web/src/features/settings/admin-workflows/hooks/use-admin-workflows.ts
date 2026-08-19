@@ -3,27 +3,34 @@ import { toast } from "sonner";
 import { ApiError } from "@/lib/api/error";
 import {
   assignAgreementPatients,
+  cancelAgreement,
   createAgreement,
   createAgreementVersion,
-  cancelAgreement,
+  createCompany,
+  createCompanyPayment,
   createExpense,
+  createPayrollDiscountPlan,
   deactivateAgreement,
   duplicateAgreement,
-  getAgreement,
-  listAgreements,
-  previewAgreementPrice,
-  publishAgreement,
-  listAgreementDebts,
-  getAgreementDebtDetails,
-  createCompanyPayment,
-  createPayrollDiscountPlan,
-  listExpenses,
   finalizePayroll,
+  getAgreement,
+  getAgreementDeactivationImpact,
+  getAgreementDebtDetails,
+  getCompany,
   getExpenseSummary,
+  importAffiliates,
+  listAgreementDebts,
+  listAgreements,
+  listCompanies,
+  listExpenses,
   listFinalizedPayroll,
   listPayroll,
+  previewAgreementPrice,
+  publishAgreement,
   recalculatePayroll,
+  setDefaultAgreement,
   updateAgreement,
+  updateCompany,
   updateExpense,
   voidExpense,
   type Expense,
@@ -33,10 +40,11 @@ import {
   type ExpensePayload
 } from "../services/admin-workflows.service";
 
-export function useAgreements(search?: string, active?: string) {
+export function useAgreements(search?: string, active?: string, enabled = true) {
   return useQuery({
     queryKey: ["settings", "agreements", search, active],
-    queryFn: () => listAgreements({ search, active })
+    queryFn: () => listAgreements({ search, active }),
+    enabled
   });
 }
 
@@ -141,6 +149,83 @@ export function useAssignAgreementPatients() {
       toast.success("Pacientes asignados al convenio");
       queryClient.invalidateQueries({ queryKey: ["settings", "agreements"] });
       queryClient.invalidateQueries({ queryKey: ["patients"] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useCompanies(search?: string) {
+  return useQuery({
+    queryKey: ["settings", "companies", search],
+    queryFn: () => listCompanies(search)
+  });
+}
+
+export function useCompany(id?: string) {
+  return useQuery({
+    queryKey: ["settings", "companies", id],
+    queryFn: () => getCompany(id!),
+    enabled: Boolean(id)
+  });
+}
+
+export function useCreateCompany() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: createCompany,
+    onSuccess: () => {
+      toast.success("Empresa registrada");
+      queryClient.invalidateQueries({ queryKey: ["settings", "companies"] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useUpdateCompany() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof updateCompany>[1] }) =>
+      updateCompany(id, payload),
+    onSuccess: () => {
+      toast.success("Empresa actualizada");
+      queryClient.invalidateQueries({ queryKey: ["settings", "companies"] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useSetDefaultAgreement() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, isDefault }: { id: string; isDefault: boolean }) =>
+      setDefaultAgreement(id, isDefault),
+    onSuccess: () => {
+      toast.success("Convenio predeterminado actualizado");
+      queryClient.invalidateQueries({ queryKey: ["settings", "agreements"] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useAgreementImpact(id?: string) {
+  return useQuery({
+    queryKey: ["settings", "agreements", id, "impact"],
+    queryFn: () => getAgreementDeactivationImpact(id!),
+    enabled: Boolean(id)
+  });
+}
+
+export function useImportAffiliates() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof importAffiliates>[1] }) =>
+      importAffiliates(id, payload),
+    onSuccess: (data) => {
+      if (!data.dryRun) {
+        toast.success(`${data.imported ?? 0} afiliados procesados exitosamente`);
+        queryClient.invalidateQueries({ queryKey: ["settings", "agreements"] });
+        queryClient.invalidateQueries({ queryKey: ["patients"] });
+      }
     },
     onError: (error: Error) => toast.error(error.message)
   });
@@ -308,7 +393,7 @@ export function useFinalizedPayroll(branchId?: string) {
 export function useFinalizePayroll() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: finalizePayroll,
+    mutationFn: (payload: { professionalId: string; branchId?: string }) => finalizePayroll(payload),
     onSuccess: () => {
       toast.success("Liquidacion finalizada");
       queryClient.invalidateQueries({ queryKey: ["settings", "payroll"] });
@@ -320,7 +405,7 @@ export function useFinalizePayroll() {
 export function useRecalculatePayroll() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: recalculatePayroll,
+    mutationFn: (payload: { professionalId?: string; branchId?: string }) => recalculatePayroll(payload),
     onSuccess: () => {
       toast.success("Liquidacion recalculada");
       queryClient.invalidateQueries({ queryKey: ["settings", "payroll"] });

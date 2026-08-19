@@ -1,11 +1,13 @@
 import { FormEvent, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DataTable } from "@/components/ui/data-table";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { TableActionGroup, TableToolbar } from "@/components/ui/table-toolbar";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
@@ -243,30 +245,34 @@ export function LabProceduresPage() {
           {genericList ? <strong> {genericList.name}</strong> : null}.
         </LabInfoBanner>
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(260px,420px)_1fr]">
-          <EntitySearchBox
-            placeholder="Buscar procedimiento por codigo o nombre"
-            value={search}
-            onValueChange={setSearch}
-            items={search.trim() ? labProcedures : []}
-            onSelect={(procedure) => {
-              setSearch(procedure.name);
-              openEdit(procedure);
-            }}
-            getItemKey={(procedure) => procedure.id}
-            emptyMessage="Sin procedimientos encontrados"
-            renderItem={(procedure) => (
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-900">{procedure.name}</p>
-                <p className="mt-0.5 truncate text-xs text-slate-500">{procedure.code} · {procedure.category.name}</p>
-              </div>
-            )}
-          />
-          <div className="flex items-center gap-2 rounded-xl bg-slate-50 px-3 text-sm text-slate-600">
-            <span className="font-semibold">Listado generico:</span>
-            {genericList ? genericList.name : "No hay listado activo"}
-          </div>
-        </div>
+        <TableToolbar
+          search={
+            <EntitySearchBox
+              placeholder="Buscar procedimiento por codigo o nombre"
+              value={search}
+              onValueChange={setSearch}
+              items={search.trim() ? labProcedures : []}
+              onSelect={(procedure) => {
+                setSearch(procedure.name);
+                openEdit(procedure);
+              }}
+              getItemKey={(procedure) => procedure.id}
+              emptyMessage="Sin procedimientos encontrados"
+              renderItem={(procedure) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{procedure.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{procedure.code} · {procedure.category.name}</p>
+                </div>
+              )}
+            />
+          }
+          filters={
+            <div className="flex h-10 items-center gap-2 rounded-[var(--radius-md)] bg-[var(--bg-subtle)] px-[var(--space-3)] text-[var(--text-sm)] text-[var(--text-secondary)]">
+              <span className="font-semibold">Listado generico:</span>
+              {genericList ? genericList.name : "No hay listado activo"}
+            </div>
+          }
+        />
 
         {procedures.isLoading || lists.isLoading || providers.isLoading || labAssignments.isLoading ? (
           <LoadingState message="Cargando procedimientos de laboratorio..." />
@@ -276,68 +282,57 @@ export function LabProceduresPage() {
             description="Crea un procedimiento de laboratorio para comenzar."
           />
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200">
-            <table className="w-full border-collapse bg-white text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Codigo</th>
-                  <th className="px-4 py-3">Nombre</th>
-                  <th className="px-4 py-3">Categoria</th>
-                  <th className="px-4 py-3">Precio paciente generico</th>
-                  <th className="px-4 py-3">Laboratorios</th>
-                  <th className="px-4 py-3">Estado</th>
-                  <th className="px-4 py-3 text-right">Opciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {labProcedures.map((procedure) => (
-                  <tr key={procedure.id} className="border-t border-slate-100">
-                    <td className="px-4 py-4 font-medium text-slate-700">{procedure.code}</td>
-                    <td className="px-4 py-4">
-                      <p className="font-semibold text-slate-900">{procedure.name}</p>
-                      {procedure.description ? (
-                        <p className="text-xs text-slate-500">{procedure.description}</p>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-4">{procedure.category.name}</td>
-                    <td className="px-4 py-4 font-semibold text-slate-900">
-                      {money(priceByProcedureId.get(procedure.id))}
-                    </td>
-                    <td className="px-4 py-4">
-                      {assignedLabsFor(procedure.id).length ? (
-                        <div className="space-y-1">
-                          {assignedLabsFor(procedure.id).map((assignment) => (
-                            <p key={assignment.id} className="text-xs text-slate-600">
-                              <span className="font-semibold">{assignment.labProvider?.name ?? "Laboratorio"}</span>
-                              {" - "}
-                              {assignment.patientPrice
-                                ? formatMoney(assignment.patientPrice, assignment.currency)
-                                : "Precio generico"}
-                            </p>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-500">Sin laboratorios asignados</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-4">
-                      <Badge value="HABILITADO" tone="success" />
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="secondary" onClick={() => openEdit(procedure)}>
-                          Editar
-                        </Button>
-                        <Button variant="danger" onClick={() => setDeactivating(procedure)}>
-                          Deshabilitar
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            rows={labProcedures}
+            getRowKey={(procedure) => procedure.id}
+            empty={<EmptyState title="Sin procedimientos" description="Crea un procedimiento de laboratorio para comenzar." />}
+            columns={[
+              { key: "code", title: "Codigo", mobileLabel: "Codigo", cellClassName: "font-medium" },
+              {
+                key: "name",
+                title: "Nombre",
+                primary: true,
+                wrap: true,
+                render: (procedure) => (
+                  <div className="min-w-56">
+                    <p className="font-semibold text-[var(--text-brand-strong)]">{procedure.name}</p>
+                    {procedure.description ? <p className="mt-1 text-[var(--text-xs)] text-[var(--text-secondary)]">{procedure.description}</p> : null}
+                  </div>
+                )
+              },
+              { key: "category", title: "Categoria", render: (procedure) => procedure.category.name },
+              { key: "defaultDuration", title: "Precio paciente generico", cellClassName: "font-semibold", render: (procedure) => money(priceByProcedureId.get(procedure.id)) },
+              {
+                key: "description",
+                title: "Laboratorios",
+                wrap: true,
+                render: (procedure) => assignedLabsFor(procedure.id).length ? (
+                  <div className="min-w-52 space-y-1">
+                    {assignedLabsFor(procedure.id).map((assignment) => (
+                      <p key={assignment.id} className="text-[var(--text-xs)] text-[var(--text-secondary)]">
+                        <span className="font-semibold">{assignment.labProvider?.name ?? "Laboratorio"}</span>
+                        {" - "}
+                        {assignment.patientPrice ? formatMoney(assignment.patientPrice, assignment.currency) : "Precio generico"}
+                      </p>
+                    ))}
+                  </div>
+                ) : <span className="text-[var(--text-xs)] text-[var(--text-secondary)]">Sin laboratorios asignados</span>
+              },
+              { key: "isActive", title: "Estado", render: () => <Badge value="HABILITADO" tone="success" dot /> },
+              {
+                key: "id",
+                title: "Opciones",
+                actions: true,
+                headerClassName: "text-right",
+                render: (procedure) => (
+                  <TableActionGroup>
+                    <Button variant="secondary" onClick={() => openEdit(procedure)}>Editar</Button>
+                    <Button variant="danger" onClick={() => setDeactivating(procedure)}>Deshabilitar</Button>
+                  </TableActionGroup>
+                )
+              }
+            ]}
+          />
         )}
       </div>
 

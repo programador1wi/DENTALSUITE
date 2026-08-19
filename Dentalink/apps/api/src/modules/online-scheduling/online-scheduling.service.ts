@@ -38,7 +38,7 @@ export class OnlineSchedulingService {
   }
 
   async updateConfig(organizationId: string, dto: UpdateOnlineSchedulingDto, userId: string) {
-    const config = await this.getConfig(organizationId);
+    const config = await this.getConfig(organizationId, dto.mode);
     
     const updated = await this.prisma.onlineSchedulingConfig.update({
       where: { id: config.id },
@@ -61,6 +61,15 @@ export class OnlineSchedulingService {
         googleAnalyticsId: dto.googleAnalyticsId,
         redirectUrl: dto.redirectUrl,
         confirmationMessage: dto.confirmationMessage,
+        patientBlockEnabled: dto.patientBlockEnabled,
+        chairScope: dto.chairScope,
+        facebookPixel: dto.facebookPixel,
+        menuByProfessional: dto.menuByProfessional,
+        menuBySpecialty: dto.menuBySpecialty,
+        menuByBranch: dto.menuByBranch,
+        patientDataMoment: dto.patientDataMoment,
+        askSpecialtyReason: dto.askSpecialtyReason,
+        showAppointmentDuration: dto.showAppointmentDuration,
       },
     });
 

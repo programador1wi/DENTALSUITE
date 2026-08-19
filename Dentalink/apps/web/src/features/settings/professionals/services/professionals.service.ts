@@ -63,6 +63,15 @@ export type ProfessionalBranchTransferResult = {
   schedulesCopied: number;
 };
 
+export type ProfessionalDeactivationImpact = {
+  professionalId: string;
+  branchIds: string[];
+  futureAppointments: number;
+  futureBlocks: number;
+  activeSchedules: number;
+  canDeactivate: boolean;
+};
+
 export type BulkProfessionalContractPayload = {
   targets: { professionalId: string; branchIds: string[] }[];
   commissionRate: number;
@@ -132,6 +141,13 @@ export async function updateProfessional(id: string, payload: Partial<Profession
 
 export async function deactivateProfessional(id: string) {
   const { data } = await http.patch<Professional>(`/professionals/${id}/deactivate`);
+  return data;
+}
+
+export async function getProfessionalDeactivationImpact(id: string, branchId?: string) {
+  const { data } = await http.get<ProfessionalDeactivationImpact>(`/professionals/${id}/deactivation-impact`, {
+    params: { branchId }
+  });
   return data;
 }
 

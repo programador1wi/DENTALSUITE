@@ -1,17 +1,19 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Clock, ExternalLink, MessageCircle, Plus, Printer, Search } from "lucide-react";
+import { Clock, ExternalLink, MessageCircle, Plus, Printer, Search, BarChart3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/feedback/loading-state";
+import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { useAppointments } from "@/features/agenda/hooks/use-appointments";
 import type { Appointment, AppointmentStatus } from "@/features/agenda/services/appointments.service";
 import { AppointmentStatusHistoryModal } from "../../agenda/components/appointment-status-history-modal";
 import { AppointmentCommentsModal } from "../../agenda/components/appointment-comments-modal";
+import { PatientAppointmentsStats } from "./patient-appointments-stats";
 
 const appointmentStatusLabels: Record<AppointmentStatus, string> = {
   SCHEDULED: "Agendada",
@@ -60,6 +62,7 @@ export function PatientAppointmentsTab({ patientId }: { patientId: string }) {
   const appointments = useAppointments({ patientId }, true);
   const [search, setSearch] = useState("");
   const [professionalId, setProfessionalId] = useState("");
+  const [isStatsModalOpen, setIsStatsModalOpen] = useState(false);
   const [historyAppointment, setHistoryAppointment] = useState<Appointment | null>(null);
   const [commentsAppointmentId, setCommentsAppointmentId] = useState<string | null>(null);
 
@@ -123,6 +126,16 @@ export function PatientAppointmentsTab({ patientId }: { patientId: string }) {
             />
           </label>
           <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="gap-1.5 text-xs font-semibold"
+              onClick={() => setIsStatsModalOpen(true)}
+              aria-label="Ver estadísticas de citas"
+            >
+              <BarChart3 className="h-4 w-4 text-[var(--action-primary)]" />
+              Estadísticas
+            </Button>
             <Select
               className="w-64"
               value={professionalId}
@@ -300,6 +313,17 @@ export function PatientAppointmentsTab({ patientId }: { patientId: string }) {
         open={Boolean(commentsAppointmentId)}
         onClose={() => setCommentsAppointmentId(null)}
       />
+
+      <Modal
+        open={isStatsModalOpen}
+        onClose={() => setIsStatsModalOpen(false)}
+        title="Estadísticas de Citas del Paciente"
+        size="2xl"
+      >
+        <div className="pt-2">
+          <PatientAppointmentsStats appointments={rows} />
+        </div>
+      </Modal>
     </section>
   );
 }

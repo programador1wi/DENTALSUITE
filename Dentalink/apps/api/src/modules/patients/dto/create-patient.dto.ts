@@ -24,6 +24,18 @@ export class PatientContactInputDto {
 
   @IsOptional()
   @IsString()
+  socialName?: string;
+
+  @IsOptional()
+  @IsString()
+  documentNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  gender?: string;
+
+  @IsOptional()
+  @IsString()
   relationship?: string;
 
   @IsOptional()
@@ -81,10 +93,19 @@ export class CreatePatientDto {
   @IsString()
   branchId!: string;
 
+  @IsOptional()
+  @IsString()
+  agreementId?: string;
+
   @IsString()
   @MinLength(2)
   @MaxLength(100)
   firstName!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  socialName?: string;
 
   @IsString()
   @MinLength(2)
@@ -92,8 +113,16 @@ export class CreatePatientDto {
   lastName!: string;
 
   @IsOptional()
+  @IsString()
+  internalNumber?: string;
+
+  @IsOptional()
   @IsDateString()
   birthDate?: string;
+
+  @IsOptional()
+  @IsString()
+  sex?: string;
 
   @IsOptional()
   @IsString()
@@ -124,6 +153,14 @@ export class CreatePatientDto {
   @IsOptional()
   @IsString()
   occupation?: string;
+
+  @IsOptional()
+  @IsString()
+  employer?: string;
+
+  @IsOptional()
+  @IsString()
+  observations?: string;
 
   @IsOptional()
   @IsString()

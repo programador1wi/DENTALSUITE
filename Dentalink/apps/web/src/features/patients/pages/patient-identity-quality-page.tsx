@@ -1,14 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { AlertTriangle, Bot, ContactRound, Link2, ShieldCheck, UsersRound } from "lucide-react";
+import { Bot, ContactRound, Link2, ShieldCheck, UsersRound } from "lucide-react";
 import { toast } from "sonner";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { PageHeader } from "@/components/layout/page-header";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { ErrorState } from "@/components/feedback/error-state";
+import { PageHeader } from "@/components/layout/page-header";
 import { getPatientIdentityDataQuality, updatePatientIdentityConfig, type PatientIdentityConfig } from "../services/patient-identity.service";
 import { useAuthStore } from "@/stores/auth.store";
+import { APP_ROUTES } from "@/lib/routes";
+import { getPatientRouteId } from "@/lib/utils/patient-id";
 
 const FLAGS: Array<{ key: keyof PatientIdentityConfig; title: string; description: string }> = [
   { key: "shadowMode", title: "Modo observación", description: "Clasifica sin cambiar decisiones externas." },
@@ -74,13 +77,13 @@ export function PatientIdentityQualityPage() {
               {data.invalidLegacyPhones.map((patient) => (
                 <div key={patient.id} className="flex items-center justify-between gap-4 px-4 py-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-900">{patient.firstName} {patient.lastName}</p>
-                    <p className="truncate text-xs text-slate-500">
+                    <p className="truncate text-sm font-semibold text-slate-900" title={`${patient.firstName} ${patient.lastName}`}>{patient.firstName} {patient.lastName}</p>
+                    <p className="truncate text-xs text-slate-500" title={`${patient.branch.name} · ${patient.phone ?? patient.alternatePhone ?? "Sin valor legible"}${patient.validationFailure?.field ? ` · ${patient.validationFailure.field}` : ""}`}>
                       {patient.branch.name} · {patient.phone ?? patient.alternatePhone ?? "Sin valor legible"}
                       {patient.validationFailure?.field ? ` · ${patient.validationFailure.field}` : ""}
                     </p>
                   </div>
-                  <Link to={`/patients/${patient.id}/profile`} className="shrink-0 text-sm font-semibold text-[var(--text-brand)] hover:underline">Corregir</Link>
+                  <Link to={APP_ROUTES.patients.profile(getPatientRouteId(patient))} className="shrink-0 text-sm font-semibold text-[var(--text-brand)] hover:underline">Corregir</Link>
                 </div>
               ))}
             </div>
@@ -101,12 +104,13 @@ export function PatientIdentityQualityPage() {
               return (
                 <button
                   key={flag.key}
+                  data-allow-multiline
                   type="button"
                   onClick={() => canManageConfig && update.mutate({ [flag.key]: !enabled })}
                   disabled={update.isPending || !canManageConfig}
-                  className="flex w-full items-center justify-between gap-4 rounded-lg border border-slate-200 px-3 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
+                  className="flex min-w-0 w-full items-center justify-between gap-4 rounded-lg border border-slate-200 px-3 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
                 >
-                  <span>
+                  <span className="min-w-0">
                     <span className="block text-sm font-semibold text-slate-800">{flag.title}</span>
                     <span className="block text-xs text-slate-500">{flag.description}</span>
                   </span>
@@ -118,10 +122,9 @@ export function PatientIdentityQualityPage() {
             })}
           </div>
           {data.summary.invalidLegacyPhones ? (
-            <div className="mt-4 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              Corrige teléfonos heredados antes de desactivar lectura legacy.
-            </div>
+            <Alert variant="warning" size="sm" className="mt-4">
+              Corrige teléfonos heredados antes de desactivar la lectura legacy.
+            </Alert>
           ) : null}
         </Card>
       </div>

@@ -1,7 +1,7 @@
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # DENTAL DESIGN SYSTEM — REDESIGN BRIEF
 # Fuente de verdad para agentes, CI y componentes
-# Versión 2.0.0 — Paleta Azul Clínico Profesional
+# Versión 2.1.0 — Paleta Azul Clínico Zafiro & Slate Neutro
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ## ROL Y CONTEXTO
@@ -89,9 +89,9 @@ color-base-amber-400:      #FBBF24   ← warning / alerta
 --border-brand-light:   color-base-blue-100      /* #B5D4F4 — chips, filtros */
 
 [ ACCIONES ]
---action-primary:       color-base-emerald-500   /* #10B981 — btn Agendar/Pagar */
---action-primary-hover: color-base-emerald-600   /* #059669 */
---action-brand:         color-base-blue-500      /* #185FA5 — btn secundario */
+--action-primary:       color-base-navy-600      /* #185FA5 — btn Agendar/Pagar/Guardar */
+--action-primary-hover: color-base-navy-700      /* #0C447C */
+--action-brand:         color-base-blue-500      /* #185FA5 — acento interactivo */
 --action-brand-hover:   color-base-blue-600      /* #0C447C */
 
 [ SIDEBAR — nav items ]
@@ -165,10 +165,10 @@ NUNCA animar: width, height, top, left, padding, margin.
 ### BUTTON
 
 # Variantes
-primary:     bg --action-primary  | text white | hover --action-primary-hover
-secondary:   bg transparent       | border --border-brand | text --text-brand
+primary:     bg --action-primary (#185FA5) | text white | hover --action-primary-hover (#0C447C)
+secondary:   bg --bg-surface (#FFFFFF) | border --border-strong (#CBD5E1) | text --text-primary (#334155) | hover bg --bg-subtle
 ghost:       bg transparent       | no border  | text --text-secondary
-destructive: bg color-base-red-500 | text white
+destructive: bg #DC2626 (red-600) | text white | hover #B91C1C
 
 # Tamaños
 sm:  height 32px | px --space-3 | text-sm   | radius --radius-md
@@ -227,59 +227,31 @@ variantes:
   cancelada:   bg #FCEBEB  | text #791F1F   ← rojo
   bloqueada:   bg #F1F5F9  | text #64748B   ← gris
 
-### NAV SIDEBAR
+### APP NAVIGATION
 
-width:         240px (expandido) | 56px (colapsado)
-bg:            --bg-nav (#042C53)   ← azul marino profundo
-logo-area:     height 64px | border-bottom 0.5px rgba(255,255,255,0.08)
-nav-item:      height 40px | px --space-3 | radius --radius-md | gap --space-3
-item-default:  text --nav-item-default-text | icon --nav-item-default-icon
-item-hover:    bg --nav-item-hover-bg
-item-active:   bg --nav-item-active-bg | text --nav-item-active-text (#378ADD)
+desktop:       header horizontal | navegación principal visible | menús contextuales
+tablet:        header compacto | navegación dentro de drawer izquierdo
+mobile:        header esencial | navegación dentro de drawer izquierdo
+drawer-width:  384px máximo | 100% del viewport en pantallas estrechas
+nav-item:      min-height 44px | px --space-3 | radius --radius-md | gap --space-3
+item-default:  text --text-primary | icon --text-secondary
+item-hover:    bg --bg-subtle
+item-active:   bg --bg-brand-light | text --text-brand-strong
                | border-left 3px solid --nav-item-active-border
-section-label: text-xs uppercase tracking-widest | color --nav-section-label
+section-label: text-xs uppercase tracking-widest | color --text-secondary
 
-### TOPBAR
+### DATA TABLE (ESTÁNDAR PREMIUN)
 
-height:        64px
-bg:            --bg-nav (#042C53)   ← mismo azul que sidebar
-border-bottom: 0.5px solid rgba(255,255,255,0.08)
-search-input:  bg rgba(255,255,255,0.08) | border rgba(255,255,255,0.12)
-               | placeholder rgba(248,250,252,0.45) | text --text-inverse
-               | focus: border --border-brand (#185FA5)
-actions:       text --text-inverse | icon opacity 0.7
-
-### DATA TABLE
-
-header:        bg --bg-subtle (#F1F5F9) | text-xs --weight-medium --text-secondary
-               | uppercase | color --text-brand (#185FA5) en header activo
-row-height:    48px
-row-hover:     bg --bg-subtle
-border:        0.5px solid --border-default entre filas, nunca en columnas
-cell-padding:  --space-3 --space-4
-sort-icon:     16px | visible solo en hover del header
-
-### MODAL / DIALOG
-
-backdrop:      rgba(4,44,83,0.40) | blur 4px   ← azul marino, no negro
-panel:         bg white | radius --radius-xl | padding --space-6
-max-width:     480px (sm) | 640px (md) | 800px (lg)
-header:        título text-xl --text-brand-strong + close button top-right
-footer:        border-top --border-default | padding-top --space-4 | actions right-aligned
-animación:     backdrop fade-in --duration-normal | panel scale(0.95)→scale(1) + fade-in
-
-### METRIC CARD (KPI)
-
-bg:            white
-label:         text-sm --text-secondary --weight-regular
-value:         text-3xl --weight-bold --text-brand-strong (#0C447C)
-delta:         text-sm | verde si positivo, rojo si negativo | icono flecha
-icon-accent:   24px en esquina superior derecha | color --text-brand (#185FA5) opacity-0.7
-
-### FILTER CHIP (nuevo — agenda)
-
-bg:            --bg-brand-light (#E6F1FB)
-border:        0.5px solid --border-brand-light (#B5D4F4)
+border:          0.5px solid --border-default entre filas (border-b), NUNCA bordes en columnas (border-r-0 obligatorio).
+container:       border 0.5px solid --border-default | radius --radius-lg | overflow hidden | shadow 2xs
+header:          bg-slate-50/80 | text-[11px] font-semibold tracking-wider text-slate-500 uppercase | border-b --border-default
+row-height:      48px - 54px | px --space-4 py --space-3.5 | hover: bg-slate-50/60 transition-colors
+cell-padding:    --space-3 --space-4
+column-identity: avatar 36x36px rounded-lg bg-blue-50 text-blue-600 border border-blue-100 + título font-semibold + badge categoría
+column-date:     chip horizontal px-2.5 py-1 radius-md bg-slate-100/80 font-medium tabular-nums + icono Calendar 14px
+column-badge:    chip pill redondeado con icono de contexto (Tag, Shield, etc.) tabular-nums
+column-status:   dot status pill con indicador circular h-1.5 w-1.5 (emerald/amber/rose) + borde translúcido
+column-actions:  fila horizontal directa gap-1 justify-end (flex items-center gap-1) | jamás menús flotantes de 3 puntos
 text:          text-xs --text-brand (#185FA5)
 radius:        --radius-sm
 padding:       --space-1 --space-2
@@ -290,15 +262,15 @@ hover:         bg #B5D4F4 | text --text-brand-strong (#0C447C)
 
 max-width:     1280px (contenedor) | 1536px (full-wide)
 grid:          12 columnas | gap --space-6
-sidebar:       240px fija | contenido ocupa resto
-topbar:        height 64px | bg --bg-nav (#042C53) | border-bottom 0.5px rgba(255,255,255,0.08)
+navigation:    header horizontal en desktop | drawer en tablet/mobile
+topbar:        min-height 56px | bg --bg-surface | border-bottom --border-default
 content-area:  padding --space-8 | bg --bg-page (#F8FAFD)
 section-gap:   --space-10 entre secciones
 
 # Breakpoints
-mobile:        < 640px  → sidebar colapsada por defecto
-tablet:        640–1024px → sidebar overlay
-desktop:       > 1024px → sidebar fija
+mobile:        < 640px  → header esencial + drawer
+tablet:        640–1024px → header compacto + drawer
+desktop:       > 1024px → header y navegación horizontal
 
 ────────────────────────────────────────────────────────────
 ## REGLAS GLOBALES DE COMPOSICIÓN
@@ -306,7 +278,7 @@ desktop:       > 1024px → sidebar fija
 ✓ Un solo CTA primario por vista. Los demás son secondary o ghost.
 ✓ Alineación de texto: left siempre. Center solo en empty states.
 ✓ Separación entre secciones: siempre con espacio, nunca con líneas decorativas.
-✓ Íconos acompañan texto, nunca reemplazan. Excepción: nav sidebar con tooltip.
+✓ Íconos acompañan texto, nunca reemplazan. Excepción: controles conocidos con tooltip y aria-label.
 ✓ Los estados vacíos (empty state) tienen: ícono 40px, título, descripción corta, 1 CTA.
 ✓ Los skeletons de carga usan --bg-subtle con animación pulse de 1.5s.
 ✓ El color del texto sobre --bg-nav siempre usa --text-inverse o variantes rgba blancas.
@@ -316,7 +288,7 @@ desktop:       > 1024px → sidebar fija
 ✗ No más de 3 niveles de jerarquía tipográfica por sección.
 ✗ No bordes redondeados en elementos que tengan border solo en un lado.
 ✗ No colores fuera de la paleta. Ni siquiera para "un caso especial".
-✗ No usar el navy-900 (#042C53) fuera del sidebar/topbar — es exclusivo de navegación.
+✗ No usar el navy-900 (#042C53) fuera de superficies de navegación que requieran contraste inverso.
 
 ────────────────────────────────────────────────────────────
 ## REFERENCIA RÁPIDA — HEXADECIMALES
@@ -335,8 +307,8 @@ BRAND LIGHT (chips):   #E6F1FB
 BRAND BORDER LIGHT:    #B5D4F4
 PAGE TITLES:           #0C447C
 
-CTA PRIMARY:           #10B981
-CTA HOVER:             #059669
+CTA PRIMARY:           #185FA5
+CTA HOVER:             #0C447C
 
 PAGE BG:               #F8FAFD
 SURFACE (cards):       #FFFFFF
@@ -383,11 +355,11 @@ NEUTRAL TEXT:          #64748B   | NEUTRAL BG: #F1F5F9
    — ¿Algún espacio es un valor arbitrario? → Usa el token más cercano.
    — ¿Hay más de un CTA primario? → Degrada los demás.
    — ¿Hay animaciones innecesarias? → Elimínalas.
-   — ¿El sidebar usa exactamente #042C53? → Verifica.
+   — ¿El header y drawer respetan los tokens semánticos? → Verifica.
    — ¿Los títulos de página usan #0C447C? → Verifica.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-FIN DEL DESIGN SYSTEM — versión 2.0.0
-Cambio principal: paleta navy/blue reemplaza el verde oscuro original.
-Sidebar: #042C53 | Brand: #185FA5 | CTA: #10B981
+FIN DEL DESIGN SYSTEM — versión 2.1.0
+Cambio principal: CTA primario unificado a Azul Zafiro (#185FA5) y secundario a Slate Neutro.
+Navegación: header desktop + drawer responsive | Brand: #185FA5 | CTA: #185FA5
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

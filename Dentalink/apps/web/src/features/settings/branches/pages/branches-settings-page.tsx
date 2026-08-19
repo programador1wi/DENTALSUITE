@@ -209,99 +209,103 @@ export function BranchesSettingsPage() {
       {/* Contenedor de la Tabla */}
       <div className="min-h-[300px]">
         {hasActive || hasInactive ? (
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableHeader className="w-[120px]">Código</TableHeader>
-                <TableHeader>Nombre</TableHeader>
-                <TableHeader>Ciudad</TableHeader>
-                <TableHeader>Horario Agenda</TableHeader>
-                <TableHeader>Intervalo</TableHeader>
-                <TableHeader className="w-[120px]">Estado</TableHeader>
-                <TableHeader className="w-[80px] text-right">Acciones</TableHeader>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {/* Sucursales Activas */}
-              {activeLists.active.map((branch) => (
-                <TableRow key={branch.id}>
-                  <TableCell>
-                    <span className="text-[11px] font-semibold font-mono tracking-wide text-slate-600 bg-slate-100 px-2 py-0.5 rounded uppercase">
-                      {branch.code}
-                    </span>
-                  </TableCell>
-                  <TableCell className="font-semibold text-slate-800">
-                    {branch.name}
-                  </TableCell>
-                  <TableCell className="text-slate-600">{branch.city || "—"}</TableCell>
-                  <TableCell className="text-slate-600">
-                    {formatHour(branch.agendaStartHour ?? 10)} - {formatHour(branch.agendaEndHour ?? 19)}
-                  </TableCell>
-                  <TableCell className="text-slate-600">
-                    {branch.agendaSlotMinutes ?? 30} min
-                  </TableCell>
-                  <TableCell>
-                    <Badge value="Activa" tone="success" />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => handleOpenEdit(branch)}
-                      title="Editar sucursal"
-                    >
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
-                  </TableCell>
+          <div className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-xs">
+            <Table>
+              <TableHead>
+                <TableRow className="border-b border-slate-200/80 bg-slate-50/70 hover:bg-slate-50/70">
+                  <TableHeader className="w-[120px] py-3 font-bold text-slate-600 text-[11px] uppercase tracking-wider">Código</TableHeader>
+                  <TableHeader className="py-3 font-bold text-slate-600 text-[11px] uppercase tracking-wider">Nombre</TableHeader>
+                  <TableHeader className="py-3 font-bold text-slate-600 text-[11px] uppercase tracking-wider">Ciudad</TableHeader>
+                  <TableHeader className="py-3 font-bold text-slate-600 text-[11px] uppercase tracking-wider">Horario Agenda</TableHeader>
+                  <TableHeader className="py-3 font-bold text-slate-600 text-[11px] uppercase tracking-wider">Intervalo</TableHeader>
+                  <TableHeader className="w-[120px] py-3 font-bold text-slate-600 text-[11px] uppercase tracking-wider">Estado</TableHeader>
+                  <TableHeader className="w-[110px] py-3 text-right font-bold text-slate-600 text-[11px] uppercase tracking-wider">Acciones</TableHeader>
                 </TableRow>
-              ))}
+              </TableHead>
+              <TableBody>
+                {/* Sucursales Activas */}
+                {activeLists.active.map((branch) => (
+                  <TableRow key={branch.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50/50 transition-colors">
+                    <TableCell className="py-3.5">
+                      <span className="text-[11px] font-semibold font-mono tracking-wide text-slate-600 bg-slate-100 px-2 py-0.5 rounded uppercase">
+                        {branch.code}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-3.5 font-bold text-slate-900 text-sm">
+                      {branch.name}
+                    </TableCell>
+                    <TableCell className="py-3.5 text-xs text-slate-600">{branch.city || "—"}</TableCell>
+                    <TableCell className="py-3.5 text-xs text-slate-600">
+                      {formatHour(branch.agendaStartHour ?? 10)} - {formatHour(branch.agendaEndHour ?? 19)}
+                    </TableCell>
+                    <TableCell className="py-3.5 text-xs font-mono text-slate-600">
+                      {branch.agendaSlotMinutes ?? 30} min
+                    </TableCell>
+                    <TableCell className="py-3.5">
+                      <Badge value="Activa" tone="success" />
+                    </TableCell>
+                    <TableCell className="py-3.5 text-right">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="h-8 px-2.5 text-xs font-medium border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-400 shadow-2xs gap-1.5 transition-all"
+                        onClick={() => handleOpenEdit(branch)}
+                        title="Editar sucursal"
+                      >
+                        <Edit className="h-3.5 w-3.5 text-slate-500" />
+                        Editar
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
 
-              {/* Fila divisoria si existen ambas */}
-              {hasActive && hasInactive && (
-                <TableRow>
-                  <TableCell colSpan={7} className="bg-slate-50/80 py-1.5 px-4 text-[9px] font-bold text-slate-400 uppercase tracking-widest pointer-events-none">
-                    Sucursales Fuera de Servicio
-                  </TableCell>
-                </TableRow>
-              )}
+                {/* Fila divisoria si existen ambas */}
+                {hasActive && hasInactive && (
+                  <TableRow>
+                    <TableCell colSpan={7} className="bg-slate-50/80 py-2 px-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest pointer-events-none border-y border-slate-200/60">
+                      Sucursales Fuera de Servicio
+                    </TableCell>
+                  </TableRow>
+                )}
 
-              {/* Sucursales Inactivas */}
-              {activeLists.inactive.map((branch) => (
-                <TableRow key={branch.id} className="bg-slate-50/30 opacity-70 hover:opacity-90">
-                  <TableCell>
-                    <span className="text-[11px] font-semibold font-mono tracking-wide text-slate-400 bg-slate-100 px-2 py-0.5 rounded uppercase">
-                      {branch.code}
-                    </span>
-                  </TableCell>
-                  <TableCell className="font-semibold text-slate-400 line-through">
-                    {branch.name}
-                  </TableCell>
-                  <TableCell className="text-slate-400">{branch.city || "—"}</TableCell>
-                  <TableCell className="text-slate-400">
-                    {formatHour(branch.agendaStartHour ?? 10)} - {formatHour(branch.agendaEndHour ?? 19)}
-                  </TableCell>
-                  <TableCell className="text-slate-400">
-                    {branch.agendaSlotMinutes ?? 30} min
-                  </TableCell>
-                  <TableCell>
-                    <Badge value="Inactiva" tone="danger" />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      className="h-8 w-8 p-0"
-                      onClick={() => handleOpenEdit(branch)}
-                      title="Editar sucursal"
-                    >
-                      <Edit className="h-3.5 w-3.5" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+                {/* Sucursales Inactivas */}
+                {activeLists.inactive.map((branch) => (
+                  <TableRow key={branch.id} className="bg-slate-50/30 opacity-70 hover:opacity-90 border-b border-slate-100 last:border-0">
+                    <TableCell className="py-3.5">
+                      <span className="text-[11px] font-semibold font-mono tracking-wide text-slate-400 bg-slate-100 px-2 py-0.5 rounded uppercase">
+                        {branch.code}
+                      </span>
+                    </TableCell>
+                    <TableCell className="py-3.5 font-bold text-slate-400 line-through text-sm">
+                      {branch.name}
+                    </TableCell>
+                    <TableCell className="py-3.5 text-xs text-slate-400">{branch.city || "—"}</TableCell>
+                    <TableCell className="py-3.5 text-xs text-slate-400">
+                      {formatHour(branch.agendaStartHour ?? 10)} - {formatHour(branch.agendaEndHour ?? 19)}
+                    </TableCell>
+                    <TableCell className="py-3.5 text-xs font-mono text-slate-400">
+                      {branch.agendaSlotMinutes ?? 30} min
+                    </TableCell>
+                    <TableCell className="py-3.5">
+                      <Badge value="Inactiva" tone="danger" />
+                    </TableCell>
+                    <TableCell className="py-3.5 text-right">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="h-8 px-2.5 text-xs font-medium border border-slate-200 text-slate-500 bg-white hover:bg-slate-50 shadow-2xs gap-1.5 transition-all"
+                        onClick={() => handleOpenEdit(branch)}
+                        title="Editar sucursal"
+                      >
+                        <Edit className="h-3.5 w-3.5 text-slate-400" />
+                        Editar
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         ) : (
           <div className="flex flex-col items-center justify-center p-12 bg-white rounded-xl border border-slate-100 text-slate-400 min-h-[300px]">
             <Building2 className="h-10 w-10 text-slate-300 mb-2" />

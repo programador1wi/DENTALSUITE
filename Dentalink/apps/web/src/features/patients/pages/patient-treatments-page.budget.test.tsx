@@ -768,7 +768,7 @@ describe("PatientTreatmentsPage budget agreement flow", () => {
     fireEvent.click(screen.getByRole("button", { name: /Abonar/i }));
 
     expect(mockState.navigate).toHaveBeenCalledWith(
-      "/patients/patient-1/payments?treatmentPlanId=plan-1&itemId=item-1&amount=399"
+      "/pacientes/patient-1/pagos?treatmentPlanId=plan-1&itemId=item-1&amount=399"
     );
   });
 

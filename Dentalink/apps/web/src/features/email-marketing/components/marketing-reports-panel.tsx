@@ -529,6 +529,7 @@ function ReportLibrary({
                 {expanded && <span className="absolute inset-y-0 left-0 w-1 bg-[var(--action-primary)]" />}
                 <button
                   type="button"
+                  data-allow-multiline
                   aria-expanded={expanded}
                   aria-controls={`marketing-report-${definition.code}`}
                   onClick={() => onChoose(definition)}

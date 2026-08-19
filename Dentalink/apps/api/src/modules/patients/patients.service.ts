@@ -23,6 +23,7 @@ import {
 } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
+import { generateUniquePatientNumber } from "../../common/utils/patient-number.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import { DocumentsService } from "../documents/documents.service";
@@ -85,6 +86,19 @@ export class PatientsService {
     private readonly patientIdentityService?: PatientIdentityService
   ) {}
 
+  private buildPatientWhere(actor: AuthUser, idOrNumber: string): Prisma.PatientWhereInput {
+    const trimmed = idOrNumber.trim();
+    const isNumeric = /^\d+$/.test(trimmed);
+    return {
+      organizationId: actor.organizationId,
+      branchId: { in: actor.branchIds },
+      deletedAt: null,
+      ...(isNumeric
+        ? { OR: [{ id: trimmed }, { patientNumber: parseInt(trimmed, 10) }] }
+        : { id: trimmed })
+    };
+  }
+
   async findAll(actor: AuthUser, query: PatientQueryDto) {
     const { skip, take } = resolvePagination(query);
     const where: Prisma.PatientWhereInput = {
@@ -99,7 +113,8 @@ export class PatientsService {
               { lastName: { contains: query.search, mode: "insensitive" } },
               { phone: { contains: query.search, mode: "insensitive" } },
               { email: { contains: query.search, mode: "insensitive" } },
-              { documentNumber: { contains: query.search, mode: "insensitive" } }
+              { documentNumber: { contains: query.search, mode: "insensitive" } },
+              ...(/^\d+$/.test(query.search.trim()) ? [{ patientNumber: parseInt(query.search.trim(), 10) }] : [])
             ]
           }
         : {}),
@@ -142,6 +157,7 @@ export class PatientsService {
 
     return rows.map((row) => ({
       id: row.id,
+      patientNumber: row.patientNumber,
       branchId: row.branchId,
       branchName: row.branch.name,
       firstName: row.firstName,
@@ -160,6 +176,7 @@ export class PatientsService {
   }
 
   async search(actor: AuthUser, q?: string, phone?: string, email?: string, documentNumber?: string) {
+    const isNumericQ = q && /^\d+$/.test(q.trim());
     const rows = await this.prisma.patient.findMany({
       where: {
         organizationId: actor.organizationId,
@@ -173,7 +190,8 @@ export class PatientsService {
                   { lastName: { contains: q, mode: "insensitive" } },
                   { phone: { contains: q, mode: "insensitive" } },
                   { email: { contains: q, mode: "insensitive" } },
-                  { documentNumber: { contains: q, mode: "insensitive" } }
+                  { documentNumber: { contains: q, mode: "insensitive" } },
+                  ...(isNumericQ ? [{ patientNumber: parseInt(q.trim(), 10) }] : [])
                 ]
               }
             : undefined,
@@ -191,7 +209,7 @@ export class PatientsService {
 
   async findOne(actor: AuthUser, id: string) {
     const patient = await this.prisma.patient.findFirst({
-      where: { id, organizationId: actor.organizationId, branchId: { in: actor.branchIds }, deletedAt: null },
+      where: this.buildPatientWhere(actor, id),
       include: {
         branch: true,
         agreement: {
@@ -218,10 +236,10 @@ export class PatientsService {
 
     const [timeline, nextAppointment, lastAppointment, financialSummary, activeTreatments, benefitsSummary] =
       await Promise.all([
-        this.getTimelineInternal(actor, id),
+        this.getTimelineInternal(actor, patient.id),
         this.prisma.appointment.findFirst({
           where: {
-            patientId: id,
+            patientId: patient.id,
             organizationId: actor.organizationId,
             startAt: { gte: new Date() },
             status: { notIn: ["CANCELLED_BY_PATIENT", "CANCELLED_BY_CLINIC", "NO_SHOW", "RESCHEDULED"] }
@@ -230,23 +248,23 @@ export class PatientsService {
         }),
         this.prisma.appointment.findFirst({
           where: {
-            patientId: id,
+            patientId: patient.id,
             organizationId: actor.organizationId,
             startAt: { lt: new Date() }
           },
           orderBy: { startAt: "desc" }
         }),
-        this.getPatientFinancialSummary(actor, id),
+        this.getPatientFinancialSummary(actor, patient.id),
         this.prisma.treatmentPlan.count({
           where: {
-            patientId: id,
+            patientId: patient.id,
             organizationId: actor.organizationId,
             branchId: { in: actor.branchIds },
             isAlternative: false,
             status: { in: [TreatmentPlanStatus.ACCEPTED, TreatmentPlanStatus.IN_PROGRESS] }
           }
         }),
-        this.getPatientBenefitsSummary(actor, id)
+        this.getPatientBenefitsSummary(actor, patient.id)
       ]);
 
     return {
@@ -898,6 +916,7 @@ export class PatientsService {
 
   async create(actor: AuthUser, dto: CreatePatientDto) {
     await this.validateBranch(actor, dto.branchId);
+    if (dto.agreementId) await this.validateAgreement(actor, dto.agreementId);
     this.validateBirthDate(dto.birthDate);
     const normalizedPhone =
       dto.phone && this.patientIdentityService
@@ -913,7 +932,8 @@ export class PatientsService {
       normalizedAlternatePhone?.normalizedValue.replace(/^\+/, "") ??
       this.normalizePhoneForStorage(dto.alternatePhone);
 
-    if (normalizedPhone) await this.ensurePhoneAvailableForStandalonePatient(actor, normalizedPhone.normalizedValue);
+    if (normalizedPhone)
+      await this.ensurePhoneAvailableForStandalonePatient(actor, normalizedPhone.normalizedValue);
     if (normalizedAlternatePhone) {
       await this.ensurePhoneAvailableForStandalonePatient(actor, normalizedAlternatePhone.normalizedValue);
     }
@@ -932,13 +952,19 @@ export class PatientsService {
     });
 
     const patient = await this.prisma.$transaction(async (tx) => {
+      const patientNumber = await generateUniquePatientNumber(tx);
       const created = await tx.patient.create({
         data: {
+          patientNumber,
           organizationId: actor.organizationId,
           branchId: dto.branchId,
+          agreementId: dto.agreementId?.trim(),
           firstName: this.normalizeDisplayName(dto.firstName),
+          socialName: dto.socialName?.trim(),
           lastName: this.normalizeDisplayName(dto.lastName),
+          internalNumber: dto.internalNumber?.trim(),
           birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
+          sex: dto.sex?.trim(),
           gender: dto.gender?.trim(),
           documentType: dto.documentType?.trim(),
           documentNumber: dto.documentNumber?.trim(),
@@ -946,6 +972,8 @@ export class PatientsService {
           phone: phoneForStorage || undefined,
           alternatePhone: alternatePhoneForStorage || undefined,
           occupation: dto.occupation?.trim(),
+          employer: dto.employer?.trim(),
+          observations: dto.observations?.trim(),
           referredBy: dto.referredBy?.trim(),
           source: dto.source?.trim(),
           status: (dto.status as PatientStatus | undefined) ?? "ACTIVE"
@@ -957,6 +985,9 @@ export class PatientsService {
           data: dto.contacts.map((contact) => ({
             patientId: created.id,
             name: contact.name.trim(),
+            socialName: contact.socialName?.trim(),
+            documentNumber: contact.documentNumber?.trim(),
+            gender: contact.gender?.trim(),
             relationship: contact.relationship?.trim(),
             phone: contact.phone?.trim(),
             email: contact.email?.toLowerCase().trim(),
@@ -1029,7 +1060,7 @@ export class PatientsService {
 
   async update(actor: AuthUser, id: string, dto: UpdatePatientDto) {
     const current = await this.prisma.patient.findFirst({
-      where: { id, organizationId: actor.organizationId, branchId: { in: actor.branchIds }, deletedAt: null },
+      where: this.buildPatientWhere(actor, id),
       include: { contacts: true, address: true, medicalAlerts: true }
     });
 
@@ -1055,61 +1086,100 @@ export class PatientsService {
         : (normalizedAlternatePhone?.normalizedValue.replace(/^\+/, "") ??
           this.normalizePhoneForStorage(dto.alternatePhone));
 
-    if (normalizedPhone) await this.ensurePhoneAvailableForStandalonePatient(actor, normalizedPhone.normalizedValue, id);
-    if (normalizedAlternatePhone) {
-      await this.ensurePhoneAvailableForStandalonePatient(actor, normalizedAlternatePhone.normalizedValue, id);
+    if (normalizedPhone && normalizedPhone.normalizedValue !== current.phone) {
+      await this.ensurePhoneAvailableForStandalonePatient(
+        actor,
+        normalizedPhone.normalizedValue,
+        current.id
+      );
     }
-
-    await this.ensureNoExactPatientDuplicate(
-      actor,
-      {
-        firstName: dto.firstName ?? current.firstName,
-        lastName: dto.lastName ?? current.lastName,
-        phone: nextPhone ?? undefined,
-        email: dto.email ?? current.email ?? undefined
-      },
-      id
-    );
+    if (normalizedAlternatePhone && normalizedAlternatePhone.normalizedValue !== current.alternatePhone) {
+      await this.ensurePhoneAvailableForStandalonePatient(
+        actor,
+        normalizedAlternatePhone.normalizedValue,
+        current.id
+      );
+    }
 
     const potentialDuplicates = await this.findPotentialDuplicates(
       actor,
       {
-        phone: nextPhone ?? undefined,
-        email: dto.email ?? current.email ?? undefined,
-        documentNumber: dto.documentNumber ?? current.documentNumber ?? undefined
+        phone: nextPhone,
+        email: dto.email === undefined ? current.email : dto.email,
+        documentNumber: dto.documentNumber === undefined ? current.documentNumber : dto.documentNumber
       },
-      id
+      current.id
     );
+
+    const dataToUpdate: Prisma.PatientUpdateInput = {
+      ...(dto.branchId ? { branch: { connect: { id: dto.branchId } } } : {}),
+      ...(dto.agreementId !== undefined
+        ? dto.agreementId
+          ? { agreement: { connect: { id: dto.agreementId.trim() } } }
+          : { agreement: { disconnect: true } }
+        : {}),
+      ...(dto.firstName !== undefined ? { firstName: this.normalizeDisplayName(dto.firstName) } : {}),
+      ...(dto.socialName !== undefined ? { socialName: dto.socialName?.trim() || null } : {}),
+      ...(dto.lastName !== undefined ? { lastName: this.normalizeDisplayName(dto.lastName) } : {}),
+      ...(dto.internalNumber !== undefined ? { internalNumber: dto.internalNumber === undefined ? undefined : dto.internalNumber.trim() || null } : {}),
+      ...(dto.birthDate !== undefined ? { birthDate: dto.birthDate ? new Date(dto.birthDate) : null } : {}),
+      ...(dto.sex !== undefined ? { sex: dto.sex?.trim() || null } : {}),
+      ...(dto.gender !== undefined ? { gender: dto.gender?.trim() || null } : {}),
+      ...(dto.documentType !== undefined ? { documentType: dto.documentType?.trim() || null } : {}),
+      ...(dto.documentNumber !== undefined ? { documentNumber: dto.documentNumber?.trim() || null } : {}),
+      ...(dto.email !== undefined ? { email: this.normalizeEmail(dto.email) || null } : {}),
+      ...(dto.phone !== undefined ? { phone: nextPhone || null } : {}),
+      ...(dto.alternatePhone !== undefined ? { alternatePhone: nextAlternatePhone || null } : {}),
+      ...(dto.occupation !== undefined ? { occupation: dto.occupation?.trim() || null } : {}),
+      ...(dto.employer !== undefined ? { employer: dto.employer?.trim() || null } : {}),
+      ...(dto.observations !== undefined ? { observations: dto.observations?.trim() || null } : {}),
+      ...(dto.referredBy !== undefined ? { referredBy: dto.referredBy?.trim() || null } : {}),
+      ...(dto.source !== undefined ? { source: dto.source?.trim() || null } : {}),
+      ...(dto.status !== undefined ? { status: dto.status as PatientStatus } : {})
+    };
 
     await this.prisma.$transaction(async (tx) => {
       await tx.patient.update({
-        where: { id },
-        data: {
-          branchId: dto.branchId,
-          agreementId: dto.agreementId === undefined ? undefined : dto.agreementId || null,
-          firstName: dto.firstName === undefined ? undefined : this.normalizeDisplayName(dto.firstName),
-          lastName: dto.lastName === undefined ? undefined : this.normalizeDisplayName(dto.lastName),
-          birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
-          gender: dto.gender?.trim(),
-          documentType: dto.documentType?.trim(),
-          documentNumber: dto.documentNumber?.trim(),
-          email: dto.email === undefined ? undefined : this.normalizeEmail(dto.email) || null,
-          phone: dto.phone === undefined ? undefined : nextPhone || null,
-          alternatePhone: dto.alternatePhone === undefined ? undefined : nextAlternatePhone || null,
-          occupation: dto.occupation?.trim(),
-          referredBy: dto.referredBy?.trim(),
-          source: dto.source?.trim(),
-          status: dto.status as PatientStatus | undefined
-        }
+        where: { id: current.id },
+        data: dataToUpdate
       });
 
-      if (dto.contacts) {
-        await tx.patientContact.deleteMany({ where: { patientId: id } });
+      if (dto.address !== undefined) {
+        if (current.address) {
+          await tx.patientAddress.update({
+            where: { patientId: current.id },
+            data: {
+              street: dto.address.street?.trim() || null,
+              city: dto.address.city?.trim() || null,
+              state: dto.address.state?.trim() || null,
+              country: dto.address.country?.trim() || null,
+              zipCode: dto.address.zipCode?.trim() || null
+            }
+          });
+        } else if (dto.address.street || dto.address.city || dto.address.state || dto.address.country || dto.address.zipCode) {
+          await tx.patientAddress.create({
+            data: {
+              patientId: current.id,
+              street: dto.address.street?.trim() || null,
+              city: dto.address.city?.trim() || null,
+              state: dto.address.state?.trim() || null,
+              country: dto.address.country?.trim() || null,
+              zipCode: dto.address.zipCode?.trim() || null
+            }
+          });
+        }
+      }
+
+      if (dto.contacts !== undefined) {
+        await tx.patientContact.deleteMany({ where: { patientId: current.id } });
         if (dto.contacts.length) {
           await tx.patientContact.createMany({
             data: dto.contacts.map((contact) => ({
-              patientId: id,
+              patientId: current.id,
               name: contact.name.trim(),
+              socialName: contact.socialName?.trim(),
+              documentNumber: contact.documentNumber?.trim(),
+              gender: contact.gender?.trim(),
               relationship: contact.relationship?.trim(),
               phone: contact.phone?.trim(),
               email: contact.email?.toLowerCase().trim(),
@@ -1119,33 +1189,12 @@ export class PatientsService {
         }
       }
 
-      if (dto.address) {
-        await tx.patientAddress.upsert({
-          where: { patientId: id },
-          create: {
-            patientId: id,
-            street: dto.address.street?.trim(),
-            city: dto.address.city?.trim(),
-            state: dto.address.state?.trim(),
-            country: dto.address.country?.trim(),
-            zipCode: dto.address.zipCode?.trim()
-          },
-          update: {
-            street: dto.address.street?.trim(),
-            city: dto.address.city?.trim(),
-            state: dto.address.state?.trim(),
-            country: dto.address.country?.trim(),
-            zipCode: dto.address.zipCode?.trim()
-          }
-        });
-      }
-
-      if (dto.medicalAlerts) {
-        await tx.patientMedicalAlert.deleteMany({ where: { patientId: id } });
+      if (dto.medicalAlerts !== undefined) {
+        await tx.patientMedicalAlert.deleteMany({ where: { patientId: current.id } });
         if (dto.medicalAlerts.length) {
           await tx.patientMedicalAlert.createMany({
             data: dto.medicalAlerts.map((alert) => ({
-              patientId: id,
+              patientId: current.id,
               type: alert.type.trim(),
               description: alert.description.trim(),
               severity: alert.severity.trim(),
@@ -1160,11 +1209,15 @@ export class PatientsService {
           organizationId: actor.organizationId,
           actorUserId: actor.id,
           entity: "Patient",
-          entityId: id,
-          action: "update_sensitive",
+          entityId: current.id,
+          action: "update",
           before: {
             firstName: current.firstName,
             lastName: current.lastName,
+            status: current.status,
+            branchId: current.branchId,
+            agreementId: current.agreementId,
+            internalNumber: current.internalNumber,
             birthDate: current.birthDate,
             gender: current.gender,
             documentType: current.documentType,
@@ -1176,6 +1229,10 @@ export class PatientsService {
           after: {
             firstName: dto.firstName ?? current.firstName,
             lastName: dto.lastName ?? current.lastName,
+            status: dto.status ?? current.status,
+            branchId: dto.branchId ?? current.branchId,
+            agreementId: dto.agreementId !== undefined ? dto.agreementId : current.agreementId,
+            internalNumber: dto.internalNumber !== undefined ? dto.internalNumber : current.internalNumber,
             birthDate: dto.birthDate ?? current.birthDate,
             gender: dto.gender ?? current.gender,
             documentType: dto.documentType ?? current.documentType,
@@ -1191,30 +1248,30 @@ export class PatientsService {
     if (this.patientIdentityService && (dto.phone !== undefined || dto.alternatePhone !== undefined)) {
       await this.patientIdentityService.syncPatientPhones(
         actor,
-        id,
+        current.id,
         dto.phone === undefined ? this.phoneForParsing(current.phone) : normalizedPhone?.normalizedValue,
         dto.alternatePhone === undefined
           ? this.phoneForParsing(current.alternatePhone)
           : normalizedAlternatePhone?.normalizedValue
       );
     }
-    if (this.patientIdentityService) await this.patientIdentityService.recordDuplicateCandidates(actor, id);
+    if (this.patientIdentityService) await this.patientIdentityService.recordDuplicateCandidates(actor, current.id);
 
     return {
-      patient: await this.findOne(actor, id),
+      patient: await this.findOne(actor, current.id),
       potentialDuplicates
     };
   }
 
   async softDelete(actor: AuthUser, id: string) {
     const current = await this.prisma.patient.findFirst({
-      where: { id, organizationId: actor.organizationId, branchId: { in: actor.branchIds }, deletedAt: null }
+      where: this.buildPatientWhere(actor, id)
     });
 
     if (!current) throw new NotFoundException("Patient not found");
 
     await this.prisma.patient.update({
-      where: { id },
+      where: { id: current.id },
       data: {
         status: "INACTIVE",
         deletedAt: new Date()
@@ -1226,7 +1283,7 @@ export class PatientsService {
         organizationId: actor.organizationId,
         actorUserId: actor.id,
         entity: "Patient",
-        entityId: id,
+        entityId: current.id,
         action: "soft_delete",
         before: {
           status: current.status,
@@ -1326,7 +1383,7 @@ export class PatientsService {
   }
 
   async createTask(actor: AuthUser, patientId: string, dto: CreatePatientTaskDto) {
-    await this.ensurePatientExists(actor, patientId);
+    const patient = await this.ensurePatientExists(actor, patientId);
 
     const type = dto.type.trim();
     const detail = dto.detail.trim();
@@ -1338,8 +1395,10 @@ export class PatientsService {
       const task = await tx.patientTask.create({
         data: {
           organizationId: actor.organizationId,
+          branchId: patient.branchId,
           patientId,
           type,
+          title: type,
           detail,
           dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
           assignedToId,
@@ -1712,14 +1771,10 @@ export class PatientsService {
 
   private async getPatientForEmail(actor: AuthUser, patientId: string) {
     const patient = await this.prisma.patient.findFirst({
-      where: {
-        id: patientId,
-        organizationId: actor.organizationId,
-        branchId: { in: actor.branchIds },
-        deletedAt: null
-      },
+      where: this.buildPatientWhere(actor, patientId),
       select: {
         id: true,
+        patientNumber: true,
         organizationId: true,
         branchId: true,
         firstName: true,
@@ -2011,23 +2066,20 @@ export class PatientsService {
   }
 
   private async getTimelineInternal(actor: AuthUser, patientId: string) {
-    const [notes, alerts, patient] = await Promise.all([
+    const patient = await this.ensurePatientExists(actor, patientId);
+    const resolvedId = patient.id;
+
+    const [notes, alerts] = await Promise.all([
       this.prisma.patientNote.findMany({
-        where: { patientId },
+        where: { patientId: resolvedId },
         include: this.patientNoteInclude(),
         orderBy: { createdAt: "desc" }
       }),
       this.prisma.patientMedicalAlert.findMany({
-        where: { patientId },
+        where: { patientId: resolvedId },
         orderBy: { createdAt: "desc" }
-      }),
-      this.prisma.patient.findFirst({
-        where: { id: patientId, organizationId: actor.organizationId, branchId: { in: actor.branchIds } },
-        select: { createdAt: true }
       })
     ]);
-
-    if (!patient) throw new NotFoundException("Patient not found");
 
     const events = [
       {
@@ -2243,13 +2295,8 @@ export class PatientsService {
 
   private async getPatientForBenefitCoverage(actor: AuthUser, patientId: string) {
     const patient = await this.prisma.patient.findFirst({
-      where: {
-        id: patientId,
-        organizationId: actor.organizationId,
-        branchId: { in: actor.branchIds },
-        deletedAt: null
-      },
-      select: { id: true, branchId: true, agreementId: true }
+      where: this.buildPatientWhere(actor, patientId),
+      select: { id: true, patientNumber: true, branchId: true, agreementId: true }
     });
     if (!patient) throw new NotFoundException("Patient not found");
     return patient;
@@ -2474,16 +2521,12 @@ export class PatientsService {
 
   private async ensurePatientExists(actor: AuthUser, patientId: string) {
     const patient = await this.prisma.patient.findFirst({
-      where: {
-        id: patientId,
-        organizationId: actor.organizationId,
-        branchId: { in: actor.branchIds },
-        deletedAt: null
-      },
-      select: { id: true }
+      where: this.buildPatientWhere(actor, patientId),
+      select: { id: true, patientNumber: true, branchId: true, createdAt: true }
     });
 
     if (!patient) throw new NotFoundException("Patient not found");
+    return patient;
   }
 
   private async ensurePhoneAvailableForStandalonePatient(
@@ -2527,14 +2570,15 @@ export class PatientsService {
     if (contactPoint?.patientLinks.length || legacyPatient) {
       throw new ConflictException({
         code: "PHONE_REQUIRES_FAMILY_GROUP",
-        message: "El teléfono ya pertenece a otra ficha. Usa el flujo de grupo familiar o registra otro número."
+        message:
+          "El teléfono ya pertenece a otra ficha. Usa el flujo de grupo familiar o registra otro número."
       });
     }
   }
 
   private async findPotentialDuplicates(
     actor: AuthUser,
-    fields: { phone?: string; email?: string; documentNumber?: string },
+    fields: { phone?: string | null; email?: string | null; documentNumber?: string | null },
     excludeId?: string
   ) {
     const conditions: Prisma.PatientWhereInput[] = [];
@@ -2695,5 +2739,4 @@ export class PatientsService {
   private roundMoney(value: number) {
     return Math.round(value * 100) / 100;
   }
-
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Post, Req, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
 import type { Request } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
@@ -8,6 +8,8 @@ import { AuthService } from "./auth.service";
 import { LoginDto } from "./dto/login.dto";
 import { RefreshTokenDto } from "./dto/refresh-token.dto";
 import { RegisterOrganizationDto } from "./dto/register-organization.dto";
+import { UpdateProfileDto } from "./dto/update-profile.dto";
+import { ChangePasswordDto } from "./dto/change-password.dto";
 
 @ApiTags("Auth")
 @Controller("auth")
@@ -60,5 +62,23 @@ export class AuthController {
   @ApiResponse({ status: 200, description: "Authenticated user info" })
   me(@CurrentUser() user: AuthUser) {
     return user;
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch("profile")
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Update authenticated user profile" })
+  @ApiResponse({ status: 200, description: "Profile updated successfully" })
+  updateProfile(@CurrentUser() user: AuthUser, @Body() dto: UpdateProfileDto) {
+    return this.authService.updateProfile(user.id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post("change-password")
+  @ApiBearerAuth()
+  @ApiOperation({ summary: "Change authenticated user password" })
+  @ApiResponse({ status: 200, description: "Password changed successfully" })
+  changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
+    return this.authService.changePassword(user.id, dto);
   }
 }

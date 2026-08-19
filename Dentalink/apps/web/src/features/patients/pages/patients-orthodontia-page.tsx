@@ -252,7 +252,9 @@ function OrthodonticTable({ rows, isLoading, branchId }: { rows: OrthodonticPati
     try {
       const saved = localStorage.getItem("orthodontic_table_columns");
       if (saved) return JSON.parse(saved);
-    } catch (e) {}
+    } catch {
+      // Ignore malformed local preferences and restore the safe default below.
+    }
     return {
       patientAge: true,
       patientMobile: true,
@@ -395,7 +397,7 @@ function DeferredOrthodonticAppointmentModal({
   // Limit to 15 patients or just search, but for safety in this modal, we'll keep it low or use the specific patient.
   const patients = usePatients({ branchId, pageSize: 50 }); 
   
-  const createPatient = useCreatePatient();
+  const createPatient = useCreatePatient("appointment");
   const createAppointment = useCreateAppointment();
   const treatmentMutations = useTreatmentMutations();
 

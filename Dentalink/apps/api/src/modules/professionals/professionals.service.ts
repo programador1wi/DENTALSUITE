@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   AppointmentStatus,
   Prisma,
@@ -31,6 +31,20 @@ const CLOSED_TRANSFER_STATUSES: AppointmentStatus[] = [
   AppointmentStatus.NO_SHOW,
   AppointmentStatus.RESCHEDULED,
   AppointmentStatus.COMPLETED
+];
+
+const ACTIVE_APPOINTMENT_STATUSES: AppointmentStatus[] = [
+  AppointmentStatus.SCHEDULED,
+  AppointmentStatus.CONFIRMED,
+  AppointmentStatus.CONFIRMED_BY_WHATSAPP,
+  AppointmentStatus.CONFIRMED_BY_PHONE,
+  AppointmentStatus.CONFIRMED_BY_EMAIL,
+  AppointmentStatus.PENDING_CONFIRMATION,
+  AppointmentStatus.NOTIFIED_BY_WHATSAPP,
+  AppointmentStatus.NOTIFIED_BY_EMAIL,
+  AppointmentStatus.ARRIVED,
+  AppointmentStatus.WAITING_ROOM,
+  AppointmentStatus.IN_PROGRESS
 ];
 
 const GENERAL_SPECIALTY_NAME = ALLOWED_SPECIALTY_NAMES[0];
@@ -286,7 +300,7 @@ export class ProfessionalsService {
             isPrimary: false,
             status: ProfessionalBranchStatus.ENDED,
             endsAt: endedAt,
-            endedReason: "Retirado desde Gestion de profesionales"
+            endedReason: "Retirado desde directorio de colaboradores"
           }
         });
       }
@@ -311,7 +325,55 @@ export class ProfessionalsService {
   }
 
   async deactivate(actor: AuthUser, id: string) {
+    const impact = await this.deactivationImpact(actor, id);
+    if (impact.futureAppointments > 0 || impact.futureBlocks > 0 || impact.activeSchedules > 0) {
+      throw new ConflictException({
+        code: "PROFESSIONAL_HAS_FUTURE_AGENDA",
+        message: "El profesional tiene citas, bloqueos u horarios activos. Sustituye o libera su agenda antes de deshabilitar la atencion.",
+        impact
+      });
+    }
     return this.update(actor, id, { isActive: false });
+  }
+
+  async deactivationImpact(actor: AuthUser, id: string, branchId?: string) {
+    const professional = await this.findOne(actor, id);
+    if (branchId) assertBranchAccess(actor, branchId);
+    const scopedBranchIds = branchId
+      ? [branchId]
+      : professional.branches.map((branch) => branch.id).filter((id) => actor.branchIds.includes(id));
+    const now = new Date();
+    const [futureAppointments, futureBlocks, activeSchedules] = await Promise.all([
+      this.prisma.appointment.count({
+        where: {
+          organizationId: actor.organizationId,
+          professionalId: id,
+          branchId: { in: scopedBranchIds },
+          startAt: { gte: now },
+          status: { in: ACTIVE_APPOINTMENT_STATUSES }
+        }
+      }),
+      this.prisma.appointment.count({
+        where: {
+          organizationId: actor.organizationId,
+          professionalId: id,
+          branchId: { in: scopedBranchIds },
+          startAt: { gte: now },
+          status: AppointmentStatus.BLOCKED
+        }
+      }),
+      this.prisma.professionalSchedule.count({
+        where: { professionalId: id, branchId: { in: scopedBranchIds }, isActive: true }
+      })
+    ]);
+    return {
+      professionalId: id,
+      branchIds: scopedBranchIds,
+      futureAppointments,
+      futureBlocks,
+      activeSchedules,
+      canDeactivate: futureAppointments === 0 && futureBlocks === 0 && activeSchedules === 0
+    };
   }
 
   async updateAgendaConfig(actor: AuthUser, id: string, branchId: string, dto: ConfigProfessionalDto) {

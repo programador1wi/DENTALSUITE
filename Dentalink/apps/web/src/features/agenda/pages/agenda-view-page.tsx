@@ -27,6 +27,8 @@ import {
 } from "../components/appointment-action-modals";
 import { AvailabilityPicker } from "../components/availability-picker";
 import { CalendarView } from "../components/calendar-view";
+import { AppointmentDetailsModal } from "../components/appointment-details-modal";
+import { AppointmentWhatsAppModal } from "../components/appointment-whatsapp-modal";
 import { BlockedAppointmentModal } from "../components/blocked-appointment-modal";
 import { toast } from "sonner";
 import { AgendaDailyList } from "../components/agenda-daily-list";
@@ -126,6 +128,8 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
   const [statusAction, setStatusAction] = useState<{ appointmentId: string; status: AppointmentStatus } | null>(null);
   const [historyViewing, setHistoryViewing] = useState<Appointment | null>(null);
   const [emailAction, setEmailAction] = useState<{ appointment: Appointment; mode: AppointmentEmailMode } | null>(null);
+  const [whatsAppAppointment, setWhatsAppAppointment] = useState<Appointment | null>(null);
+  const [detailsViewing, setDetailsViewing] = useState<Appointment | null>(null);
 
   const branches = useBranches(undefined, "ACTIVE");
 
@@ -410,6 +414,9 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
 
   const handleAppointmentMenuAction = (appointment: Appointment, action: AppointmentMenuAction) => {
     switch (action) {
+      case "contactWhatsApp":
+        setWhatsAppAppointment(appointment);
+        break;
       case "requestDataEmail":
         setEmailAction({ appointment, mode: "dataRequest" });
         break;
@@ -433,6 +440,9 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         break;
       case "cancel":
         openCancelAppointment(appointment, "clinic");
+        break;
+      case "details" as any:
+        setDetailsViewing(appointment);
         break;
     }
   };
@@ -532,6 +542,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
               onReschedule={setRescheduling}
               statusAction={statusAction}
               onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
+              onContactWhatsApp={(appointment) => setWhatsAppAppointment(appointment)}
               onConfirm={(id) => void actions.confirm.mutate(id)}
               onArrive={(id) => void actions.arrive.mutate(id)}
               onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
@@ -578,6 +589,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
               onReschedule={setRescheduling}
               statusAction={statusAction}
               onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
+              onContactWhatsApp={(appointment) => setWhatsAppAppointment(appointment)}
               onConfirm={(id) => void actions.confirm.mutate(id)}
               onArrive={(id) => void actions.arrive.mutate(id)}
               onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
@@ -607,6 +619,7 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
               onReschedule={setRescheduling}
               statusAction={statusAction}
               onChangeStatus={(appointment, nextStatus) => void changeAppointmentStatus(appointment.id, nextStatus)}
+              onContactWhatsApp={(appointment) => setWhatsAppAppointment(appointment)}
               onConfirm={(id) => void actions.confirm.mutate(id)}
               onArrive={(id) => void actions.arrive.mutate(id)}
               onWaitingRoom={(id) => void actions.waitingRoom.mutate(id)}
@@ -614,6 +627,19 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
               onComplete={(id) => void actions.complete.mutate(id)}
               onNoShow={(id) => void actions.noShow.mutate(id)}
               onMenuAction={handleAppointmentMenuAction}
+            />
+          )}
+
+          {detailsViewing && (
+            <AppointmentDetailsModal
+              appointment={detailsViewing}
+              open={Boolean(detailsViewing)}
+              onOpenChange={(open) => {
+                if (!open) setDetailsViewing(null);
+              }}
+              onAction={(action) => {
+                handleAppointmentMenuAction(detailsViewing, action);
+              }}
             />
           )}
         </div>
@@ -676,6 +702,14 @@ export function AgendaViewPage({ view }: { view: "day" | "week" | "month" | "lis
         onClose={() => setEmailAction(null)}
         onScheduleReminder={async (id: string, payload: AppointmentReminderPayload) => {
           await createAppointmentReminder.mutateAsync({ id, payload });
+        }}
+      />
+      <AppointmentWhatsAppModal
+        appointment={whatsAppAppointment}
+        open={Boolean(whatsAppAppointment)}
+        onClose={() => setWhatsAppAppointment(null)}
+        onNotifyWhatsApp={async (id) => {
+          await changeAppointmentStatus(id, "NOTIFIED_BY_WHATSAPP");
         }}
       />
       <AppointmentHistoryModal

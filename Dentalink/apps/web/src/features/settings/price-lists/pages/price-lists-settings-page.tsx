@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, Download, MapPin, Pencil, Save, Settings, Tags, Trash2, Upload, X } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
+import { APP_ROUTES } from "@/lib/routes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -660,7 +661,7 @@ function LegacyPriceListsSettingsPage() {
               Importar CSV
             </Button>
             <Button onClick={openCreateList}>Nuevo listado</Button>
-            <Link to="/settings/procedures">
+            <Link to={APP_ROUTES.settings.procedures}>
               <Button variant="secondary">Catalogo</Button>
             </Link>
             <input
@@ -1471,7 +1472,7 @@ function CategoryDetail({
                           </Button>
                         </HelpTooltip>
                         <HelpTooltip content="Configurar en catalogo" position="top">
-                          <Link to="/settings/procedures" aria-label="Configurar en catalogo">
+                          <Link to={APP_ROUTES.settings.procedures} aria-label="Configurar en catalogo">
                             <Button variant="secondary" size="sm" className="h-8 w-8 px-0">
                               <Settings className="h-4 w-4" />
                             </Button>

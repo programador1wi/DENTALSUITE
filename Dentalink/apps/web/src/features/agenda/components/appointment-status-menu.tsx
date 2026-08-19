@@ -11,6 +11,7 @@ type AppointmentStatusMenuProps = {
   variant?: "list" | "card";
   pendingStatus?: AppointmentStatus;
   onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
+  onContactWhatsApp?: (appointment: Appointment) => void;
   onConfirm?: (id: string) => void;
   onArrive?: (id: string) => void;
   onWaitingRoom?: (id: string) => void;
@@ -27,6 +28,7 @@ export function AppointmentStatusMenu({
   variant = "card",
   pendingStatus,
   onChangeStatus,
+  onContactWhatsApp,
   onConfirm,
   onArrive,
   onWaitingRoom,
@@ -49,6 +51,7 @@ export function AppointmentStatusMenu({
   const menuItems = useMemo(
     () => getAppointmentStatusMenuItems(appointment.status).filter((item) => canRunStatusAction(item, {
       onChangeStatus,
+      onContactWhatsApp,
       onConfirm,
       onArrive,
       onWaitingRoom,
@@ -59,7 +62,7 @@ export function AppointmentStatusMenu({
       onCancel,
       onHistory
     })),
-    [appointment.status, onArrive, onCancel, onChangeStatus, onComplete, onConfirm, onHistory, onNoShow, onReschedule, onStart, onWaitingRoom]
+    [appointment.status, onArrive, onCancel, onChangeStatus, onComplete, onConfirm, onContactWhatsApp, onHistory, onNoShow, onReschedule, onStart, onWaitingRoom]
   );
   const canOpen = !isPending && menuItems.length > 0;
 
@@ -113,6 +116,9 @@ export function AppointmentStatusMenu({
   const executeAction = (item: AppointmentStatusMenuItem) => {
     setOpen(false);
     switch (item.action) {
+      case "contactWhatsApp":
+        onContactWhatsApp?.(appointment);
+        break;
       case "markPendingConfirmation":
       case "markScheduled":
       case "confirmWhatsApp":
@@ -171,9 +177,9 @@ export function AppointmentStatusMenu({
         aria-expanded={open}
         onClick={toggleMenu}
         className={cn(
-          "inline-flex max-w-full items-center gap-1.5 rounded-full border font-semibold transition-[border-color,box-shadow,transform] duration-150 active:scale-[0.98] disabled:cursor-default",
+          "inline-flex max-w-full items-center gap-1.5 rounded-full border font-semibold transition-[border-color,box-shadow,transform] duration-150 active:scale-[0.98] disabled:cursor-default shadow-2xs",
           palette.cardClass,
-          variant === "list" ? "px-2.5 py-1 text-[10px]" : "px-2 py-0.5 text-[10px]"
+          variant === "list" ? "h-7 px-2.5 text-[11px] font-semibold leading-none md:max-w-[130px]" : "px-2 py-0.5 text-[10px]"
         )}
       >
         {isPending ? (
@@ -224,6 +230,7 @@ function canRunStatusAction(
   handlers: Pick<
     AppointmentStatusMenuProps,
     | "onChangeStatus"
+    | "onContactWhatsApp"
     | "onConfirm"
     | "onArrive"
     | "onWaitingRoom"
@@ -236,6 +243,8 @@ function canRunStatusAction(
   >
 ) {
   switch (item.action) {
+    case "contactWhatsApp":
+      return Boolean(handlers.onContactWhatsApp);
     case "markPendingConfirmation":
     case "markScheduled":
     case "confirmWhatsApp":

@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   Check,
@@ -187,7 +188,7 @@ function Stepper({ current }: { current: StepKey }) {
             >
               {done ? <Check className="h-3.5 w-3.5" /> : step.key}
             </span>
-            <span className="truncate font-medium">{step.label}</span>
+            <span className="truncate font-medium" title={step.label}>{step.label}</span>
           </li>
         );
       })}
@@ -253,6 +254,7 @@ function SummaryMetric({ label, value }: { label: string; value: string | number
 
 export function UsersBulkContractsPage() {
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [step, setStep] = useState<StepKey>(1);
   const [selectedZone, setSelectedZone] = useState("");
   const [search, setSearch] = useState("");
@@ -336,6 +338,27 @@ export function UsersBulkContractsPage() {
   const rateRows = useMemo(() => categoryRateRows(selectedPriceList), [selectedPriceList]);
 
   const allProfessionalRows = useMemo(() => professionals.data ?? [], [professionals.data]);
+
+  useEffect(() => {
+    const professionalId = searchParams.get("professionalId");
+    if (!professionalId || !professionals.data?.length || !branches.data?.length) return;
+    const professional = professionals.data.find((item) => item.id === professionalId);
+    if (!professional) return;
+    const requestedBranchId = searchParams.get("branchId");
+    const branch = branches.data.find(
+      (item) => item.id === requestedBranchId && professional.branches.some((assignment) => assignment.id === item.id)
+    ) ?? branches.data.find((item) => professional.branches.some((assignment) => assignment.id === item.id));
+    if (!branch) return;
+    setSelection({ [professional.id]: [branch.id] });
+    setSelectedZone(zoneCodeForBranch(branch));
+    setSearch(professional.firstName + " " + professional.lastName);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("professionalId");
+      next.delete("branchId");
+      return next;
+    }, { replace: true });
+  }, [branches.data, professionals.data, searchParams, setSearchParams]);
 
   const selectedTargets = useMemo(
     () =>
@@ -494,6 +517,7 @@ export function UsersBulkContractsPage() {
                   <button
                     key={zone.code}
                     type="button"
+                    data-allow-multiline
                     onClick={() => {
                       setSelectedZone(zone.code);
                       setSelection({});
@@ -585,7 +609,7 @@ export function UsersBulkContractsPage() {
                           <Badge value={`${sectionRows.length} profesionales`} tone={selectedZone === section.code ? "brand" : "default"} />
                         </div>
                       </div>
-                      <div className="overflow-x-auto">
+                      <div className="overflow-x-auto" data-responsive-overflow="contained" tabIndex={0} aria-label="Matriz de contratos por profesional y sucursal">
                         <table className="w-full min-w-[920px] border-collapse text-[var(--text-sm)]">
                           <thead className="bg-[var(--bg-surface)] text-left text-[var(--text-xs)] font-semibold uppercase text-[var(--text-brand)]">
                             <tr>

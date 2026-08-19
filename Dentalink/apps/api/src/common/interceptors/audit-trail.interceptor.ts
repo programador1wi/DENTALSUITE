@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from "@nestjs/common";
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor, Logger } from "@nestjs/common";
 import type { Request } from "express";
 import { Observable } from "rxjs";
 import { tap } from "rxjs/operators";
@@ -28,13 +28,14 @@ export class AuditTrailInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       tap({
-        next: async () => {
+        next: () => {
           if (!shouldAudit) return;
           const user = req.user;
           if (!user?.organizationId || !user.id) return;
 
           const entity = this.extractEntity(req.path);
-          await this.prisma.auditLog.create({
+          // E-03: Fire-and-forget para no bloquear el response del cliente
+          this.prisma.auditLog.create({
             data: {
               organizationId: user.organizationId,
               userId: user.id,
@@ -47,6 +48,8 @@ export class AuditTrailInterceptor implements NestInterceptor {
                 path: req.path
               }
             }
+          }).catch(err => {
+            Logger.error(`Error guardando audit log: ${err.message}`, err.stack, 'AuditTrailInterceptor');
           });
         }
       })

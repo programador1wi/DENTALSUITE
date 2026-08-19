@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UsersBulkContractsPage } from "./users-bulk-contracts-page";
 
@@ -198,7 +199,11 @@ describe("UsersBulkContractsPage", () => {
   });
 
   it("builds the preview payload from the selected DJWARNER zone, price list, fixed amount and category", async () => {
-    render(<UsersBulkContractsPage />);
+    render(
+      <MemoryRouter>
+        <UsersBulkContractsPage />
+      </MemoryRouter>
+    );
 
     expect(screen.getByText("Dental J.Warner Central")).toBeInTheDocument();
     expect(screen.getByText("Sucursal Norte")).toBeInTheDocument();

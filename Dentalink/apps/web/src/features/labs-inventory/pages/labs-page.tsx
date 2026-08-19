@@ -1,10 +1,12 @@
 import { FormEvent, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DataTable } from "@/components/ui/data-table";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
+import { TableActionGroup, TableToolbar } from "@/components/ui/table-toolbar";
 import { ConfirmDialog } from "@/components/feedback/confirm-dialog";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
@@ -90,71 +92,75 @@ export function LabsPage({ enabledOnly = false }: { enabledOnly?: boolean }) {
           Los laboratorios habilitados son los proveedores que pueden recibir solicitudes de trabajos clinicos.
         </LabInfoBanner>
 
-        <div className="max-w-md">
-          <EntitySearchBox
-            placeholder="Buscar laboratorio por nombre, telefono o email"
-            value={search}
-            onValueChange={setSearch}
-            items={search.trim() ? providers.data ?? [] : []}
-            onSelect={(provider) => {
-              setSearch(provider.name);
-              openEdit(provider);
-            }}
-            getItemKey={(provider) => provider.id}
-            emptyMessage="Sin laboratorios encontrados"
-            renderItem={(provider) => (
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-slate-900">{provider.name}</p>
-                <p className="mt-0.5 truncate text-xs text-slate-500">
-                  {[provider.phone, provider.email].filter(Boolean).join(" · ") || "Sin contacto"}
-                </p>
-              </div>
-            )}
-          />
-        </div>
+        <TableToolbar
+          search={
+            <EntitySearchBox
+              placeholder="Buscar laboratorio por nombre, telefono o email"
+              value={search}
+              onValueChange={setSearch}
+              items={search.trim() ? providers.data ?? [] : []}
+              onSelect={(provider) => {
+                setSearch(provider.name);
+                openEdit(provider);
+              }}
+              getItemKey={(provider) => provider.id}
+              emptyMessage="Sin laboratorios encontrados"
+              renderItem={(provider) => (
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-slate-900">{provider.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                    {[provider.phone, provider.email].filter(Boolean).join(" · ") || "Sin contacto"}
+                  </p>
+                </div>
+              )}
+            />
+          }
+        />
 
         {providers.isLoading ? (
           <LoadingState message="Cargando laboratorios..." />
         ) : !providers.data?.length ? (
           <EmptyState title="Sin laboratorios" description="No hay laboratorios para los filtros seleccionados." />
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200">
-            <table className="w-full border-collapse bg-white text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Laboratorio</th>
-                  <th className="px-4 py-3">Telefono</th>
-                  <th className="px-4 py-3">Email</th>
-                  <th className="px-4 py-3">Estado</th>
-                  <th className="px-4 py-3 text-right">Opciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {providers.data.map((provider) => (
-                  <tr key={provider.id} className="border-t border-slate-100">
-                    <td className="px-4 py-4">
-                      <p className="font-semibold text-slate-900">{provider.name}</p>
-                      {provider.address ? <p className="text-xs text-slate-500">{provider.address}</p> : null}
-                      {provider.details ? <p className="mt-1 max-w-xl text-xs text-slate-500">{provider.details}</p> : null}
-                    </td>
-                    <td className="px-4 py-4">{provider.phone || "-"}</td>
-                    <td className="px-4 py-4">{provider.email || "-"}</td>
-                    <td className="px-4 py-4">
-                      <Badge value={provider.isActive ? "HABILITADO" : "DESHABILITADO"} tone={provider.isActive ? "success" : "warning"} />
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex justify-end gap-2">
-                        <Button variant="secondary" onClick={() => openEdit(provider)}>Editar</Button>
-                        <Button variant="danger" onClick={() => setDeactivating(provider)} disabled={!provider.isActive}>
-                          Deshabilitar
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            rows={providers.data}
+            getRowKey={(provider) => provider.id}
+            empty={<EmptyState title="Sin laboratorios" description="No hay laboratorios para los filtros seleccionados." />}
+            columns={[
+              {
+                key: "name",
+                title: "Laboratorio",
+                primary: true,
+                wrap: true,
+                render: (provider) => (
+                  <div className="min-w-56">
+                    <p className="font-semibold text-[var(--text-brand-strong)]">{provider.name}</p>
+                    {provider.address ? <p className="mt-1 text-[var(--text-xs)] text-[var(--text-secondary)]">{provider.address}</p> : null}
+                    {provider.details ? <p className="mt-1 max-w-xl text-[var(--text-xs)] text-[var(--text-secondary)]">{provider.details}</p> : null}
+                  </div>
+                )
+              },
+              { key: "phone", title: "Telefono", render: (provider) => provider.phone || "-" },
+              { key: "email", title: "Email", wrap: true, render: (provider) => provider.email || "-" },
+              {
+                key: "isActive",
+                title: "Estado",
+                render: (provider) => <Badge value={provider.isActive ? "HABILITADO" : "DESHABILITADO"} tone={provider.isActive ? "success" : "warning"} dot />
+              },
+              {
+                key: "id",
+                title: "Opciones",
+                actions: true,
+                headerClassName: "text-right",
+                render: (provider) => (
+                  <TableActionGroup>
+                    <Button variant="secondary" onClick={() => openEdit(provider)}>Editar</Button>
+                    <Button variant="danger" onClick={() => setDeactivating(provider)} disabled={!provider.isActive}>Deshabilitar</Button>
+                  </TableActionGroup>
+                )
+              }
+            ]}
+          />
         )}
       </div>
 

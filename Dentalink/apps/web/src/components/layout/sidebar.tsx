@@ -1,3 +1,8 @@
+/**
+ * @deprecated This sidebar component is NOT used by PrivateLayout.
+ * The active navigation lives in header.tsx (horizontal tabs with overflow-x-auto).
+ * This file is preserved for reference only. Safe to delete in a cleanup pass.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link, useLocation } from "react-router-dom";
@@ -10,14 +15,15 @@ import { Select } from "@/components/ui/select";
 import { itemMatchesPath, type MainNavItem, type MenuItem, visibleNavigation } from "@/components/layout/navigation";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { cn } from "@/lib/utils/cn";
+import { APP_ROUTES } from "@/lib/routes";
 
 const EMPTY_PERMISSIONS: string[] = [];
 const PRODUCT_NAME = "Warner Suite";
 const FLYOUT_PANEL_WIDTH = 680;
-const SIDEBAR_NAV_GROUPS = [
-  { key: "principal", label: "Principal", paths: ["/health-center", "/agenda", "/patients"] },
-  { key: "operation", label: "Operacion", paths: ["/cash-register/open", "/accounts-receivable"] },
-  { key: "management", label: "Gestion", paths: ["/settings/organization", "/reports", "/dashboard"] }
+const SIDEBAR_NAV_GROUPS: Array<{ key: string; label: string; paths: string[] }> = [
+  { key: "principal", label: "Principal", paths: [APP_ROUTES.healthCenter, APP_ROUTES.agenda.root, APP_ROUTES.patients.root] },
+  { key: "operation", label: "Operacion", paths: [APP_ROUTES.cashRegister.open, APP_ROUTES.payments.accountsReceivable] },
+  { key: "management", label: "Gestion", paths: [APP_ROUTES.settings.organization, APP_ROUTES.reports.root, APP_ROUTES.dashboard] }
 ];
 
 type FlyoutState = {
@@ -222,9 +228,9 @@ function SidebarContent({
       )}
     >
       <div className="relative flex h-16 items-center gap-[var(--space-3)] border-b border-[var(--nav-border-subtle)] bg-[rgba(255,255,255,0.01)] px-[var(--space-3)]">
-        <Link to="/dashboard" onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-[var(--space-3)]">
+        <Link to={APP_ROUTES.dashboard} onClick={onNavigate} className="flex min-w-0 flex-1 items-center gap-[var(--space-3)]">
           <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/95 p-1.5 border border-white/20 shadow-[0_4px_12px_rgba(4,44,83,0.15)] transition-transform duration-[var(--duration-normal)] hover:scale-105">
-            <img src="/logo-2.png" alt="Warner Suite Logo" className="h-full w-full object-contain" />
+            <img src="/logo-2.webp" alt="Warner Suite Logo" className="h-full w-full object-contain" />
           </div>
           {!collapsed ? (
             <span className="min-w-0">

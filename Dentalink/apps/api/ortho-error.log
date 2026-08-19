@@ -1,6 +1,17 @@
-Error: Treatment or OrthodonticProfile not found
-    at OrthodonticProgressService.getProgressSummary (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontic-progress.service.js:55:19)
-    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
-    at async C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontics.service.js:106:34
-    at async Promise.all (index 2)
-    at async OrthodonticsService.getPatientsReport (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontics.service.js:105:26)
+PrismaClientKnownRequestError: 
+Invalid `this.prisma.treatmentPlan.findUnique()` invocation in
+C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontic-progress.service.js:21:59
+
+  18     this.prisma = prisma;
+  19 }
+  20 async getProgressSummary(treatmentId, cutoffDate = new Date()) {
+→ 21     const treatment = await this.prisma.treatmentPlan.findUnique(
+Transaction API error: Unable to start a transaction in the given time.
+    at zr.handleRequestError (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\RequestHandler.ts:237:13)
+    at zr.handleAndLogRequestError (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\RequestHandler.ts:183:12)
+    at zr.request (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\RequestHandler.ts:152:12)
+    at async a (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\getPrismaClient.ts:963:24)
+    at async OrthodonticProgressService.getProgressSummary (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontic-progress.service.js:21:27)
+    at async C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontics.service.js:107:34
+    at async Promise.all (index 0)
+    at async OrthodonticsService.getPatientsReport (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontics.service.js:106:26)

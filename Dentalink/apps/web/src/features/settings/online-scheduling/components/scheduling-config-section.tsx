@@ -11,6 +11,7 @@ import { useProfessionals } from "@/features/settings/professionals/hooks/use-pr
 import { useSpecialties } from "@/features/settings/specialties/hooks/use-specialties";
 import type { Branch } from "@/features/settings/branches/services/branches.service";
 import { OnlineSchedulingDrawer } from "./online-scheduling-drawer";
+import { APP_ROUTES } from "@/lib/routes";
 
 type SchedulingMode = "online" | "express";
 type ConfigTab = "appointments" | "administrative" | "professionals" | "services";
@@ -33,6 +34,7 @@ type SchedulingSettings = {
   askSpecialtyReason: boolean;
   brandColor: string;
   chairScope: "all" | "single";
+  confirmationMessage?: string;
   facebookPixel: string;
   footerEmail: string;
   footerPhone: string;
@@ -106,11 +108,14 @@ function createFieldState() {
 function defaultSettings(mode: SchedulingMode): SchedulingSettings {
   return {
     allowedBranches: {},
+    allowedProfessionals: [],
+    allowedSpecialties: [],
     analyticsCode: "",
     appointmentBlocks: "1",
     askSpecialtyReason: false,
     brandColor: "#087ed8",
     chairScope: "single",
+    confirmationMessage: "¡Gracias por preferirnos! Tu cita ha sido agendada con éxito. Recuerda llegar 10 minutos antes de la hora acordada.",
     facebookPixel: "",
     footerEmail: "",
     footerPhone: "",
@@ -134,6 +139,113 @@ function defaultSettings(mode: SchedulingMode): SchedulingSettings {
   };
 }
 
+export function backendToFrontendSettings(data: any, mode: SchedulingMode): SchedulingSettings {
+  const defaults = defaultSettings(mode);
+  if (!data) return defaults;
+
+  const allowedBranchesRecord: Record<string, boolean> = {};
+  if (Array.isArray(data.allowedBranches)) {
+    data.allowedBranches.forEach((bId: string) => {
+      allowedBranchesRecord[bId] = true;
+    });
+  }
+
+  const patientFields = createFieldState();
+  if (Array.isArray(data.requiredPatientFields)) {
+    Object.keys(patientFields).forEach((fieldId) => {
+      const isReq = data.requiredPatientFields.includes(fieldId);
+      patientFields[fieldId] = { present: isReq, required: isReq };
+    });
+  }
+
+  let footerEmail = "";
+  let footerPhone = "";
+  if (data.footerText) {
+    const parts = data.footerText.split(" ");
+    footerEmail = parts[0] || "";
+    footerPhone = parts.slice(1).join(" ") || "";
+  }
+
+  return {
+    ...defaults,
+    allowedBranches: Array.isArray(data.allowedBranches) ? allowedBranchesRecord : defaults.allowedBranches,
+    allowedProfessionals: Array.isArray(data.allowedProfessionals) ? data.allowedProfessionals : defaults.allowedProfessionals,
+    allowedSpecialties: Array.isArray(data.allowedSpecialties) ? data.allowedSpecialties : defaults.allowedSpecialties,
+    analyticsCode: data.googleAnalyticsId ?? defaults.analyticsCode,
+    appointmentBlocks: data.blocksPerAppointment !== undefined && data.blocksPerAppointment !== null ? String(data.blocksPerAppointment) : defaults.appointmentBlocks,
+    brandColor: data.brandColor ?? defaults.brandColor,
+    confirmationMessage: data.confirmationMessage ?? defaults.confirmationMessage,
+    footerEmail,
+    footerPhone,
+    identifyByCurp: data.identificationMethod === "DOCUMENT",
+    identifyByEmail: data.identificationMethod === "EMAIL" || !data.identificationMethod,
+    identifyByMobile: data.identificationMethod === "PHONE",
+    logoName: data.logoUrl ?? defaults.logoName,
+    maxAvailabilityDays: data.maxDaysInAdvance !== undefined && data.maxDaysInAdvance !== null ? String(data.maxDaysInAdvance) : defaults.maxAvailabilityDays,
+    maxUnvalidatedAppointments: data.maxUnvalidatedAppointmentsPerPatient !== undefined && data.maxUnvalidatedAppointmentsPerPatient !== null ? String(data.maxUnvalidatedAppointmentsPerPatient) : defaults.maxUnvalidatedAppointments,
+    onlineEnabled: data.isEnabled ?? defaults.onlineEnabled,
+    patientFields: data.requiredPatientFields ? patientFields : defaults.patientFields,
+    redirectUrl: data.redirectUrl ?? defaults.redirectUrl,
+    safetyHours: data.securityMarginHours !== undefined && data.securityMarginHours !== null ? String(data.securityMarginHours) : defaults.safetyHours,
+    patientBlockEnabled: data.patientBlockEnabled ?? defaults.patientBlockEnabled,
+    chairScope: (data.chairScope as SchedulingSettings["chairScope"]) ?? defaults.chairScope,
+    facebookPixel: data.facebookPixel ?? defaults.facebookPixel,
+    menuByProfessional: data.menuByProfessional ?? defaults.menuByProfessional,
+    menuBySpecialty: data.menuBySpecialty ?? defaults.menuBySpecialty,
+    menuByBranch: data.menuByBranch ?? defaults.menuByBranch,
+    patientDataMoment: (data.patientDataMoment as SchedulingSettings["patientDataMoment"]) ?? defaults.patientDataMoment,
+    askSpecialtyReason: data.askSpecialtyReason ?? defaults.askSpecialtyReason,
+    showAppointmentDuration: data.showAppointmentDuration ?? defaults.showAppointmentDuration,
+  };
+}
+
+export function frontendToBackendDto(newSettings: SchedulingSettings, mode: SchedulingMode) {
+  const allowedBranches = Object.entries(newSettings.allowedBranches || {})
+    .filter(([_, allowed]) => allowed)
+    .map(([id]) => id);
+
+  const identificationMethod = newSettings.identifyByCurp
+    ? "DOCUMENT"
+    : newSettings.identifyByMobile
+    ? "PHONE"
+    : "EMAIL";
+
+  const requiredPatientFields = Object.entries(newSettings.patientFields || {})
+    .filter(([_, state]) => state.required)
+    .map(([id]) => id);
+
+  const footerText = `${newSettings.footerEmail || ""} ${newSettings.footerPhone || ""}`.trim();
+
+  return {
+    isEnabled: newSettings.onlineEnabled,
+    mode: mode.toUpperCase(),
+    allowedBranches,
+    allowedProfessionals: newSettings.allowedProfessionals || [],
+    allowedSpecialties: newSettings.allowedSpecialties || [],
+    securityMarginHours: parseInt(newSettings.safetyHours || "1", 10),
+    blocksPerAppointment: parseInt(newSettings.appointmentBlocks || "1", 10),
+    maxDaysInAdvance: parseInt(newSettings.maxAvailabilityDays || "30", 10),
+    maxUnvalidatedAppointmentsPerPatient: parseInt(newSettings.maxUnvalidatedAppointments || "1", 10),
+    brandColor: newSettings.brandColor,
+    logoUrl: newSettings.logoName,
+    footerText,
+    googleAnalyticsId: newSettings.analyticsCode,
+    redirectUrl: newSettings.redirectUrl,
+    confirmationMessage: newSettings.confirmationMessage,
+    identificationMethod,
+    requiredPatientFields,
+    patientBlockEnabled: newSettings.patientBlockEnabled,
+    chairScope: newSettings.chairScope,
+    facebookPixel: newSettings.facebookPixel,
+    menuByProfessional: newSettings.menuByProfessional,
+    menuBySpecialty: newSettings.menuBySpecialty,
+    menuByBranch: newSettings.menuByBranch,
+    patientDataMoment: newSettings.patientDataMoment,
+    askSpecialtyReason: newSettings.askSpecialtyReason,
+    showAppointmentDuration: newSettings.showAppointmentDuration,
+  };
+}
+
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { http } from "@/lib/api/http-client";
 
@@ -145,12 +257,8 @@ export function useStoredSettings(mode: SchedulingMode) {
     queryKey,
     queryFn: async () => {
       try {
-        const { data } = await http.get<Partial<SchedulingSettings>>(`/online-scheduling/config?mode=${mode.toUpperCase()}`);
-        return {
-          ...defaultSettings(mode),
-          ...data,
-          patientFields: { ...createFieldState(), ...(data.patientFields || {}) }
-        };
+        const { data } = await http.get(`/online-scheduling/config?mode=${mode.toUpperCase()}`);
+        return backendToFrontendSettings(data, mode);
       } catch (error) {
         return defaultSettings(mode);
       }
@@ -158,43 +266,21 @@ export function useStoredSettings(mode: SchedulingMode) {
   });
 
   const mutation = useMutation({
-    mutationFn: async (newSettings: Partial<SchedulingSettings>) => {
-      // Map to backend schema DTO
-      const dto = {
-        isEnabled: newSettings.onlineEnabled,
-        mode: mode.toUpperCase(),
-        allowedBranches: Object.entries(newSettings.allowedBranches || {})
-          .filter(([_, allowed]) => allowed)
-          .map(([id]) => id),
-        securityMarginHours: parseInt(newSettings.safetyHours || "1", 10),
-        blocksPerAppointment: parseInt(newSettings.appointmentBlocks || "1", 10),
-        maxDaysInAdvance: parseInt(newSettings.maxAvailabilityDays || "30", 10),
-        maxUnvalidatedAppointmentsPerPatient: parseInt(newSettings.maxUnvalidatedAppointments || "1", 10),
-        brandColor: newSettings.brandColor,
-        logoUrl: newSettings.logoName,
-        footerText: `${newSettings.footerEmail || ""} ${newSettings.footerPhone || ""}`.trim(),
-        googleAnalyticsId: newSettings.analyticsCode,
-        redirectUrl: newSettings.redirectUrl,
-        identificationMethod: newSettings.identifyByCurp ? "DOCUMENT" : newSettings.identifyByEmail ? "EMAIL" : "PHONE",
-        requiredPatientFields: Object.entries(newSettings.patientFields || {})
-          .filter(([_, state]) => state.required)
-          .map(([id]) => id),
-      };
-      
+    mutationFn: async (newSettings: SchedulingSettings) => {
+      const dto = frontendToBackendDto(newSettings, mode);
       const { data } = await http.patch(`/online-scheduling/config`, dto);
       return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey: ["online-scheduling-config-online"] });
     },
   });
 
-  // Proxy the state to behave like useState, auto-saving changes
   const setSettings = (updater: SchedulingSettings | ((curr: SchedulingSettings) => SchedulingSettings)) => {
-    const nextSettings = typeof updater === "function" ? updater(settings) : updater;
-    // We update the cache optimistically
+    const currentData = queryClient.getQueryData<SchedulingSettings>(queryKey) ?? settings;
+    const nextSettings = typeof updater === "function" ? updater(currentData) : updater;
     queryClient.setQueryData(queryKey, nextSettings);
-    // Debounce or directly save
     mutation.mutate(nextSettings);
   };
 
@@ -221,13 +307,19 @@ export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
   };
 
   const toggleBranch = (branch: Branch) => {
-    setSettings((current) => ({
-      ...current,
-      allowedBranches: {
-        ...current.allowedBranches,
-        [branch.id]: !(current.allowedBranches[branch.id] ?? true)
+    setSettings((current) => {
+      const currentAllowed = { ...current.allowedBranches };
+      if (Object.keys(currentAllowed).length === 0 && branches.data) {
+        branches.data.forEach((b) => {
+          currentAllowed[b.id] = true;
+        });
       }
-    }));
+      currentAllowed[branch.id] = !(currentAllowed[branch.id] ?? true);
+      return {
+        ...current,
+        allowedBranches: currentAllowed
+      };
+    });
   };
 
   const togglePatientField = (fieldId: string, key: keyof FieldState) => {
@@ -282,33 +374,7 @@ export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
       ) : null}
 
       {activeTab === "administrative" ? (
-        <div className="p-6 space-y-8 bg-white border border-slate-200 rounded-lg mt-6">
-          <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4">Configuraciones Administrativas</h2>
-          <div className="pb-6 border-b border-slate-100">
-            <h3 className="text-base font-semibold text-slate-800 mb-3">Mensaje confirmación de reserva</h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Este mensaje aparecerá en el portal de pacientes luego de agendar exitosamente la cita.
-            </p>
-            <textarea
-              className="w-full max-w-3xl border border-slate-300 rounded-md p-3 text-sm focus:outline-none focus:border-sky-500"
-              rows={4}
-              defaultValue="¡Gracias por preferirnos! Tu cita ha sido agendada con éxito. Recuerda llegar 10 minutos antes de la hora acordada."
-            />
-          </div>
-          <div className="pb-6">
-            <h3 className="text-base font-semibold text-slate-800 mb-3">Restricción de agendamiento por edad</h3>
-            <div className="flex items-center gap-4 text-sm text-slate-700">
-              <label className="flex items-center gap-2">
-                <input type="radio" name="age_restrict" value="none" defaultChecked className="accent-sky-600" />
-                Sin restricción
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="radio" name="age_restrict" value="adults" className="accent-sky-600" />
-                Solo mayores de edad
-              </label>
-            </div>
-          </div>
-        </div>
+        <AdministrativeSettings onDrawer={setDrawer} settings={settings} update={update} />
       ) : null}
 
       {activeTab === "professionals" ? (
@@ -524,7 +590,20 @@ function AdministrativeSettings({
   update: <K extends keyof SchedulingSettings>(key: K, value: SchedulingSettings[K]) => void;
 }) {
   return (
-    <div>
+    <div className="space-y-6">
+      <div className="p-6 bg-white border border-slate-200 rounded-lg mt-6">
+        <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4 mb-4">Mensaje confirmación de reserva</h2>
+        <p className="text-xs text-slate-500 mb-4">
+          Este mensaje aparecerá en el portal de pacientes luego de agendar exitosamente la cita.
+        </p>
+        <textarea
+          className="w-full max-w-3xl border border-slate-300 rounded-md p-3 text-sm focus:outline-none focus:border-sky-500 text-slate-800"
+          rows={4}
+          value={settings.confirmationMessage || ""}
+          onChange={(e) => update("confirmationMessage", e.target.value)}
+        />
+      </div>
+
       <SettingsSection
         title="Agendamiento online"
         description="Habilita o deshabilita el formulario de agendamiento. Si lo deshabilitas puedes mostrar un mensaje personalizado."
@@ -590,7 +669,7 @@ function ProfessionalSettings({ mode }: { mode: SchedulingMode }) {
         profesional y sucursal. Ajusta esos horarios antes de publicar el link de agendamiento.
       </p>
       <Link
-        to="/settings/online-scheduling/schedules"
+        to={APP_ROUTES.settings.schedules}
         className="mt-4 inline-flex h-[38px] items-center justify-center rounded-[var(--radius-md)] bg-[var(--action-brand)] px-[var(--space-4)] text-[var(--text-base)] font-medium text-[var(--text-inverse)] hover:bg-[var(--action-brand-hover)] transition-colors"
       >
         Gestionar horarios

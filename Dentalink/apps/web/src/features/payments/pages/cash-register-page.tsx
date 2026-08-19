@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Search, Printer, ChevronDown, FileDown, RefreshCw } from "lucide-react";
+import { Search, ChevronDown, FileDown, RefreshCw } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { WarnerSuitePanel } from "@/components/layout/module-tabs";
@@ -10,13 +10,16 @@ import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { ModuleTabs } from "@/components/layout/module-tabs";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { useAuthStore } from "@/stores/auth.store";
 import { useBranchStore } from "@/stores/branch.store";
 import { usePermissions } from "@/hooks/use-permissions";
 import { CollectionSummaryChart } from "../components/collection-summary-chart";
+import { CashRegisterDetailModal } from "../components/cash-register-detail-modal";
 import {
   useCashRegisters,
   usePaymentsMutations,
@@ -31,12 +34,13 @@ import type {
   CashRegisterMovement,
   CashRegisterStatus
 } from "../services/payments.service";
+import { APP_ROUTES } from "@/lib/routes";
 
 const cashTabs = [
-  { to: "/cash-register/open", label: "Cajas abiertas" },
-  { to: "/cash-register/closed", label: "Cajas cerradas" },
-  { to: "/cash-register/reports", label: "Reportes" },
-  { to: "/cash-register/search", label: "Buscar caja" }
+  { to: APP_ROUTES.cashRegister.open, label: "Cajas abiertas" },
+  { to: APP_ROUTES.cashRegister.closed, label: "Cajas cerradas" },
+  { to: APP_ROUTES.cashRegister.reports, label: "Reportes" },
+  { to: APP_ROUTES.cashRegister.search, label: "Buscar caja" }
 ];
 
 function money(value: string | number | null | undefined) {
@@ -65,7 +69,8 @@ function userName(register: CashRegister) {
 }
 
 function personName(person?: { firstName?: string; lastName?: string } | null) {
-  return `${person?.firstName ?? ""} ${person?.lastName ?? ""}`.trim() || "-";
+  if (!person) return "-";
+  return `${person.firstName ?? ""} ${person.lastName ?? ""}`.trim() || "-";
 }
 
 function publicCashNumber(register: Pick<CashRegister, "publicNumber">) {
@@ -80,10 +85,10 @@ function paymentAgreement(movement: CashRegisterMovement) {
   const payment = movement.payment;
   if (!payment) return "-";
 
-  const allocationAgreement = payment.allocations.find(
-    (allocation) => allocation.treatmentPlanItem.agreement?.name
-  )?.treatmentPlanItem.agreement?.name;
-  const planName = payment.allocations[0]?.treatmentPlanItem.treatmentPlan.name;
+  const allocationAgreement = payment.allocations?.find(
+    (allocation) => allocation.treatmentPlanItem?.agreement?.name
+  )?.treatmentPlanItem?.agreement?.name;
+  const planName = payment.allocations?.[0]?.treatmentPlanItem?.treatmentPlan?.name;
 
   return allocationAgreement ?? payment.patient.agreement?.name ?? planName ?? "Sin convenio";
 }
@@ -92,9 +97,9 @@ export function CashRegisterPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const { hasPermission } = usePermissions();
-  const isClosed = location.pathname.endsWith("/closed");
-  const isReports = location.pathname.endsWith("/reports");
-  const isSearch = location.pathname.endsWith("/search");
+  const isClosed = location.pathname.endsWith("/closed") || location.pathname.endsWith("/cerradas");
+  const isReports = location.pathname.endsWith("/reports") || location.pathname.endsWith("/reportes");
+  const isSearch = location.pathname.endsWith("/search") || location.pathname.endsWith("/buscar");
   const status: CashRegisterStatus | undefined =
     isReports || isSearch ? undefined : isClosed ? "CLOSED" : "OPEN";
 
@@ -110,6 +115,7 @@ export function CashRegisterPage() {
   const [search, setSearch] = useState("");
   const [openedFrom, setOpenedFrom] = useState("");
   const [closedFrom, setClosedFrom] = useState("");
+  const [selectedRegisterNumber, setSelectedRegisterNumber] = useState<string | null>(null);
 
   const branches = useBranches(undefined, "ACTIVE");
   const selectedBranchId = isSearch ? branchId || activeBranchId : activeBranchId;
@@ -197,11 +203,12 @@ export function CashRegisterPage() {
 
   return (
     <WarnerSuitePanel>
-      <div className="px-3 pt-3 text-right text-sm text-slate-500">
+      <div className="px-3 pt-3 text-right text-sm">
         <button
           type="button"
-          className="font-medium text-cyan-700 hover:underline"
-          onClick={() => navigate("/settings/payment-methods")}
+          data-allow-multiline
+          className="max-w-full whitespace-normal text-right font-medium text-[var(--text-brand)] hover:text-[var(--action-brand-hover)] hover:underline"
+          onClick={() => navigate(APP_ROUTES.settings.paymentMethods)}
         >
           Configurar medios de pago para reportería y efectivo físico
         </button>
@@ -209,31 +216,37 @@ export function CashRegisterPage() {
       <ModuleTabs tabs={cashTabs} actions={actions} />
 
       <div className="p-3">
-        <div className="mb-[var(--space-3)] rounded-[var(--radius-md)] border border-[rgba(99,56,6,0.15)] bg-[var(--status-warning-bg)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] text-[var(--status-warning-text)]">
-          <strong>Atención:</strong> Los pagos reflejados en los resúmenes presentes en estas secciones{" "}
-          <strong>no reflejan</strong> los pagos recibidos de descuentos por planilla.
-        </div>
+        <Alert
+          variant="warning"
+          size="sm"
+          dismissible
+          title="Atención"
+          className="mb-4"
+        >
+          Los pagos reflejados en los resúmenes de estas secciones{" "}
+          <strong className="font-semibold text-amber-950">no incluyen</strong> los pagos recibidos mediante descuentos por planilla.
+        </Alert>
 
         {openFormVisible && (
           <form
             className="mb-[var(--space-4)] flex flex-wrap items-end gap-[var(--space-3)] rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-subtle)] p-[var(--space-4)]"
             onSubmit={handleOpen}
           >
-            <label className="text-[var(--text-sm)] text-[var(--text-primary)] font-[var(--weight-medium)]">
+            <label className="w-full text-[var(--text-sm)] text-[var(--text-primary)] font-[var(--weight-medium)] sm:w-auto">
               Sucursal
-              <span className="mt-1 flex h-10 min-w-[300px] items-center rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] font-[var(--weight-bold)] text-[var(--text-primary)]">
+              <span className="mt-1 flex min-h-10 min-w-0 items-center rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] font-[var(--weight-bold)] text-[var(--text-primary)] sm:min-w-[300px]">
                 {activeBranch ? `Suc. ${activeBranch.name}` : "Seleccione sucursal en el encabezado"}
               </span>
             </label>
-            <label className="text-[var(--text-sm)] text-[var(--text-primary)] font-[var(--weight-medium)]">
+            <label className="w-full text-[var(--text-sm)] text-[var(--text-primary)] font-[var(--weight-medium)] sm:w-auto">
               Usuario
-              <span className="mt-1 flex h-10 min-w-[220px] items-center rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] font-[var(--weight-bold)] text-[var(--text-primary)]">
+              <span className="mt-1 flex min-h-10 min-w-0 items-center rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] font-[var(--weight-bold)] text-[var(--text-primary)] sm:min-w-[220px]">
                 {personName(user)}
               </span>
             </label>
             <label className="text-[var(--text-sm)] text-[var(--text-primary)] font-[var(--weight-medium)]">
               Saldo anterior
-              <span className="mt-1 flex h-10 w-[160px] items-center justify-end rounded-[var(--radius-md)] border border-[var(--border-default)] bg-slate-100 px-3 font-semibold tabular-nums">
+              <span className="mt-1 flex h-10 w-[160px] items-center justify-end rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-subtle)] px-3 font-semibold tabular-nums text-[var(--text-primary)]">
                 {money(
                   previousSessions.data?.[0]?.closingCarryover ??
                     previousSessions.data?.[0]?.closingAmount ??
@@ -259,96 +272,102 @@ export function CashRegisterPage() {
         )}
 
         {isClosed && (
-          <div className="mb-5">
-            <h1 className="mb-3 text-[26px] font-bold text-slate-700">Cajas Cerradas</h1>
-            <div className="flex flex-wrap items-end gap-4">
-              <label className="text-sm">
+          <div className="mb-5 space-y-3">
+            <h1 className="font-sans text-2xl font-bold text-[var(--text-primary)]">Cajas Cerradas</h1>
+            <Card className="flex flex-wrap items-end gap-4 p-[var(--space-4)]">
+              <label className="text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
                 Usuario:
                 <EntitySearchBox
-                  className="mt-1 w-[255px]"
-                  inputClassName="h-11 rounded border-slate-300 text-lg"
+                  className="mt-1 w-full sm:w-[255px]"
+                  inputClassName="h-10 rounded-[var(--radius-control)] border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-sm)] text-[var(--text-primary)]"
                   placeholder="Buscar usuario"
                   value={search}
                   onValueChange={setSearch}
                   items={search.trim() ? rows : []}
                   onSelect={(register) => {
                     setSearch(publicCashNumber(register));
-                    navigate(`/cash-register/${publicCashNumber(register)}`);
+                    navigate(APP_ROUTES.cashRegister.detail(publicCashNumber(register)));
                   }}
                   getItemKey={(register) => register.id}
                   emptyMessage="Sin cajas encontradas"
                   renderItem={(register) => (
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-slate-900">
+                      <p className="truncate text-sm font-semibold text-[var(--text-primary)]">
                         {cashRegisterSearchLabel(register)}
                       </p>
-                      <p className="mt-0.5 truncate text-xs text-slate-500">{dateTime(register.openedAt)}</p>
+                      <p className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">
+                        {dateTime(register.openedAt)}
+                      </p>
                     </div>
                   )}
                 />
               </label>
-              <label className="text-sm">
+              <label className="text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
                 Fecha apertura desde:
                 <input
                   type="date"
                   value={openedFrom}
                   onChange={(event) => setOpenedFrom(event.target.value)}
-                  className="mt-1 block h-11 w-[160px] rounded border border-slate-300 px-3 text-center"
+                  className="mt-1 block h-10 w-[160px] rounded-[var(--radius-control)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-center text-[var(--text-sm)] text-[var(--text-primary)] focus:border-[var(--border-brand)] focus:outline-none"
                 />
               </label>
-              <label className="text-sm">
+              <label className="text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
                 Fecha cierre desde:
                 <input
                   type="date"
                   value={closedFrom}
                   onChange={(event) => setClosedFrom(event.target.value)}
-                  className="mt-1 block h-11 w-[160px] rounded border border-slate-300 px-3 text-center"
+                  className="mt-1 block h-10 w-[160px] rounded-[var(--radius-control)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-center text-[var(--text-sm)] text-[var(--text-primary)] focus:border-[var(--border-brand)] focus:outline-none"
                 />
               </label>
-              <button className="h-9 rounded bg-[#42a6c9] px-4 font-bold text-white">Filtrar</button>
-              <button
-                className="h-9 text-[#0784d8]"
+              <Button type="button" size="sm">
+                Filtrar
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setSearch("");
                   setOpenedFrom("");
                   setClosedFrom("");
                 }}
-                type="button"
               >
                 × Quitar filtros
-              </button>
-            </div>
+              </Button>
+            </Card>
           </div>
         )}
 
         {isSearch && (
-          <div className="mb-4 flex flex-wrap items-center gap-3">
+          <Card className="mb-4 flex flex-wrap items-center gap-3 p-[var(--space-4)]">
             <EntitySearchBox
-              className="w-[320px]"
-              inputClassName="rounded border-slate-300"
+              className="w-full sm:w-[320px]"
+              inputClassName="h-10 rounded-[var(--radius-control)] border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-sm)] text-[var(--text-primary)]"
               placeholder="Buscar por folio, usuario, paciente o referencia"
               value={search}
               onValueChange={setSearch}
               items={search.trim() ? rows : []}
               onSelect={(register) => {
                 setSearch(publicCashNumber(register));
-                navigate(`/cash-register/${publicCashNumber(register)}`);
+                navigate(APP_ROUTES.cashRegister.detail(publicCashNumber(register)));
               }}
               getItemKey={(register) => register.id}
               emptyMessage="Sin cajas encontradas"
               renderItem={(register) => (
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">
+                  <p className="truncate text-sm font-semibold text-[var(--text-primary)]">
                     {cashRegisterSearchLabel(register)}
                   </p>
-                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                  <p className="mt-0.5 truncate text-xs text-[var(--text-secondary)]">
                     {register.status} · {dateTime(register.openedAt)}
                   </p>
                 </div>
               )}
             />
             <select
-              className="h-10 rounded border border-slate-300 px-3"
+              aria-label="Sucursal de la caja"
+              className="h-10 w-full min-w-0 max-w-full rounded-[var(--radius-control)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 text-[var(--text-sm)] text-[var(--text-primary)] focus:border-[var(--border-brand)] focus:outline-none sm:w-auto"
               value={branchId || activeBranchId}
               onChange={(event) => {
                 setBranchId(event.target.value);
@@ -362,7 +381,7 @@ export function CashRegisterPage() {
                 </option>
               ))}
             </select>
-          </div>
+          </Card>
         )}
 
         {isReports ? (
@@ -377,7 +396,7 @@ export function CashRegisterPage() {
             closed={isClosed || isSearch}
             canClose={canClose}
             onClose={setClosingRegister}
-            onDetail={(register) => navigate(`/cash-register/${publicCashNumber(register)}`)}
+            onDetail={(register) => setSelectedRegisterNumber(publicCashNumber(register))}
           />
         )}
 
@@ -434,6 +453,12 @@ export function CashRegisterPage() {
             </Button>
           </form>
         )}
+
+        <CashRegisterDetailModal
+          open={Boolean(selectedRegisterNumber)}
+          registerId={selectedRegisterNumber}
+          onClose={() => setSelectedRegisterNumber(null)}
+        />
       </div>
     </WarnerSuitePanel>
   );
@@ -453,75 +478,145 @@ function CashTable({
   onDetail: (register: CashRegister) => void;
 }) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full border-collapse text-sm">
+    <div className="min-w-0">
+      <div className="grid gap-3 2xl:hidden">
+        {rows.map((register) => {
+          const diff = Number(register.differenceAmount ?? 0);
+          const income = Number(register.incomeTotal ?? 0);
+          const expense = Number(register.expenseTotal ?? 0);
+          const closingVal = closed
+            ? Number(register.closingCarryover ?? register.closingAmount ?? 0)
+            : Number(register.expectedClosing ?? register.openingAmount ?? 0);
+
+          return (
+            <article key={register.id} className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-4 shadow-2xs">
+              <div className="flex min-w-0 items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="truncate font-semibold text-[var(--text-primary)]" title={userName(register)}>{userName(register)}</h3>
+                  <p className="mt-0.5 truncate text-xs text-[var(--text-secondary)]" title={register.branch.name}>{register.branch.name}</p>
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => onDetail(register)} className="h-auto p-0 text-xs text-[var(--text-brand)] hover:bg-transparent hover:underline">
+                  Ver detalle <Search className="h-3 w-3" />
+                </Button>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 border-y border-[var(--border-default)] py-3 text-sm">
+                <div><dt className="text-xs text-[var(--text-secondary)]">Apertura</dt><dd className="mt-0.5 font-medium tabular-nums">{date(register.openedAt)}</dd></div>
+                {closed ? <div><dt className="text-xs text-[var(--text-secondary)]">Cierre</dt><dd className="mt-0.5 font-medium tabular-nums">{date(register.closedAt)}</dd></div> : null}
+                <div><dt className="text-xs text-[var(--text-secondary)]">Abonos</dt><dd className="mt-0.5 font-mono font-semibold tabular-nums">{money(income)}</dd></div>
+                <div><dt className="text-xs text-[var(--text-secondary)]">Gastos</dt><dd className="mt-0.5 font-mono font-semibold tabular-nums">{money(expense)}</dd></div>
+                <div><dt className="text-xs text-[var(--text-secondary)]">{closed ? "Saldo cierre" : "Acumulado"}</dt><dd className="mt-0.5 font-mono font-semibold tabular-nums">{money(closingVal)}</dd></div>
+                {closed ? <div><dt className="text-xs text-[var(--text-secondary)]">Diferencia</dt><dd className="mt-0.5 font-mono font-semibold tabular-nums">{money(diff)}</dd></div> : null}
+              </dl>
+              {!closed && canClose ? (
+                <div className="mt-3 flex justify-end"><Button variant="secondary" size="sm" onClick={() => onClose(register)}>Cerrar caja</Button></div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+      <div className="hidden overflow-x-auto rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-2xs 2xl:block">
+      <table className="w-full border-collapse font-sans text-[var(--text-sm)]">
         <thead>
-          <tr className="bg-white text-left text-slate-700">
-            <th className="border border-slate-200 px-3 py-3">Caja</th>
-            <th className="border border-slate-200 px-3 py-3">Usuario</th>
-            <th className="border border-slate-200 px-3 py-3">Sucursal</th>
-            <th className="border border-slate-200 px-3 py-3">Apertura</th>
-            {closed && <th className="border border-slate-200 px-3 py-3">Cierre</th>}
-            <th className="border border-slate-200 px-3 py-3">Detalle</th>
-            <th className="border border-slate-200 px-3 py-3 text-right">Abonos</th>
-            <th className="border border-slate-200 px-3 py-3 text-right">Gastos</th>
-            <th className="border border-slate-200 px-3 py-3 text-right">
+          <tr className="border-b border-[var(--border-default)] bg-[var(--bg-subtle)] text-left text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+            <th className="border-r border-[var(--border-default)] px-3.5 py-3 whitespace-nowrap">Usuario</th>
+            <th className="border-r border-[var(--border-default)] px-3.5 py-3 whitespace-nowrap">Sucursal</th>
+            <th className="border-r border-[var(--border-default)] px-3.5 py-3 whitespace-nowrap">Apertura</th>
+            {closed && <th className="border-r border-[var(--border-default)] px-3.5 py-3 whitespace-nowrap">Cierre</th>}
+            <th className="border-r border-[var(--border-default)] px-3.5 py-3 whitespace-nowrap">Acciones</th>
+            <th className="border-r border-[var(--border-default)] px-3.5 py-3 text-right whitespace-nowrap">Abonos</th>
+            <th className="border-r border-[var(--border-default)] px-3.5 py-3 text-right whitespace-nowrap">Gastos</th>
+            <th className={`px-3.5 py-3 text-right whitespace-nowrap ${closed || (!closed && canClose) ? "border-r border-[var(--border-default)]" : ""}`}>
               {closed ? "Saldo cierre" : "Acumulado"}
             </th>
-            {closed && <th className="border border-slate-200 px-3 py-3 text-right">Diferencia</th>}
-            {!closed && canClose && <th className="border border-slate-200 px-3 py-3" />}
+            {closed && <th className={`px-3.5 py-3 text-right whitespace-nowrap ${!closed && canClose ? "border-r border-[var(--border-default)]" : ""}`}>Diferencia</th>}
+            {!closed && canClose && <th className="px-3.5 py-3 whitespace-nowrap text-center">Acción</th>}
           </tr>
         </thead>
-        <tbody>
-          {rows.map((register) => (
-            <tr key={register.id}>
-              <td className="border border-slate-200 px-3 py-3 font-mono text-xs font-semibold">
-                {publicCashNumber(register)}
+        <tbody className="divide-y divide-[var(--border-default)] bg-[var(--bg-surface)]">
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={closed ? 9 : canClose ? 8 : 7} className="px-4 py-8 text-center text-xs text-[var(--text-tertiary)]">
+                No existen registros registrados en este periodo.
               </td>
-              <td className="border border-slate-200 px-3 py-3 uppercase">{userName(register)}</td>
-              <td className="border border-slate-200 px-3 py-3">{register.branch.name}</td>
-              <td className="border border-slate-200 px-3 py-3">{date(register.openedAt)}</td>
-              {closed && <td className="border border-slate-200 px-3 py-3">{date(register.closedAt)}</td>}
-              <td className="border border-slate-200 px-3 py-3">
-                <button
-                  className="inline-flex items-center gap-1 text-[#0784d8] hover:underline"
-                  type="button"
-                  onClick={() => onDetail(register)}
-                >
-                  ver detalle <Search className="h-3.5 w-3.5" />
-                </button>
-              </td>
-              <td className="border border-slate-200 px-3 py-3 text-right tabular-nums">
-                {money(register.incomeTotal ?? 0)}
-              </td>
-              <td className="border border-slate-200 px-3 py-3 text-right tabular-nums">
-                {money(register.expenseTotal ?? 0)}
-              </td>
-              <td className="border border-slate-200 px-3 py-3 text-right tabular-nums">
-                {money(
-                  closed
-                    ? (register.closingCarryover ?? register.closingAmount)
-                    : (register.expectedClosing ?? register.openingAmount)
-                )}
-              </td>
-              {closed && (
-                <td
-                  className={`border border-slate-200 px-3 py-3 text-right font-semibold tabular-nums ${Number(register.differenceAmount ?? 0) < 0 ? "text-red-700" : Number(register.differenceAmount ?? 0) > 0 ? "text-amber-700" : "text-emerald-700"}`}
-                >
-                  {money(register.differenceAmount ?? 0)}
-                </td>
-              )}
-              {!closed && canClose && (
-                <td className="border border-slate-200 px-3 py-3 text-right">
-                  <button className="text-[#0784d8]" type="button" onClick={() => onClose(register)}>
-                    Cerrar
-                  </button>
-                </td>
-              )}
             </tr>
-          ))}
+          ) : (
+            rows.map((register) => {
+              const diff = Number(register.differenceAmount ?? 0);
+              const income = Number(register.incomeTotal ?? 0);
+              const expense = Number(register.expenseTotal ?? 0);
+              const closingVal = closed
+                ? Number(register.closingCarryover ?? register.closingAmount ?? 0)
+                : Number(register.expectedClosing ?? register.openingAmount ?? 0);
+
+              return (
+                <tr key={register.id} className="transition-colors hover:bg-[var(--bg-subtle)]/50">
+                  <td className="border-r border-[var(--border-default)] px-3.5 py-2.5 font-medium text-[var(--text-primary)] whitespace-nowrap">
+                    {userName(register)}
+                  </td>
+                  <td className="border-r border-[var(--border-default)] px-3.5 py-2.5 text-[var(--text-secondary)] whitespace-nowrap">
+                    {register.branch.name}
+                  </td>
+                  <td className="border-r border-[var(--border-default)] px-3.5 py-2.5 whitespace-nowrap text-[var(--text-secondary)] tabular-nums text-xs">
+                    {date(register.openedAt)}
+                  </td>
+                  {closed && (
+                    <td className="border-r border-[var(--border-default)] px-3.5 py-2.5 whitespace-nowrap text-[var(--text-secondary)] tabular-nums text-xs">
+                      {date(register.closedAt)}
+                    </td>
+                  )}
+                  <td className="border-r border-[var(--border-default)] px-3.5 py-2.5 whitespace-nowrap">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onDetail(register)}
+                      className="h-auto p-0 font-medium text-[var(--text-brand)] hover:underline hover:bg-transparent text-xs inline-flex items-center gap-1"
+                    >
+                      Ver detalle <Search className="h-3 w-3" />
+                    </Button>
+                  </td>
+                  <td className="border-r border-[var(--border-default)] px-3.5 py-2.5 text-right tabular-nums font-mono text-xs text-[var(--text-primary)]">
+                    {money(income)}
+                  </td>
+                  <td className="border-r border-[var(--border-default)] px-3.5 py-2.5 text-right tabular-nums font-mono text-xs text-[var(--text-secondary)]">
+                    {money(expense)}
+                  </td>
+                  <td className={`px-3.5 py-2.5 text-right tabular-nums font-mono font-semibold text-xs text-[var(--text-primary)] ${closed || (!closed && canClose) ? "border-r border-[var(--border-default)]" : ""}`}>
+                    {money(closingVal)}
+                  </td>
+                  {closed && (
+                    <td className={`px-3.5 py-2.5 text-right whitespace-nowrap ${!closed && canClose ? "border-r border-[var(--border-default)]" : ""}`}>
+                      <span
+                        className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-mono font-semibold tabular-nums border ${
+                          diff < 0
+                            ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/40 dark:text-red-300 dark:border-red-800"
+                            : diff > 0
+                              ? "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+                              : "bg-[var(--bg-subtle)] text-[var(--text-secondary)] border-[var(--border-default)]"
+                        }`}
+                      >
+                        {money(diff)}
+                      </span>
+                    </td>
+                  )}
+                  {!closed && canClose && (
+                    <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => onClose(register)}
+                        className="h-7 px-2.5 text-xs rounded"
+                      >
+                        Cerrar caja
+                      </Button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })
+          )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -530,7 +625,7 @@ export function CashRegisterDetailPanel({ register }: { register: CashRegisterDe
   const statusTone = register.status === "OPEN" ? "success" : "default";
   const saldoInicialTotal = Number(register.openingAmount ?? 0);
   const paymentTransactions = register.movements.filter(
-    (movement) => movement.payment && ["INCOME", "REFUND", "PAYMENT_VOID"].includes(movement.type)
+    (movement) => movement.payment && movement.type === "INCOME" && movement.payment.status !== "VOIDED"
   );
   const expenseMovements = register.movements.filter((movement) => movement.type === "EXPENSE");
   const refundMovements = register.movements.filter((movement) => movement.type === "REFUND");
@@ -542,12 +637,14 @@ export function CashRegisterDetailPanel({ register }: { register: CashRegisterDe
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-subtle)] px-4 py-3">
         <div>
-          <p className="text-xl font-bold text-slate-700">Total caja {publicCashNumber(register)}</p>
-          <p className="text-xs text-slate-500">(recaudado + saldo inicial - gastos)</p>
+          <p className="text-xl font-bold text-[var(--text-primary)]">
+            Total caja {publicCashNumber(register)}
+          </p>
+          <p className="text-xs text-[var(--text-secondary)]">(recaudado + saldo inicial - gastos)</p>
         </div>
-        <p className="text-3xl font-bold text-emerald-600">{money(displayedExpected)}</p>
+        <p className="text-3xl font-bold text-[var(--text-success)]">{money(displayedExpected)}</p>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -562,20 +659,12 @@ export function CashRegisterDetailPanel({ register }: { register: CashRegisterDe
             }
             tone={register.status === "CLOSING" ? "warning" : statusTone}
           />
-          <span className="text-sm text-slate-500">{register.branch.name}</span>
+          <span className="text-sm text-[var(--text-secondary)]">{register.branch.name}</span>
         </div>
-        <button
-          type="button"
-          onClick={() => window.print()}
-          className="inline-flex h-9 items-center gap-2 rounded bg-[#0784d8] px-3 text-sm font-semibold text-white hover:bg-[#0c6fb5]"
-        >
-          <Printer className="h-4 w-4" />
-          Imprimir
-        </button>
       </div>
 
-      <div className="overflow-hidden border border-slate-200">
-        <table className="w-full border-collapse text-sm">
+      <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)]">
+        <table className="w-full border-collapse font-body text-sm">
           <tbody>
             <DetailRow
               label="Usuario"
@@ -640,20 +729,20 @@ export function CashRegisterDetailPanel({ register }: { register: CashRegisterDe
         </table>
       </div>
 
-      <div className="border border-slate-200">
-        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 text-center text-sm font-bold text-emerald-700">
+      <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)]">
+        <div className="border-b border-[var(--border-default)] bg-[var(--bg-subtle)] px-4 py-3 text-center font-sans text-sm font-bold text-[var(--text-brand-strong)]">
           Transacciones de la caja
         </div>
         <div className="max-h-[52vh] overflow-auto">
-          <table className="w-full min-w-[900px] border-collapse text-xs">
+          <table className="w-full min-w-[900px] border-collapse font-body text-xs">
             <thead>
-              <tr className="bg-white text-left text-slate-700">
-                <th className="border border-slate-200 px-2 py-3">#</th>
-                <th className="border border-slate-200 px-2 py-3">Nombre paciente</th>
-                <th className="border border-slate-200 px-2 py-3">Medio de pago</th>
-                <th className="border border-slate-200 px-2 py-3">Convenio</th>
-                <th className="border border-slate-200 px-2 py-3">Vencimiento</th>
-                <th className="border border-slate-200 px-2 py-3"># referencia</th>
+              <tr className="border-b border-[var(--border-default)] bg-[var(--bg-subtle)] text-left font-sans font-semibold text-[var(--text-secondary)]">
+                <th className="px-3 py-2.5">#</th>
+                <th className="px-3 py-2.5">Nombre paciente</th>
+                <th className="px-3 py-2.5">Medio de pago</th>
+                <th className="px-3 py-2.5">Convenio</th>
+                <th className="px-3 py-2.5">Vencimiento</th>
+                <th className="px-3 py-2.5"># referencia</th>
                 <th className="border border-slate-200 px-2 py-3">Factura</th>
                 <th className="border border-slate-200 px-2 py-3 text-right">Monto</th>
               </tr>
@@ -669,7 +758,7 @@ export function CashRegisterDetailPanel({ register }: { register: CashRegisterDe
                     <td className="border border-slate-200 px-2 py-3 text-slate-500">
                       {payment.paymentNumber ? String(payment.paymentNumber).padStart(6, "0") : "SIN-NÚMERO"}
                     </td>
-                    <td className="border border-slate-200 px-2 py-3 font-semibold text-[#0784d8]">
+                    <td className="border border-slate-200 px-2 py-3 font-semibold text-[var(--text-brand)]">
                       {payment.patient.documentNumber ? `${payment.patient.documentNumber} ` : ""}
                       {personName(payment.patient)}
                     </td>
@@ -709,11 +798,7 @@ export function CashRegisterDetailPanel({ register }: { register: CashRegisterDe
         rows={refundMovements}
         emptyMessage="No hay devoluciones asociadas a esta caja."
       />
-      <CashMovementTable
-        title="Pagos anulados"
-        rows={voidMovements}
-        emptyMessage="No hay pagos anulados asociados a esta caja."
-      />
+      <VoidedPaymentsTable rows={voidMovements} />
       <CashMovementTable
         title="Ajustes y retiros"
         rows={adjustmentMovements}
@@ -746,6 +831,87 @@ export function CashRegisterDetailPanel({ register }: { register: CashRegisterDe
         )}
       </section>
     </div>
+  );
+}
+
+function VoidedPaymentsTable({ rows }: { rows: CashRegisterMovement[] }) {
+  const groupedRows = Array.from(
+    rows.reduce((groups, movement) => {
+      const payment = movement.payment;
+      if (!payment) return groups;
+      const current = groups.get(payment.id);
+      const methodName = movement.paymentMethod?.name ?? payment.paymentMethod.name;
+      if (current) {
+        current.amount += Number(movement.amount);
+        if (!current.methods.includes(methodName)) current.methods.push(methodName);
+        return groups;
+      }
+      groups.set(payment.id, {
+        movement,
+        payment,
+        amount: Number(movement.amount),
+        methods: [methodName]
+      });
+      return groups;
+    }, new Map<string, { movement: CashRegisterMovement; payment: NonNullable<CashRegisterMovement["payment"]>; amount: number; methods: string[] }>())
+  ).map(([, row]) => row);
+
+  return (
+    <section className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)]">
+      <h3 className="border-b border-[var(--border-default)] bg-[var(--status-danger-bg)] px-4 py-3 text-center text-sm font-bold text-[var(--text-danger)]">
+        Pagos anulados de la caja
+      </h3>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[980px] border-collapse text-xs">
+          <thead>
+            <tr className="border-b border-[var(--border-default)] bg-[var(--bg-subtle)] text-left font-semibold text-[var(--text-secondary)]">
+              <th className="px-3 py-2.5"># Pago</th>
+              <th className="px-3 py-2.5">Nombre paciente</th>
+              <th className="px-3 py-2.5">Eliminación</th>
+              <th className="px-3 py-2.5">Eliminado por</th>
+              <th className="px-3 py-2.5">Medio</th>
+              <th className="px-3 py-2.5">Comentario</th>
+              <th className="px-3 py-2.5 text-right">Monto</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--border-default)]">
+            {groupedRows.map(({ movement, payment, amount, methods }) => (
+              <tr key={payment.id} className="align-top">
+                <td className="px-3 py-3 font-semibold text-[var(--text-primary)]">
+                  {payment.paymentNumber
+                    ? `PAG-${String(payment.paymentNumber).padStart(6, "0")}`
+                    : "Sin número"}
+                </td>
+                <td className="px-3 py-3 font-semibold text-[var(--text-brand)]">
+                  {payment.patient.documentNumber ? `${payment.patient.documentNumber} · ` : ""}
+                  {personName(payment.patient)}
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap text-[var(--text-secondary)]">
+                  {dateTime(payment.voidedAt ?? movement.createdAt)}
+                </td>
+                <td className="px-3 py-3 whitespace-nowrap text-[var(--text-secondary)]">
+                  {personName(payment.voidedBy ?? movement.createdBy)}
+                </td>
+                <td className="px-3 py-3 text-[var(--text-secondary)]">{methods.join(", ")}</td>
+                <td className="max-w-[420px] px-3 py-3 leading-relaxed text-[var(--text-primary)]">
+                  {payment.voidReason ?? movement.voidReason ?? movement.description ?? "Sin comentario"}
+                </td>
+                <td className="px-3 py-3 text-right font-semibold tabular-nums text-[var(--text-danger)]">
+                  {money(amount)}
+                </td>
+              </tr>
+            ))}
+            {!groupedRows.length ? (
+              <tr>
+                <td className="px-3 py-6 text-center text-[var(--text-secondary)]" colSpan={7}>
+                  No hay pagos anulados asociados a esta caja.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
@@ -839,22 +1005,22 @@ function DetailRow({
   danger?: boolean;
 }) {
   return (
-    <tr className={strong ? "bg-slate-50 font-bold" : ""}>
-      <td className="w-[28%] border border-slate-200 px-3 py-2 font-semibold text-slate-600">{label}</td>
+    <tr
+      className={`border-b border-[var(--border-default)] ${strong ? "bg-[var(--bg-subtle)] font-bold" : ""}`}
+    >
+      <td className="w-[28%] px-3 py-2 font-semibold text-[var(--text-secondary)]">{label}</td>
       <td
-        className={`border border-slate-200 px-3 py-2 text-right ${danger ? "font-bold text-red-600" : "text-slate-700"}`}
+        className={`px-3 py-2 text-right ${danger ? "font-bold text-[var(--text-danger)]" : "text-[var(--text-primary)]"}`}
       >
         {value}
       </td>
       {secondaryLabel ? (
         <>
-          <td className="w-[24%] border border-slate-200 px-3 py-2 font-semibold text-slate-600">
-            {secondaryLabel}
-          </td>
-          <td className="border border-slate-200 px-3 py-2 text-right text-slate-700">{secondaryValue}</td>
+          <td className="w-[24%] px-3 py-2 font-semibold text-[var(--text-secondary)]">{secondaryLabel}</td>
+          <td className="px-3 py-2 text-right text-[var(--text-primary)]">{secondaryValue}</td>
         </>
       ) : (
-        <td className="border border-slate-200 px-3 py-2" colSpan={2} />
+        <td className="px-3 py-2" colSpan={2} />
       )}
     </tr>
   );
@@ -902,27 +1068,29 @@ function CashReports() {
   return (
     <div>
       {/* ── Dropdown de tipo de reporte ─────────────────────── */}
-      <div className="relative mb-5 inline-block" ref={dropdownRef}>
+      <div className="relative mb-5 block max-w-full sm:inline-block" ref={dropdownRef}>
         <button
           type="button"
+          data-allow-multiline
           onClick={() => setIsDropdownOpen((open) => !open)}
-          className="flex items-center gap-2 rounded border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+          className="flex min-h-10 w-full max-w-full items-center justify-between gap-2 whitespace-normal rounded border border-slate-300 bg-white px-4 py-2.5 text-left text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 sm:w-auto sm:justify-start sm:px-5"
         >
           {selectedLabel}
           <ChevronDown className={`h-4 w-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`} />
         </button>
 
         {isDropdownOpen && (
-          <div className="absolute left-0 top-full z-20 mt-1 w-[370px] rounded border border-slate-200 bg-white py-1 shadow-xl">
+          <div className="absolute left-0 top-full z-20 mt-1 w-[min(370px,calc(100vw-2rem))] rounded border border-slate-200 bg-white py-1 shadow-xl">
             {/* Grupo 1 */}
             {reportOptions.slice(0, 2).map((opt) => (
               <button
                 key={opt.value}
                 type="button"
+                data-allow-multiline
                 onClick={() => handleSelectReport(opt.value)}
-                className={`block w-full px-5 py-2 text-left text-sm ${
+                className={`block w-full whitespace-normal px-5 py-2 text-left text-sm ${
                   opt.value === selectedReport
-                    ? "bg-[#0784d8] font-semibold text-white"
+                    ? "bg-[var(--action-brand)] font-semibold text-white"
                     : "text-slate-700 hover:bg-slate-50"
                 }`}
               >
@@ -935,10 +1103,11 @@ function CashReports() {
               <button
                 key={opt.value}
                 type="button"
+                data-allow-multiline
                 onClick={() => handleSelectReport(opt.value)}
-                className={`block w-full px-5 py-2 text-left text-sm ${
+                className={`block w-full whitespace-normal px-5 py-2 text-left text-sm ${
                   opt.value === selectedReport
-                    ? "bg-[#0784d8] font-semibold text-white"
+                    ? "bg-[var(--action-brand)] font-semibold text-white"
                     : "text-slate-700 hover:bg-slate-50"
                 }`}
               >
@@ -951,8 +1120,9 @@ function CashReports() {
               <button
                 key={opt.value}
                 type="button"
+                data-allow-multiline
                 onClick={() => handleSelectReport(opt.value)}
-                className="block w-full px-5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                className="block w-full whitespace-normal px-5 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
               >
                 {opt.label}
               </button>
@@ -992,7 +1162,9 @@ function CollectionSummaryView({ branchId }: { branchId: string }) {
   if (!data)
     return <EmptyState title="Sin datos" description="No hay datos de recaudación para esta sucursal." />;
   if (data.byDay.length === 0)
-    return <EmptyState title="Sin movimientos" description="No se registraron pagos en los últimos 10 días." />;
+    return (
+      <EmptyState title="Sin movimientos" description="No se registraron pagos en los últimos 10 días." />
+    );
 
   return <CollectionSummaryChart data={data} />;
 }
@@ -1043,7 +1215,7 @@ function BoxSummaryView({ branchId }: { branchId: string }) {
           type="button"
           onClick={handleShow}
           disabled={report.isFetching}
-          className="flex h-10 items-center gap-2 rounded bg-[#0784d8] px-5 font-semibold text-white hover:bg-[#0c6fb5] disabled:opacity-60"
+          className="flex h-10 items-center gap-2 rounded bg-[var(--action-brand)] px-5 font-semibold text-white hover:bg-[var(--action-brand-hover)] disabled:opacity-60"
         >
           {report.isFetching ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}
           Mostrar
@@ -1064,7 +1236,7 @@ function BoxSummaryView({ branchId }: { branchId: string }) {
                   <th className="border border-slate-200 px-4 py-2 font-semibold">Tipo</th>
                   <th className="border border-slate-200 px-4 py-2 font-semibold">Medio</th>
                   <th className="border border-slate-200 px-4 py-2 font-semibold">Cantidad movimiento</th>
-                  <th className="border border-slate-200 px-4 py-2 text-right font-semibold text-[#0784d8]">
+                  <th className="border border-slate-200 px-4 py-2 text-right font-semibold text-[var(--text-brand)]">
                     Total: {money(report.data.total)}
                   </th>
                 </tr>

@@ -2,6 +2,7 @@ import { Activity, ShieldCheck, Timer } from "lucide-react";
 import { Link } from "react-router-dom";
 import { LoginAntigravityBackground } from "@/features/auth/components/login-antigravity-background";
 import { LoginForm } from "@/features/auth/components/login-form";
+import { APP_ROUTES } from "@/lib/routes";
 
 const highlights = [
   {
@@ -77,7 +78,7 @@ export function LoginPage() {
 
             <div className="mt-5 text-center text-xs font-medium text-zinc-500">
               ¿No tienes cuenta?{" "}
-              <Link className="font-semibold text-zinc-900 underline-offset-2 hover:underline" to="/register-organization">
+              <Link className="font-semibold text-zinc-900 underline-offset-2 hover:underline" to={APP_ROUTES.auth.registerOrg}>
                 Registra tu clínica
               </Link>
             </div>

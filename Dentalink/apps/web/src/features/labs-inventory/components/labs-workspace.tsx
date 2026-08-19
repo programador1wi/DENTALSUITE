@@ -1,10 +1,11 @@
 import type { PropsWithChildren, ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/layout/page-header";
 import { cn } from "@/lib/utils/cn";
+import { Select } from "@/components/ui/select";
 
 export type LabRequestView = "pending" | "process" | "review" | "finished";
 
@@ -91,26 +92,38 @@ export function LabsWorkspace({
   action
 }: PropsWithChildren<{ title: string; description: string; action?: ReactNode }>) {
   const location = useLocation();
+  const navigate = useNavigate();
   const requestView = currentRequestsView(location.search);
+  const mobileValue = location.pathname === "/labs/orders" ? `/labs/orders?view=${requestView}` : location.pathname;
 
   return (
     <div className="space-y-4">
       <PageHeader title={title} description={description} />
       <Card className="overflow-visible p-0">
-        <div className="flex flex-wrap items-stretch justify-between border-b border-slate-200 bg-slate-50">
-          <nav className="flex flex-wrap">
+        <div className="flex min-w-0 flex-col border-b border-slate-200 bg-slate-50 lg:flex-row lg:items-stretch lg:justify-between">
+          <div className="w-full min-w-0 p-3 lg:hidden">
+            <Select aria-label="Sección de laboratorios" value={mobileValue} onChange={(event) => navigate(event.target.value)}>
+              <option value="/labs">Laboratorios</option>
+              <option value="/labs/enabled">Laboratorios habilitados</option>
+              <option value="/labs/procedures">Procedimientos de laboratorio</option>
+              {labsNav.find((item) => item.children)?.children?.map((child) => (
+                <option key={child.to} value={child.to}>Solicitudes: {LAB_REQUEST_STATE_META[child.view].plural}</option>
+              ))}
+            </Select>
+          </div>
+          <nav className="hidden min-w-0 lg:flex lg:flex-wrap" aria-label="Secciones de laboratorios">
             {labsNav.map((item) => {
               const active = item.match
                 ? location.pathname === item.match || (!item.exact && location.pathname.startsWith(`${item.match}/`))
                 : location.pathname === item.to;
 
               return (
-                <div key={item.to} className="group relative">
+                <div key={item.to} className="group relative min-w-0">
                   <Link
                     to={item.to}
                     aria-haspopup={item.children ? "menu" : undefined}
                     className={cn(
-                      "flex h-full min-h-[58px] items-center gap-2 border-r border-slate-200 px-5 text-sm font-semibold text-slate-500 hover:bg-white hover:text-slate-900",
+                      "flex h-full min-h-[58px] min-w-0 items-center justify-center gap-2 border-r border-slate-200 px-3 text-center text-sm font-semibold leading-tight text-slate-500 hover:bg-white hover:text-slate-900 lg:justify-start lg:px-5 lg:text-left",
                       active && "bg-white text-brand-700 shadow-[inset_0_-3px_0_rgb(14_165_233)]"
                     )}
                   >
@@ -125,7 +138,7 @@ export function LabsWorkspace({
 
                   {item.children ? (
                     <div
-                      className="invisible absolute left-0 top-full z-20 min-w-[230px] rounded-b-lg border border-slate-200 bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 before:absolute before:-top-3 before:inset-x-0 before:h-3"
+                      className="invisible absolute right-0 top-full z-20 w-[min(230px,calc(100vw-3rem))] rounded-b-lg border border-slate-200 bg-white p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100 group-focus-within:visible group-focus-within:opacity-100 before:absolute before:-top-3 before:inset-x-0 before:h-3 lg:left-0 lg:right-auto lg:w-auto lg:min-w-[230px]"
                       role="menu"
                     >
                       {item.children.map((child) => {
@@ -155,9 +168,9 @@ export function LabsWorkspace({
               );
             })}
           </nav>
-          {action ? <div className="flex items-center gap-2 px-4 py-3">{action}</div> : null}
+          {action ? <div className="flex items-center gap-2 px-4 py-3 lg:shrink-0">{action}</div> : null}
         </div>
-        <div className="p-5">{children}</div>
+        <div className="min-w-0 p-4 sm:p-5">{children}</div>
       </Card>
     </div>
   );

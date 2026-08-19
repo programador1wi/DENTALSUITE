@@ -1,9 +1,18 @@
 import { http } from "@/lib/api/http-client";
 
-export type PatientStatus = "NEW" | "PROVISIONAL" | "ACTIVE" | "IN_TREATMENT" | "INACTIVE" | "DEBTOR" | "COMPLETED" | "MERGED";
+export type PatientStatus =
+  | "NEW"
+  | "PROVISIONAL"
+  | "ACTIVE"
+  | "IN_TREATMENT"
+  | "INACTIVE"
+  | "DEBTOR"
+  | "COMPLETED"
+  | "MERGED";
 
 export type PatientListItem = {
   id: string;
+  patientNumber?: number | null;
   branchId: string;
   branchName?: string;
   firstName: string;
@@ -21,6 +30,9 @@ export type PatientListItem = {
 
 export type PatientContactInput = {
   name: string;
+  socialName?: string;
+  documentNumber?: string;
+  gender?: string;
   relationship?: string;
   phone?: string;
   email?: string;
@@ -46,8 +58,11 @@ export type PatientPayload = {
   branchId: string;
   agreementId?: string | null;
   firstName: string;
+  socialName?: string;
   lastName: string;
+  internalNumber?: string;
   birthDate?: string;
+  sex?: string;
   gender?: string;
   documentType?: string;
   documentNumber?: string;
@@ -55,6 +70,8 @@ export type PatientPayload = {
   phone?: string;
   alternatePhone?: string;
   occupation?: string;
+  employer?: string;
+  observations?: string;
   referredBy?: string;
   source?: string;
   status?: PatientStatus;
@@ -197,6 +214,7 @@ export type SendPatientEmailPayload = {
 
 export type PatientDetail = {
   id: string;
+  patientNumber?: number | null;
   organizationId: string;
   branchId: string;
   branch: { id: string; name: string };
@@ -209,8 +227,11 @@ export type PatientDetail = {
     priceList?: { id: string; name: string; isDefault: boolean } | null;
   } | null;
   firstName: string;
+  socialName?: string | null;
   lastName: string;
+  internalNumber?: string | null;
   birthDate?: string | null;
+  sex?: string | null;
   gender?: string | null;
   documentType?: string | null;
   documentNumber?: string | null;
@@ -218,12 +239,17 @@ export type PatientDetail = {
   phone?: string | null;
   alternatePhone?: string | null;
   occupation?: string | null;
+  employer?: string | null;
+  observations?: string | null;
   referredBy?: string | null;
   source?: string | null;
   status: PatientStatus;
   contacts: Array<{
     id: string;
     name: string;
+    socialName?: string | null;
+    documentNumber?: string | null;
+    gender?: string | null;
     relationship?: string | null;
     phone?: string | null;
     email?: string | null;
@@ -553,10 +579,9 @@ export async function getPatientsAnalysis(params?: PatientAnalysisQuery) {
 }
 
 export async function getPatientAnalysisDetail(metric: string, params?: PatientAnalysisDetailQuery) {
-  const { data } = await http.get<PatientAnalysisDetailResponse>(
-    `/patient-analytics/details/${metric}`,
-    { params }
-  );
+  const { data } = await http.get<PatientAnalysisDetailResponse>(`/patient-analytics/details/${metric}`, {
+    params
+  });
   return data;
 }
 
@@ -585,8 +610,13 @@ export async function searchPatients(params: {
   return data;
 }
 
-export async function createPatient(payload: PatientPayload) {
-  const { data } = await http.post<CreatePatientResponse>("/patients", payload);
+export async function createPatient(
+  payload: PatientPayload,
+  context: "newPatient" | "appointment" = "newPatient"
+) {
+  const { data } = await http.post<CreatePatientResponse>("/patients", payload, {
+    headers: { "x-patient-field-context": context }
+  });
   return data;
 }
 
@@ -615,20 +645,39 @@ export async function listPatientBenefitsCoverages(id: string) {
   return data;
 }
 
-export async function createPatientBenefitCoverage(id: string, payload: PatientBenefitCoveragePayload, idempotencyKey: string) {
+export async function createPatientBenefitCoverage(
+  id: string,
+  payload: PatientBenefitCoveragePayload,
+  idempotencyKey: string
+) {
   const { data } = await http.post<PatientBenefitCoverage>(`/patients/${id}/benefits-coverages`, payload, {
     headers: { "Idempotency-Key": idempotencyKey }
   });
   return data;
 }
 
-export async function updatePatientBenefitCoverage(id: string, coverageId: string, payload: Partial<PatientBenefitCoveragePayload> & { expectedVersion?: number }) {
-  const { data } = await http.patch<PatientBenefitCoverage>(`/patients/${id}/benefits-coverages/${coverageId}`, payload);
+export async function updatePatientBenefitCoverage(
+  id: string,
+  coverageId: string,
+  payload: Partial<PatientBenefitCoveragePayload> & { expectedVersion?: number }
+) {
+  const { data } = await http.patch<PatientBenefitCoverage>(
+    `/patients/${id}/benefits-coverages/${coverageId}`,
+    payload
+  );
   return data;
 }
 
-export async function changePatientBenefitCoverageStatus(id: string, coverageId: string, action: "activate" | "deactivate" | "cancel", reason?: string) {
-  const { data } = await http.post<PatientBenefitCoverage>(`/patients/${id}/benefits-coverages/${coverageId}/${action}`, { reason });
+export async function changePatientBenefitCoverageStatus(
+  id: string,
+  coverageId: string,
+  action: "activate" | "deactivate" | "cancel",
+  reason?: string
+) {
+  const { data } = await http.post<PatientBenefitCoverage>(
+    `/patients/${id}/benefits-coverages/${coverageId}/${action}`,
+    { reason }
+  );
   return data;
 }
 
@@ -638,11 +687,16 @@ export async function validatePatientInsurance(id: string, payload: ValidateInsu
 }
 
 export async function listEligiblePatientCoverages(id: string, params?: { treatmentPlanId?: string }) {
-  const { data } = await http.get<PatientBenefitsCoveragesResponse>(`/patients/${id}/eligible-coverages`, { params });
+  const { data } = await http.get<PatientBenefitsCoveragesResponse>(`/patients/${id}/eligible-coverages`, {
+    params
+  });
   return data;
 }
 
-export async function addPatientNote(id: string, payload: { note: string; isPrivate?: boolean; fileAttachmentIds?: string[] }) {
+export async function addPatientNote(
+  id: string,
+  payload: { note: string; isPrivate?: boolean; fileAttachmentIds?: string[] }
+) {
   const { data } = await http.post<PatientNote>(`/patients/${id}/notes`, payload);
   return data;
 }

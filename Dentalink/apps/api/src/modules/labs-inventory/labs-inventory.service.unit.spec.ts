@@ -27,6 +27,9 @@ describe("LabsInventoryService inventory movements", () => {
     minStock: new Prisma.Decimal(1),
     salePrice: null,
     isSellable: false,
+    tracksLots: false,
+    tracksExpiration: false,
+    allowFractionalQuantity: false,
     branchId: "branch-1",
     supplierId: null,
     isActive: true,
@@ -36,6 +39,7 @@ describe("LabsInventoryService inventory movements", () => {
 
   function buildService(stock = 3) {
     const tx = {
+      $queryRaw: jest.fn(),
       inventoryStock: {
         findUnique: jest.fn().mockResolvedValue({
           id: "stock-1",
@@ -59,7 +63,8 @@ describe("LabsInventoryService inventory movements", () => {
     };
     const prisma = {
       inventoryItem: {
-        findFirst: jest.fn().mockResolvedValue(item)
+        findFirst: jest.fn().mockResolvedValue(item),
+        findMany: jest.fn().mockResolvedValue([item])
       },
       branch: {
         findFirst: jest.fn().mockResolvedValue({ id: "branch-1", organizationId: "org-1" })
@@ -112,5 +117,46 @@ describe("LabsInventoryService inventory movements", () => {
         reason: "   "
       })
     ).rejects.toThrow(BadRequestException);
+  });
+
+  it("rejects transfers to the same warehouse before changing stock", async () => {
+    const { service, tx } = buildService(3);
+
+    await expect(
+      service.postInventoryMovement(
+        actor,
+        InventoryMovementType.TRANSFER,
+        {
+          branchId: "branch-1",
+          sourceWarehouseId: "warehouse-1",
+          destinationWarehouseId: "warehouse-1",
+          reason: "Reubicacion",
+          lines: [{ inventoryItemId: "item-1", quantity: 1 }]
+        },
+        { idempotencyKey: "transfer-1" }
+      )
+    ).rejects.toThrow(BadRequestException);
+
+    expect(tx.inventoryStock.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects fractional quantities for products configured as indivisible", async () => {
+    const { service, tx } = buildService(3);
+
+    await expect(
+      service.postInventoryMovement(
+        actor,
+        InventoryMovementType.EXIT,
+        {
+          branchId: "branch-1",
+          sourceWarehouseId: "warehouse-1",
+          reason: "Consumo clinico",
+          lines: [{ inventoryItemId: "item-1", quantity: 0.5 }]
+        },
+        { idempotencyKey: "exit-1" }
+      )
+    ).rejects.toThrow(BadRequestException);
+
+    expect(tx.inventoryStock.update).not.toHaveBeenCalled();
   });
 });

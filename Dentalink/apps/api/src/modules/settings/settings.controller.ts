@@ -9,11 +9,14 @@ import {
   AssignAgreementPatientsDto,
   AssignAgreementTreatmentPlanDto,
   CreateAgreementDto,
+  CreateCompanyDto,
   CreateExpenseDto,
   FinalizePayrollDto,
+  ImportAffiliatesDto,
   RecalculatePayrollDto,
   UpdateExpenseDto,
   UpdateAgreementDto,
+  UpdateCompanyDto,
   VoidExpenseDto,
   PublishAgreementDto,
   PreviewAgreementPriceDto
@@ -193,6 +196,56 @@ export class SettingsController {
     @Query() dto: PreviewAgreementPriceDto
   ) {
     return this.settingsService.previewAgreementPrice(user, id, dto);
+  }
+
+  @Get("companies")
+  @RequirePermissions("agreements.read")
+  listCompanies(@CurrentUser() user: AuthUser, @Query("search") search?: string) {
+    return this.settingsService.listCompanies(user, search);
+  }
+
+  @Get("companies/:id")
+  @RequirePermissions("agreements.read")
+  getCompany(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.getCompany(user, id);
+  }
+
+  @Post("companies")
+  @RequirePermissions("agreements.manage")
+  createCompany(@CurrentUser() user: AuthUser, @Body() dto: CreateCompanyDto) {
+    return this.settingsService.createCompany(user, dto);
+  }
+
+  @Patch("companies/:id")
+  @RequirePermissions("agreements.manage")
+  updateCompany(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateCompanyDto) {
+    return this.settingsService.updateCompany(user, id, dto);
+  }
+
+  @Post("agreements/:id/default")
+  @RequirePermissions("agreements.manage")
+  setDefaultAgreement(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body("isDefault") isDefault: boolean
+  ) {
+    return this.settingsService.setDefaultAgreement(user, id, Boolean(isDefault));
+  }
+
+  @Get("agreements/:id/impact")
+  @RequirePermissions("agreements.read")
+  getAgreementDeactivationImpact(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.getAgreementDeactivationImpact(user, id);
+  }
+
+  @Post("agreements/:id/import-affiliates")
+  @RequirePermissions("agreements.assign")
+  importAffiliates(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: ImportAffiliatesDto
+  ) {
+    return this.settingsService.importAffiliates(user, id, dto);
   }
 
   @Post("agreements/:id/duplicate")

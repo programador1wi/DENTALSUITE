@@ -104,3 +104,26 @@ export function budgetCatalogItemMatchesSearch(item: TreatmentBudgetCatalogItem,
     value.toLowerCase().includes(term)
   );
 }
+
+export type FlatCatalogSearchResult<T extends TreatmentBudgetCatalogItem = TreatmentBudgetCatalogItem> = {
+  item: T;
+  categoryId: string;
+  categoryName: string;
+};
+
+export function flatSearchBudgetCatalog<T extends TreatmentBudgetCatalogItem>(
+  catalog: TreatmentBudgetCatalogCategory<T>[],
+  search: string
+): FlatCatalogSearchResult<T>[] {
+  const term = search.trim().toLowerCase();
+  if (!term) return [];
+  const results: FlatCatalogSearchResult<T>[] = [];
+  for (const category of catalog) {
+    for (const item of category.items) {
+      if (budgetCatalogItemMatchesSearch(item, term)) {
+        results.push({ item, categoryId: category.id, categoryName: category.name });
+      }
+    }
+  }
+  return results;
+}

@@ -57,7 +57,7 @@ const allCategories = Object.keys(categoryMeta) as PatientHistoryCategory[];
 export function ClinicalHistoryPage() {
   const { id = "" } = useParams();
   const [month, setMonth] = useState("");
-  const order: "desc" = "desc";
+  const order = "desc" as const;
   const [includeAnnulled, setIncludeAnnulled] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<"ALL" | PatientHistoryCategory>("ALL");
   const [cursor, setCursor] = useState<string | undefined>();

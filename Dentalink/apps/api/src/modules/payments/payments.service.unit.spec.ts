@@ -167,6 +167,92 @@ describe("PaymentsService refund listing", () => {
     ).rejects.toThrow("Paid payment links do not belong to cancelled and pending payments");
   });
 
+  it("includes payment void audit fields in cash-register detail", async () => {
+    const openedAt = new Date("2026-08-07T14:00:00.000Z");
+    const prisma = {
+      cashRegister: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValueOnce({
+            id: "register-1",
+            publicNumber: 811016,
+            branchId: "branch-1",
+            openedAt,
+            previousClosingBalance: new Prisma.Decimal(0),
+            expectedCashBalance: null,
+            reconciliationSnapshot: null,
+            movements: [],
+            branch: { id: "branch-1", name: "Sucursal Centro" },
+            openedBy: { id: "user-1", firstName: "User", lastName: "One" },
+            responsibleUser: { id: "user-1", firstName: "User", lastName: "One" },
+            closedBy: null
+          })
+          .mockResolvedValueOnce(null)
+      },
+      auditLog: { findMany: jest.fn().mockResolvedValue([]) }
+    };
+    const service = new PaymentsService(prisma as never);
+
+    await service.getCashRegisterDetail(actor, "CAJ-811016");
+
+    expect(prisma.cashRegister.findFirst.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        include: expect.objectContaining({
+          movements: expect.objectContaining({
+            include: expect.objectContaining({
+              payment: expect.objectContaining({
+                select: expect.objectContaining({
+                  voidReason: true,
+                  voidedAt: true,
+                  voidedBy: { select: { id: true, firstName: true, lastName: true } }
+                })
+              })
+            })
+          })
+        })
+      })
+    );
+  });
+
+  it("exports payment void reason and author in the cash-register CSV", async () => {
+    const prisma = { auditLog: { create: jest.fn().mockResolvedValue({}) } };
+    const service = new PaymentsService(prisma as never);
+    jest.spyOn(service, "getCashRegisterDetail").mockResolvedValue({
+      id: "register-1",
+      publicNumber: 811016,
+      movements: [
+        {
+          id: "movement-1",
+          type: CashMovementType.PAYMENT_VOID,
+          direction: CashMovementDirection.OUT,
+          amount: new Prisma.Decimal(40505),
+          reference: null,
+          voidedAt: null,
+          voidReason: null,
+          createdAt: new Date("2026-08-07T16:30:00.000Z"),
+          createdBy: { id: "user-2", firstName: "Marcela", lastName: "Rodriguez" },
+          paymentMethod: { name: "Tarjeta" },
+          payment: {
+            paymentNumber: 212180,
+            reference: null,
+            voidedAt: new Date("2026-08-07T16:30:00.000Z"),
+            voidReason: "Pago duplicado; registrar nuevamente con tarjeta",
+            voidedBy: { id: "user-2", firstName: "Marcela", lastName: "Rodriguez" },
+            patient: { firstName: "Ricardo", lastName: "Carriola" },
+            paymentMethod: { name: "Tarjeta" }
+          }
+        }
+      ]
+    } as never);
+
+    const report = await service.getCashRegisterReportCsv(actor, "CAJ-811016");
+
+    expect(report.content).toContain("Motivo anulacion");
+    expect(report.content).toContain('"PAYMENT_VOIDED"');
+    expect(report.content).toContain('"Marcela Rodriguez"');
+    expect(report.content).toContain('"Pago duplicado; registrar nuevamente con tarjeta"');
+  });
+
   it("prevents replacing the historical payment method after collection", async () => {
     const prisma = {
       payment: {

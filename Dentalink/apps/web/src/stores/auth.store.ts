@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
+import { hasEffectivePermission } from "@dentalwarner/shared";
 import type { AuthUser } from "@/types/auth";
 
 type AuthState = {
@@ -23,7 +24,7 @@ export const useAuthStore = create<AuthState>()(
       clearSession: () => set({ user: null, accessToken: null, refreshToken: null }),
       hasPermission: (permission) => {
         const permissions = get().user?.permissions ?? [];
-        return permissions.includes("system.manage_all") || permissions.includes(permission);
+        return hasEffectivePermission(permissions, permission);
       }
     }),
     {
@@ -34,3 +35,4 @@ export const useAuthStore = create<AuthState>()(
 );
 
 export const authStoreApi = useAuthStore;
+

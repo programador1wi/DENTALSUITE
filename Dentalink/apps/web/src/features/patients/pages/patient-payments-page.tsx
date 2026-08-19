@@ -10,6 +10,7 @@ import {
   ReceiptText,
   WalletCards
 } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -19,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { Select } from "@/components/ui/select";
 import { usePermissions } from "@/hooks/use-permissions";
+import { APP_ROUTES } from "@/lib/routes";
 import {
   useCurrentCashRegister,
   usePatientPayments,
@@ -1359,7 +1361,7 @@ function PaymentResult({
           <Button type="button" variant="secondary" onClick={() => void downloadReceipt()}>
             <Download className="h-4 w-4" /> Descargar PDF
           </Button>
-          <Link to={`/patients/${payment.patientId}/billing`}>
+          <Link to={APP_ROUTES.patients.billing(payment.patientId)}>
             <Button type="button" variant="secondary">
               <ReceiptText className="h-4 w-4" /> Facturación y pagos
             </Button>
@@ -1473,31 +1475,35 @@ function CashRegisterPanel({
 }) {
   if (!hasOpenRegister) {
     return (
-      <div className="rounded-[var(--radius-md)] border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-        <p className="font-semibold">No tienes una caja abierta para registrar este pago.</p>
-        <p className="mt-1">Abre una caja antes de continuar con el cobro.</p>
-        {canOpenCashRegister ? (
-          <Link
-            className="mt-3 inline-flex text-sm font-semibold text-amber-900 underline"
-            to="/cash-register/open"
-          >
-            Ir a apertura de caja
-          </Link>
-        ) : null}
-      </div>
+      <Alert
+        variant="warning"
+        size="sm"
+        title="No tienes una caja abierta para registrar este pago"
+        action={
+          canOpenCashRegister ? (
+            <Link
+              className="text-xs font-semibold text-amber-900 underline hover:text-amber-950"
+              to={APP_ROUTES.cashRegister.open}
+            >
+              Ir a apertura de caja
+            </Link>
+          ) : undefined
+        }
+      >
+        Abre una caja antes de continuar con el cobro.
+      </Alert>
     );
   }
   return (
-    <div className="rounded-[var(--radius-md)] border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-      <p className="font-semibold">Caja abierta</p>
-      <p className="mt-1">
+    <Alert variant="success" size="sm" title="Caja abierta">
+      <p className="mt-0.5">
         {register?.branch.name ?? "Sucursal"} ·{" "}
         {register?.openedBy
           ? `${register.openedBy.firstName} ${register.openedBy.lastName}`
           : "Usuario actual"}{" "}
         · {dateTime(register?.openedAt)}
       </p>
-    </div>
+    </Alert>
   );
 }
 

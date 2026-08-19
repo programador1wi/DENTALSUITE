@@ -146,38 +146,38 @@ export function PayrollSettingsPage() {
   const recalculate = useRecalculatePayroll();
 
   const activeRows = useMemo(
-    () => (payroll.data ?? []).filter((row) => activeMatches(row, search)),
+    () => (payroll.data ?? []).filter((row: PayrollSummary) => activeMatches(row, search)),
     [payroll.data, search]
   );
   const finalizedRows = useMemo(
-    () => (finalized.data ?? []).filter((row) => finalizedMatches(row, search)),
+    () => (finalized.data ?? []).filter((row: FinalizedPayroll) => finalizedMatches(row, search)),
     [finalized.data, search]
   );
   const activeTotals = useMemo(
     () => ({
       professionals: activeRows.length,
-      items: activeRows.reduce((sum, row) => sum + row.completedItems, 0),
-      payable: activeRows.reduce((sum, row) => sum + row.payableAmount, 0)
+      items: activeRows.reduce((sum: number, row: PayrollSummary) => sum + row.completedItems, 0),
+      payable: activeRows.reduce((sum: number, row: PayrollSummary) => sum + row.payableAmount, 0)
     }),
     [activeRows]
   );
   const finalizedTotals = useMemo(
     () => ({
       liquidations: finalizedRows.length,
-      items: finalizedRows.reduce((sum, row) => sum + row.completedItems, 0),
-      payable: finalizedRows.reduce((sum, row) => sum + Number(row.payableAmount), 0)
+      items: finalizedRows.reduce((sum: number, row: FinalizedPayroll) => sum + row.completedItems, 0),
+      payable: finalizedRows.reduce((sum: number, row: FinalizedPayroll) => sum + Number(row.payableAmount), 0)
     }),
     [finalizedRows]
   );
   const payrollSearchRows = useMemo(
     () =>
       view === "active"
-        ? activeRows.map((row) => ({
+        ? activeRows.map((row: PayrollSummary) => ({
             id: row.professionalId,
             name: row.professionalName,
             detail: `${row.completedItems} prestaciones - ${money(row.payableAmount)}`
           }))
-        : finalizedRows.map((row) => ({
+        : finalizedRows.map((row: FinalizedPayroll) => ({
             id: row.id,
             name: finalizedName(row),
             detail: `${formatDate(row.finalizedAt)} - ${money(row.payableAmount)}`
@@ -189,7 +189,7 @@ export function PayrollSettingsPage() {
     if (target === "active") {
       downloadCsv("liquidaciones-activas.csv", [
         ["Profesional", "Comision", "Prestaciones", "Pendientes", "Cobrado", "A pagar", "Ultima prestacion"],
-        ...activeRows.map((row) => [
+        ...activeRows.map((row: PayrollSummary) => [
           row.professionalName,
           row.commissionRate,
           row.completedItems,
@@ -205,8 +205,8 @@ export function PayrollSettingsPage() {
     if (target === "active-detail") {
       downloadCsv("detalle-liquidaciones-activas.csv", [
         ["Trat.", "Explicar", "Paciente", "Accion", "Fecha", "Monto", "Medio de pago", "Total", "Caja validada"],
-        ...activeRows.flatMap((row) =>
-          row.items.map((item) => [
+        ...activeRows.flatMap((row: PayrollSummary) =>
+          row.items.map((item: PayrollItem) => [
             item.treatmentNumber,
             item.calculationExplanation,
             item.patientName,
@@ -224,7 +224,7 @@ export function PayrollSettingsPage() {
 
     downloadCsv("liquidaciones-finalizadas.csv", [
       ["Profesional", "Sucursal", "Fecha finalizacion", "Prestaciones", "Cobrado", "A pagar", "Finalizada por"],
-      ...finalizedRows.map((row) => [
+      ...finalizedRows.map((row: FinalizedPayroll) => [
         finalizedName(row),
         row.branch?.name ?? "Todas",
         formatDateTime(row.finalizedAt),
@@ -318,10 +318,10 @@ export function PayrollSettingsPage() {
             value={search}
             onValueChange={setSearch}
             items={search.trim() ? payrollSearchRows : []}
-            onSelect={(row) => setSearch(row.name)}
-            getItemKey={(row) => row.id}
+            onSelect={(row: { id: string; name: string; detail: string }) => setSearch(row.name)}
+            getItemKey={(row: { id: string; name: string; detail: string }) => row.id}
             emptyMessage="Sin liquidaciones encontradas"
-            renderItem={(row) => (
+            renderItem={(row: { id: string; name: string; detail: string }) => (
               <div className="min-w-0">
                 <p className="truncate text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">{row.name}</p>
                 <p className="mt-0.5 truncate text-[var(--text-xs)] text-[var(--text-secondary)]">{row.detail}</p>
@@ -337,7 +337,7 @@ export function PayrollSettingsPage() {
               <Button variant="secondary" onClick={() => download("active-detail")}>
                 <Download className="h-4 w-4" /> Detalle CSV
               </Button>
-              <Button disabled={finalize.isPending || !activeRows.some((row) => row.payableAmount > 0)} onClick={() => void finalizeAll()}>
+              <Button disabled={finalize.isPending || !activeRows.some((row: PayrollSummary) => row.payableAmount > 0)} onClick={() => void finalizeAll()}>
                 <CheckCircle2 className="h-4 w-4" /> Finalizar todas
               </Button>
             </div>
@@ -368,7 +368,7 @@ export function PayrollSettingsPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {activeRows.map((row) => {
+                  {activeRows.map((row: PayrollSummary) => {
                     const expanded = expandedId === row.professionalId;
                     return (
                       <Fragment key={row.professionalId}>
@@ -376,6 +376,7 @@ export function PayrollSettingsPage() {
                           <TableCell className="font-semibold">
                             <button
                               type="button"
+                              data-allow-multiline
                               className="inline-flex items-center gap-[var(--space-2)] text-left text-[var(--text-brand-strong)]"
                               aria-expanded={expanded}
                               onClick={() => setExpandedId(expanded ? "" : row.professionalId)}
@@ -451,7 +452,7 @@ export function PayrollSettingsPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {finalizedRows.map((row) => {
+                  {finalizedRows.map((row: FinalizedPayroll) => {
                     const expanded = expandedId === row.id;
                     return (
                       <Fragment key={row.id}>

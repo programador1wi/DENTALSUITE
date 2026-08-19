@@ -11,6 +11,7 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { ResponsiveFilterBar } from "@/components/ui/responsive-filter-bar";
 import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { usePaymentMethods } from "@/features/settings/payment-methods/hooks/use-payment-methods";
@@ -366,7 +367,10 @@ export function PaymentsPage() {
       </Card>
 
       {/* Filtros */}
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-3">
+      <ResponsiveFilterBar
+        activeCount={[search, branchId, status].filter(Boolean).length}
+        mobileSummary={status ? STATUS_OPTIONS.find((option) => option.value === status)?.label : "Todos los estados"}
+      >
         <div className="flex items-center gap-1.5 w-full">
           <EntitySearchBox
             placeholder="Buscar por paciente o referencia"
@@ -416,31 +420,36 @@ export function PaymentsPage() {
           </Select>
           <HelpTooltip content="Filtra transacciones por su estado de conciliación: RECEIVED (Recibido sin aplicar), PARTIALLY_ALLOCATED (Abonado parcialmente a prestaciones), ALLOCATED (Totalmente aplicado a prestaciones clínicas) o REFUNDED (Devuelto)." />
         </div>
-      </div>
+      </ResponsiveFilterBar>
 
       <DataTable
         rows={payments.data ?? []}
         stickyFirstColumn={true}
         stickyLastColumn={true}
-        responsiveCards={true}
+        mobileView="list"
+        getRowKey={(row) => row.id}
         empty={<EmptyState title="Sin pagos" description="No existen pagos para los filtros actuales." />}
         columns={[
           {
             key: "patient",
             title: "Paciente",
+            primary: true,
+            priority: "P1",
             render: (row) => `${row.patient.firstName} ${row.patient.lastName}`
           },
-          { key: "branch", title: "Sucursal", render: (row) => row.branch.name },
-          { key: "amount", title: "Monto", render: (row) => `${row.amount} ${row.currency}` },
-          { key: "paymentMethod", title: "Metodo", render: (row) => row.paymentMethod.name },
+          { key: "branch", title: "Sucursal", priority: "P2", render: (row) => row.branch.name },
+          { key: "amount", title: "Monto", priority: "P1", render: (row) => `${row.amount} ${row.currency}` },
+          { key: "paymentMethod", title: "Método", priority: "P2", render: (row) => row.paymentMethod.name },
           {
             key: "status",
             title: "Estado",
+            priority: "P1",
             render: (row) => <Badge value={row.status} tone={statusTone[row.status]} />
           },
-          { key: "paidAt", title: "Fecha", render: (row) => new Date(row.paidAt).toLocaleString() },
+          { key: "paidAt", title: "Fecha", priority: "P2", render: (row) => new Date(row.paidAt).toLocaleString() },
           {
             key: "allocations",
+            priority: "P3",
             title: (
               <span className="flex items-center gap-1.5">
                 Aplicaciones
@@ -452,11 +461,13 @@ export function PaymentsPage() {
           {
             key: "financialInstitution",
             title: "Entidad",
+            priority: "P3",
             render: (row) => row.financialInstitution?.name ?? "-"
           },
           {
             key: "id",
             title: "Acciones",
+            actions: true,
             render: (row) => (
               <Button
                 variant="danger"

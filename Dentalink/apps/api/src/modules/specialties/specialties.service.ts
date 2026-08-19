@@ -99,10 +99,9 @@ export class SpecialtiesService {
   }
 
   async listClinicalTemplates(actor: AuthUser, specialtyId: string, type?: "PRESCRIPTION" | "EVOLUTION", active?: string) {
-    // Forzando reinicio para que NestJS cargue el nuevo cliente Prisma con createdBy
     await this.findOne(actor, specialtyId);
 
-    return (this.prisma as any).specialtyClinicalTemplate.findMany({
+    return this.prisma.specialtyClinicalTemplate.findMany({
       where: {
         specialtyId,
         ...(type ? { type } : {}),
@@ -118,7 +117,7 @@ export class SpecialtiesService {
   async createClinicalTemplate(actor: AuthUser, specialtyId: string, dto: CreateSpecialtyClinicalTemplateDto) {
     await this.findOne(actor, specialtyId);
 
-    const template = await (this.prisma as any).specialtyClinicalTemplate.create({
+    const template = await this.prisma.specialtyClinicalTemplate.create({
       data: {
         specialtyId,
         type: dto.type,
@@ -139,10 +138,10 @@ export class SpecialtiesService {
     dto: UpdateSpecialtyClinicalTemplateDto
   ) {
     await this.findOne(actor, specialtyId);
-    const current = await (this.prisma as any).specialtyClinicalTemplate.findFirst({ where: { id: templateId, specialtyId } });
+    const current = await this.prisma.specialtyClinicalTemplate.findFirst({ where: { id: templateId, specialtyId } });
     if (!current) throw new NotFoundException("Specialty clinical template not found");
 
-    const template = await (this.prisma as any).specialtyClinicalTemplate.update({
+    const template = await this.prisma.specialtyClinicalTemplate.update({
       where: { id: templateId },
       data: {
         name: dto.name?.trim(),
@@ -158,20 +157,13 @@ export class SpecialtiesService {
   async listAppointmentReasons(actor: AuthUser, specialtyId: string, active?: string) {
     await this.findOne(actor, specialtyId);
 
-    // TEMPORARY: Delete reasons containing doctors
-    await (this.prisma as any).specialtyAppointmentReason.deleteMany({
-      where: {
-        name: { contains: " - " }
-      }
-    });
-
-    const reasons = await (this.prisma as any).specialtyAppointmentReason.findMany({
+    const reasons = await this.prisma.specialtyAppointmentReason.findMany({
       where: {
         specialtyId,
         ...(active !== undefined ? { isActive: active === "true" } : {})
       }
     });
-    return reasons.sort((left: { legacyId: number | null; name: string }, right: { legacyId: number | null; name: string }) => {
+    return reasons.sort((left, right) => {
       const leftLegacyId = left.legacyId ?? Number.MAX_SAFE_INTEGER;
       const rightLegacyId = right.legacyId ?? Number.MAX_SAFE_INTEGER;
       if (leftLegacyId !== rightLegacyId) return leftLegacyId - rightLegacyId;
@@ -183,12 +175,12 @@ export class SpecialtiesService {
     await this.findOne(actor, specialtyId);
     await this.assertAppointmentReasonNameAvailable(specialtyId, dto.name);
 
-    const lastReason = await (this.prisma as any).specialtyAppointmentReason.findFirst({
-      orderBy: { legacyId: 'desc' }
+    const lastReason = await this.prisma.specialtyAppointmentReason.findFirst({
+      orderBy: { legacyId: "desc" }
     });
     const nextLegacyId = (lastReason?.legacyId ?? 0) + 1;
 
-    const reason = await (this.prisma as any).specialtyAppointmentReason.create({
+    const reason = await this.prisma.specialtyAppointmentReason.create({
       data: {
         specialtyId,
         legacyId: nextLegacyId,
@@ -209,11 +201,11 @@ export class SpecialtiesService {
     dto: UpdateSpecialtyAppointmentReasonDto
   ) {
     await this.findOne(actor, specialtyId);
-    const current = await (this.prisma as any).specialtyAppointmentReason.findFirst({ where: { id: reasonId, specialtyId } });
+    const current = await this.prisma.specialtyAppointmentReason.findFirst({ where: { id: reasonId, specialtyId } });
     if (!current) throw new NotFoundException("Specialty appointment reason not found");
     if (dto.name) await this.assertAppointmentReasonNameAvailable(specialtyId, dto.name, reasonId);
 
-    const reason = await (this.prisma as any).specialtyAppointmentReason.update({
+    const reason = await this.prisma.specialtyAppointmentReason.update({
       where: { id: reasonId },
       data: {
         name: dto.name?.trim(),
@@ -256,7 +248,7 @@ export class SpecialtiesService {
 
   private async assertAppointmentReasonNameAvailable(specialtyId: string, name: string, currentReasonId?: string) {
     const normalizedName = this.normalizeAppointmentReasonName(name);
-    const reasons = await (this.prisma as any).specialtyAppointmentReason.findMany({
+    const reasons = await this.prisma.specialtyAppointmentReason.findMany({
       where: { specialtyId },
       select: { id: true, name: true }
     });

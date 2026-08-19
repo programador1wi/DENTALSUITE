@@ -39,6 +39,8 @@ export function Dropdown({
     <div ref={containerRef} className="relative w-full">
       <button
         type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
         className={cn(
           "flex h-10 w-full items-center justify-between rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--text-sm)] text-[var(--text-primary)] shadow-sm outline-none transition-all duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:border-[var(--border-strong)] focus:border-[var(--border-brand)] focus:ring-2 focus:ring-[var(--focus-ring)]",
           open && "border-[var(--border-brand)] ring-2 ring-[var(--focus-ring)]"
@@ -55,13 +57,15 @@ export function Dropdown({
       </button>
 
       {open && (
-        <div className="absolute left-0 right-0 z-50 mt-1.5 max-h-[300px] overflow-y-auto rounded-[var(--radius-lg)] border border-[var(--border-default)]/90 bg-white/95 backdrop-blur-md p-1 shadow-[0_12px_30px_rgba(4,44,83,0.12)] animate-in fade-in-50 slide-in-from-top-1 duration-[var(--duration-fast)] custom-scrollbar">
+        <div role="listbox" className="absolute left-0 right-0 z-50 mt-1.5 max-h-[300px] overflow-y-auto rounded-[var(--radius-lg)] border border-[var(--border-default)]/90 bg-white/95 backdrop-blur-md p-1 shadow-[0_12px_30px_rgba(4,44,83,0.12)] animate-in fade-in-50 slide-in-from-top-1 duration-[var(--duration-fast)] custom-scrollbar">
           {options.map((option) => {
             const isSelected = option.value === value;
             return (
               <button
                 key={option.value}
                 type="button"
+                role="option"
+                aria-selected={isSelected}
                 className={cn(
                   "relative flex w-full items-center justify-between rounded-[var(--radius-md)] px-3 py-2 text-left text-[var(--text-sm)] transition-all duration-[var(--duration-fast)]",
                   isSelected

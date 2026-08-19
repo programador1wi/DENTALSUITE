@@ -22,6 +22,7 @@ export class OrthodonticsService {
       const where: any = {
         kind: "ORTHODONTICS",
         branchId: branchScope(user, branchId),
+        orthodonticProfile: { isNot: null }
       };
 
       if (status) {
@@ -95,6 +96,7 @@ export class OrthodonticsService {
       const where: any = {
         kind: "ORTHODONTICS",
         branchId: branchScope(user, query.branchId),
+        orthodonticProfile: { isNot: null }
       };
 
       const activeWhere = {
@@ -171,6 +173,7 @@ export class OrthodonticsService {
       where: {
         kind: "ORTHODONTICS",
         branchId: branchScope(user, query.branchId),
+        orthodonticProfile: { isNot: null }
       },
       include: {
         patient: true,

@@ -112,6 +112,48 @@ describe("AppointmentsService - Cancellation rules", () => {
     expect(dispatch).toHaveBeenCalledWith("appt-1", "CONFIRMATION");
   });
 
+  it("changes to WhatsApp notification status and records a sent WhatsApp reminder", async () => {
+    const tx = {
+      appointment: {
+        update: jest.fn().mockResolvedValue({ id: "appt-1" })
+      },
+      appointmentStatusHistory: {
+        create: jest.fn()
+      },
+      auditLog: {
+        create: jest.fn()
+      }
+    };
+
+    const prisma = {
+      appointment: {
+        findFirst: jest.fn().mockResolvedValue({ id: "appt-1", status: AppointmentStatus.SCHEDULED, branchId: "branch-1" })
+      },
+      appointmentReminder: {
+        create: jest.fn().mockResolvedValue({ id: "reminder-1" })
+      },
+      $transaction: jest.fn((callback) => callback(tx))
+    };
+
+    const service = new AppointmentsService(prisma as never, {} as never, {} as never, {} as never);
+    service.findOne = jest
+      .fn()
+      .mockResolvedValueOnce({ id: "appt-1", status: AppointmentStatus.SCHEDULED })
+      .mockResolvedValueOnce({ id: "appt-1", status: AppointmentStatus.NOTIFIED_BY_WHATSAPP });
+
+    await service.changeAppointmentStatus(actor, "appt-1", AppointmentStatus.NOTIFIED_BY_WHATSAPP);
+
+    expect(prisma.appointmentReminder.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          appointmentId: "appt-1",
+          channel: "WHATSAPP",
+          status: "SENT"
+        })
+      })
+    );
+  });
+
   it("does not mark an appointment as notified when the confirmation email fails", async () => {
     const tx = {
       appointment: {
@@ -327,7 +369,9 @@ describe("AppointmentsService - Batch creation rules", () => {
 
   function buildPrisma() {
     const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
       appointment: {
+        findFirst: jest.fn().mockResolvedValue(null),
         create: jest.fn()
           .mockResolvedValueOnce({ id: "appt-1" })
           .mockResolvedValueOnce({ id: "appt-2" })
@@ -588,6 +632,7 @@ describe("AppointmentsService - Effective schedule blocks", () => {
       chair: { findFirst: jest.fn().mockResolvedValue({ id: "chair-1" }) },
       professionalSchedule: { findMany: jest.fn().mockResolvedValue(regularSchedules) },
       professionalSpecialSchedule: { findMany: jest.fn().mockResolvedValue(specialSchedules) },
+      holiday: { findFirst: jest.fn().mockResolvedValue(null) },
       appointment: { findMany: jest.fn().mockResolvedValue(busy), findFirst: jest.fn().mockResolvedValue(null) }
     };
   }
@@ -608,7 +653,7 @@ describe("AppointmentsService - Effective schedule blocks", () => {
       durationMinutes: "20"
     });
 
-    expect(result.slots.map((slot) => slot.startAt.toTimeString().slice(0, 5))).toEqual([
+    expect((result as any).slots.map((slot: any) => slot.startAt.toTimeString().slice(0, 5))).toEqual([
       "08:00",
       "08:20",
       "08:40",
@@ -638,7 +683,7 @@ describe("AppointmentsService - Effective schedule blocks", () => {
         where: expect.objectContaining({ date: "2026-07-07" })
       })
     );
-    expect(result.slots.map((slot) => slot.startAt.toTimeString().slice(0, 5))).toEqual(["15:00", "15:20", "15:40"]);
+    expect((result as any).slots.map((slot: any) => slot.startAt.toTimeString().slice(0, 5))).toEqual(["15:00", "15:20", "15:40"]);
   });
 
   it("excludes the current appointment from availability when editing", async () => {

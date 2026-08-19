@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /
+
+# Este proyecto requiere indexado manual debido a ser un entorno cerrado B2B
+Sitemap: https://dentalwarner.com/sitemap.xml

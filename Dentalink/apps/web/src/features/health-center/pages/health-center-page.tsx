@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
-import { Archive, Building2, ChevronDown, Edit, Eye, Plus, RotateCcw, Search, Store, UsersRound } from "lucide-react";
+import { Archive, Building2, ChevronDown, Edit, Eye, MapPin, Phone, Plus, RotateCcw, Search, Store, UsersRound } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -403,47 +403,90 @@ function BranchTable({
         ) : null}
       </div>
       {brand.branches.length ? (
-        <Table>
-          <TableHead>
-            <TableRow>
-              <TableHeader>Sucursal</TableHeader>
-              <TableHeader>Ubicación</TableHeader>
-              <TableHeader>Teléfono</TableHeader>
-              <TableHeader>Estado</TableHeader>
-              <TableHeader className="text-right">Acciones</TableHeader>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {brand.branches.map((branch) => (
-              <TableRow key={branch.id}>
-                <TableCell className="font-semibold text-[var(--text-primary)]">
-                  <div>{branch.name}</div>
-                  <div className="text-xs font-normal text-[var(--text-secondary)]">Código: {branch.code}</div>
-                </TableCell>
-                <TableCell>{[branch.city, branch.state].filter(Boolean).join(", ") || "-"}</TableCell>
-                <TableCell>{branch.phone || "-"}</TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1">
-                    <Badge value={branch.status === "ACTIVE" ? "Activa" : "Inactiva"} tone={branch.status === "ACTIVE" ? "success" : "danger"} />
-                    <Badge value={branch.allowOnlineAppointments ? "Online" : "Sin Online"} tone={branch.allowOnlineAppointments ? "success" : "warning"} />
+        <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-2">
+          {brand.branches.map((branch) => {
+            const fullAddress = [
+              branch.address,
+              branch.exteriorNumber ? `#${branch.exteriorNumber}` : null,
+              branch.interiorNumber ? `Int. ${branch.interiorNumber}` : null,
+              branch.neighborhood,
+              branch.postalCode ? `C.P. ${branch.postalCode}` : null,
+              branch.city,
+              branch.state
+            ].filter(Boolean).join(", ");
+
+            return (
+              <div
+                key={branch.id}
+                className="group relative flex flex-col justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5 shadow-2xs transition-all hover:border-slate-300 hover:shadow-md"
+              >
+                <div className="space-y-3">
+                  {/* Encabezado de la Tarjeta */}
+                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0">
+                      <h3 className="text-base font-bold text-slate-900 transition-colors group-hover:text-blue-600">
+                        {branch.name}
+                      </h3>
+                      <div className="mt-0.5 text-[11px] font-mono font-medium text-slate-400">
+                        Código: {branch.code}
+                      </div>
+                    </div>
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:shrink-0 sm:justify-end">
+                      <Badge
+                        value={branch.status === "ACTIVE" ? "Activa" : "Inactiva"}
+                        tone={branch.status === "ACTIVE" ? "success" : "danger"}
+                      />
+                      <Badge
+                        value={branch.allowOnlineAppointments ? "Online" : "Sin Online"}
+                        tone={branch.allowOnlineAppointments ? "success" : "warning"}
+                      />
+                    </div>
                   </div>
-                </TableCell>
-                <TableCell className="text-right">
-                  <div className="flex justify-end gap-1.5">
-                    <Button variant="secondary" size="sm" onClick={() => onViewDetails(branch)}>
-                      <Eye size={14} />
-                      Ver detalles
-                    </Button>
-                    <Button variant="secondary" size="sm" onClick={() => onEdit(branch)}>
-                      <Edit size={14} />
-                      Editar
-                    </Button>
+
+                  {/* Detalles de la Dirección y Teléfono */}
+                  <div className="space-y-1.5 pt-1 text-xs text-slate-600">
+                    <div className="flex items-start gap-2">
+                      <MapPin size={15} className="mt-0.5 shrink-0 text-slate-400" />
+                      <span className="leading-relaxed">
+                        {fullAddress || "Sin dirección especificada"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Phone size={15} className="shrink-0 text-slate-400" />
+                      <span className="font-mono font-medium text-slate-700">
+                        {branch.phone || "Sin teléfono registrado"}
+                      </span>
+                    </div>
                   </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+                </div>
+
+                {/* Acciones de la Tarjeta */}
+                <div className="flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-8 px-3 text-xs font-medium border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-400 shadow-2xs gap-1.5 transition-all"
+                    onClick={() => onViewDetails(branch)}
+                    title="Ver detalles de la sucursal"
+                  >
+                    <Eye className="h-3.5 w-3.5 text-slate-500" />
+                    Ver detalles
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-8 px-3 text-xs font-medium border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 hover:border-slate-400 shadow-2xs gap-1.5 transition-all"
+                    onClick={() => onEdit(branch)}
+                    title="Editar sucursal"
+                  >
+                    <Edit className="h-3.5 w-3.5 text-slate-500" />
+                    Editar
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       ) : (
         <EmptyState
           title="Esta marca todavía no tiene sucursales."

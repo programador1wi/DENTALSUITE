@@ -324,3 +324,50 @@ describe("ProfessionalsService branch validation", () => {
     expect(prisma.branch.count).not.toHaveBeenCalled();
   });
 });
+
+describe("ProfessionalsService deactivation impact", () => {
+  const actor: AuthUser = {
+    id: "user-1",
+    organizationId: "org-1",
+    email: "admin@example.com",
+    firstName: "Admin",
+    lastName: "One",
+    roleIds: [],
+    roleNames: [],
+    branchIds: ["branch-1"],
+    permissions: ["professionals.read", "professionals.deactivate"]
+  };
+
+  it("blocks direct deactivation when an active schedule still exists", async () => {
+    const branch = { id: "branch-1", agendaSlotMinutes: 20 };
+    const prisma = {
+      professional: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "professional-1",
+          specialties: [],
+          branches: [{
+            branch,
+            agendaSlotMinutes: 20,
+            status: "ACTIVE",
+            startsAt: new Date(),
+            endsAt: null,
+            endedReason: null
+          }],
+          user: null
+        })
+      },
+      appointment: { count: jest.fn().mockResolvedValue(0) },
+      professionalSchedule: { count: jest.fn().mockResolvedValue(1) }
+    };
+    const service = new ProfessionalsService(prisma as never);
+
+    const impact = await service.deactivationImpact(actor, "professional-1");
+
+    expect(impact).toEqual(expect.objectContaining({
+      futureAppointments: 0,
+      futureBlocks: 0,
+      activeSchedules: 1,
+      canDeactivate: false
+    }));
+  });
+});

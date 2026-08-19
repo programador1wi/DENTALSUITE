@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { authStoreApi } from "@/stores/auth.store";
 import {
   createUser,
   deactivateUser,
@@ -11,10 +12,11 @@ import {
   type UserListItem
 } from "../services/users.service";
 
-export function useUsersQuery(search?: string, status?: string, branchId?: string) {
+export function useUsersQuery(search?: string, status?: string, branchId?: string, enabled = true) {
   return useQuery<UserListItem[], Error>({
     queryKey: ["settings", "users", search, status, branchId],
-    queryFn: () => listUsers({ search, status, branchId })
+    queryFn: () => listUsers({ search, status, branchId }),
+    enabled
   });
 }
 
@@ -41,7 +43,13 @@ export function useUpdateUser() {
 
   return useMutation({
     mutationFn: ({ id, payload }: { id: string; payload: UpdateUserPayload }) => updateUser(id, payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings", "users"] })
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "users"] });
+      queryClient.invalidateQueries({ queryKey: ["settings", "collaborators"] });
+      if (authStoreApi.getState().user?.id === variables.id) {
+        queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      }
+    }
   });
 }
 
@@ -50,7 +58,13 @@ export function useDeactivateUser() {
 
   return useMutation({
     mutationFn: (id: string) => deactivateUser(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings", "users"] })
+    onSuccess: (_data, userId) => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "users"] });
+      queryClient.invalidateQueries({ queryKey: ["settings", "collaborators"] });
+      if (authStoreApi.getState().user?.id === userId) {
+        queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      }
+    }
   });
 }
 
@@ -59,6 +73,12 @@ export function useReactivateUser() {
 
   return useMutation({
     mutationFn: (id: string) => reactivateUser(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings", "users"] })
+    onSuccess: (_data, userId) => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "users"] });
+      queryClient.invalidateQueries({ queryKey: ["settings", "collaborators"] });
+      if (authStoreApi.getState().user?.id === userId) {
+        queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      }
+    }
   });
 }

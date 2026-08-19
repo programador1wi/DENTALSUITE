@@ -62,6 +62,7 @@ export function CalendarView({
   dayEndHour = DEFAULT_DAY_END_HOUR,
   schedules = [],
   density = "comfortable",
+  showOverbookingOnly = false,
   onSelectProfessional,
   onCreateClick,
   onCreateSlotClick,
@@ -69,6 +70,7 @@ export function CalendarView({
   onCancel,
   onReschedule,
   onChangeStatus,
+  onContactWhatsApp,
   onConfirm,
   onArrive,
   onWaitingRoom,
@@ -89,6 +91,7 @@ export function CalendarView({
   dayEndHour?: number;
   schedules?: Schedule[];
   density?: "comfortable" | "compact";
+  showOverbookingOnly?: boolean;
   onSelectProfessional?: (professionalId: string) => void;
   onCreateClick?: () => void;
   onCreateSlotClick?: (slot: CalendarCreateSlot) => void;
@@ -96,6 +99,7 @@ export function CalendarView({
   onCancel: (appointment: Appointment) => void;
   onReschedule: (appointment: Appointment) => void;
   onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
+  onContactWhatsApp?: (appointment: Appointment) => void;
   onConfirm: (id: string) => void;
   onArrive: (id: string) => void;
   onWaitingRoom: (id: string) => void;
@@ -221,7 +225,7 @@ export function CalendarView({
             </div>
           ) : null}
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto" data-responsive-overflow="contained" aria-label="Calendario semanal desplazable">
           <div className="min-w-[980px]">
             <div
               className="grid border-b border-[var(--border-default)]/60 bg-[var(--bg-subtle)]/40"
@@ -374,6 +378,7 @@ export function CalendarView({
                               onCancel={onCancel}
                               onReschedule={onReschedule}
                               onChangeStatus={onChangeStatus}
+                              onContactWhatsApp={onContactWhatsApp}
                               onConfirm={onConfirm}
                               onArrive={onArrive}
                               onWaitingRoom={onWaitingRoom}
@@ -453,11 +458,15 @@ export function CalendarView({
 
     const displayProfessionalIds = new Set(displayProfessionals.map((professional) => professional.id));
     const daySchedules = schedulesForDate.filter((schedule) => displayProfessionalIds.has(schedule.professionalId));
-    const displayColumns = displayProfessionals.flatMap((professional) => {
-      const professionalSchedules = daySchedules.filter((schedule) => schedule.professionalId === professional.id);
-      const maxChairs = Math.max(1, ...professionalSchedules.map((schedule) => schedule.simultaneousChairs ?? 1));
-      return Array.from({ length: maxChairs }, (_, index) => ({ professional, chairIndex: index + 1 }));
-    });
+    
+    const displayColumns = showOverbookingOnly
+      ? displayProfessionals.map((professional) => ({ professional, chairIndex: null, isOverbookingColumn: true }))
+      : displayProfessionals.flatMap((professional) => {
+          const professionalSchedules = daySchedules.filter((schedule) => schedule.professionalId === professional.id);
+          const maxChairs = Math.max(1, ...professionalSchedules.map((schedule) => schedule.simultaneousChairs ?? 1));
+          return Array.from({ length: maxChairs }, (_, index) => ({ professional, chairIndex: index + 1, isOverbookingColumn: false }));
+        });
+        
     const dayTimelineRange = resolveAgendaTimelineRange({
       schedules: daySchedules,
       fallbackStartHour: normalizedDayStartHour,
@@ -481,98 +490,103 @@ export function CalendarView({
 
     return (
       <div className="w-full space-y-4">
-        {/* Responsive horizontal scroll shell for daily clinical columns */}
-        <div className="w-full rounded-xl border border-[var(--border-default)]/60 bg-[var(--bg-surface)] shadow-sm transition-all duration-200">
-          <div className="overflow-x-auto max-h-[calc(100vh-240px)] overflow-y-auto overscroll-contain custom-scrollbar">
-            <div className="flex min-w-[700px]">
+        {/* Responsive horizontal scroll shell for daily clinical columns (Option 2: Executive Card Columns) */}
+        <div className="w-full">
+          <div className="overflow-x-auto max-h-[calc(100vh-240px)] overflow-y-auto overscroll-contain custom-scrollbar p-1" data-responsive-overflow="contained" aria-label="Agenda por profesionales desplazable">
+            <div className="flex gap-3.5 min-w-[700px] pb-2">
+              {/* Columns list for each active professional as independent card columns */}
+              {displayColumns.map(({ professional: prof, chairIndex, isOverbookingColumn }) => {
+                const profApps = appointmentsForDate
+                  .filter((a) => a.professionalId === prof.id && (isOverbookingColumn ? a.isOverbooking : (!a.isOverbooking && (a.chairIndex ?? 1) === chairIndex)))
+                  .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+                const profAppsCount = profApps.length;
+                const professionalAgenda = getProfessionalBranchAgendaConfig(prof, selectedBranchId, normalizedDaySlotMinutes);
+                const professionalSchedules = daySchedules.filter((schedule) => schedule.professionalId === prof.id);
+                const professionalSchedule = professionalSchedules[0];
+                const scheduleStartMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.startTime) : null;
+                const scheduleEndMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.endTime) : null;
+                const professionalVisualMarkers = buildTimelineMarkersFromRange(
+                  dayTimelineRange.startMinutes,
+                  dayTimelineRange.endMinutes,
+                  professionalAgenda.slotMinutes,
+                  timelineScale,
+                  { endExclusive: false }
+                );
 
-              {/* Columns list for each active professional */}
-              <div className="flex flex-1 divide-x divide-[var(--border-default)]/40">
-                {displayColumns.map(({ professional: prof, chairIndex }) => {
-                  const profApps = appointmentsForDate
-                    .filter((a) => a.professionalId === prof.id && !a.isOverbooking && (a.chairIndex ?? 1) === chairIndex)
-                    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
-                  const profAppsCount = profApps.length;
-                  const professionalAgenda = getProfessionalBranchAgendaConfig(prof, selectedBranchId, normalizedDaySlotMinutes);
-                  const professionalSchedules = daySchedules.filter((schedule) => schedule.professionalId === prof.id);
-                  const professionalSchedule = professionalSchedules[0];
-                  const scheduleStartMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.startTime) : null;
-                  const scheduleEndMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.endTime) : null;
-                  const professionalVisualMarkers = buildTimelineMarkersFromRange(
-                    dayTimelineRange.startMinutes,
-                    dayTimelineRange.endMinutes,
-                    professionalAgenda.slotMinutes,
-                    timelineScale,
-                    { endExclusive: false }
-                  );
+                const professionalTimeSlots =
+                  professionalSchedule && scheduleStartMinutes !== null && scheduleEndMinutes !== null
+                    ? buildTimeSlotsFromRange(scheduleStartMinutes, scheduleEndMinutes, professionalAgenda.slotMinutes, {
+                        endExclusive: true
+                      })
+                    : [];
+                const profBreaks = professionalSchedules.filter((schedule) => schedule.breakStartTime && schedule.breakEndTime);
+                const busyAppointments = profApps.filter((appointment) => !FREE_APPOINTMENT_STATUSES.has(appointment.status));
 
-                  const professionalTimeSlots =
-                    professionalSchedule && scheduleStartMinutes !== null && scheduleEndMinutes !== null
-                      ? buildTimeSlotsFromRange(scheduleStartMinutes, scheduleEndMinutes, professionalAgenda.slotMinutes, {
-                          endExclusive: true
-                        })
-                      : [];
-                  const profBreaks = professionalSchedules.filter((schedule) => schedule.breakStartTime && schedule.breakEndTime);
-                  const busyAppointments = profApps.filter((appointment) => !FREE_APPOINTMENT_STATUSES.has(appointment.status));
-
-                  return (
-                    <div key={`${prof.id}-${chairIndex}`} className="flex-1 min-w-[280px] sm:min-w-[320px] shrink-0 flex flex-col">
-                      {/* Professional Info Column Header */}
-                      <div
-                        className="sticky top-0 h-10 bg-white border-b border-[var(--border-default)] flex z-20 shrink-0 shadow-sm"
-                        style={prof.color ? { borderLeft: `3px solid ${prof.color}` } : undefined}
-                      >
-                        <div className="w-8 shrink-0 border-r border-[var(--border-default)]/60 bg-slate-100 flex items-center justify-center select-none">
-                          <Clock className="w-3 h-3 text-[var(--text-secondary)]" />
-                        </div>
-                        <div className="flex-1 flex items-center gap-1.5 px-2 py-1 min-w-0">
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <span
-                                className="h-2 w-2 rounded-full shrink-0"
-                                style={{ backgroundColor: prof.color || "#111827" }}
-                              />
-                              <p className="text-xs font-semibold text-[var(--text-primary)] truncate">
-                                {prof.firstName} {prof.lastName}
-                              </p>
-                              <span className="inline-flex items-center rounded-full bg-[var(--bg-brand-light)] px-1.5 py-0.5 text-[8px] font-bold text-[var(--text-brand)] shrink-0 select-none">
-                                Sillon {chairIndex}
+                return (
+                  <div 
+                    key={`${prof.id}-${chairIndex}`} 
+                    className="flex-1 min-w-[280px] sm:min-w-[320px] shrink-0 flex flex-col bg-white rounded-2xl border border-zinc-200/80 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden"
+                  >
+                    {/* Professional Info Column Header (Card Style) */}
+                    <div
+                      className="sticky top-0 h-11 bg-zinc-50/90 backdrop-blur-md border-b border-zinc-200/80 flex items-center z-20 shrink-0 overflow-hidden"
+                      style={prof.color ? { borderTop: `3px solid ${prof.color}` } : undefined}
+                    >
+                      <div className="w-[44px] shrink-0 border-r border-zinc-200/70 bg-zinc-100/60 h-full flex items-center justify-center select-none">
+                        <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                      </div>
+                      <div className="flex-1 flex items-center gap-1.5 px-3 py-1 min-w-0">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0 shadow-sm"
+                              style={{ backgroundColor: prof.color || "#0f766e" }}
+                            />
+                            <p className="text-xs font-bold text-zinc-800 truncate">
+                              {prof.firstName} {prof.lastName}
+                            </p>
+                            {isOverbookingColumn ? (
+                              <span className="inline-flex items-center rounded-full bg-orange-50 border border-orange-200/80 px-2 py-0.5 text-[9px] font-bold text-orange-700 shrink-0 select-none">
+                                Sobreagendamiento
                               </span>
-                              <span className="inline-flex items-center rounded-full bg-[var(--bg-subtle)] border border-[var(--border-default)]/60 px-1.5 py-0.5 text-[8px] font-medium text-[var(--text-secondary)] shrink-0 select-none">
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-cyan-50 border border-cyan-200/70 px-2 py-0.5 text-[9px] font-bold text-cyan-800 shrink-0 select-none">
+                                Sillón {chairIndex}
                               </span>
-                            </div>
+                            )}
                           </div>
                         </div>
                       </div>
+                    </div>
 
-                      {/* Timeline Slots under this doctor */}
-                      <div className="relative shrink-0 overflow-hidden bg-[var(--bg-subtle)]/5" style={{ height: dayTimelineHeight + 10 }}>
-                        {professionalVisualMarkers.map((marker) => {
-                          return (
-                            <div
-                              key={marker.time}
-                              className="absolute left-[40px] right-0 z-[1] border-b border-[var(--border-default)]/25"
-                              style={{ top: marker.top }}
-                            />
-                          );
-                        })}
+                    {/* Timeline Slots under this doctor */}
+                    <div className="relative shrink-0 overflow-hidden bg-slate-50/30" style={{ height: dayTimelineHeight + 10 }}>
+                      {professionalVisualMarkers.map((marker) => {
+                        return (
+                          <div
+                            key={marker.time}
+                            className="absolute left-[44px] right-0 z-[1] border-b border-zinc-200/40"
+                            style={{ top: marker.top }}
+                          />
+                        );
+                      })}
 
-                        {professionalVisualMarkers.map((marker) => {
-                          const isFirst = marker.top === 0;
-                          return (
-                            <span
-                              key={`time-${marker.time}`}
-                              className="absolute left-0 w-10 text-center text-[9px] font-bold text-[var(--text-secondary)] select-none tabular-nums"
-                              style={{ top: isFirst ? 2 : marker.top - 6 }}
-                            >
-                              {marker.time}
-                            </span>
-                          );
-                        })}
+                      {professionalVisualMarkers.map((marker) => {
+                        const isFirst = marker.top === 0;
+                        return (
+                          <span
+                            key={`time-${marker.time}`}
+                            className="absolute left-0 w-[44px] text-center text-[9px] font-bold text-zinc-400 select-none tabular-nums"
+                            style={{ top: isFirst ? 2 : marker.top - 6 }}
+                          >
+                            {marker.time}
+                          </span>
+                        );
+                      })}
 
-                        <div className="absolute top-0 bottom-0 left-[40px] border-l border-[var(--border-default)]/40 z-[2]" />
+                      <div className="absolute top-0 bottom-0 left-[44px] border-l border-zinc-200/70 z-[2]" />
 
-                        <div className="absolute top-0 bottom-0 left-[40px] right-0">
+                      <div className="absolute top-0 bottom-0 left-[44px] right-0">
                           {professionalSchedules.map((schedule) => {
                             const placement = getTimeRangePlacement(schedule.startTime, schedule.endTime, {
                               startMinutes: dayTimelineRange.startMinutes,
@@ -629,7 +643,7 @@ export function CalendarView({
                                   });
 
                             if (!isInsideSchedule || overlapsBreak || overlapsBusyAppointment || !placement) return null;
-                            if (professionalSchedule && chairIndex > (professionalSchedule.simultaneousChairs ?? 1)) return null;
+                            if (professionalSchedule && !isOverbookingColumn && (chairIndex ?? 1) > (professionalSchedule.simultaneousChairs ?? 1)) return null;
 
                             return (
                               <button
@@ -640,7 +654,8 @@ export function CalendarView({
                                     onCreateSlotClick({
                                       professionalId: prof.id,
                                       branchId: selectedBranchId || undefined,
-                                      chairIndex,
+                                      chairIndex: isOverbookingColumn ? undefined : (chairIndex ?? undefined),
+                                      allowOverbooking: isOverbookingColumn,
                                       ...slotRange(date, time, professionalAgenda.defaultAppointmentDurationMinutes)
                                     });
                                     return;
@@ -702,6 +717,7 @@ export function CalendarView({
                             );
                           })}
 
+
                           {profBreaks.map((schedule) => {
                             const placement = getTimeRangePlacement(schedule.breakStartTime!, schedule.breakEndTime!, {
                               startMinutes: dayTimelineRange.startMinutes,
@@ -729,13 +745,12 @@ export function CalendarView({
             </div>
           </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
   // --- WEEK / MONTH VIEW FALLBACK (Standard Day Groups) ---
   const groups = appointments.reduce<Record<string, Appointment[]>>((acc, appointment) => {
-    const key = dayKey(appointment.startAt);
+    const key = toDateInputValue(new Date(appointment.startAt));
     acc[key] = [...(acc[key] ?? []), appointment];
     return acc;
   }, {});
@@ -751,14 +766,15 @@ export function CalendarView({
           <h3 className="text-sm font-semibold uppercase text-slate-500">{new Date(`${date}T00:00:00`).toLocaleDateString()}</h3>
           <div className="grid gap-3 xl:grid-cols-2">
             {rows.map((appointment) => (
-            <AppointmentCard
-              key={appointment.id}
-              appointment={appointment}
-              pendingStatus={statusAction?.appointmentId === appointment.id ? statusAction.status : undefined}
-              onEdit={onEdit}
+              <AppointmentCard
+                key={appointment.id}
+                appointment={appointment}
+                pendingStatus={statusAction?.appointmentId === appointment.id ? statusAction.status : undefined}
+                onEdit={onEdit}
                 onCancel={onCancel}
                 onReschedule={onReschedule}
                 onChangeStatus={onChangeStatus}
+                onContactWhatsApp={onContactWhatsApp}
                 onConfirm={onConfirm}
                 onArrive={onArrive}
                 onWaitingRoom={onWaitingRoom}

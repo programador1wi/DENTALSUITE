@@ -383,7 +383,7 @@ function RadiographyCanvas({
   };
 
   return (
-    <main className="min-h-[440px] overflow-auto bg-[#080d16] p-4 lg:min-h-0">
+    <main className="min-h-[440px] overflow-auto bg-[#080d16] p-4 lg:min-h-0" data-responsive-overflow="contained" aria-label="Visor radiográfico desplazable">
       <div className="flex h-full min-h-[420px] items-center justify-center">
         <div
           ref={containerRef}

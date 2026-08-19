@@ -64,6 +64,7 @@ export function ConversionSection({
         eyebrow="Ruta comercial-clinica"
         title="Conversion de pacientes"
         description="Cada cita entra una sola vez. Confirmacion usa historial auditable; aceptacion exige evidencia clinica al 100% en el plan vinculado."
+        headingLevel="h2"
       />
 
       <div className="grid gap-4 xl:grid-cols-[0.8fr_1.8fr]">
@@ -79,6 +80,7 @@ export function ConversionSection({
               <button
                 key={stage.key}
                 type="button"
+                data-allow-multiline
                 className="group block w-full text-left"
                 onClick={() => onOpenDetail(stage.key, stage.label)}
               >
@@ -122,7 +124,29 @@ export function ConversionSection({
             </div>
             <Badge value={analysis.metadata.granularity} tone="brand" />
           </div>
-          <div className="h-[310px] min-w-0">
+          <div className="sr-only">
+            <table aria-label="Evolución de la conversión de pacientes en el tiempo">
+              <thead>
+                <tr>
+                  <th>Período</th>
+                  <th>Citas agendadas</th>
+                  <th>Citas confirmadas</th>
+                  <th>Presupuestos aceptados</th>
+                </tr>
+              </thead>
+              <tbody>
+                {analysis.conversion.trend.map(point => (
+                  <tr key={point.label}>
+                    <td>{point.label}</td>
+                    <td>{point.scheduledAppointments}</td>
+                    <td>{point.confirmedAppointments} ({formatPercent(point.confirmedRate)}%)</td>
+                    <td>{point.acceptedBudgets} ({formatPercent(point.acceptedRate)}%)</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="h-[310px] min-w-0" aria-hidden="true">
             <ResponsiveContainer
               width="100%"
               height="100%"
@@ -171,6 +195,7 @@ export function DemographicsSection({ analysis }: { analysis: PatientAnalysisRes
         eyebrow="Calidad y composicion"
         title="Datos genericos de pacientes"
         description="Cada grafica declara su universo. Los valores sin informacion permanecen visibles: ocultarlos falsearia la calidad del expediente."
+        headingLevel="h2"
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {analysis.demographics.map((metric) => (
@@ -196,7 +221,27 @@ function DistributionCard({
         </div>
         <HelpTooltip content={`${metric.formula}. Omitidos: ${metric.omitted}.`} />
       </div>
-      <div className="mx-auto mt-2 h-[150px] w-full min-w-0 max-w-[220px]">
+      <div className="sr-only">
+        <table aria-label={`Distribución de pacientes por ${metric.label.toLowerCase()}`}>
+          <thead>
+            <tr>
+              <th>{metric.label}</th>
+              <th>Cantidad</th>
+              <th>Porcentaje</th>
+            </tr>
+          </thead>
+          <tbody>
+            {visible.map(item => (
+              <tr key={item.key}>
+                <td>{item.label}</td>
+                <td>{item.value}</td>
+                <td>{formatPercent(item.percent ?? 0)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mx-auto mt-2 h-[150px] w-full min-w-0 max-w-[220px]" aria-hidden="true">
         <ResponsiveContainer
           width="100%"
           height="100%"
@@ -255,6 +300,7 @@ export function GlobalMetricsSection({
         eyebrow="Lectura ejecutiva"
         title="Estadisticas globales"
         description="Indicadores consolidados sin mezclar monedas. Los importes financieros desaparecen por contrato API cuando falta permiso."
+        headingLevel="h2"
       />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {analysis.globalMetrics.map((metric, index) => (
@@ -335,20 +381,22 @@ function SectionHeading({
   id,
   eyebrow,
   title,
-  description
+  description,
+  headingLevel: Heading = "h2"
 }: {
   id: string;
   eyebrow: string;
   title: string;
   description: string;
+  headingLevel?: "h2" | "h3";
 }) {
   return (
     <div className="flex flex-col gap-2 border-l-4 border-[var(--brand-primary)] pl-4 md:flex-row md:items-end md:justify-between md:gap-8">
       <div>
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[var(--brand-primary)]">{eyebrow}</p>
-        <h2 id={id} className="mt-1 text-xl font-semibold text-[var(--text-brand-strong)]">
+        <Heading id={id} className="mt-1 text-xl font-semibold text-[var(--text-brand-strong)]">
           {title}
-        </h2>
+        </Heading>
       </div>
       <p className="max-w-2xl text-[12px] leading-5 text-[var(--text-secondary)]">{description}</p>
     </div>

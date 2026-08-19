@@ -407,8 +407,8 @@ export function PaymentMethodsSettingsPage() {
       {!methods.isLoading && methods.data ? (
         methods.data.length ? (
           <Card className="overflow-hidden p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[1450px] border-collapse text-[var(--text-sm)]">
+            <div className="hidden 2xl:block">
+              <table className="w-full border-collapse text-[var(--text-sm)]">
                 <thead className="bg-[var(--bg-subtle)] text-left text-[var(--text-xs)] font-medium uppercase tracking-wide text-[var(--text-secondary)]">
                   <tr>
                     <th className="px-[var(--space-4)] py-[var(--space-3)]">Medio de pago</th>
@@ -416,11 +416,11 @@ export function PaymentMethodsSettingsPage() {
                     <th className="px-[var(--space-4)] py-[var(--space-3)] text-center">Retención</th>
                     <th className="px-[var(--space-4)] py-[var(--space-3)] text-center">Devolución</th>
                     <th className="px-[var(--space-4)] py-[var(--space-3)] text-center">Recepciones</th>
-                    <th className="px-[var(--space-4)] py-[var(--space-3)] text-center">Recaudación</th>
-                    <th className="px-[var(--space-4)] py-[var(--space-3)] text-center">Efectivo físico</th>
-                    <th className="px-[var(--space-4)] py-[var(--space-3)] text-center">Flujo de caja</th>
-                    <th className="px-[var(--space-4)] py-[var(--space-3)] text-center">Cierre</th>
-                    <th className="px-[var(--space-4)] py-[var(--space-3)] text-center">Gráficos</th>
+                    <th className="px-[var(--space-4)] py-[var(--space-3)] text-center">Impacto operativo</th>
+                    <th className="hidden" aria-label="Efectivo físico" />
+                    <th className="hidden" aria-label="Flujo de caja" />
+                    <th className="hidden" aria-label="Cierre" />
+                    <th className="hidden" aria-label="Gráficos" />
                     <th className="px-[var(--space-4)] py-[var(--space-3)]">Estado</th>
                     <th className="px-[var(--space-4)] py-[var(--space-3)] text-right">Acciones</th>
                   </tr>
@@ -466,18 +466,24 @@ export function PaymentMethodsSettingsPage() {
                           />
                         </td>
                         <td className="px-[var(--space-4)] py-[var(--space-3)] text-center">
-                          <RuleState enabled={method.includeInCollectionReports} label="Recaudación" />
+                          <div className="flex items-center justify-center gap-1" aria-label="Impacto en recaudación, efectivo, flujo, cierre y gráficos">
+                            <RuleState enabled={method.includeInCollectionReports} label="Recaudación" />
+                            <RuleState enabled={method.includeInPhysicalCashBalance} label="Efectivo físico" />
+                            <RuleState enabled={method.includeInCashFlowReports} label="Flujo de caja" />
+                            <RuleState enabled={method.includeInClosingSummary} label="Resumen de cierre" />
+                            <RuleState enabled={method.includeInGraphicalReports} label="Reportes gráficos" />
+                          </div>
                         </td>
-                        <td className="px-[var(--space-4)] py-[var(--space-3)] text-center">
+                        <td className="hidden">
                           <RuleState enabled={method.includeInPhysicalCashBalance} label="Efectivo físico" />
                         </td>
-                        <td className="px-[var(--space-4)] py-[var(--space-3)] text-center">
+                        <td className="hidden">
                           <RuleState enabled={method.includeInCashFlowReports} label="Flujo de caja" />
                         </td>
-                        <td className="px-[var(--space-4)] py-[var(--space-3)] text-center">
+                        <td className="hidden">
                           <RuleState enabled={method.includeInClosingSummary} label="Resumen de cierre" />
                         </td>
-                        <td className="px-[var(--space-4)] py-[var(--space-3)] text-center">
+                        <td className="hidden">
                           <RuleState enabled={method.includeInGraphicalReports} label="Reportes gráficos" />
                         </td>
                         <td className="px-[var(--space-4)] py-[var(--space-3)]">
@@ -531,6 +537,49 @@ export function PaymentMethodsSettingsPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+            <div className="divide-y divide-[var(--border-default)] 2xl:hidden">
+              {methods.data.map((method) => {
+                const meta = methodTypes[method.type];
+                const MethodIcon = meta.icon;
+                return (
+                  <article key={method.id} className="min-w-0 space-y-4 px-4 py-4">
+                    <div className="flex min-w-0 items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--bg-brand-light)] text-[var(--text-brand)]">
+                          <MethodIcon className="h-5 w-5" aria-hidden="true" />
+                        </span>
+                        <div className="min-w-0">
+                          <h3 className="truncate font-semibold text-[var(--text-primary)]" title={method.name}>{method.name}</h3>
+                          <p className="truncate text-[var(--text-xs)] text-[var(--text-secondary)]" title={`${method.publicCode} · ${meta.label}`}>
+                            {method.publicCode} · {meta.label}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge value={method.isActive ? "Habilitado" : "Deshabilitado"} tone={method.isActive ? "success" : "warning"} />
+                    </div>
+                    <dl className="grid min-w-0 grid-cols-2 gap-2 text-[var(--text-xs)] sm:grid-cols-3">
+                      <div><dt className="text-[var(--text-secondary)]">Retención</dt><dd className="font-semibold text-[var(--text-primary)]">{Number(method.retentionPercent).toFixed(2)}%</dd></div>
+                      <div><dt className="text-[var(--text-secondary)]">Devolución</dt><dd><RuleState enabled={method.allowsRefund} label="Permite devolución" /></dd></div>
+                      <div><dt className="text-[var(--text-secondary)]">Recepciones</dt><dd><RuleState enabled={method.acceptsMultipleSettlements} label="Múltiples recepciones" /></dd></div>
+                      <div><dt className="text-[var(--text-secondary)]">Recaudación</dt><dd><RuleState enabled={method.includeInCollectionReports} label="Recaudación" /></dd></div>
+                      <div><dt className="text-[var(--text-secondary)]">Efectivo físico</dt><dd><RuleState enabled={method.includeInPhysicalCashBalance} label="Efectivo físico" /></dd></div>
+                      <div><dt className="text-[var(--text-secondary)]">Flujo de caja</dt><dd><RuleState enabled={method.includeInCashFlowReports} label="Flujo de caja" /></dd></div>
+                      <div><dt className="text-[var(--text-secondary)]">Cierre</dt><dd><RuleState enabled={method.includeInClosingSummary} label="Resumen de cierre" /></dd></div>
+                      <div><dt className="text-[var(--text-secondary)]">Gráficos</dt><dd><RuleState enabled={method.includeInGraphicalReports} label="Reportes gráficos" /></dd></div>
+                    </dl>
+                    <div className="flex min-w-0 flex-wrap gap-2 border-t border-[var(--border-default)] pt-3">
+                      {canViewAudit ? <Button variant="ghost" size="sm" onClick={() => setAuditMethod(method)}><History className="h-4 w-4" aria-hidden="true" />Historial</Button> : null}
+                      {canUpdateMethod ? <Button variant="secondary" size="sm" onClick={() => openEditMethod(method)}><PencilLine className="h-4 w-4" aria-hidden="true" />Editar</Button> : null}
+                      {method.isActive && canDeactivateMethod ? (
+                        <Button variant="ghost" size="sm" className="text-[var(--text-danger)] hover:text-[var(--text-danger)]" onClick={() => { setActionError(null); setMethodToDeactivate(method); }}><Power className="h-4 w-4" aria-hidden="true" />Deshabilitar</Button>
+                      ) : !method.isActive && canReactivateMethod ? (
+                        <Button variant="secondary" size="sm" disabled={reactivateMutation.isPending} onClick={() => reactivateMethod(method)}><RotateCcw className="h-4 w-4" aria-hidden="true" />Reactivar</Button>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </Card>
         ) : (

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { APP_ROUTES } from "@/lib/routes";
 import { Eye, Plus, Trash2 } from "lucide-react";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
@@ -28,7 +29,12 @@ const emptyRoleForm = {
 };
 
 function isSuperAdminRole(role: Pick<RoleListItem, "code" | "name">) {
-  return role.code === "super_admin" || role.name === "SUPER_ADMIN";
+  return (
+    role.code === "super_admin" ||
+    role.code === "super_administrador" ||
+    role.name === "SUPER_ADMIN" ||
+    role.name === "Super Administrador"
+  );
 }
 
 export function RolesPage() {
@@ -46,8 +52,16 @@ export function RolesPage() {
   const canManageAll = can("system.manage_all");
   const canCreateRole = canManageAll || can("roles.create");
   const canDeactivateRole = canManageAll || can("roles.deactivate");
-  const activePermissionIds = allPermissions.data?.map((permission) => permission.id) ?? [];
-  const copyableRoles = roles.data?.filter((role) => role.isActive && role.permissions.length > 0) ?? [];
+  const delegablePermissionIds = new Set(
+    allPermissions.data?.filter((permission) => permission.delegable !== false).map((permission) => permission.id) ?? []
+  );
+  const copyableRoles =
+    roles.data?.filter(
+      (role) =>
+        role.isActive &&
+        role.permissions.length > 0 &&
+        role.permissions.every((permission) => delegablePermissionIds.has(permission.id))
+    ) ?? [];
 
   const removeRole = async () => {
     if (!removing) return;
@@ -77,7 +91,7 @@ export function RolesPage() {
       permissionIds: roleForm.permissionIds
     });
     closeCreate();
-    navigate(`/settings/roles/${created.id}`);
+    navigate(APP_ROUTES.settings.roleDetail(created.id));
   };
 
   const copyPermissionsFromRole = (roleId: string) => {
@@ -86,7 +100,9 @@ export function RolesPage() {
 
     setRoleForm((current) => ({
       ...current,
-      permissionIds: sourceRole.permissions.map((permission) => permission.id)
+      permissionIds: sourceRole.permissions
+        .map((permission) => permission.id)
+        .filter((permissionId) => delegablePermissionIds.has(permissionId))
     }));
   };
 
@@ -107,20 +123,20 @@ export function RolesPage() {
 
           <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-3">
             <EntitySearchBox
-              placeholder="Buscar por nombre o codigo"
+              placeholder="Buscar por nombre o código"
               value={search}
               onValueChange={setSearch}
               items={search.trim() ? roles.data ?? [] : []}
               onSelect={(role) => {
                 setSearch(role.name);
-                navigate(`/settings/roles/${role.id}`);
+                navigate(APP_ROUTES.settings.roleDetail(role.id));
               }}
               getItemKey={(role) => role.id}
               emptyMessage="Sin perfiles encontrados"
               renderItem={(role) => (
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-slate-900">{role.name}</p>
-                  <p className="mt-0.5 truncate text-xs text-slate-500">{role.code || "Sin codigo"}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500">{role.code || "Sin código"}</p>
                 </div>
               )}
             />
@@ -154,7 +170,13 @@ export function RolesPage() {
                     </Link>
                   )
                 },
-                { key: "code", title: "Codigo" },
+                {
+                  key: "code",
+                  title: "Código",
+                  render: (row) => (
+                    <span className="font-mono text-xs text-slate-600">{row.code || "Sin código"}</span>
+                  )
+                },
                 { key: "permissions", title: "Permisos", render: (row) => String(row.permissions.length) },
                 {
                   key: "isActive",
@@ -267,7 +289,7 @@ export function RolesPage() {
                 <Badge value={`${roleForm.permissionIds.length} activos`} tone="success" />
               </div>
 
-              <div className="mb-3 grid gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3 md:grid-cols-[1fr_auto_auto]">
+              <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
                 <Select
                   value=""
                   disabled={!copyableRoles.length}
@@ -281,22 +303,6 @@ export function RolesPage() {
                     </option>
                   ))}
                 </Select>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={!activePermissionIds.length}
-                  onClick={() => setRoleForm((current) => ({ ...current, permissionIds: activePermissionIds }))}
-                >
-                  Marcar todos
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={!roleForm.permissionIds.length}
-                  onClick={() => setRoleForm((current) => ({ ...current, permissionIds: [] }))}
-                >
-                  Limpiar
-                </Button>
               </div>
 
               {allPermissions.isLoading ? <LoadingState message="Cargando permisos..." /> : null}

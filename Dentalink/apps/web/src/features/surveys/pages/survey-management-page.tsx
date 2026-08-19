@@ -234,7 +234,7 @@ function SurveyListPanel() {
                   {query.data.items.map((survey) => (
                     <TableRow key={survey.id}>
                       <TableCell wrap>
-                        <button type="button" className="text-left font-semibold text-[var(--text-brand)] hover:underline" onClick={() => navigate(surveyPaths.edit(survey.id))}>
+                        <button type="button" data-allow-multiline className="text-left font-semibold text-[var(--text-brand)] hover:underline" onClick={() => navigate(surveyPaths.edit(survey.id))}>
                           {survey.name}
                         </button>
                         <p className="mt-0.5 text-[var(--text-xs)] text-[var(--text-secondary)]">{survey.type === "NPS" ? "NPS" : survey.type === "CUSTOM" ? "Personalizada" : "Satisfacción"}</p>
@@ -246,11 +246,11 @@ function SurveyListPanel() {
                       <TableCell className="text-right tabular-nums">{survey.responseCount}</TableCell>
                       <TableCell><SurveyStatusBadge status={survey.status} /></TableCell>
                       <TableCell className="text-right">
-                        <details className="relative inline-block text-left">
+                        <details className="group relative inline-block text-left">
                           <summary className="inline-flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-[var(--radius-md)] text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)]" aria-label={`Acciones de ${survey.name}`}>
                             <MoreVertical className="h-4 w-4" />
                           </summary>
-                          <div className="absolute right-0 z-30 mt-1 w-52 rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-1 shadow-[var(--shadow-modal)]">
+                          <div className="absolute right-0 z-30 mt-1 hidden w-52 max-w-[calc(100vw-24px)] rounded-[var(--radius-lg)] border border-[var(--border-default)] bg-[var(--bg-surface)] p-1 shadow-[var(--shadow-modal)] group-open:block">
                             <ActionButton icon={ClipboardList} label="Editar" onClick={() => navigate(surveyPaths.edit(survey.id))} />
                             <ActionButton icon={Eye} label="Vista previa" onClick={() => setPreview(survey)} />
                             <ActionButton icon={Copy} label="Duplicar" onClick={() => mutation.mutate({ action: "duplicate", id: survey.id })} />
@@ -271,11 +271,11 @@ function SurveyListPanel() {
                   ))}
                 </TableBody>
               </Table>
-              <div className="mt-[var(--space-4)] flex items-center justify-between gap-4 text-[var(--text-sm)] text-[var(--text-secondary)]">
+              <div className="mt-[var(--space-4)] flex flex-col gap-3 text-[var(--text-sm)] text-[var(--text-secondary)] sm:flex-row sm:items-center sm:justify-between">
                 <span>{query.data.total} encuestas · página {query.data.page}</span>
-                <div className="flex gap-2">
-                  <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft className="h-4 w-4" /> Anterior</Button>
-                  <Button variant="secondary" size="sm" disabled={page * query.data.pageSize >= query.data.total} onClick={() => setPage((value) => value + 1)}>Siguiente <ChevronRight className="h-4 w-4" /></Button>
+                <div className="flex w-full gap-2 sm:w-auto">
+                  <Button className="min-w-0 flex-1 sm:flex-none" variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}><ChevronLeft className="h-4 w-4" /> Anterior</Button>
+                  <Button className="min-w-0 flex-1 sm:flex-none" variant="secondary" size="sm" disabled={page * query.data.pageSize >= query.data.total} onClick={() => setPage((value) => value + 1)}>Siguiente <ChevronRight className="h-4 w-4" /></Button>
                 </div>
               </div>
             </>
@@ -486,15 +486,15 @@ function configToForm(config: SurveySendConfiguration): SurveyConfigForm {
 }
 
 function FilterChecklist({ title, items, selected, onChange, emptyLabel }: { title: string; items: { id: string; label: string }[]; selected: string[]; onChange: (ids: string[]) => void; emptyLabel: string }) {
-  return <fieldset className="rounded-[var(--radius-lg)] border border-[var(--border-default)] p-3"><legend className="px-1 text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">{title}</legend><p className="mb-2 text-[var(--text-xs)] text-[var(--text-secondary)]">{selected.length ? `${selected.length} seleccionados` : emptyLabel}</p><div className="max-h-44 space-y-1 overflow-y-auto">{items.map((item) => <label key={item.id} className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 text-[var(--text-sm)] text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"><input type="checkbox" checked={selected.includes(item.id)} onChange={(event) => onChange(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} className="h-4 w-4 accent-[var(--action-brand)]" /><span className="truncate">{item.label}</span></label>)}</div>{selected.length > 0 && <button type="button" className="mt-2 text-[var(--text-xs)] font-semibold text-[var(--text-brand)] hover:underline" onClick={() => onChange([])}>Aplicar a todos</button>}</fieldset>;
+  return <fieldset className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border-default)] p-3"><legend className="max-w-full truncate px-1 text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">{title}</legend><p className="mb-2 truncate text-[var(--text-xs)] text-[var(--text-secondary)]" title={selected.length ? `${selected.length} seleccionados` : emptyLabel}>{selected.length ? `${selected.length} seleccionados` : emptyLabel}</p><div className="max-h-44 min-w-0 space-y-1 overflow-y-auto">{items.map((item) => <label key={item.id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 text-[var(--text-sm)] text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]"><input type="checkbox" checked={selected.includes(item.id)} onChange={(event) => onChange(event.target.checked ? [...selected, item.id] : selected.filter((id) => id !== item.id))} className="h-4 w-4 shrink-0 accent-[var(--action-brand)]" /><span className="min-w-0 truncate" title={item.label}>{item.label}</span></label>)}</div>{selected.length > 0 && <button type="button" className="mt-2 shrink-0 whitespace-nowrap text-[var(--text-xs)] font-semibold text-[var(--text-brand)] hover:underline" onClick={() => onChange([])}>Aplicar a todos</button>}</fieldset>;
 }
 
 function ToggleRow({ checked, onChange, title, description }: { checked: boolean; onChange: (checked: boolean) => void; title: string; description: string }) {
-  return <label className="flex cursor-pointer items-start justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--border-default)] p-3"><div><p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">{title}</p><p className="mt-1 text-[var(--text-xs)] leading-5 text-[var(--text-secondary)]">{description}</p></div><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-1 h-4 w-4 accent-[var(--action-primary)]" /></label>;
+  return <label className="flex min-w-0 cursor-pointer items-start justify-between gap-4 rounded-[var(--radius-lg)] border border-[var(--border-default)] p-3"><div className="min-w-0"><p className="text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">{title}</p><p className="mt-1 text-[var(--text-xs)] leading-5 text-[var(--text-secondary)]">{description}</p></div><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-[var(--action-primary)]" /></label>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block space-y-1.5"><span className="text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">{label}</span>{children}</label>;
+  return <label className="block min-w-0 space-y-1.5"><span className="text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">{label}</span>{children}</label>;
 }
 
 function SurveyStatusBadge({ status }: { status: SurveyDefinitionStatus }) {

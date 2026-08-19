@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -35,6 +36,7 @@ import { CreateAppointmentNoteDto } from "./dto/appointment-note.dto";
 import { CreateAppointmentReminderDto, UpdateAppointmentReminderDto } from "./dto/appointment-reminder.dto";
 import { CreateAppointmentDto, CreateAppointmentsBatchDto } from "./dto/create-appointment.dto";
 import { CrmSurveysService } from "../crm-surveys/crm-surveys.service";
+import { CrmTasksService } from "../crm-tasks/crm-tasks.service";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
 import { TreatmentPlanFinancialSummaryService } from "../treatment-plans/treatment-plan-financial-summary.service";
 
@@ -224,7 +226,7 @@ const APPOINTMENT_STATUS_LABELS: Record<AppointmentStatus, string> = {
   [AppointmentStatus.BLOCKED]: "Bloqueada"
 };
 
-type PreparedAppointmentCreate = {
+export type PreparedAppointmentCreate = {
   dto: CreateAppointmentDto;
   status: AppointmentStatus;
   startAt: Date;
@@ -246,7 +248,8 @@ export class AppointmentsService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly financialSummaryService?: TreatmentPlanFinancialSummaryService,
-    private readonly crmSurveysService?: CrmSurveysService
+    private readonly crmSurveysService?: CrmSurveysService,
+    private readonly crmTasksService?: CrmTasksService
   ) {}
 
   async dispatchEmailNotification(appointmentId: string, type: "SCHEDULED" | "CONFIRMATION") {
@@ -494,6 +497,7 @@ export class AppointmentsService {
     await this.enforcePatientDailyLimit(actor, this.toPatientDailyLimitInput(prepared));
 
     const created = await this.prisma.$transaction(async (tx) => {
+      await this.lockAndRevalidateAppointmentCreate(tx, actor, prepared);
       return this.createAppointmentInTransaction(tx, actor, prepared, dto.treatmentPlanId);
     });
 
@@ -525,6 +529,7 @@ export class AppointmentsService {
       const ids: string[] = [];
 
       for (const prepared of normalizedAppointments) {
+        await this.lockAndRevalidateAppointmentCreate(tx, actor, prepared);
         const appointment = await this.createAppointmentInTransaction(
           tx,
           actor,
@@ -553,6 +558,25 @@ export class AppointmentsService {
       return appointment ? [appointment] : [];
     });
     return this.attachFinancialSituations(actor, orderedAppointments);
+  }
+
+  async prepareReprogrammedAppointment(
+    actor: AuthUser,
+    dto: CreateAppointmentDto,
+    originalAppointmentId: string
+  ) {
+    const prepared = await this.prepareAppointmentForCreate(actor, dto);
+    await this.enforcePatientDailyLimit(actor, this.toPatientDailyLimitInput(prepared), originalAppointmentId);
+    return prepared;
+  }
+
+  async createReprogrammedAppointmentInTransaction(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    prepared: PreparedAppointmentCreate
+  ) {
+    await this.lockAndRevalidateAppointmentCreate(tx, actor, prepared);
+    return this.createAppointmentInTransaction(tx, actor, prepared, prepared.dto.treatmentPlanId);
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateAppointmentDto) {
@@ -731,6 +755,20 @@ export class AppointmentsService {
     this.assertStatusTransition(current.status, AppointmentStatus.RESCHEDULED);
     this.validateDates(startAt, endAt, durationMinutes);
     this.validateChairIndex(chairIndex);
+
+    const dateIso = startAt.toISOString().split("T")[0];
+    const isHoliday = await this.prisma.holiday.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        isActive: true,
+        date: dateIso,
+        OR: [{ branchId: null }, { branchId }]
+      }
+    });
+    if (isHoliday) {
+      throw new ConflictException("No se pueden agendar citas en un día feriado.");
+    }
+
     await this.validateDurationSlotEnforcement(actor, branchId, professionalId, durationMinutes, startAt);
     await this.validateReferences(actor, {
       branchId,
@@ -822,6 +860,21 @@ export class AppointmentsService {
     assertBranchAccess(actor, query.branchId);
     const date = this.parseClinicDate(query.date);
     if (Number.isNaN(date.getTime())) throw new BadRequestException("Invalid date");
+
+    const dateIso = query.date;
+    const isHoliday = this.prisma.holiday
+      ? await this.prisma.holiday.findFirst({
+          where: {
+            organizationId: actor.organizationId,
+            isActive: true,
+            date: dateIso,
+            OR: [{ branchId: null }, { branchId: query.branchId }]
+          }
+        })
+      : null;
+    if (isHoliday) {
+      return [];
+    }
 
     const agendaConfig = await this.resolveAgendaConfig(actor, query.branchId, query.professionalId, date);
     const slotMinutes = agendaConfig.agendaSlotMinutes;
@@ -1036,6 +1089,21 @@ export class AppointmentsService {
   }
 
   private async dispatchStatusSideEffects(id: string, newStatus: AppointmentStatus) {
+    if (newStatus === AppointmentStatus.NOTIFIED_BY_WHATSAPP) {
+      try {
+        await this.prisma.appointmentReminder.create({
+          data: {
+            appointmentId: id,
+            channel: "WHATSAPP",
+            scheduledAt: new Date(),
+            sentAt: new Date(),
+            status: "SENT"
+          }
+        });
+      } catch (error) {
+        this.logger.error(`No fue posible registrar el recordatorio de WhatsApp para la cita ${id}`, error);
+      }
+    }
     if (newStatus === AppointmentStatus.NOTIFIED_BY_EMAIL) {
       await this.dispatchEmailNotification(id, "CONFIRMATION");
     }
@@ -1046,9 +1114,18 @@ export class AppointmentsService {
         this.logger.error(`No fue posible generar invitaciones de encuesta para la cita ${id}`, error);
       }
     }
+    if (this.crmTasksService) {
+      try {
+        await this.crmTasksService.handleAppointmentStatusChanged(id, newStatus);
+      } catch (error) {
+        this.logger.error(`No fue posible generar seguimiento CRM para la cita ${id}`, error);
+      }
+    }
   }
 
   private defaultStatusReason(status: AppointmentStatus) {
+    if (status === AppointmentStatus.NOTIFIED_BY_WHATSAPP) return "Notificado por WhatsApp";
+    if (status === AppointmentStatus.CONFIRMED_BY_WHATSAPP) return "Confirmado por WhatsApp";
     if (status === AppointmentStatus.NOTIFIED_BY_EMAIL) return "Enviado para confirmacion por email";
     if (status === AppointmentStatus.CONFIRMED_BY_EMAIL) return "Marcado como confirmado por email";
     return "Actualizacion manual";
@@ -1096,6 +1173,20 @@ export class AppointmentsService {
 
     this.validateDates(startAt, endAt, durationMinutes);
     this.validateChairIndex(chairIndex);
+
+    const dateIso = startAt.toISOString().split("T")[0];
+    const isHoliday = await this.prisma.holiday.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        isActive: true,
+        date: dateIso,
+        OR: [{ branchId: null }, { branchId: dto.branchId }]
+      }
+    });
+    if (isHoliday) {
+      throw new ConflictException("No se pueden agendar citas en un día feriado.");
+    }
+
     await this.validateDurationSlotEnforcement(
       actor,
       dto.branchId,
@@ -1182,6 +1273,74 @@ export class AppointmentsService {
     await this.createStatusHistory(tx, appointment.id, null, status, actor.id, "create");
     await this.audit(tx, actor, appointment.id, "create", { status, startAt, endAt });
     return appointment;
+  }
+
+  private async lockAndRevalidateAppointmentCreate(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    prepared: PreparedAppointmentCreate
+  ) {
+    if (FREE_STATUSES.includes(prepared.status)) return;
+
+    const lockKeys = [
+      `appointment:professional:${actor.organizationId}:${prepared.dto.professionalId}:${prepared.chairIndex}`,
+      ...(prepared.chairId && this.requiresPhysicalChair(prepared.attendanceMode)
+        ? [`appointment:chair:${actor.organizationId}:${prepared.chairId}`]
+        : [])
+    ].sort();
+
+    for (const lockKey of lockKeys) {
+      await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))::text AS "lock"`);
+    }
+
+    const hasOverbookingPermission =
+      actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
+    const canOverbook = prepared.isOverbooking && hasOverbookingPermission;
+
+    if (!canOverbook) {
+      const professionalOverlap = await tx.appointment.findFirst({
+        where: {
+          organizationId: actor.organizationId,
+          professionalId: prepared.dto.professionalId,
+          chairIndex: prepared.chairIndex,
+          isOverbooking: false,
+          status: { notIn: FREE_STATUSES },
+          startAt: { lt: prepared.endAt },
+          endAt: { gt: prepared.startAt }
+        },
+        select: { id: true }
+      });
+      if (professionalOverlap) throw new ConflictException("El horario acaba de ser ocupado por otra cita");
+    }
+
+    if (prepared.chairId && this.requiresPhysicalChair(prepared.attendanceMode)) {
+      const chairOverlap = await tx.appointment.findFirst({
+        where: {
+          organizationId: actor.organizationId,
+          chairId: prepared.chairId,
+          attendanceMode: { in: [AttendanceMode.PRESENTIAL, AttendanceMode.BOTH] },
+          status: { notIn: FREE_STATUSES },
+          startAt: { lt: prepared.endAt },
+          endAt: { gt: prepared.startAt }
+        },
+        select: { id: true }
+      });
+      if (chairOverlap) throw new ConflictException("El box acaba de ser ocupado por otra cita");
+    }
+
+    if (this.countsAgainstPatientDailyLimit(prepared.dto.patientId, prepared.status)) {
+      const range = this.clinicDayRange(prepared.startAt);
+      const patientAppointment = await tx.appointment.findFirst({
+        where: {
+          organizationId: actor.organizationId,
+          patientId: prepared.dto.patientId,
+          status: { notIn: FREE_STATUSES },
+          startAt: { gte: range.start, lt: range.end }
+        },
+        select: { id: true }
+      });
+      if (patientAppointment) throw new ConflictException(PATIENT_DAILY_LIMIT_MESSAGE);
+    }
   }
 
   private enforceBatchSchedulingRules(actor: AuthUser, appointments: PreparedAppointmentCreate[]) {
@@ -1736,7 +1895,16 @@ export class AppointmentsService {
   private include() {
     return {
       branch: true,
-      patient: true,
+      patient: {
+        include: {
+          treatmentPlans: {
+            where: { status: { in: [TreatmentPlanStatus.IN_PROGRESS, TreatmentPlanStatus.ACCEPTED, TreatmentPlanStatus.DRAFT] } },
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { id: true, name: true, status: true }
+          }
+        }
+      },
       professional: true,
       treatmentPlan: { select: { id: true, name: true, status: true } },
       chair: true,
@@ -1886,25 +2054,54 @@ export class AppointmentsService {
     };
   }
 
-  private async attachFinancialSituations(actor: AuthUser, appointments: any[]) {
-    const treatmentPlanIds = appointments
-      .map((appointment) => appointment.treatmentPlanId)
+  private async attachFinancialSituations<T extends object>(actor: AuthUser, appointments: T[]) {
+    const financialAppointments = appointments as Array<
+      T & {
+        id?: string;
+        treatmentPlanId?: string | null;
+        treatmentPlan?: { id: string; name: string; status: string } | null;
+        patient?: { treatmentPlans?: Array<{ id: string; name: string; status: string }> } | null;
+      }
+    >;
+
+    const summariesMap = new Map<string, string>();
+
+    const treatmentPlanIds = financialAppointments
+      .map((appointment) => {
+        const fallbackPlan = !appointment.treatmentPlanId ? appointment.patient?.treatmentPlans?.[0] : null;
+        const effectivePlanId = appointment.treatmentPlanId || fallbackPlan?.id;
+        if (effectivePlanId && appointment.id) {
+          summariesMap.set(appointment.id, effectivePlanId);
+        }
+        return effectivePlanId;
+      })
       .filter(Boolean) as string[];
+
+    const uniquePlanIds = [...new Set(treatmentPlanIds)];
     const summaries = this.financialSummaryService
-      ? await this.financialSummaryService.calculateBatch(actor, treatmentPlanIds)
+      ? await this.financialSummaryService.calculateBatch(actor, uniquePlanIds)
       : new Map();
 
-    return appointments.map((appointment) => {
-      const financialSummary = appointment.treatmentPlanId
-        ? (summaries.get(appointment.treatmentPlanId) ?? null)
-        : null;
+    return financialAppointments.map((appointment) => {
+      const effectivePlanId = appointment.id ? summariesMap.get(appointment.id) : undefined;
+      const financialSummary = effectivePlanId ? (summaries.get(effectivePlanId) ?? null) : null;
+      const fallbackPlan = !appointment.treatmentPlanId ? appointment.patient?.treatmentPlans?.[0] : null;
+
       if (appointment.patient) {
         const debt = Number(financialSummary?.debtAmount ?? 0);
-        appointment.patient.hasDebt = debt > 0;
-        appointment.patient.outstandingBalance = debt;
+        const patient = appointment.patient as {
+          hasDebt?: boolean;
+          outstandingBalance?: number;
+        };
+        patient.hasDebt = debt > 0;
+        patient.outstandingBalance = debt;
       }
+
+      const effectiveTreatmentPlan = appointment.treatmentPlan || fallbackPlan || null;
+
       return {
         ...appointment,
+        treatmentPlan: effectiveTreatmentPlan,
         financialSituation: financialSummary
           ? {
               treatmentPlanId: financialSummary.treatmentPlanId,

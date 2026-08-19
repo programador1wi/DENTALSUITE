@@ -82,6 +82,7 @@ import {
   resolveTreatmentPlanStatusFromClinicalProgress
 } from "./treatment-plan-progress";
 import { TreatmentPlanFinancialSummaryService } from "./treatment-plan-financial-summary.service";
+import { CrmTasksService } from "../crm-tasks/crm-tasks.service";
 
 type TreatmentAgreementSnapshot = {
   id?: string | null;
@@ -960,15 +961,30 @@ export class TreatmentPlansService {
     private readonly pricing?: PricingService,
     private readonly orthodonticProgressService?: OrthodonticProgressService,
     private readonly discountAuthorization?: DiscountAuthorizationService,
-    private readonly financialSummaryService?: TreatmentPlanFinancialSummaryService
+    private readonly financialSummaryService?: TreatmentPlanFinancialSummaryService,
+    private readonly crmTasksService?: CrmTasksService
   ) {}
 
   async listTreatmentPlans(actor: AuthUser, query: ListTreatmentPlansQueryDto) {
     const { skip, take } = resolvePagination(query);
+    const trimmedPatientId = query.patientId?.trim();
+    const isNumericPatient = trimmedPatientId ? /^\d+$/.test(trimmedPatientId) : false;
+
     const rows = await this.prisma.treatmentPlan.findMany({
       where: {
         organizationId: actor.organizationId,
-        ...(query.patientId ? { patientId: query.patientId } : {}),
+        ...(trimmedPatientId
+          ? {
+              patient: {
+                organizationId: actor.organizationId,
+                branchId: branchScope(actor),
+                deletedAt: null,
+                ...(isNumericPatient
+                  ? { OR: [{ id: trimmedPatientId }, { patientNumber: parseInt(trimmedPatientId, 10) }] }
+                  : { id: trimmedPatientId })
+              }
+            }
+          : {}),
         branchId: branchScope(actor, query.branchId),
         ...(query.professionalId ? { professionalId: query.professionalId } : {}),
         ...(query.status ? { status: query.status } : {}),
@@ -2244,6 +2260,7 @@ export class TreatmentPlansService {
     });
 
     await this.audit(actor, "TreatmentPlanItem", created.id, "create", {}, created as Prisma.InputJsonValue);
+    await this.crmTasksService?.handleTreatmentItemAdded(created.id, actor.id);
     return this.getTreatmentPlan(actor, plan.id);
   }
 
@@ -3250,10 +3267,24 @@ export class TreatmentPlansService {
 
   async listBudgets(actor: AuthUser, query: ListBudgetsQueryDto) {
     const { skip, take } = resolvePagination(query);
+    const trimmedPatientId = query.patientId?.trim();
+    const isNumericPatient = trimmedPatientId ? /^\d+$/.test(trimmedPatientId) : false;
+
     return this.prisma.budget.findMany({
       where: {
         organizationId: actor.organizationId,
-        ...(query.patientId ? { patientId: query.patientId } : {}),
+        ...(trimmedPatientId
+          ? {
+              patient: {
+                organizationId: actor.organizationId,
+                branchId: branchScope(actor),
+                deletedAt: null,
+                ...(isNumericPatient
+                  ? { OR: [{ id: trimmedPatientId }, { patientNumber: parseInt(trimmedPatientId, 10) }] }
+                  : { id: trimmedPatientId })
+              }
+            }
+          : {}),
         ...(query.treatmentPlanId ? { treatmentPlanId: query.treatmentPlanId } : {}),
         ...(query.status ? { status: query.status } : {})
       },
@@ -3357,6 +3388,7 @@ export class TreatmentPlansService {
       { status: current.status } as Prisma.InputJsonValue,
       { status: BudgetStatus.ACCEPTED } as Prisma.InputJsonValue
     );
+    await this.crmTasksService?.handleBudgetAccepted(id, actor.id);
     return this.getBudget(actor, id);
   }
 
@@ -6189,12 +6221,16 @@ export class TreatmentPlansService {
   }
 
   private async validatePatient(actor: AuthUser, patientId: string) {
+    const trimmed = patientId.trim();
+    const isNumeric = /^\d+$/.test(trimmed);
     const row = await this.prisma.patient.findFirst({
       where: {
-        id: patientId,
         organizationId: actor.organizationId,
         branchId: branchScope(actor),
-        deletedAt: null
+        deletedAt: null,
+        ...(isNumeric
+          ? { OR: [{ id: trimmed }, { patientNumber: parseInt(trimmed, 10) }] }
+          : { id: trimmed })
       },
       include: { agreement: true }
     });

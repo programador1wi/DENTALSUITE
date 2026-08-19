@@ -176,8 +176,19 @@ export async function seedProductionClinic(db: Db, organizationId: string, admin
       organizationId, name: "BBVA México", isActive: true
     });
 
-    const clinicalRole = await tx.role.findFirst({ where: { organizationId, name: "PROFESSIONAL" } })
-      ?? await tx.role.findFirstOrThrow({ where: { organizationId, name: "SUPER_ADMIN" } });
+    const clinicalRole = (await tx.role.findFirst({
+      where: {
+        organizationId,
+        OR: [
+          { code: "dentista" },
+          { name: "Dentista" },
+          { name: "PROFESSIONAL" },
+          { code: "super_admin" },
+          { name: "Super Administrador" },
+          { name: "SUPER_ADMIN" }
+        ]
+      }
+    }))!;
     const professionals: any[] = [];
     const professionalSeeds = [
       ["Ana", "Morales", "Ortodoncia", "#7C3AED"],

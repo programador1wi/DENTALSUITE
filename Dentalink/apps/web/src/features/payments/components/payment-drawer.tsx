@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { AlertTriangle, Plus, Trash2 } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Drawer } from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
@@ -122,10 +123,9 @@ export function PaymentDrawer({
         </div>
 
         {!hasOpenRegister && (
-          <div className="flex items-start gap-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            <AlertTriangle className="mt-0.5 h-4 w-4" />
-            <span>El formulario se habilitará cuando exista una caja abierta.</span>
-          </div>
+          <Alert variant="warning" size="sm">
+            El formulario se habilitará cuando exista una caja abierta.
+          </Alert>
         )}
 
         <div className="flex-1 space-y-4 overflow-y-auto">

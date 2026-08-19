@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Lock, Save, Shield } from "lucide-react";
+import { APP_ROUTES } from "@/lib/routes";
+import { ArrowLeft, AlertTriangle, Lock, Save, Shield } from "lucide-react";
 import { toast } from "sonner";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -12,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { usePermissions } from "@/hooks/use-permissions";
 import { UsersModuleNav } from "@/features/settings/users/components/users-module-nav";
 import { usePermissionsQuery } from "@/features/settings/permissions/hooks/use-permissions";
+import { cn } from "@/lib/utils/cn";
 import { PermissionChecklist } from "../components/permission-checklist";
 import { useRoleDetailQuery, useRolesQuery, useUpdateRole } from "../hooks/use-roles";
 
@@ -23,7 +25,12 @@ function arraysEqual(a: string[], b: string[]) {
 }
 
 function isSuperAdminRole(role: { code?: string | null; name: string }) {
-  return role.code === "super_admin" || role.name === "SUPER_ADMIN";
+  return (
+    role.code === "super_admin" ||
+    role.code === "super_administrador" ||
+    role.name === "SUPER_ADMIN" ||
+    role.name === "Super Administrador"
+  );
 }
 
 export function RoleDetailPage() {
@@ -44,6 +51,11 @@ export function RoleDetailPage() {
   const [roleActive, setRoleActive] = useState(true);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
+  const availablePermissionIds = useMemo(
+    () => new Set(allPermissions.data?.map((permission) => permission.id) ?? []),
+    [allPermissions.data]
+  );
+
   useEffect(() => {
     if (!role.data || loadedRoleId === role.data.id) return;
 
@@ -51,10 +63,20 @@ export function RoleDetailPage() {
     setRoleName(role.data.name);
     setRoleDescription(role.data.description ?? "");
     setRoleActive(role.data.isActive);
-    setSelectedIds(role.data.permissions.map((permission) => permission.id));
-  }, [loadedRoleId, role.data]);
+    const rawIds = role.data.permissions.map((permission) => permission.id);
+    const validIds = availablePermissionIds.size > 0
+      ? rawIds.filter((id) => availablePermissionIds.has(id))
+      : rawIds;
+    setSelectedIds(validIds);
+  }, [loadedRoleId, role.data, availablePermissionIds]);
 
-  const originalIds = role.data?.permissions.map((permission) => permission.id) ?? [];
+  const originalIds = useMemo(() => {
+    if (!role.data) return [];
+    const rawIds = role.data.permissions.map((permission) => permission.id);
+    return availablePermissionIds.size > 0
+      ? rawIds.filter((id) => availablePermissionIds.has(id))
+      : rawIds;
+  }, [role.data, availablePermissionIds]);
   const isSystemRole = role.data?.isSystem ?? false;
   const isSuperAdmin = role.data ? isSuperAdminRole(role.data) : false;
   const isReadonly = isSuperAdmin || !canUpdateRole;
@@ -69,11 +91,23 @@ export function RoleDetailPage() {
   const isError = role.isError || allPermissions.isError;
   const errorMessage = role.error?.message ?? allPermissions.error?.message ?? "Error al cargar datos.";
   const canSave = hasChanges && roleName.trim().length > 0 && !updateRole.isPending;
-  const activePermissionIds = allPermissions.data?.map((permission) => permission.id) ?? [];
-  const copyableRoles = roles.data?.filter((sourceRole) => sourceRole.id !== id && sourceRole.permissions.length > 0) ?? [];
+  const delegablePermissionIds = new Set(
+    allPermissions.data?.filter((permission) => permission.delegable !== false).map((permission) => permission.id) ?? []
+  );
+  const copyableRoles =
+    roles.data?.filter(
+      (sourceRole) =>
+        sourceRole.id !== id &&
+        sourceRole.permissions.length > 0 &&
+        sourceRole.permissions.every((permission) => delegablePermissionIds.has(permission.id))
+    ) ?? [];
 
   const handleSave = async () => {
     if (!id || !canSave) return;
+
+    const validPayloadIds = availablePermissionIds.size > 0
+      ? selectedIds.filter((permissionId) => availablePermissionIds.has(permissionId))
+      : selectedIds;
 
     await updateRole.mutateAsync({
       id,
@@ -81,7 +115,7 @@ export function RoleDetailPage() {
         name: roleName.trim(),
         description: roleDescription.trim(),
         isActive: roleActive,
-        permissionIds: selectedIds
+        permissionIds: validPayloadIds
       }
     });
     toast.success("Cambios actualizados correctamente");
@@ -91,7 +125,11 @@ export function RoleDetailPage() {
     const sourceRole = roles.data?.find((currentRole) => currentRole.id === roleId);
     if (!sourceRole) return;
 
-    setSelectedIds(sourceRole.permissions.map((permission) => permission.id));
+    setSelectedIds(
+      sourceRole.permissions
+        .map((permission) => permission.id)
+        .filter((permissionId) => delegablePermissionIds.has(permissionId))
+    );
   };
 
   return (
@@ -99,7 +137,7 @@ export function RoleDetailPage() {
       <UsersModuleNav>
         <button
           type="button"
-          onClick={() => navigate("/settings/users/profiles")}
+          onClick={() => navigate(APP_ROUTES.settings.userProfiles)}
           className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-500 transition-colors hover:text-[#0784d8]"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -128,7 +166,7 @@ export function RoleDetailPage() {
                     ) : null}
                   </div>
                   <p className="font-mono text-xs text-slate-400">
-                    Codigo: <span className="text-slate-600">{role.data.code}</span>
+                    Código: <span className="text-slate-600">{role.data.code || "Sin código"}</span>
                   </p>
                   <p className="max-w-2xl text-sm text-slate-500">
                     Los usuarios heredan permisos desde este perfil. No se administran permisos individuales por usuario.
@@ -140,7 +178,7 @@ export function RoleDetailPage() {
                 {isReadonly ? (
                   <p className="flex items-center gap-1.5 text-sm text-amber-600">
                     <Lock className="h-4 w-4" />
-                    {isSuperAdmin ? "Super admin de solo lectura" : "Sin permiso de edicion"}
+                    {isSuperAdmin ? "Super Administrador de solo lectura" : "Sin permiso de edición"}
                   </p>
                 ) : (
                   <>
@@ -166,7 +204,7 @@ export function RoleDetailPage() {
                 />
               </label>
               <label className="grid gap-1 text-sm text-slate-700">
-                Descripcion
+                Descripción
                 <Textarea
                   className="min-h-10"
                   value={roleDescription}
@@ -189,7 +227,11 @@ export function RoleDetailPage() {
 
             <div className="mt-4 flex flex-wrap items-center gap-4 border-t border-slate-100 pt-4">
               <div className="text-center">
-                <p className="text-lg font-bold text-emerald-600">{selectedIds.length}</p>
+                <p className="text-lg font-bold text-emerald-600">
+                  {availablePermissionIds.size > 0
+                    ? selectedIds.filter((id) => availablePermissionIds.has(id)).length
+                    : selectedIds.length}
+                </p>
                 <p className="text-xs text-slate-500">Permisos activos</p>
               </div>
               <div className="h-8 w-px bg-slate-200" />
@@ -214,49 +256,13 @@ export function RoleDetailPage() {
         {isError ? <ErrorState message={errorMessage} /> : null}
 
         {role.data && allPermissions.data ? (
-          <div className="space-y-2">
-            <div className="mb-4 flex flex-col gap-3">
-              <div className="flex items-center justify-between gap-3">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-700">Permisos por modulo</h2>
-                {!isReadonly && !isLoading ? (
-                  <p className="text-xs text-slate-400">
-                    Activa o desactiva permisos en el perfil; los cambios aplican a usuarios con este rol.
-                  </p>
-                ) : null}
-              </div>
-
-              {!isReadonly ? (
-                <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50/80 p-3 md:grid-cols-[1fr_auto_auto]">
-                  <Select
-                    value=""
-                    disabled={!copyableRoles.length}
-                    onChange={(event) => copyPermissionsFromRole(event.target.value)}
-                    aria-label="Copiar permisos de otro perfil"
-                  >
-                    <option value="">Copiar permisos de otro perfil</option>
-                    {copyableRoles.map((sourceRole) => (
-                      <option key={sourceRole.id} value={sourceRole.id}>
-                        {sourceRole.name} ({sourceRole.permissions.length})
-                      </option>
-                    ))}
-                  </Select>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    disabled={!activePermissionIds.length}
-                    onClick={() => setSelectedIds(activePermissionIds)}
-                  >
-                    Marcar todos
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    disabled={!selectedIds.length}
-                    onClick={() => setSelectedIds([])}
-                  >
-                    Limpiar
-                  </Button>
-                </div>
+          <div className={cn("space-y-2 transition-all", hasChanges && "pb-24")}>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-700">Permisos por módulo</h2>
+              {!isReadonly && !isLoading ? (
+                <p className="text-xs text-slate-400">
+                  Activa o desactiva permisos en el perfil; los cambios aplican a usuarios con este rol.
+                </p>
               ) : null}
             </div>
 
@@ -265,13 +271,21 @@ export function RoleDetailPage() {
               selectedIds={selectedIds}
               onChange={setSelectedIds}
               readonly={isReadonly}
+              roles={copyableRoles}
+              onCopyFromRole={copyPermissionsFromRole}
+              onSave={() => void handleSave()}
+              isSaving={updateRole.isPending}
+              canSave={canSave}
             />
           </div>
         ) : null}
 
         {hasChanges ? (
-          <div className="sticky bottom-4 mt-6 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 px-5 py-3 shadow-lg">
-            <p className="text-sm font-medium text-amber-800">Tienes cambios sin guardar en este perfil.</p>
+          <div className="sticky bottom-4 z-40 mt-6 flex items-center justify-between rounded-xl border border-amber-200/90 bg-amber-50/95 backdrop-blur-md px-5 py-3 shadow-lg shadow-amber-900/10">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+              <p className="text-sm font-medium text-amber-950">Tienes cambios sin guardar en este perfil.</p>
+            </div>
             <div className="flex items-center gap-2">
               <Button
                 type="button"

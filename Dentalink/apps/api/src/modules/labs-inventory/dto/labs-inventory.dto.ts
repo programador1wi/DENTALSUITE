@@ -6,6 +6,7 @@ import {
   IsDateString,
   IsEnum,
   IsIn,
+  IsInt,
   IsNotEmpty,
   IsNumber,
   IsNumberString,
@@ -13,6 +14,7 @@ import {
   IsPositive,
   IsString,
   MaxLength,
+  Max,
   Min,
   ValidateNested
 } from "class-validator";
@@ -320,6 +322,11 @@ export class CreateInventoryWarehouseDto {
   @IsNotEmpty()
   branchId!: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  code?: string;
+
   @IsString()
   @IsNotEmpty()
   name!: string;
@@ -365,9 +372,37 @@ export class CreateInventoryItemDto {
   @IsNotEmpty()
   category!: string;
 
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
+
   @IsString()
   @IsNotEmpty()
   unit!: string;
+
+  @IsOptional()
+  @IsString()
+  unitId?: string;
+
+  @IsOptional()
+  @IsString()
+  barcode?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  presentation?: string;
+
+  @IsOptional()
+  @IsString()
+  brand?: string;
+
+  @IsOptional()
+  @IsString()
+  manufacturer?: string;
 
   @Type(() => Number)
   @IsNumber()
@@ -394,6 +429,18 @@ export class CreateInventoryItemDto {
   @IsOptional()
   @IsBoolean()
   isSellable?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  tracksLots?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  tracksExpiration?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowFractionalQuantity?: boolean;
 
   @IsString()
   branchId!: string;
@@ -424,7 +471,35 @@ export class UpdateInventoryItemDto {
 
   @IsOptional()
   @IsString()
+  categoryId?: string | null;
+
+  @IsOptional()
+  @IsString()
   unit?: string;
+
+  @IsOptional()
+  @IsString()
+  unitId?: string | null;
+
+  @IsOptional()
+  @IsString()
+  barcode?: string | null;
+
+  @IsOptional()
+  @IsString()
+  description?: string | null;
+
+  @IsOptional()
+  @IsString()
+  presentation?: string | null;
+
+  @IsOptional()
+  @IsString()
+  brand?: string | null;
+
+  @IsOptional()
+  @IsString()
+  manufacturer?: string | null;
 
   @IsOptional()
   @Type(() => Number)
@@ -443,12 +518,29 @@ export class UpdateInventoryItemDto {
   isSellable?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  tracksLots?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  tracksExpiration?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowFractionalQuantity?: boolean;
+
+  @IsOptional()
   @IsString()
   supplierId?: string | null;
 
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  version?: number;
 }
 
 export class ListInventoryMovementsQueryDto extends PaginationQueryDto {
@@ -556,4 +648,240 @@ export class CreateInventoryProductSaleDto {
   @IsOptional()
   @IsString()
   reason?: string;
+}
+
+export class ListInventoryCatalogQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsString()
+  active?: string;
+}
+
+export class CreateInventoryCategoryDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string;
+}
+
+export class UpdateInventoryCategoryDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  description?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsInt()
+  @Min(1)
+  version!: number;
+}
+
+export class CreateInventoryUnitDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(24)
+  code!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(16)
+  abbreviation!: string;
+
+  @IsOptional()
+  @IsBoolean()
+  decimalAllowed?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  precision?: number;
+}
+
+export class UpdateInventoryUnitDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(24)
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(16)
+  abbreviation?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  decimalAllowed?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(6)
+  precision?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsInt()
+  @Min(1)
+  version!: number;
+}
+
+export class InventoryMovementLineInputDto {
+  @IsString()
+  inventoryItemId!: string;
+
+  @Type(() => Number)
+  @IsNumber()
+  @IsPositive()
+  quantity!: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  unitCost?: number;
+
+  @IsOptional()
+  @IsString()
+  lotNumber?: string;
+
+  @IsOptional()
+  @IsDateString()
+  expirationDate?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class PostInventoryMovementDto {
+  @IsString()
+  branchId!: string;
+
+  @IsOptional()
+  @IsString()
+  sourceWarehouseId?: string;
+
+  @IsOptional()
+  @IsString()
+  destinationWarehouseId?: string;
+
+  @IsOptional()
+  @IsString()
+  supplierId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  occurredAt?: string;
+
+  @IsOptional()
+  @IsDateString()
+  documentDate?: string;
+
+  @IsOptional()
+  @IsString()
+  documentType?: string;
+
+  @IsOptional()
+  @IsString()
+  documentNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  reference?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  reason!: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InventoryMovementLineInputDto)
+  lines!: InventoryMovementLineInputDto[];
+}
+
+export class CompensateInventoryMovementDto {
+  @IsString()
+  @IsNotEmpty()
+  reason!: string;
+}
+
+export class CreateInventoryStockCountLineDto {
+  @IsString()
+  inventoryItemId!: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  countedQuantity?: number;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class CreateInventoryStockCountDto {
+  @IsString()
+  branchId!: string;
+
+  @IsString()
+  warehouseId!: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateInventoryStockCountLineDto)
+  lines!: CreateInventoryStockCountLineDto[];
+}
+
+export class ReconcileInventoryStockCountDto {
+  @IsInt()
+  @Min(1)
+  version!: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateInventoryStockCountLineDto)
+  lines?: CreateInventoryStockCountLineDto[];
 }

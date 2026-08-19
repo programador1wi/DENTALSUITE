@@ -479,8 +479,17 @@ export class DocumentsService {
   }
 
   private async ensurePatient(actor: AuthUser, patientId: string) {
+    const trimmed = patientId.trim();
+    const isNumeric = /^\d+$/.test(trimmed);
     const patient = await this.prisma.patient.findFirst({
-      where: { id: patientId, organizationId: actor.organizationId, branchId: branchScope(actor), deletedAt: null }
+      where: {
+        organizationId: actor.organizationId,
+        branchId: branchScope(actor),
+        deletedAt: null,
+        ...(isNumeric
+          ? { OR: [{ id: trimmed }, { patientNumber: parseInt(trimmed, 10) }] }
+          : { id: trimmed })
+      }
     });
     if (!patient) throw new NotFoundException("Patient not found");
     return patient;

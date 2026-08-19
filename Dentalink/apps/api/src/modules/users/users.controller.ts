@@ -8,6 +8,10 @@ import { AuthUser } from "../../common/types/auth-user";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { ListUsersQueryDto } from "./dto/list-users-query.dto";
 import { UpdateUserDto } from "./dto/update-user.dto";
+import { UpdateUserPermissionsDto } from "./dto/update-user-permissions.dto";
+import { ApplyProfileDto } from "./dto/apply-profile.dto";
+import { CopyPermissionsDto } from "./dto/copy-permissions.dto";
+import { UpdateUserBranchesDto } from "./dto/update-user-branches.dto";
 import { UsersService } from "./users.service";
 
 @ApiTags("Users")
@@ -21,6 +25,52 @@ export class UsersController {
   @RequirePermissions("users.read")
   findAll(@CurrentUser() user: AuthUser, @Query() query: ListUsersQueryDto) {
     return this.usersService.findAll(user, query);
+  }
+
+  @Get(":id/permissions")
+  @RequirePermissions("permissions.read")
+  getUserPermissions(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.usersService.getUserPermissions(user, id);
+  }
+
+  @Patch(":id/permissions")
+  @RequirePermissions("admin.user_permissions.manage")
+  updateUserPermissions(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateUserPermissionsDto
+  ) {
+    return this.usersService.updateUserPermissions(user, id, dto);
+  }
+
+  @Post(":id/apply-profile")
+  @RequirePermissions("admin.user_permissions.manage")
+  applyProfile(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: ApplyProfileDto
+  ) {
+    return this.usersService.applyProfile(user, id, dto);
+  }
+
+  @Post(":id/copy-permissions")
+  @RequirePermissions("admin.user_permissions.manage")
+  copyPermissions(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: CopyPermissionsDto
+  ) {
+    return this.usersService.copyPermissions(user, id, dto);
+  }
+
+  @Patch(":id/branches")
+  @RequirePermissions("users.manage_branch_access")
+  updateBranches(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: UpdateUserBranchesDto
+  ) {
+    return this.usersService.updateBranches(user, id, dto);
   }
 
   @Get(":id")

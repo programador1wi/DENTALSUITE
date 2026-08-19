@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { MoreHorizontal, Building2, ClipboardList, Check, Eye, Pencil, Calendar, DollarSign, Info } from "lucide-react";
+import { MoreHorizontal, Building2, ClipboardList, Check, Eye, Pencil, Calendar, DollarSign, Info, Tag, Globe, Lock, Sliders, FileText, ShieldCheck, Receipt, Users, Plus, Copy, Play, Power, Ban } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
+import { hasRequiredPermissions } from "@/components/layout/navigation";
 import { Tabs } from "@/components/ui/tabs";
 import { Modal } from "@/components/ui/modal";
 import { usePriceLists } from "@/features/settings/price-lists/hooks/use-price-lists";
@@ -30,8 +31,17 @@ import {
   useUpdateAgreement
 } from "../hooks/use-admin-workflows";
 import type { Agreement } from "../services/admin-workflows.service";
+import { useAuthStore } from "@/stores/auth.store";
 
-const AGREEMENTS_V2_ENABLED = import.meta.env.VITE_AGREEMENTS_V2_ENABLED === "true";
+const AGREEMENTS_V2_ENABLED = import.meta.env.VITE_AGREEMENTS_V2_ENABLED !== "false";
+
+const typeLabels: Record<Agreement["type"], string> = {
+  CORPORATE: "Corporativo",
+  INSURANCE: "Aseguradora",
+  MEMBERSHIP: "Membresía",
+  PAYROLL: "Descuento en Nómina",
+  OTHER: "Otro"
+};
 
 type AgreementForm = {
   id?: string;
@@ -173,6 +183,16 @@ function AgreementActionsMenu({
 }
 
 export function AgreementsSettingsPage() {
+  const permissions = useAuthStore((state) => state.user?.permissions ?? []);
+  const canReadDetails = hasRequiredPermissions(permissions, "agreements.read");
+  const canManage = hasRequiredPermissions(permissions, "agreements.manage");
+  const canPublish = hasRequiredPermissions(permissions, "agreements.publish");
+  const canAssign = hasRequiredPermissions(permissions, "agreements.assign");
+  const canReadBranches = hasRequiredPermissions(permissions, "branches.read");
+  const canReadProcedures = hasRequiredPermissions(permissions, "procedures.read");
+  const canReadPriceLists = hasRequiredPermissions(permissions, "price_lists.read");
+  const canPreview = canReadDetails && canReadBranches && canReadProcedures;
+  const canUseRowActions = canReadDetails || canManage || canPublish;
   const [search, setSearch] = useState("");
   const [active, setActive] = useState("");
   const [form, setForm] = useState<AgreementForm>(emptyForm);
@@ -185,9 +205,10 @@ export function AgreementsSettingsPage() {
   const [preview, setPreview] = useState({ id: "", branchId: "", procedureId: "" });
   const [selectedAgreementDetails, setSelectedAgreementDetails] = useState<Agreement | null>(null);
   const agreements = useAgreements(search || undefined, active || undefined);
-  const priceLists = usePriceLists(undefined, "true");
-  const branches = useBranches(undefined, "ACTIVE");
-  const procedures = useProcedures(undefined, "true");
+  const allAgreements = useAgreements(undefined, undefined);
+  const priceLists = usePriceLists(undefined, "true", undefined, canReadPriceLists);
+  const branches = useBranches(undefined, "ACTIVE", canReadBranches);
+  const procedures = useProcedures(undefined, "true", undefined, canReadProcedures);
   const createAgreement = useCreateAgreement();
   const updateAgreement = useUpdateAgreement();
   const deactivateAgreement = useDeactivateAgreement();
@@ -279,6 +300,8 @@ export function AgreementsSettingsPage() {
   if (agreements.isLoading) return <LoadingState message="Cargando convenios..." />;
   if (agreements.isError) return <ErrorState message={agreements.error.message} />;
 
+  const allAgreementsList = allAgreements.data ?? agreements.data ?? [];
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -287,53 +310,155 @@ export function AgreementsSettingsPage() {
         helpText="Un convenio vincula pacientes con un listado de precios o un descuento administrativo para presupuestos y cobros."
       />
 
+      {activeTab === "list" && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <button
+            type="button"
+            onClick={() => setActive("")}
+            className={`flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
+              active === ""
+                ? "border-[var(--text-brand)] bg-[var(--bg-brand-light)]/40 shadow-xs ring-1 ring-[var(--text-brand)]"
+                : "border-[var(--border-default)] bg-[var(--bg-surface)] hover:border-slate-300 hover:shadow-xs"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Total Convenios</span>
+              <Building2 className={`h-4 w-4 ${active === "" ? "text-[var(--text-brand)]" : "text-slate-400"}`} />
+            </div>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-2xl font-bold text-slate-900 tabular-nums">{allAgreementsList.length}</span>
+              {active === "" && (
+                <span className="text-[10px] font-semibold text-[var(--text-brand)] uppercase">Ver todos</span>
+              )}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActive("true")}
+            className={`flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
+              active === "true"
+                ? "border-emerald-500 bg-emerald-50/50 shadow-xs ring-1 ring-emerald-500"
+                : "border-[var(--border-default)] bg-[var(--bg-surface)] hover:border-slate-300 hover:shadow-xs"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Convenios Activos</span>
+              <ShieldCheck className={`h-4 w-4 ${active === "true" ? "text-emerald-600" : "text-slate-400"}`} />
+            </div>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-2xl font-bold text-emerald-700 tabular-nums">
+                {allAgreementsList.filter((a) => a.status === "ACTIVE" || a.isActive).length}
+              </span>
+              {active === "true" && (
+                <span className="text-[10px] font-semibold text-emerald-600 uppercase">Filtrando activos</span>
+              )}
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActive("false")}
+            className={`flex flex-col justify-between rounded-xl border p-4 text-left transition-all ${
+              active === "false"
+                ? "border-amber-500 bg-amber-50/50 shadow-xs ring-1 ring-amber-500"
+                : "border-[var(--border-default)] bg-[var(--bg-surface)] hover:border-slate-300 hover:shadow-xs"
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-amber-700">Inactivos / Cancelados</span>
+              <Tag className={`h-4 w-4 ${active === "false" ? "text-amber-600" : "text-slate-400"}`} />
+            </div>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-2xl font-bold text-amber-700 tabular-nums">
+                {allAgreementsList.filter((a) => a.status !== "ACTIVE" && !a.isActive).length}
+              </span>
+              {active === "false" && (
+                <span className="text-[10px] font-semibold text-amber-600 uppercase">Filtrando inactivos</span>
+              )}
+            </div>
+          </button>
+
+          <div className="flex flex-col justify-between rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Pacientes Afiliados</span>
+              <Users className="h-4 w-4 text-slate-400" />
+            </div>
+            <div className="mt-2 flex items-baseline justify-between">
+              <span className="text-2xl font-bold text-slate-900 tabular-nums">
+                {allAgreementsList.reduce((acc, a) => acc + (a._count?.patients ?? 0), 0)}
+              </span>
+              <span className="text-[10px] text-slate-400 font-medium">Asignados</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Card className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Tabs
             items={[
-              { key: "list", label: "Listar" },
+              { key: "list", label: "Listar convenios" },
               { key: "debts", label: "$ Reporte deudas" }
             ]}
             active={activeTab}
             onChange={setActiveTab}
           />
-          {activeTab === "list" ? <Button onClick={startNewAgreement}>Agregar convenio</Button> : null}
+          {activeTab === "list" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {canAssign ? (
+                <Button type="button" variant="secondary" onClick={() => setAssignmentModalOpen(true)}>
+                  <Users className="mr-1.5 h-4 w-4" />
+                  Asignar pacientes
+                </Button>
+              ) : null}
+              {canPreview ? (
+                <Button type="button" variant="secondary" onClick={() => setPreviewModalOpen(true)}>
+                  <Receipt className="mr-1.5 h-4 w-4" />
+                  Previsualizar precio
+                </Button>
+              ) : null}
+              {canManage ? (
+                <Button onClick={startNewAgreement}>
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Agregar convenio
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         {activeTab === "list" && (
-          <div className="grid gap-3 md:grid-cols-3">
-            <EntitySearchBox
-              placeholder="Buscar convenio"
-              value={search}
-              onValueChange={setSearch}
-              items={search.trim() ? (agreements.data ?? []) : []}
-              onSelect={(agreement) => {
-                setSearch(agreement.name);
-                editAgreement(agreement);
-              }}
-              getItemKey={(agreement) => agreement.id}
-              emptyMessage="Sin convenios encontrados"
-              renderItem={(agreement) => (
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{agreement.name}</p>
-                  <p className="mt-0.5 truncate text-xs text-slate-500">
-                    {agreement.description || `${agreement.discountPercent}% descuento`}
-                  </p>
-                </div>
-              )}
-            />
-            <Select value={active} onChange={(event) => setActive(event.target.value)}>
-              <option value="">Todos los estados</option>
-              <option value="true">Activos</option>
-              <option value="false">Inactivos</option>
-            </Select>
-            <div className="flex flex-wrap gap-2 md:col-span-3">
-              <Button type="button" variant="secondary" onClick={() => setAssignmentModalOpen(true)}>
-                Asignar pacientes
-              </Button>
-              <Button type="button" variant="secondary" onClick={() => setPreviewModalOpen(true)}>
-                Previsualizar precio
-              </Button>
+          <div className="flex flex-wrap items-center gap-3 pt-1 border-t border-[var(--border-default)]">
+            <div className="flex-1 min-w-[260px]">
+              <EntitySearchBox
+                placeholder="Buscar convenio por nombre o empresa..."
+                value={search}
+                onValueChange={setSearch}
+                items={search.trim() ? (agreements.data ?? []) : []}
+                onSelect={(agreement) => {
+                  setSearch(agreement.name);
+                  if (canManage) editAgreement(agreement);
+                  else if (canReadDetails) setSelectedAgreementDetails(agreement);
+                }}
+                getItemKey={(agreement) => agreement.id}
+                emptyMessage="Sin convenios encontrados"
+                renderItem={(agreement) => (
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{agreement.name}</p>
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                      {agreement.description || `${agreement.discountPercent}% descuento`}
+                    </p>
+                  </div>
+                )}
+              />
+            </div>
+            <div className="w-48">
+              <Select value={active} onChange={(event) => setActive(event.target.value)}>
+                <option value="">Todos los estados</option>
+                <option value="true">Solo activos</option>
+                <option value="false">Solo inactivos</option>
+              </Select>
             </div>
           </div>
         )}
@@ -342,7 +467,7 @@ export function AgreementsSettingsPage() {
       {activeTab === "list" ? (
         <div className="space-y-4">
           <Modal
-            open={agreementModalOpen}
+            open={canManage && agreementModalOpen}
             title={form.id ? "Editar convenio" : "Agregar convenio"}
             onClose={() => setAgreementModalOpen(false)}
             size="2xl"
@@ -692,7 +817,7 @@ export function AgreementsSettingsPage() {
           </Modal>
 
           <Modal
-            open={assignmentModalOpen}
+            open={canAssign && assignmentModalOpen}
             title="Asignar pacientes"
             onClose={() => setAssignmentModalOpen(false)}
             size="lg"
@@ -729,7 +854,7 @@ export function AgreementsSettingsPage() {
           </Modal>
 
           <Modal
-            open={previewModalOpen}
+            open={canPreview && previewModalOpen}
             title="Previsualizar precio"
             onClose={() => setPreviewModalOpen(false)}
             size="lg"
@@ -798,308 +923,232 @@ export function AgreementsSettingsPage() {
             </Card>
           </Modal>
 
-          <Modal
-            open={!!selectedAgreementDetails}
-            title="Detalles del convenio"
+          <AgreementDetailsViewModal
+            agreement={canReadDetails ? selectedAgreementDetails : null}
             onClose={() => setSelectedAgreementDetails(null)}
-            size="lg"
-          >
-            {selectedAgreementDetails ? (
-              <Card className="space-y-4">
-                <div className="flex items-center justify-between border-b pb-3 border-slate-100">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-900">
-                      {selectedAgreementDetails.name}
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Versión actual: {selectedAgreementDetails.version}
-                    </p>
-                  </div>
-                  <Badge
-                    value={selectedAgreementDetails.status}
-                    tone={
-                      selectedAgreementDetails.status === "ACTIVE"
-                        ? "success"
-                        : selectedAgreementDetails.status === "CANCELLED"
-                          ? "danger"
-                          : "warning"
-                    }
-                  />
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2">
-                  {/* General Info */}
-                  <div className="space-y-2 rounded-lg bg-slate-50 p-3">
-                    <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      <Info className="h-3.5 w-3.5" />
-                      Información General
-                    </h4>
-                    <div className="space-y-1.5 text-sm">
-                      <div>
-                        <span className="text-slate-500">Empresa/Entidad: </span>
-                        <strong className="text-slate-800">
-                          {selectedAgreementDetails.entityName || "Sin entidad"}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Tipo de convenio: </span>
-                        <strong className="text-slate-800 capitalize">
-                          {selectedAgreementDetails.type === "CORPORATE"
-                            ? "Corporativo"
-                            : selectedAgreementDetails.type === "INSURANCE"
-                              ? "Aseguradora"
-                              : selectedAgreementDetails.type === "MEMBERSHIP"
-                                ? "Membresía"
-                                : selectedAgreementDetails.type === "PAYROLL"
-                                  ? "Nómina"
-                                  : "Otro"}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Visibilidad: </span>
-                        <strong className="text-slate-800">
-                          {selectedAgreementDetails.isPublic ? "Público para pacientes" : "Privado (interno)"}
-                        </strong>
-                      </div>
-                      {selectedAgreementDetails.description && (
-                        <div className="mt-1 border-t border-slate-200/60 pt-1">
-                          <span className="block text-[11px] text-slate-400">Descripción:</span>
-                          <p className="text-xs text-slate-600 italic">
-                            {selectedAgreementDetails.description}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Financial Rules */}
-                  <div className="space-y-2 rounded-lg bg-slate-50 p-3">
-                    <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      <DollarSign className="h-3.5 w-3.5" />
-                      Reglas Financieras
-                    </h4>
-                    <div className="space-y-1.5 text-sm">
-                      <div>
-                        <span className="text-slate-500">Arancel/Listado: </span>
-                        <strong className="text-slate-800">
-                          {selectedAgreementDetails.priceList?.name || "Sin arancel - descuento directo"}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Descuento general: </span>
-                        <strong className="text-slate-800">
-                          {Number(selectedAgreementDetails.discountPercent).toFixed(2)}%
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Cobertura: </span>
-                        <strong className="text-slate-800">
-                          {Number(selectedAgreementDetails.coveragePercent).toFixed(2)}%
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Copago por prestación: </span>
-                        <strong className="text-slate-800">
-                          ${Number(selectedAgreementDetails.copayAmount).toFixed(2)}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Límite de cobertura: </span>
-                        <strong className="text-slate-800">
-                          {selectedAgreementDetails.coverageLimitAmount
-                            ? `$${Number(selectedAgreementDetails.coverageLimitAmount).toFixed(2)}`
-                            : "Sin límite"}
-                        </strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Validity Period */}
-                  <div className="space-y-2 rounded-lg bg-slate-50 p-3 md:col-span-2">
-                    <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      <Calendar className="h-3.5 w-3.5" />
-                      Vigencia y Configuración Extra
-                    </h4>
-                    <div className="grid gap-2 sm:grid-cols-2 text-sm">
-                      <div>
-                        <span className="text-slate-500">Inicio: </span>
-                        <strong className="text-slate-800">
-                          {selectedAgreementDetails.startsAt
-                            ? new Date(selectedAgreementDetails.startsAt).toLocaleDateString("es-MX", {
-                                day: "numeric",
-                                month: "long",
-                                year: "numeric"
-                              })
-                            : "Sin fecha de inicio"}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-500">Fin: </span>
-                        <strong className="text-slate-800">
-                          {selectedAgreementDetails.endsAt
-                            ? new Date(selectedAgreementDetails.endsAt).toLocaleDateString("es-MX", {
-                                day: "numeric",
-                                month: "long",
-                                year: "numeric"
-                              })
-                            : "Sin fecha de fin"}
-                        </strong>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap gap-1.5 border-t border-slate-200/60 pt-2.5">
-                      {selectedAgreementDetails.appliesToLabs && (
-                        <span className="rounded bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">
-                          Aplica a laboratorio
-                        </span>
-                      )}
-                      {selectedAgreementDetails.appliesToOtherCategories && (
-                        <span className="rounded bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
-                          Aplica a categorías extra
-                        </span>
-                      )}
-                      {selectedAgreementDetails.payrollDiscount && (
-                        <span className="rounded bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                          Descuento en nómina
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Branches */}
-                  <div className="space-y-2 rounded-lg bg-slate-50 p-3 md:col-span-2">
-                    <h4 className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                      <Building2 className="h-3.5 w-3.5" />
-                      Sucursales Habilitadas
-                    </h4>
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {selectedAgreementDetails.versions?.[0]?.branches?.length ? (
-                        selectedAgreementDetails.versions[0].branches.map((b) => (
-                          <span
-                            key={b.branchId}
-                            className="rounded-full bg-slate-200/60 px-2.5 py-1 text-xs font-medium text-slate-700"
-                          >
-                            {b.branch?.name || `Sucursal ID: ${b.branchId}`}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-xs italic text-slate-400">
-                          Ninguna sucursal habilitada (aplica a nivel general)
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex justify-end pt-2">
-                  <Button
-                    type="button"
-                    onClick={() => setSelectedAgreementDetails(null)}
-                  >
-                    Cerrar detalles
-                  </Button>
-                </div>
-              </Card>
-            ) : null}
-          </Modal>
+          />
 
           <DataTable
             rows={agreements.data ?? []}
+            tableClassName="w-full border-collapse [&_th]:border-r-0 [&_td]:border-r-0 [&_th]:bg-slate-50/80 [&_th]:text-[11px] [&_th]:tracking-wider [&_th]:uppercase [&_th]:text-slate-500 [&_tr]:border-b [&_tr]:border-slate-100 hover:[&_tr]:bg-slate-50/60 transition-colors"
+            containerClassName="border border-[var(--border-default)] rounded-xl overflow-hidden shadow-2xs"
             empty={
               <EmptyState
                 title="Sin convenios"
-                description="Crea el primer convenio para asociar aranceles a pacientes."
+                description={canManage
+                  ? "Crea el primer convenio para asociar aranceles a pacientes."
+                  : "No hay convenios disponibles con los filtros actuales."}
               />
             }
             columns={[
               {
-                key: "id",
-                title: "# Id",
-                cellClassName: "w-20 text-[var(--text-secondary)]",
-                render: (row) => row.id.slice(-6).toUpperCase()
-              },
-              {
                 key: "entityName",
-                title: "Empresa",
-                render: (row) => (
-                  <div className="min-w-52">
-                    <p className="font-medium text-[var(--text-brand)]">{row.entityName || row.name}</p>
-                    <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{row.name}</p>
-                  </div>
-                )
+                title: "EMPRESA / CONVENIO",
+                headerClassName: "border-r-0 text-left py-3 px-4",
+                cellClassName: "border-r-0 py-3.5 px-4",
+                render: (row) => {
+                  const typeLabel = typeLabels[row.type] || row.type;
+                  const displayName = row.entityName || row.name;
+                  const secondaryName = row.entityName && row.name !== row.entityName ? row.name : null;
+                  return (
+                    <div className="flex items-center gap-3 min-w-[240px]">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 border border-blue-100/80 shadow-2xs">
+                        <Building2 className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <p className="font-semibold text-slate-900 text-sm leading-snug truncate">{displayName}</p>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {secondaryName ? (
+                            <span className="text-xs text-slate-500 truncate">{secondaryName}</span>
+                          ) : null}
+                          <span className="inline-flex items-center rounded-md bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700 border border-blue-100">
+                            {typeLabel}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
               },
               {
                 key: "startsAt",
-                title: "Fecha afiliación",
-                render: (row) =>
-                  row.startsAt
-                    ? new Date(row.startsAt).toLocaleDateString("es-MX", {
-                        weekday: "long",
-                        day: "numeric",
-                        month: "long",
-                        year: "numeric"
-                      })
-                    : "Sin vigencia"
+                title: "VIGENCIA",
+                headerClassName: "border-r-0 py-3 px-4",
+                cellClassName: "border-r-0 py-3.5 px-4 whitespace-nowrap text-xs",
+                render: (row) => {
+                  if (!row.startsAt && !row.endsAt) {
+                    return (
+                      <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100/80 px-2.5 py-1 text-xs text-slate-500">
+                        <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                        Sin límite de vigencia
+                      </span>
+                    );
+                  }
+                  const startStr = row.startsAt
+                    ? new Date(row.startsAt).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })
+                    : "Indefinido";
+                  const endStr = row.endsAt
+                    ? new Date(row.endsAt).toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })
+                    : "Indefinido";
+                  return (
+                    <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100/80 px-2.5 py-1 text-xs font-medium text-slate-700 border border-slate-200/60 tabular-nums">
+                      <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                      {startStr} — {endStr}
+                    </span>
+                  );
+                }
               },
               {
                 key: "discountPercent",
-                title: "Convenio",
+                title: "CONDICIONES",
+                headerClassName: "border-r-0 py-3 px-4",
+                cellClassName: "border-r-0 py-3.5 px-4 whitespace-nowrap",
                 render: (row) => (
-                  <div className="flex items-center gap-2">
-                    <span>{Number(row.discountPercent).toFixed(2)}%</span>
-                    <Badge
-                      value={row.status}
-                      tone={
-                        row.status === "ACTIVE"
-                          ? "success"
-                          : row.status === "CANCELLED"
-                            ? "danger"
-                            : "warning"
-                      }
-                    />
+                  <div className="flex flex-col gap-1">
+                    {Number(row.discountPercent) > 0 ? (
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200/50 w-fit tabular-nums">
+                        <Tag className="h-3 w-3 text-emerald-500" />
+                        {Number(row.discountPercent).toFixed(1)}% desc.
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400 font-medium">Arancel directo</span>
+                    )}
+                    {Number(row.copayAmount) > 0 ? (
+                      <span className="text-[11px] text-slate-500 font-medium tabular-nums pl-1">
+                        Copago: ${Number(row.copayAmount).toLocaleString("es-MX")}
+                      </span>
+                    ) : Number(row.coveragePercent) > 0 ? (
+                      <span className="text-[11px] text-slate-500 font-medium tabular-nums pl-1">
+                        Cobertura: {Number(row.coveragePercent)}%
+                      </span>
+                    ) : null}
                   </div>
                 )
+              },
+              {
+                key: "status",
+                title: "ESTADO",
+                headerClassName: "border-r-0 text-center py-3 px-4",
+                cellClassName: "border-r-0 text-center py-3.5 px-4 w-28",
+                render: (row) => {
+                  const isAct = row.status === "ACTIVE" || row.isActive;
+                  const isCanc = row.status === "CANCELLED";
+                  return (
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border ${
+                        isAct
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-200/60"
+                          : isCanc
+                            ? "bg-rose-50 text-rose-700 border-rose-200/60"
+                            : "bg-amber-50 text-amber-700 border-amber-200/60"
+                      }`}
+                    >
+                      <span
+                        className={`h-1.5 w-1.5 rounded-full ${
+                          isAct ? "bg-emerald-500" : isCanc ? "bg-rose-500" : "bg-amber-500"
+                        }`}
+                      />
+                      {isAct ? "Activo" : isCanc ? "Cancelado" : "Inactivo"}
+                    </span>
+                  );
+                }
               },
               {
                 key: "_count",
-                title: "Pacientes",
-                cellClassName: "text-center",
-                render: (row) => String(row._count.patients)
+                title: "PACIENTES",
+                headerClassName: "border-r-0 text-center py-3 px-4",
+                cellClassName: "border-r-0 text-center py-3.5 px-4 w-28",
+                render: (row) => (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 border border-slate-200/60 tabular-nums">
+                    <Users className="h-3.5 w-3.5 text-slate-400" />
+                    <span>{row._count?.patients ?? 0}</span>
+                  </span>
+                )
               },
               {
                 key: "name",
-                title: "Acciones",
-                cellClassName: "w-32",
-                render: (row) => (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedAgreementDetails(row)}
-                      className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] text-[var(--text-brand)] hover:bg-[var(--bg-subtle)] transition-all active:scale-95"
-                      aria-label="Ver detalles"
-                      title="Ver detalles"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => editAgreement(row)}
-                      className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] text-slate-700 hover:bg-slate-100 transition-all active:scale-95"
-                      aria-label="Editar convenio"
-                      title="Editar convenio"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </button>
-                    <AgreementActionsMenu
-                      agreement={row}
-                      onEdit={() => editAgreement(row)}
-                      onDuplicate={() => duplicateAgreement.mutate(row.id)}
-                      onPublish={() => publishAgreement.mutate({ id: row.id, version: row.version })}
-                      onCancel={() => cancelAgreement.mutate(row.id)}
-                      onDeactivate={() => deactivateAgreement.mutate(row.id)}
-                    />
-                  </div>
-                )
+                title: canUseRowActions ? "ACCIONES" : "",
+                headerClassName: "border-r-0 text-right py-3 px-4",
+                cellClassName: canUseRowActions
+                  ? "border-r-0 text-right py-3.5 px-4 min-w-[160px]"
+                  : "border-r-0 p-0 w-0",
+                mobileHidden: !canUseRowActions,
+                render: (row) => {
+                  const isAct = row.status === "ACTIVE" || row.isActive;
+                  const isCanc = row.status === "CANCELLED";
+                  if (!canUseRowActions) return null;
+                  return (
+                    <div className="flex items-center justify-end gap-1">
+                      {canReadDetails ? (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedAgreementDetails(row)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-blue-50 hover:text-blue-600 transition-all active:scale-95"
+                          aria-label="Ver detalles"
+                          title="Ver detalles"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                      {canManage ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => editAgreement(row)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-800 transition-all active:scale-95"
+                            aria-label="Editar convenio"
+                            title="Editar convenio"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => duplicateAgreement.mutate(row.id)}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-indigo-50 hover:text-indigo-600 transition-all active:scale-95"
+                            aria-label="Duplicar convenio"
+                            title="Duplicar convenio"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </button>
+                          {isAct ? (
+                            <button
+                              type="button"
+                              onClick={() => deactivateAgreement.mutate(row.id)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-600 hover:bg-amber-50 transition-all active:scale-95"
+                              aria-label="Desactivar convenio"
+                              title="Desactivar convenio"
+                            >
+                              <Power className="h-4 w-4" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isCanc}
+                              onClick={() => cancelAgreement.mutate(row.id)}
+                              className="flex h-8 w-8 items-center justify-center rounded-lg text-rose-500 hover:bg-rose-50 transition-all active:scale-95 disabled:opacity-30 disabled:hover:bg-transparent"
+                              aria-label="Cancelar convenio"
+                              title="Cancelar convenio"
+                            >
+                              <Ban className="h-4 w-4" />
+                            </button>
+                          )}
+                        </>
+                      ) : null}
+                      {canPublish && !isAct ? (
+                        <button
+                          type="button"
+                          disabled={isCanc}
+                          onClick={() => publishAgreement.mutate({ id: row.id, version: row.version })}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg text-emerald-600 hover:bg-emerald-50 transition-all active:scale-95 disabled:opacity-30 disabled:hover:bg-transparent"
+                          aria-label="Activar convenio"
+                          title="Activar convenio"
+                        >
+                          <Play className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                }
               }
             ]}
           />
@@ -1108,5 +1157,300 @@ export function AgreementsSettingsPage() {
         <AgreementsDebtsPage />
       )}
     </div>
+  );
+}
+
+function AgreementDetailsViewModal({
+  agreement,
+  onClose
+}: {
+  agreement: Agreement | null;
+  onClose: () => void;
+}) {
+  const [tab, setTab] = useState<"summary" | "branches" | "config">("summary");
+  const [branchSearch, setBranchSearch] = useState("");
+
+  if (!agreement) return null;
+
+  const branches = agreement.versions?.[0]?.branches ?? [];
+  const filteredBranches = branches.filter((b) =>
+    (b.branch?.name ?? b.branchId).toLowerCase().includes(branchSearch.toLowerCase())
+  );
+
+  const typeLabels: Record<Agreement["type"], string> = {
+    CORPORATE: "Corporativo",
+    INSURANCE: "Aseguradora",
+    MEMBERSHIP: "Membresía",
+    PAYROLL: "Descuento en Nómina",
+    OTHER: "Otro"
+  };
+
+  return (
+    <Modal open={Boolean(agreement)} title="" onClose={onClose} size="xl">
+      <div className="-m-6 overflow-hidden rounded-xl bg-slate-50">
+        {/* Header Hero Banner */}
+        <div className="relative overflow-hidden bg-slate-900 p-6 text-white">
+          <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-sky-500/10 blur-2xl pointer-events-none" />
+          <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1 rounded-md bg-sky-500/20 px-2.5 py-0.5 text-xs font-bold text-sky-300 backdrop-blur-xs border border-sky-400/20">
+                  <Tag className="h-3 w-3" /> {typeLabels[agreement.type] || agreement.type}
+                </span>
+                <Badge
+                  value={agreement.status === "ACTIVE" ? "Activo" : agreement.status === "CANCELLED" ? "Cancelado" : "Borrador"}
+                  tone={agreement.status === "ACTIVE" ? "success" : agreement.status === "CANCELLED" ? "danger" : "warning"}
+                />
+                {agreement.isDefault ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-amber-400/20 px-2.5 py-0.5 text-xs font-bold text-amber-300 border border-amber-400/30">
+                    ★ Predeterminado
+                  </span>
+                ) : null}
+                {agreement.isPublic ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2.5 py-0.5 text-[11px] font-medium text-slate-300 border border-slate-700">
+                    <Globe className="h-3 w-3 text-emerald-400" /> Público
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-slate-800 px-2.5 py-0.5 text-[11px] font-medium text-slate-400 border border-slate-700">
+                    <Lock className="h-3 w-3" /> Privado
+                  </span>
+                )}
+              </div>
+              <h2 className="text-2xl font-bold tracking-tight text-white">{agreement.name}</h2>
+              {agreement.entityName ? (
+                <p className="text-xs text-slate-300 flex items-center gap-1">
+                  <Building2 className="h-3.5 w-3.5 text-sky-400" /> {agreement.entityName}
+                </p>
+              ) : null}
+            </div>
+            <div className="text-right">
+              <span className="text-xs font-medium text-slate-400">Versión actual</span>
+              <p className="text-lg font-bold text-sky-400">v{agreement.version}</p>
+            </div>
+          </div>
+
+          {/* Quick Metrics Bar */}
+          <div className="mt-5 grid grid-cols-2 gap-3 rounded-xl border border-slate-800 bg-slate-950/60 p-3 backdrop-blur-xs sm:grid-cols-4">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Descuento general</p>
+              <p className="truncate text-base font-bold text-emerald-400">{Number(agreement.discountPercent).toFixed(1)}%</p>
+            </div>
+            <div className="min-w-0 border-l border-slate-800 pl-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Cobertura</p>
+              <p className="truncate text-base font-bold text-sky-400">{Number(agreement.coveragePercent).toFixed(1)}%</p>
+            </div>
+            <div className="min-w-0 border-l border-slate-800 pl-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Copago fijo</p>
+              <p className="truncate text-base font-bold text-white">${Number(agreement.copayAmount).toFixed(2)}</p>
+            </div>
+            <div className="min-w-0 border-l border-slate-800 pl-3">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Sucursales</p>
+              <p className="truncate text-base font-bold text-amber-300">{branches.length ? `${branches.length} activas` : "Todas"}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Navigation Tabs */}
+        <div className="flex border-b border-slate-200 bg-white px-6">
+          <button
+            type="button"
+            onClick={() => setTab("summary")}
+            className={`flex items-center gap-2 border-b-2 py-3 px-1 text-xs font-semibold transition-colors ${
+              tab === "summary"
+                ? "border-sky-600 text-sky-700"
+                : "border-transparent text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <FileText className="h-4 w-4" /> Resumen & Reglas Financieras
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("branches")}
+            className={`flex items-center gap-2 border-b-2 py-3 px-4 text-xs font-semibold transition-colors ${
+              tab === "branches"
+                ? "border-sky-600 text-sky-700"
+                : "border-transparent text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <Building2 className="h-4 w-4" /> Sucursales ({branches.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("config")}
+            className={`flex items-center gap-2 border-b-2 py-3 px-4 text-xs font-semibold transition-colors ${
+              tab === "config"
+                ? "border-sky-600 text-sky-700"
+                : "border-transparent text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <Sliders className="h-4 w-4" /> Configuración & Cobertura
+          </button>
+        </div>
+
+        {/* Modal Tab Body */}
+        <div className="p-6 space-y-4">
+          {tab === "summary" && (
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Financial Rules */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3 shadow-xs">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+                  <DollarSign className="h-4 w-4 text-emerald-600" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Reglas Financieras</h4>
+                </div>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                    <span className="text-slate-500">Tarifario / Arancel:</span>
+                    <span className="font-semibold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">
+                      {agreement.priceList?.name || "Sin arancel - Descuento directo"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                    <span className="text-slate-500">Descuento general:</span>
+                    <span className="font-bold text-emerald-700">{Number(agreement.discountPercent).toFixed(2)}%</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                    <span className="text-slate-500">Porcentaje de Cobertura:</span>
+                    <span className="font-bold text-sky-700">{Number(agreement.coveragePercent).toFixed(2)}%</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                    <span className="text-slate-500">Copago por prestación:</span>
+                    <span className="font-bold text-slate-900">${Number(agreement.copayAmount).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-slate-500">Límite de cobertura:</span>
+                    <span className="font-bold text-slate-900">
+                      {agreement.coverageLimitAmount ? `$${Number(agreement.coverageLimitAmount).toFixed(2)}` : "Sin límite"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Entity & Validity */}
+              <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3 shadow-xs">
+                <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
+                  <Info className="h-4 w-4 text-sky-600" />
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-800">Entidad & Vigencia</h4>
+                </div>
+                <div className="space-y-2 text-xs">
+                  <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                    <span className="text-slate-500">Empresa / Entidad:</span>
+                    <span className="font-semibold text-slate-900">{agreement.entityName || "Sin entidad"}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                    <span className="text-slate-500">Tipo de convenio:</span>
+                    <span className="font-semibold text-slate-900">{typeLabels[agreement.type] || agreement.type}</span>
+                  </div>
+                  <div className="flex justify-between items-center py-1 border-b border-slate-50">
+                    <span className="text-slate-500">Fecha de Inicio:</span>
+                    <span className="font-medium text-slate-800">
+                      {agreement.startsAt
+                        ? new Date(agreement.startsAt).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })
+                        : "Sin fecha de inicio"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-1">
+                    <span className="text-slate-500">Fecha de Fin:</span>
+                    <span className="font-medium text-slate-800">
+                      {agreement.endsAt
+                        ? new Date(agreement.endsAt).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })
+                        : "Vigencia Indefinida"}
+                    </span>
+                  </div>
+                </div>
+                {agreement.description ? (
+                  <div className="rounded-lg bg-slate-50 p-2.5 border border-slate-100 text-xs text-slate-600 italic">
+                    "{agreement.description}"
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {tab === "branches" && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-slate-500">
+                  {branches.length} sucursales autorizadas para operar este convenio.
+                </p>
+                <div className="w-64">
+                  <Input
+                    placeholder="Buscar sucursal..."
+                    className="h-8 text-xs"
+                    value={branchSearch}
+                    onChange={(e) => setBranchSearch(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {filteredBranches.length ? (
+                <div className="grid max-h-72 gap-2 overflow-y-auto pr-1 sm:grid-cols-2 md:grid-cols-3">
+                  {filteredBranches.map((b) => (
+                    <div
+                      key={b.branchId}
+                      className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-2xs hover:border-sky-300 transition-colors"
+                    >
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-50 text-sky-700">
+                        <Building2 className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-slate-900">
+                          {b.branch?.name || `Sucursal ID: ${b.branchId}`}
+                        </p>
+                        <p className="text-[10px] text-slate-500">Habilitada</p>
+                      </div>
+                      <Check className="h-4 w-4 text-emerald-600 stroke-[2.5]" />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState
+                  title={branches.length === 0 ? "Aplica a nivel general" : "Sin coincidencias"}
+                  description={
+                    branches.length === 0
+                      ? "No hay restricción de sucursal; disponible en todas las clínicas de la organización."
+                      : "No se encontraron sucursales con ese término de búsqueda."
+                  }
+                />
+              )}
+            </div>
+          )}
+
+          {tab === "config" && (
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className={`rounded-xl border p-4 space-y-1.5 ${agreement.appliesToLabs ? "border-sky-200 bg-sky-50/50" : "border-slate-200 bg-white opacity-60"}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900">Laboratorio</span>
+                  <Badge value={agreement.appliesToLabs ? "Habilitado" : "No aplica"} tone={agreement.appliesToLabs ? "brand" : "default"} />
+                </div>
+                <p className="text-[11px] text-slate-500">Aplica descuento y arancel a trabajos de laboratorio protésico.</p>
+              </div>
+
+              <div className={`rounded-xl border p-4 space-y-1.5 ${agreement.appliesToOtherCategories ? "border-indigo-200 bg-indigo-50/50" : "border-slate-200 bg-white opacity-60"}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900">Categorías Extra</span>
+                  <Badge value={agreement.appliesToOtherCategories ? "Habilitado" : "No aplica"} tone={agreement.appliesToOtherCategories ? "brand" : "default"} />
+                </div>
+                <p className="text-[11px] text-slate-500">Extiende reglas tarifarias a categorías complementarias.</p>
+              </div>
+
+              <div className={`rounded-xl border p-4 space-y-1.5 ${agreement.payrollDiscount ? "border-emerald-200 bg-emerald-50/50" : "border-slate-200 bg-white opacity-60"}`}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900">Descuento Nómina</span>
+                  <Badge value={agreement.payrollDiscount ? "Habilitado" : "No aplica"} tone={agreement.payrollDiscount ? "success" : "default"} />
+                </div>
+                <p className="text-[11px] text-slate-500">Permite diferir cobro a cuenta corporativa para descuento directo por planilla.</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div className="flex justify-end border-t border-slate-200 bg-white px-6 py-3">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cerrar
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

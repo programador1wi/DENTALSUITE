@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@400;500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -13,6 +12,7 @@
   --color-base-gray-200: #e5e7eb;
   --color-base-gray-300: #d1d5db;
   --color-base-slate-500: #64748b;
+  --color-base-slate-600: #475569;
   --color-base-slate-700: #334155;
   --color-base-navy-600: #185fa5;
   --color-base-navy-700: #0c447c;
@@ -25,6 +25,8 @@
   --color-base-page-bg: #f8fafd;
   --color-base-emerald-500: #10b981;
   --color-base-emerald-600: #059669;
+  --color-base-emerald-700: #047857;
+  --color-base-emerald-800: #065f46;
   --color-base-red-500: #ef4444;
   --color-base-amber-400: #fbbf24;
 
@@ -36,7 +38,7 @@
   --bg-brand-light: var(--color-base-blue-50);
 
   --text-primary: var(--color-base-slate-700);
-  --text-secondary: var(--color-base-slate-500);
+  --text-secondary: var(--color-base-slate-600);
   --text-inverse: var(--color-base-gray-50);
   --text-brand: var(--color-base-blue-500);
   --text-brand-strong: var(--color-base-navy-700);
@@ -49,8 +51,8 @@
   --border-brand: var(--color-base-blue-500);
   --border-brand-light: var(--color-base-blue-100);
 
-  --action-primary: var(--color-base-emerald-500);
-  --action-primary-hover: var(--color-base-emerald-600);
+  --action-primary: var(--color-base-navy-600);
+  --action-primary-hover: var(--color-base-navy-700);
   --action-brand: var(--color-base-blue-500);
   --action-brand-hover: var(--color-base-blue-600);
 
@@ -105,7 +107,7 @@
   --radius-xl: 16px;
   --radius-full: 9999px;
 
-  --font-sans: "Inter", system-ui, sans-serif;
+  --font-sans: "DM Sans", system-ui, sans-serif;
   --font-mono: "DM Mono", monospace;
 
   --text-xs: 11px;
@@ -141,6 +143,44 @@ body {
   background: var(--bg-page);
   color: var(--text-primary);
   font-family: var(--font-sans);
+}
+
+/* Apply aggressive wrapping only to uncontrolled technical data, never globally. */
+[data-break-uncontrolled="true"] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+html,
+body,
+#root {
+  max-width: 100%;
+}
+
+/* Contained two-dimensional workspaces may scroll without widening the page. */
+[data-responsive-overflow="contained"] {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Long, explicitly approved action labels may wrap without forcing their container wider. */
+[data-allow-multiline] {
+  max-width: 100%;
+  height: auto;
+  min-height: 38px;
+  white-space: normal;
+}
+
+/* Dense operational controls remain usable by touch without inflating desktop UI. */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  a[role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
 }
 
 @keyframes sidebar-item-in {
@@ -196,6 +236,15 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-strong);
+}
+
+/* Hide scrollbar while maintaining scroll functionality (used in horizontal nav) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .consent-editor-content h1,
@@ -327,4 +376,10 @@ body {
     border: 0;
     padding: 0;
   }
+}
+
+:focus-visible {
+  outline: 2px solid var(--border-brand);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }

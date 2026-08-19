@@ -87,14 +87,14 @@ export function DashboardTab() {
           <>
             <div className="flex flex-wrap items-center justify-end gap-2 text-sm">
               <span className="px-1 font-medium text-slate-600">Ultimos:</span>
-              <div className="flex overflow-hidden rounded border border-slate-200 bg-white">
+              <div className="grid grid-cols-2 overflow-hidden rounded border border-slate-200 bg-white sm:flex">
                 {periods.map((item) => (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => setPeriod(item.id)}
                     className={cn(
-                      "px-3 py-2 transition-colors",
+                      "whitespace-nowrap px-3 py-2 transition-colors",
                       period === item.id ? "bg-[#0679c8] text-white" : "text-slate-600 hover:bg-slate-50"
                     )}
                   >

@@ -337,7 +337,7 @@ export function EntitySearchBox<T>({
           aria-expanded={showDropdown}
           aria-autocomplete="list"
         />
-        <div className="pointer-events-none absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded border border-[var(--border-default)] bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-secondary)] shadow-sm">
+        <div className="pointer-events-none absolute right-3 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 rounded border border-[var(--border-default)] bg-[var(--bg-subtle)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--text-primary)] shadow-sm">
           {isMac ? <span className="text-[9px]">⌘</span> : <span className="text-[8px] font-semibold">Ctrl</span>}
           <span>K</span>
         </div>

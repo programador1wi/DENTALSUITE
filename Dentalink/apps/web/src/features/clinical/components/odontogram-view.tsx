@@ -905,7 +905,7 @@ export function OdontogramView({
 
       <div className="px-4 py-5">
         <p className="mb-2 text-center text-sm text-[#7a4f52]">Odontograma Internacional <span className="text-[#0879d5]">FDI</span></p>
-        <div className="w-full overflow-x-auto">
+        <div className="w-full overflow-x-auto" data-responsive-overflow="contained" aria-label="Odontograma desplazable">
           <ClinicalSvg
             dentition={dentition}
             teethUpper={upper}

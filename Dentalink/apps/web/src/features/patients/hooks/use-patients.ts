@@ -172,10 +172,10 @@ export function useSendPatientEmail() {
   });
 }
 
-export function useCreatePatient() {
+export function useCreatePatient(context: "newPatient" | "appointment" = "newPatient") {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: PatientPayload) => createPatient(payload),
+    mutationFn: (payload: PatientPayload) => createPatient(payload, context),
     onSuccess: () => {
       toast.success("Paciente creado");
       queryClient.invalidateQueries({ queryKey: ["patients"] });

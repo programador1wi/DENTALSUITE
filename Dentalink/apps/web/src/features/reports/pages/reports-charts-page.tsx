@@ -92,6 +92,7 @@ export function ReportsChartsPage() {
             {filteredCatalog.map((item) => (
               <button
                 key={item.type}
+                data-allow-multiline
                 type="button"
                 onClick={() => setSelectedType(item.type)}
                 className={`w-full rounded-[var(--radius-md)] border bg-[var(--bg-surface)] p-3 text-left transition hover:border-[var(--border-strong)] ${selectedType === item.type ? "border-[var(--action-primary)] ring-2 ring-emerald-500/10" : "border-[var(--border-default)]"}`}

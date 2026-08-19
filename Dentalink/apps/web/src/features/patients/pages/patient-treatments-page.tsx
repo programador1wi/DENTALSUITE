@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode
 import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { APP_ROUTES } from "@/lib/routes";
 import {
   AlertTriangle,
   Activity,
@@ -99,7 +100,8 @@ import { PatientSectionPage } from "../components/patient-section-page";
 import {
   budgetCatalogCategoryMatchesSearch,
   budgetCatalogItemMatchesSearch,
-  buildTreatmentBudgetCatalog
+  buildTreatmentBudgetCatalog,
+  flatSearchBudgetCatalog
 } from "../utils/treatment-budget-catalog";
 import {
   useBudgets,
@@ -492,15 +494,15 @@ function PlanFinancialStatus({ summary }: { summary?: TreatmentPlanFinancialSumm
   if (!summary) return <span className="text-xs font-medium text-slate-400">Sin cálculo</span>;
   const tone =
     summary.situation.code === "DEBT"
-      ? "bg-red-50 text-red-700 ring-red-200"
+      ? "bg-red-50 text-red-700 border-red-200/80"
       : summary.situation.code === "NO_AVAILABLE_BALANCE"
-        ? "bg-amber-50 text-amber-700 ring-amber-200"
+        ? "bg-amber-50 text-amber-800 border-amber-200/80"
         : summary.situation.code === "CANCELLED"
-          ? "bg-slate-100 text-slate-600 ring-slate-200"
-          : "bg-emerald-50 text-emerald-700 ring-emerald-200";
+          ? "bg-slate-100 text-slate-600 border-slate-200"
+          : "bg-emerald-50 text-emerald-700 border-emerald-200/80";
   const amount = summary.situation.amount ? ` ${money(numberValue(summary.situation.amount))}` : "";
   return (
-    <span className={`inline-flex rounded-full px-2 py-1 text-xs font-bold ring-1 ring-inset ${tone}`}>
+    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border shadow-xs ${tone}`}>
       {summary.situation.label}
       {amount}
     </span>
@@ -1216,7 +1218,7 @@ export function PatientTreatmentsPage() {
       return;
     }
     navigate(
-      `/patients/${id}/payments?treatmentPlanId=${encodeURIComponent(item.treatmentPlanId)}&itemId=${encodeURIComponent(item.id)}&amount=${pending}`
+      `${APP_ROUTES.patients.payments(id)}?treatmentPlanId=${encodeURIComponent(item.treatmentPlanId)}&itemId=${encodeURIComponent(item.id)}&amount=${pending}`
     );
   };
 
@@ -1310,9 +1312,9 @@ export function PatientTreatmentsPage() {
       toast.error("No tienes permisos para recaudar.");
       return;
     }
-    const returnUrl = `/patients/${id}/treatments?planId=${encodeURIComponent(targetPlan.id)}`;
+    const returnUrl = `${APP_ROUTES.patients.treatments(id)}?planId=${encodeURIComponent(targetPlan.id)}`;
     navigate(
-      `/patients/${id}/payments?treatmentPlanId=${encodeURIComponent(targetPlan.id)}&returnUrl=${encodeURIComponent(returnUrl)}`
+      `${APP_ROUTES.patients.payments(id)}?treatmentPlanId=${encodeURIComponent(targetPlan.id)}&returnUrl=${encodeURIComponent(returnUrl)}`
     );
   };
 
@@ -1767,107 +1769,152 @@ export function PatientTreatmentsPage() {
                     return (
                       <div
                         key={item.id}
-                        className="group flex flex-col overflow-hidden transition-all hover:border-sky-300 hover:shadow-md hover:bg-slate-50/80 border border-slate-200 rounded-lg cursor-pointer bg-white"
+                        className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/90 bg-white transition-all duration-200 hover:border-sky-400 hover:shadow-lg hover:shadow-sky-500/5 cursor-pointer shadow-sm"
                         onClick={() => setSelectedPlanId(item.id)}
                       >
-                        <div className="p-4 sm:p-5 pointer-events-none">
-                          <div className="flex justify-between items-start mb-6 pointer-events-auto">
-                            <div className="flex items-center gap-2">
-                              <span className="text-lg font-bold text-sky-600">
-                                #{numericCode}: {item.name}
-                              </span>
-                              <div
-                                className="text-sky-600 p-1 hover:bg-sky-50 rounded-md transition-colors"
-                                title="Editar plan"
-                              >
-                                <svg
-                                  className="w-4 h-4"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2.5}
-                                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
-                                  />
-                                </svg>
-                              </div>
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="text-red-500 hover:text-red-700 hover:bg-red-50 h-8 w-8"
-                              onClick={(e) => {
-                                e.stopPropagation(); /* Add delete logic */
-                              }}
+                        {/* Card Header */}
+                        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/50 px-5 py-3.5 sm:px-6">
+                          <div className="flex items-center gap-2.5">
+                            <span className="text-base font-bold text-sky-700 transition-colors group-hover:text-sky-800 sm:text-lg">
+                              #{numericCode}: {item.name}
+                            </span>
+                            <div
+                              className="rounded-md p-1 text-sky-600 transition-colors hover:bg-sky-100/70"
+                              title="Editar plan"
                             >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                              <svg
+                                className="h-4 w-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2.5}
+                                  d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                                />
+                              </svg>
+                            </div>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600"
+                            onClick={(e) => {
+                              e.stopPropagation(); /* Add delete logic */
+                            }}
+                            title="Eliminar plan"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+
+                        {/* Card Columns Body */}
+                        <div className="grid grid-cols-2 gap-4 px-5 py-4 sm:px-6 md:grid-cols-6 md:gap-3 items-center">
+                          {/* 1. Profesional */}
+                          <div className="min-w-0">
+                            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                              Profesional
+                            </div>
+                            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-700">
+                                <UserRound className="h-3.5 w-3.5" />
+                              </div>
+                              <span className="truncate leading-snug">
+                                {item.professional.firstName} {item.professional.lastName}
+                              </span>
+                            </div>
                           </div>
 
-                          <div className="grid grid-cols-2 md:grid-cols-6 gap-4 md:gap-2">
-                            <div>
-                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
-                                Profesional
-                              </div>
-                              <div className="flex items-start text-sm text-slate-700">
-                                <UserRound className="w-4 h-4 mr-1.5 mt-0.5 text-slate-500 shrink-0" />
-                                <span className="leading-tight font-medium">
-                                  {item.professional.firstName} {item.professional.lastName}
-                                </span>
-                              </div>
+                          {/* 2. Especialidad */}
+                          <div className="min-w-0">
+                            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                              Especialidad
                             </div>
-                            <div>
-                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
-                                Especialidad
-                              </div>
-                              <div className="text-sm text-slate-700 font-medium">
-                                {displayPlanSpecialty(item)}
-                              </div>
+                            <div className="truncate text-sm font-medium text-slate-700">
+                              {displayPlanSpecialty(item)}
                             </div>
-                            <div>
-                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
-                                Ultima cita
-                              </div>
-                              <div className="text-sm text-slate-700 font-medium">
+                          </div>
+
+                          {/* 3. Última cita */}
+                          <div className="min-w-0">
+                            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                              Ultima cita
+                            </div>
+                            <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                              <CalendarClock className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              <span className="truncate">
                                 {item.appointments?.[0]?.startAt
                                   ? formatDate(item.appointments[0].startAt)
                                   : "Sin sesiones"}
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-center md:items-start">
-                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
-                                Progreso clinico
-                              </div>
-                              <div className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-slate-300 text-xs font-semibold text-slate-500">
-                                {clinicalProgress}%
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
-                                Estado clinico
-                              </div>
-                              <div className="flex items-center text-sm font-bold text-green-700">
-                                <UserRound className="w-4 h-4 mr-1 shrink-0" />
-                                {PLAN_CLINICAL_STATUS_LABELS[clinicalStatus]}
-                              </div>
-                            </div>
-                            <div>
-                              <div className="text-[10px] font-bold text-slate-400 mb-2 uppercase tracking-wider">
-                                Estado financiero
-                              </div>
-                              <PlanFinancialStatus summary={item.financialSummary} />
+                              </span>
                             </div>
                           </div>
 
-                          <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-xs font-medium text-slate-500">
-                            <span>Presupuesto {money(numberValue(item.financialSummary?.budgetAmount))}</span>
-                            <span>
-                              Creado {formatDate(item.createdAt)} · Última actividad{" "}
-                              {formatDate(item.updatedAt)}
+                          {/* 4. Progreso clínico */}
+                          <div className="flex flex-col items-start min-w-0">
+                            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                              Progreso clinico
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center">
+                                <svg className="h-10 w-10 -rotate-90 transform" viewBox="0 0 36 36">
+                                  <path
+                                    className="text-slate-100"
+                                    strokeWidth="3.5"
+                                    stroke="currentColor"
+                                    fill="none"
+                                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  />
+                                  <path
+                                    className={clinicalProgress === 100 ? "text-emerald-500" : "text-sky-600"}
+                                    strokeDasharray={`${clinicalProgress}, 100`}
+                                    strokeWidth="3.5"
+                                    strokeLinecap="round"
+                                    stroke="currentColor"
+                                    fill="none"
+                                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                                  />
+                                </svg>
+                                <span className="absolute text-[11px] font-bold text-slate-700">{clinicalProgress}%</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* 5. Estado clínico */}
+                          <div className="min-w-0">
+                            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                              Estado clinico
+                            </div>
+                            <div className="flex items-center gap-1.5 text-sm font-semibold text-emerald-700">
+                              <span className="relative flex h-2 w-2">
+                                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75"></span>
+                                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500"></span>
+                              </span>
+                              <span className="truncate">{PLAN_CLINICAL_STATUS_LABELS[clinicalStatus]}</span>
+                            </div>
+                          </div>
+
+                          {/* 6. Estado financiero */}
+                          <div className="min-w-0">
+                            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                              Estado financiero
+                            </div>
+                            <PlanFinancialStatus summary={item.financialSummary} />
+                          </div>
+                        </div>
+
+                        {/* Card Footer */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/40 px-5 py-3 text-xs font-medium text-slate-500 sm:px-6">
+                          <div className="flex items-center gap-1.5 text-slate-700">
+                            <span className="text-slate-500">Presupuesto:</span>
+                            <span className="text-sm font-bold text-slate-900">
+                              {money(numberValue(item.financialSummary?.budgetAmount))}
                             </span>
+                          </div>
+                          <div className="text-slate-400">
+                            Creado {formatDate(item.createdAt)} · Última actividad {formatDate(item.updatedAt)}
                           </div>
                         </div>
                       </div>
@@ -4100,7 +4147,7 @@ function OrthodonticPlanWorkspace({
                 ) : null}
                 <div className="mt-3 flex items-center gap-4">
                   <Link
-                    to={`/patients/${patientId}/clinical/evolutions?treatmentPlanId=${encodeURIComponent(plan.id)}`}
+                    to={`${APP_ROUTES.patients.clinicalEvolutions(patientId)}?treatmentPlanId=${encodeURIComponent(plan.id)}`}
                     className="inline-flex items-center gap-2 text-sm font-semibold text-sky-700 hover:text-sky-800"
                   >
                     <FileText className="h-4 w-4" />
@@ -7223,6 +7270,11 @@ function BudgetProcedureDrawer({
   );
   const filteredItems =
     selectedCategory?.items.filter((item) => budgetCatalogItemMatchesSearch(item, search)) ?? [];
+  const flatResults = useMemo(
+    () => (categoryId === "" && search.trim() ? flatSearchBudgetCatalog(catalog, search) : []),
+    [catalog, search, categoryId]
+  );
+  const isInFlatSearchMode = categoryId === "" && search.trim() !== "" && flatResults.length > 0;
   const planItemCount = Math.max(plan?.items.length ?? 0, addedItemsCount);
   const canCreateBudget = Boolean(planItemCount);
   const selectedPieceLabel = selectedTooth
@@ -7306,7 +7358,7 @@ function BudgetProcedureDrawer({
             className="h-10 w-full rounded-lg border border-slate-200 pl-10 pr-4 text-sm bg-white shadow-none focus-visible:outline-none focus:border-[#185FA5] focus:ring-1 focus:ring-[#185FA5]/20"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder={selectedCategory ? "Buscar prestaciones..." : "Buscar categorías, prestaciones..."}
+            placeholder={selectedCategory ? "Buscar prestaciones..." : "Buscar por código, nombre o categoría..."}
           />
         </div>
 
@@ -7374,30 +7426,88 @@ function BudgetProcedureDrawer({
             </div>
           ) : catalog.length ? (
             <div className="p-4 space-y-3">
-              {filteredCategories.map((category) => (
-                <button
-                  key={category.id}
-                  type="button"
-                  className="grid w-full grid-cols-[1fr_auto] items-center gap-4 px-4 py-3.5 text-left bg-white border border-slate-200/80 rounded-lg shadow-sm hover:border-slate-300 hover:shadow-md transition-all duration-200"
-                  onClick={() => setCategoryId(category.id)}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-slate-800">{category.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {category.items.length
-                        ? `${category.items.length} productos`
-                        : "Sin productos configurados"}
-                      {category.description ? ` · ${category.description}` : ""}
-                    </p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-slate-400" />
-                </button>
-              ))}
-              {!filteredCategories.length ? (
-                <div className="px-6 py-16 text-center text-sm text-slate-500 bg-white border border-slate-200/80 rounded-lg shadow-sm">
-                  No hay categorías con ese filtro.
+              {isInFlatSearchMode ? (
+                <div className="space-y-3">
+                  {flatResults.map(({ item, categoryId, categoryName }) => (
+                    <div
+                      key={`${categoryId}-${item.id}`}
+                      className="grid w-full grid-cols-[1fr_auto] items-center gap-4 p-4 bg-white border border-slate-200/80 rounded-lg shadow-sm transition hover:border-slate-300"
+                    >
+                      <div className="min-w-0 space-y-2">
+                        <div className="flex min-w-0 flex-wrap items-center gap-2">
+                          <span className="text-[10px] font-mono font-semibold uppercase text-slate-400">
+                            {item.procedure.code}
+                          </span>
+                          <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-[10px] font-semibold truncate max-w-[150px]">
+                            {categoryName}
+                          </span>
+                          {item.procedure.requiresTooth ? (
+                            <Badge value="Requiere pieza" tone={selectedTooth ? "brand" : "warning"} />
+                          ) : null}
+                          {item.procedure.requiresSurface ? (
+                            <Badge value="Requiere superficie" tone={selectedSurface ? "brand" : "warning"} />
+                          ) : null}
+                          {item.procedure.requiresLab ? <Badge value="Laboratorio" tone="default" /> : null}
+                        </div>
+                        <div>
+                          <p className="truncate text-sm font-semibold text-slate-800">
+                            {item.procedure.name}
+                          </p>
+                          {item.procedure.description ? (
+                            <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                              {item.procedure.description}
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end justify-between gap-3">
+                        <div className="whitespace-nowrap text-right text-base font-bold text-[#0C447C]">
+                          {money(numberValue(item.price))}
+                          <span className="mt-1 block text-[10px] font-medium text-slate-500">
+                            v{item.version.number} · {item.currency}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          className="inline-flex h-8 items-center justify-center rounded-md border border-[#185FA5] text-[#185FA5] hover:bg-[#E6F1FB] px-3 text-xs font-semibold transition disabled:cursor-wait disabled:opacity-60"
+                          disabled={addingItem}
+                          onClick={() => void onAddItem(item)}
+                        >
+                          <Plus className="mr-1 h-3.5 w-3.5" />
+                          Cargar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ) : null}
+              ) : (
+                <>
+                  {filteredCategories.map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      className="grid w-full grid-cols-[1fr_auto] items-center gap-4 px-4 py-3.5 text-left bg-white border border-slate-200/80 rounded-lg shadow-sm hover:border-slate-300 hover:shadow-md transition-all duration-200"
+                      onClick={() => setCategoryId(category.id)}
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-800">{category.name}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {category.items.length
+                            ? `${category.items.length} productos`
+                            : "Sin productos configurados"}
+                          {category.description ? ` · ${category.description}` : ""}
+                        </p>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-slate-400" />
+                    </button>
+                  ))}
+                  {!filteredCategories.length ? (
+                    <div className="px-6 py-16 text-center text-sm text-slate-500 bg-white border border-slate-200/80 rounded-lg shadow-sm">
+                      {search.trim() ? "No se encontraron prestaciones con ese código o nombre." : "No hay categorías con ese filtro."}
+                    </div>
+                  ) : null}
+                </>
+              )}
             </div>
           ) : (
             <div className="flex h-full items-center justify-center p-6 text-center">
@@ -7451,7 +7561,7 @@ function PatientSignaturePanel({
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
           <h2 className="text-base font-semibold text-slate-900">Firma del paciente</h2>
-          <Link to={`/patients/${patientId}/clinical/consents`}>
+          <Link to={APP_ROUTES.patients.clinicalConsents(patientId)}>
             <Button variant="secondary" size="sm">
               <FileText className="mr-1 h-4 w-4" />
               Crear consentimiento

@@ -14,6 +14,7 @@ import { useChairs } from "@/features/settings/chairs/hooks/use-chairs";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useBranchStore } from "@/stores/branch.store";
+import { APP_ROUTES } from "@/lib/routes";
 
 export function WaitingRoomPage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -22,10 +23,17 @@ export function WaitingRoomPage() {
   const { activeBranchId, setActiveBranchId } = useBranchStore();
   const branchId = activeBranchId;
   const branches = useBranches(undefined, "ACTIVE");
-  const professionals = useProfessionals(undefined, "true", { branchId: branchId || undefined, pageSize: 100 });
+  const professionals = useProfessionals(undefined, "true");
   const chairs = useChairs(undefined, "true");
-  const appointments = useAppointments({ date, view: "day", branchId: branchId || undefined, professionalId: professionalId || undefined, chairId: chairId || undefined });
+  const appointments = useAppointments({
+    date,
+    view: "day",
+    branchId: branchId || undefined,
+    professionalId: professionalId || undefined,
+    chairId: chairId || undefined
+  });
   const actions = useAppointmentActions();
+
   const visibleProfessionals = professionals.data ?? [];
   const visibleChairs = useMemo(
     () => (chairs.data ?? []).filter((chair) => !branchId || chair.branchId === branchId),
@@ -45,7 +53,9 @@ export function WaitingRoomPage() {
   if (appointments.isLoading) return <LoadingState message="Cargando sala de espera..." />;
   if (appointments.isError) return <ErrorState message={appointments.error.message} />;
 
-  const waiting = (appointments.data ?? []).filter((appointment) => ["ARRIVED", "WAITING_ROOM", "IN_PROGRESS"].includes(appointment.status));
+  const waiting = (appointments.data ?? []).filter((appointment) =>
+    ["ARRIVED", "WAITING_ROOM", "IN_PROGRESS"].includes(appointment.status)
+  );
 
   return (
     <div className="space-y-4">
@@ -56,8 +66,8 @@ export function WaitingRoomPage() {
       />
       <Card>
         <div className="mb-3 flex flex-wrap gap-2">
-          <Link to="/agenda/day"><Button variant="secondary">Agenda</Button></Link>
-          <Link to="/agenda/waiting-room"><Button>Sala de espera</Button></Link>
+          <Link to={APP_ROUTES.agenda.day}><Button variant="secondary">Agenda</Button></Link>
+          <Link to={APP_ROUTES.agenda.reprogramming}><Button>Sala de espera</Button></Link>
         </div>
         <div className="grid gap-3 md:grid-cols-4">
           <div className="flex items-center gap-1.5 w-full">

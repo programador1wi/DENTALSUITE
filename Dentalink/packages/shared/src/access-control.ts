@@ -1,0 +1,2733 @@
+export type PermissionPresentationTier = "BASIC" | "ADVANCED" | "INTERNAL";
+
+export const permissionDefinitions = [
+  [
+    "patient_financing.view",
+    "Ver financiamientos del paciente",
+    "Permite consultar financiamientos y cuotas del paciente.",
+    "patient_financing"
+  ],
+  [
+    "payroll_financing.view",
+    "Ver financiamiento a través de descuentos por planilla",
+    "Permite consultar convenios y deudas por descuento en nómina.",
+    "payroll_financing"
+  ],
+  [
+    "patient_financing.create",
+    "Generar financiamientos para el paciente",
+    "Permite crear financiamientos y planes de cuotas.",
+    "patient_financing"
+  ],
+  [
+    "payroll_financing.create",
+    "Generar financiamientos a través de descuentos por planilla",
+    "Permite generar financiamientos con cargo a nómina.",
+    "payroll_financing"
+  ],
+  [
+    "collections.manage",
+    "Cobranza",
+    "Permite gestionar casos, acuerdos y cobranza de morosidad.",
+    "collections"
+  ],
+  [
+    "treatment_items.price_override",
+    "Modificar precios de los procedimientos de un tratamiento",
+    "Permite modificar manualmente el arancel de prestaciones.",
+    "treatment_items"
+  ],
+  [
+    "payments.void",
+    "Eliminar pagos realizados",
+    "Permite anular cobros y pagos registrados.",
+    "payments_void"
+  ],
+  [
+    "payroll_discount.remove",
+    "Eliminar descuento planilla asociado a un tratamiento del paciente",
+    "Permite revocar descuentos de nómina aplicados.",
+    "payroll_discount"
+  ],
+  [
+    "patient_financing.delete",
+    "Eliminar financiamiento asociado a un tratamiento del paciente",
+    "Permite anular o cancelar financiamientos de cuotas.",
+    "patient_financing"
+  ],
+  [
+    "agreement_payments.void",
+    "Eliminar pagos asociados a convenios",
+    "Permite anular pagos o remesas empresariales.",
+    "agreement_payments"
+  ],
+  [
+    "payments.refund_and_reentry",
+    "Efectuar devoluciones y reingresos de dinero",
+    "Permite realizar devoluciones y reingresos a caja.",
+    "payments_refund"
+  ],
+  [
+    "payments.receipt_date.update",
+    "Modificar fecha de recepcion de los pagos",
+    "Permite rectificar la fecha de recepción de cobros.",
+    "payments_receipt_date"
+  ],
+  [
+    "payments.metadata.update",
+    "Permite modificar los datos ingresados del pago",
+    "Permite editar notas, comprobante y asignación de pagos.",
+    "payments_metadata"
+  ],
+  [
+    "treatment_plans.detail.manage",
+    "Administrar detalle del tratamiento",
+    "Permite crear y modificar fases y prestaciones del plan.",
+    "treatment_plans"
+  ],
+  [
+    "budgets.evolve",
+    "Evolucionar presupuestos",
+    "Permite evolucionar presupuestos y registrar atenciones clínicas.",
+    "treatment_plans"
+  ],
+  [
+    "treatment_plans.commercial_discounts",
+    "Descuentos comerciales",
+    "Permite aplicar promociones y descuentos autorizados.",
+    "treatment_plans"
+  ],
+  [
+    "treatment_plans.deactivate_finished",
+    "Reactivar tratamientos finalizados",
+    "Permite reactivar o gestionar tratamientos concluidos.",
+    "treatment_plans"
+  ],
+  [
+    "treatment_plans.unlock",
+    "Desbloquear tratamientos (presupuestos) bloqueados",
+    "Permite desbloquear planes de tratamiento cerrados.",
+    "treatment_plans"
+  ],
+  [
+    "clinical_actions.undo",
+    "Desrealizar acciones clínicas y laboratorios",
+    "Permite revertir prestaciones y órdenes de laboratorio.",
+    "clinical_actions"
+  ],
+  [
+    "treatment_plans.transfer_branch",
+    "Cambiar plan de tratamiento de sucursal",
+    "Permite trasladar tratamientos a otra sucursal.",
+    "treatment_plans"
+  ],
+  [
+    "lab_orders.price_override",
+    "Modificar precio de los laboratorios en un tratamiento",
+    "Permite modificar costos de órdenes de laboratorio.",
+    "lab_orders"
+  ],
+  [
+    "payments.reallocate_credits",
+    "Reasignar abonos libres entre tratamientos de un mismo paciente (y sus cargas)",
+    "Permite transferir abonos a favor entre planes o familiares.",
+    "treatment_plans"
+  ],
+  [
+    "treatment_plans.delete",
+    "Eliminar tratamientos de los pacientes",
+    "Permite dar de baja planes de tratamiento.",
+    "treatment_plans"
+  ],
+  [
+    "clinical_actions.warranty_undo",
+    "Permite desrealizar (por garantía) una prestación ya liquidada",
+    "Permite rehacer prestaciones garantizadas liquidadas.",
+    "clinical_actions"
+  ],
+  [
+    "treatment_plans.comments.update",
+    "Modificar comentarios en un Plan de Tratamiento",
+    "Permite editar observaciones de los tratamientos.",
+    "treatment_plans"
+  ],
+  [
+    "treatment_plans.comment_templates.manage",
+    "Crear, modificar y eliminar plantillas de comentarios para un Plan de Tratamiento",
+    "Permite gestionar plantillas de texto para planes.",
+    "treatment_plans"
+  ],
+  [
+    "treatment_plans.reactivate_expired",
+    "Reactivar tratamientos expirados",
+    "Permite reabrir presupuestos con vigencia vencida.",
+    "treatment_plans"
+  ],
+  [
+    "payments.cash_discount.release_credit",
+    "Permite liberar a abono libre, pagos que tengan descuento por caja",
+    "Permite liberar saldo a favor de pagos con descuento.",
+    "treatment_plans"
+  ],
+  [
+    "treatment_plans.duplicate",
+    "Permite duplicar tratamiento",
+    "Permite clonar planes de tratamiento existentes.",
+    "treatment_plans"
+  ],
+  [
+    "clinical.print_signature.view",
+    "Visualizar firma del profesional en imprimibles",
+    "Permite mostrar firmas digitales en recetas e informes.",
+    "treatment_plans"
+  ],
+  [
+    "payments.unallocate",
+    "Desasociar pagos de prestaciones",
+    "Permite desvincular pagos de procedimientos específicos.",
+    "treatment_plans"
+  ],
+  [
+    "reports.management.read",
+    "Reportes generales y específicos de gestión",
+    "Permite consultar y exportar reportes operacionales y financieros.",
+    "reports_management"
+  ],
+  [
+    "dashboard.performance.view",
+    "Ver el panel de desempeño",
+    "Permite acceder al panel ejecutivo y métricas de desempeño.",
+    "reports_management"
+  ],
+  [
+    "admin.users.manage",
+    "Gestión de usuarios del sistema",
+    "Permite crear, editar y desactivar usuarios y colaboradores.",
+    "admin"
+  ],
+  [
+    "admin.payment_methods_banks.manage",
+    "Configuración de medios de pago y Bancos",
+    "Permite configurar medios de pago, retenciones y entidades bancarias.",
+    "admin"
+  ],
+  [
+    "admin.expenses.manage",
+    "Administración de gastos",
+    "Permite registrar, clasificar y anular gastos de la clínica.",
+    "admin"
+  ],
+  [
+    "admin.inventory.manage",
+    "Gestión de inventario",
+    "Permite administrar catálogo de insumos, bodegas y movimientos de stock.",
+    "admin"
+  ],
+  [
+    "admin.price_lists_templates.manage",
+    "Configuración de listado y plantillas",
+    "Permite administrar aranceles, listas de precios y categorías.",
+    "admin"
+  ],
+  [
+    "admin.laboratories.manage",
+    "Gestión de laboratorios",
+    "Permite administrar proveedores dentales y órdenes de trabajo.",
+    "admin"
+  ],
+  [
+    "admin.settlements.manage",
+    "Gestión de liquidaciones",
+    "Permite consultar y procesar liquidaciones de comisiones.",
+    "admin"
+  ],
+  [
+    "admin.dentists.manage",
+    "Gestión de dentistas",
+    "Permite dar de alta y configurar datos y horarios de profesionales.",
+    "admin"
+  ],
+  [
+    "admin.agreements.manage",
+    "Gestión de convenios",
+    "Permite administrar convenios empresariales y aranceles institucionales.",
+    "admin"
+  ],
+  [
+    "admin.pending_void_payments.manage",
+    "Gestión de pagos pendientes y anulados",
+    "Permite auditar cobros cancelados y vencimientos pendientes.",
+    "admin"
+  ],
+  [
+    "admin.reports_excel.export",
+    "Reportes Excel",
+    "Permite descargar reportes maestros en formato Excel/CSV.",
+    "admin"
+  ],
+  [
+    "admin.logo.manage",
+    "Agregar o cambiar logo clínica",
+    "Permite personalizar identidad visual y logotipos por sucursal.",
+    "admin"
+  ],
+  [
+    "admin.patient_field_config.manage",
+    "Edición de datos personales mostrados y requeridos al ingresar un paciente en la plataforma",
+    "Permite configurar campos obligatorios en el registro de pacientes.",
+    "admin"
+  ],
+  [
+    "admin.patient_admin_notes.view",
+    "Permite ver los comentarios administrativos en datos del paciente",
+    "Permite consultar notas internas de recepción y cobranza.",
+    "admin"
+  ],
+  [
+    "admin.templates_only.manage",
+    "Configuración sólo de plantillas",
+    "Permite gestionar plantillas de documentos clínicos y recetas.",
+    "admin"
+  ],
+  [
+    "admin.lab_requests.manage",
+    "Gestión de solicitudes de laboratorios",
+    "Permite emitir y dar seguimiento a pedidos a laboratorios dentales.",
+    "admin"
+  ],
+  [
+    "admin.clinical_docs.manage",
+    "Gestión de documentos clínicos",
+    "Permite administrar modelos de consentimientos y fichas clínicas.",
+    "admin"
+  ],
+  [
+    "admin.ges_notifications.view_print",
+    "Permite ver e imprimir notificaciones GES",
+    "Permite gestionar documentos normativos e institucionales.",
+    "admin"
+  ],
+  [
+    "admin.settlement_payment.update",
+    "Editar pago de liquidación",
+    "Permite corregir o registrar pagos de liquidaciones profesionales.",
+    "admin"
+  ],
+  [
+    "admin.consent_templates.manage",
+    "Permite crear, modificar y eliminar plantillas de consentimientos informados",
+    "Permite configurar textos legales de consentimiento.",
+    "admin"
+  ],
+  [
+    "admin.specialties.manage",
+    "Permiso poder gestionar especialidades",
+    "Permite crear y asignar especialidades odontológicas.",
+    "admin"
+  ],
+  [
+    "admin.roles.manage",
+    "Permiso para administrar permisos para perfiles",
+    "Permite crear y editar perfiles de acceso y seguridad.",
+    "admin"
+  ],
+  [
+    "admin.user_permissions.manage",
+    "Permiso para administrar permisos para usuarios",
+    "Permite asignar perfiles y sucursales a los usuarios.",
+    "admin"
+  ],
+  [
+    "admin.lab_payments.manage",
+    "Gestión de pagos de laboratorios",
+    "Permite asentar pagos de facturas de laboratorios protésicos.",
+    "admin"
+  ],
+  [
+    "admin.ges_config.manage",
+    "Permiso para modificar parámetros de configuración GES",
+    "Permite modificar parámetros de atención protocolizada.",
+    "admin"
+  ],
+  [
+    "admin.online_tpv_dashboard.view",
+    "Visualizar dashboard de transacciones para pago online y TPV",
+    "Permite auditar transacciones de terminales bancarias y links de pago.",
+    "admin"
+  ],
+  [
+    "admin.user_security.manage",
+    "Permite gestionar la seguridad de cuentas de usuarios",
+    "Permite bloquear acceso o reiniciar credenciales de usuarios.",
+    "admin"
+  ],
+  [
+    "admin.price_lists.bulk_import",
+    "Puede hacer carga masiva de aranceles de precio",
+    "Permite importar aranceles masivamente mediante archivos.",
+    "admin"
+  ],
+  [
+    "admin.file_sync.configure",
+    "Configurar sincronización de archivos",
+    "Permite vincular almacenamiento en la nube o local.",
+    "admin"
+  ],
+  [
+    "admin.file_sync.export_attach",
+    "Explorar y adjuntar archivos sincronizados",
+    "Permite explorar y adjuntar documentos desde el sincronizador.",
+    "admin"
+  ],
+  [
+    "admin.health_center.view",
+    "Ver sección mi centro de salud",
+    "Permite consultar la ficha corporativa de marcas y sucursales.",
+    "admin"
+  ],
+  [
+    "patients.records.manage",
+    "Ver y editar fichas del paciente",
+    "Permite consultar y editar historial clínico, odontograma y evoluciones.",
+    "patients"
+  ],
+  [
+    "patients.invoices.view",
+    "Ver facturas del paciente",
+    "Permite consultar historial de facturas, recibos y saldo pendiente.",
+    "patients"
+  ],
+  [
+    "patients.images.upload",
+    "Ver y subir imágenes",
+    "Permite cargar fotografías clínicas, radiografías y archivos adjuntos.",
+    "patients"
+  ],
+  [
+    "patients.family_groups.manage",
+    "Gestión de cargas familiares",
+    "Permite asociar grupos familiares y autorizar tutores.",
+    "patients"
+  ],
+  [
+    "patients.personal_data.update",
+    "Ver y modificar datos personales del paciente",
+    "Permite actualizar teléfono, correo, domicilio y datos de contacto.",
+    "patients"
+  ],
+  [
+    "patients.alerts.manage",
+    "Ver y editar las alertas del paciente",
+    "Permite crear y editar alertas médicas y administrativas críticas.",
+    "patients"
+  ],
+  [
+    "patients.records.read_only",
+    "Ver fichas y evoluciones del paciente (sin poder editar)",
+    "Permite consultar la historia clínica en modo solo lectura.",
+    "patients"
+  ],
+  [
+    "patients.alerts.view",
+    "Ver las alertas del paciente",
+    "Permite visualizar advertencias médicas en la ficha.",
+    "patients"
+  ],
+  [
+    "patients.document_number.update",
+    "Editar el CURP del paciente",
+    "Permite corregir el documento de identidad oficial del paciente.",
+    "patients"
+  ],
+  [
+    "patients.personal_data.view",
+    "Ver los datos personales del paciente",
+    "Permite consultar datos de contacto y demográficos del paciente.",
+    "patients"
+  ],
+  [
+    "patients.prescriptions.manage",
+    "Ver y crear las recetas del paciente",
+    "Permite emitir y consultar recetas médicas prescritas.",
+    "patients"
+  ],
+  [
+    "patients.deactivate",
+    "Permite deshabilitar pacientes",
+    "Permite dar de baja o archivar registros de pacientes.",
+    "patients"
+  ],
+  [
+    "patients.medical_history.edit",
+    "Editar antecedentes predeterminados",
+    "Permite registrar y modificar la anamnesis médica.",
+    "patients"
+  ],
+  [
+    "patients.medical_history_history.view",
+    "Ver historial de cambios en antecedentes",
+    "Permite auditar modificaciones a la historia médica.",
+    "patients"
+  ],
+  [
+    "patients.consents.manage",
+    "Ver y editar consentimientos del paciente",
+    "Permite generar, firmar y anular consentimientos informados.",
+    "patients"
+  ],
+  [
+    "patients.consents.read_only",
+    "Ver consentimientos del paciente (Solo lectura, sin poder editar)",
+    "Permite consultar y descargar consentimientos firmados.",
+    "patients"
+  ],
+  [
+    "patients.merge",
+    "Permite fusionar fichas de dos pacientes",
+    "Permite unificar registros duplicados de pacientes.",
+    "patients"
+  ],
+  [
+    "patients.clinical_history.download",
+    "Descargar historia clínica del paciente",
+    "Permite exportar la historia clínica completa en PDF.",
+    "patients"
+  ],
+  [
+    "patients.images.delete",
+    "Eliminar Rx e imágenes del paciente",
+    "Permite borrar fotografías y radiografías adjuntas.",
+    "patients"
+  ],
+  [
+    "patients.clinical_docs.delete",
+    "Eliminar documentos clínicos del paciente",
+    "Permite borrar documentos clínicos y archivos del paciente.",
+    "patients"
+  ],
+  [
+    "patients.create",
+    "Permiso para crear pacientes",
+    "Permite dar de alta nuevos pacientes en el sistema.",
+    "patients"
+  ],
+  [
+    "agenda.edit",
+    "Editar agendas",
+    "Permite reprogramar, cancelar, actualizar estados y bloquear espacios de la agenda.",
+    "agenda"
+  ],
+  [
+    "agenda.view",
+    "Ver agendas",
+    "Permite consultar la agenda de citas, profesionales y sillones de la sucursal.",
+    "agenda"
+  ],
+  [
+    "agenda.appointments.create",
+    "Agendar citas a los pacientes",
+    "Permite reservar y asignar nuevas citas médicas.",
+    "agenda"
+  ],
+  [
+    "agenda.overbooking.allow",
+    "Permite agendar citas fuera de hora",
+    "Permite agendar citas en sobrecupo o fuera de disponibilidad normal.",
+    "agenda"
+  ],
+  [
+    "agenda.online_booking.validate",
+    "Validar citas en agenda online",
+    "Permite revisar y confirmar reservas automáticas por internet.",
+    "agenda"
+  ],
+  [
+    "agenda.reprogramming.manage",
+    "Reprogramación agendas",
+    "Permite gestionar la cola y lotes de citas pendientes de reprogramar.",
+    "agenda"
+  ],
+  [
+    "cash_register.shifts.manage",
+    "Apertura y cierre de cajas",
+    "Permite abrir turnos, registrar movimientos manuales y cerrar caja.",
+    "cash_register"
+  ],
+  [
+    "cash_register.summaries.view",
+    "Resúmenes de cajas",
+    "Permite consultar arqueos, reportes de turnos y balances de caja.",
+    "cash_register"
+  ],
+  [
+    "dentist_payouts.manage",
+    "Pagos de Dentistas por período",
+    "Permite consultar y registrar pagos periódicos a dentistas.",
+    "dentist_payouts"
+  ],
+  [
+    "crm.marketing_campaigns.manage",
+    "Gestionar campañas de Marketing y fidelización de pacientes",
+    "Permite crear y enviar campañas de correo masivo y WhatsApp.",
+    "crm"
+  ],
+  [
+    "crm.tasks.manage",
+    "Gestión de tareas",
+    "Permite crear, asignar, reasignar y completar tareas operativas.",
+    "crm"
+  ],
+  [
+    "crm.surveys.manage",
+    "Gestionar encuestas de satisfacción",
+    "Permite crear, enviar y monitorear encuestas de calidad NPS.",
+    "crm"
+  ],
+  [
+    "crm.surveys.edit",
+    "Editar encuestas de satisfacción",
+    "Permite modificar preguntas y configuración de encuestas.",
+    "crm"
+  ],
+  [
+    "system.manage_all",
+    "Administrar todo el sistema",
+    "Permite administrar toda la plataforma sin restricciones de permisos.",
+    "system"
+  ],
+  [
+    "dashboard.read",
+    "Ver panel principal",
+    "Permite visualizar el panel principal del sistema.",
+    "system"
+  ]
+] as const;
+
+const CANONICAL_PERMISSION_KEYS = new Set<string>(permissionDefinitions.map(([key]) => key));
+
+export const roleDefinitions = [
+  {
+    "name": "Super Administrador",
+    "code": "super_admin",
+    "description": "Acceso total a la plataforma",
+    "permissionKeys": [
+      "system.manage_all",
+      "patient_financing.view",
+      "payroll_financing.view",
+      "patient_financing.create",
+      "payroll_financing.create",
+      "collections.manage",
+      "treatment_items.price_override",
+      "payments.void",
+      "payroll_discount.remove",
+      "patient_financing.delete",
+      "agreement_payments.void",
+      "payments.refund_and_reentry",
+      "payments.receipt_date.update",
+      "payments.metadata.update",
+      "treatment_plans.detail.manage",
+      "budgets.evolve",
+      "treatment_plans.commercial_discounts",
+      "treatment_plans.deactivate_finished",
+      "treatment_plans.unlock",
+      "clinical_actions.undo",
+      "treatment_plans.transfer_branch",
+      "lab_orders.price_override",
+      "payments.reallocate_credits",
+      "treatment_plans.delete",
+      "clinical_actions.warranty_undo",
+      "treatment_plans.comments.update",
+      "treatment_plans.comment_templates.manage",
+      "treatment_plans.reactivate_expired",
+      "payments.cash_discount.release_credit",
+      "treatment_plans.duplicate",
+      "clinical.print_signature.view",
+      "payments.unallocate",
+      "reports.management.read",
+      "dashboard.performance.view",
+      "admin.users.manage",
+      "admin.payment_methods_banks.manage",
+      "admin.expenses.manage",
+      "admin.inventory.manage",
+      "admin.price_lists_templates.manage",
+      "admin.laboratories.manage",
+      "admin.settlements.manage",
+      "admin.dentists.manage",
+      "admin.agreements.manage",
+      "admin.pending_void_payments.manage",
+      "admin.reports_excel.export",
+      "admin.logo.manage",
+      "admin.patient_field_config.manage",
+      "admin.patient_admin_notes.view",
+      "admin.templates_only.manage",
+      "admin.lab_requests.manage",
+      "admin.clinical_docs.manage",
+      "admin.ges_notifications.view_print",
+      "admin.settlement_payment.update",
+      "admin.consent_templates.manage",
+      "admin.specialties.manage",
+      "admin.roles.manage",
+      "admin.user_permissions.manage",
+      "admin.lab_payments.manage",
+      "admin.ges_config.manage",
+      "admin.online_tpv_dashboard.view",
+      "admin.user_security.manage",
+      "admin.price_lists.bulk_import",
+      "admin.file_sync.configure",
+      "admin.file_sync.export_attach",
+      "admin.health_center.view",
+      "patients.records.manage",
+      "patients.invoices.view",
+      "patients.images.upload",
+      "patients.family_groups.manage",
+      "patients.personal_data.update",
+      "patients.alerts.manage",
+      "patients.records.read_only",
+      "patients.alerts.view",
+      "patients.document_number.update",
+      "patients.personal_data.view",
+      "patients.prescriptions.manage",
+      "patients.deactivate",
+      "patients.medical_history.edit",
+      "patients.medical_history_history.view",
+      "patients.consents.manage",
+      "patients.consents.read_only",
+      "patients.merge",
+      "patients.clinical_history.download",
+      "patients.images.delete",
+      "patients.clinical_docs.delete",
+      "patients.create",
+      "agenda.edit",
+      "agenda.view",
+      "agenda.appointments.create",
+      "agenda.overbooking.allow",
+      "agenda.online_booking.validate",
+      "agenda.reprogramming.manage",
+      "cash_register.shifts.manage",
+      "cash_register.summaries.view",
+      "dentist_payouts.manage",
+      "crm.marketing_campaigns.manage",
+      "crm.tasks.manage",
+      "crm.surveys.manage",
+      "crm.surveys.edit"
+    ]
+  },
+  {
+    "name": "Administrador de Sucursal",
+    "code": "branch_admin",
+    "description": "Gestion operativa y clinica de sucursal",
+    "permissionKeys": [
+      "admin.users.manage",
+      "admin.payment_methods_banks.manage",
+      "admin.expenses.manage",
+      "admin.inventory.manage",
+      "admin.price_lists_templates.manage",
+      "admin.laboratories.manage",
+      "admin.settlements.manage",
+      "admin.dentists.manage",
+      "admin.agreements.manage",
+      "admin.pending_void_payments.manage",
+      "admin.reports_excel.export",
+      "admin.logo.manage",
+      "admin.patient_field_config.manage",
+      "admin.patient_admin_notes.view",
+      "admin.templates_only.manage",
+      "admin.lab_requests.manage",
+      "admin.clinical_docs.manage",
+      "admin.specialties.manage",
+      "admin.roles.manage",
+      "admin.user_permissions.manage",
+      "admin.health_center.view",
+      "reports.management.read",
+      "dashboard.performance.view",
+      "agenda.view",
+      "agenda.edit",
+      "agenda.appointments.create",
+      "agenda.overbooking.allow",
+      "agenda.online_booking.validate",
+      "agenda.reprogramming.manage",
+      "patients.records.manage",
+      "patients.invoices.view",
+      "patients.images.upload",
+      "patients.family_groups.manage",
+      "patients.personal_data.update",
+      "patients.alerts.manage",
+      "patients.personal_data.view",
+      "patients.prescriptions.manage",
+      "patients.consents.manage",
+      "patients.clinical_history.download",
+      "patients.create",
+      "cash_register.shifts.manage",
+      "cash_register.summaries.view",
+      "dentist_payouts.manage",
+      "collections.manage",
+      "patient_financing.view",
+      "patient_financing.create",
+      "payments.refund_and_reentry",
+      "payments.receipt_date.update",
+      "payments.metadata.update",
+      "treatment_plans.detail.manage",
+      "budgets.evolve",
+      "treatment_plans.commercial_discounts",
+      "treatment_plans.unlock",
+      "payments.reallocate_credits",
+      "crm.tasks.manage"
+    ]
+  },
+  {
+    "name": "Caja",
+    "code": "cashier",
+    "description": "Cobranza, control de caja y visualizacion de citas",
+    "permissionKeys": [
+      "agenda.view",
+      "agenda.appointments.create",
+      "cash_register.shifts.manage",
+      "cash_register.summaries.view",
+      "dentist_payouts.manage",
+      "patient_financing.view",
+      "payroll_financing.view",
+      "patient_financing.create",
+      "payroll_financing.create",
+      "collections.manage",
+      "payments.refund_and_reentry",
+      "payments.receipt_date.update",
+      "payments.metadata.update",
+      "patients.personal_data.view",
+      "patients.invoices.view",
+      "treatment_plans.detail.manage"
+    ]
+  },
+  {
+    "name": "Recepcionista",
+    "code": "receptionist",
+    "description": "Atencion a pacientes y gestion de agenda",
+    "permissionKeys": [
+      "agenda.view",
+      "agenda.edit",
+      "agenda.appointments.create",
+      "agenda.overbooking.allow",
+      "agenda.online_booking.validate",
+      "agenda.reprogramming.manage",
+      "patients.create",
+      "patients.personal_data.view",
+      "patients.personal_data.update",
+      "patients.alerts.view",
+      "patients.family_groups.manage",
+      "cash_register.shifts.manage",
+      "crm.tasks.manage"
+    ]
+  },
+  {
+    "name": "Dentista",
+    "code": "dentist",
+    "description": "Atencion clinica y evolucion de tratamientos",
+    "permissionKeys": [
+      "agenda.view",
+      "patients.records.manage",
+      "patients.personal_data.view",
+      "patients.images.upload",
+      "patients.alerts.manage",
+      "patients.alerts.view",
+      "patients.prescriptions.manage",
+      "patients.medical_history.edit",
+      "patients.consents.manage",
+      "treatment_plans.detail.manage",
+      "budgets.evolve",
+      "treatment_plans.comments.update",
+      "clinical.print_signature.view"
+    ]
+  }
+] as const;
+
+export const PERMISSION_LABELS: Record<string, string> = {
+  "agreement.apply_to_plan": "Aplicar convenios a planes",
+  "agreements.read": "Ver convenios",
+  "agreements.manage": "Administrar convenios",
+  "agreements.publish": "Publicar convenios",
+  "agreements.assign": "Asignar convenios",
+  "agreements.debt_report.read": "Ver reporte de deuda de convenios",
+  "agreements.debt_report.all_branches": "Ver deuda de convenios en todas las sucursales",
+  "agreements.payments.create": "Registrar pagos de convenios",
+  "agreements.payments.approve": "Aprobar pagos de convenios",
+  "agreements.payments.void": "Anular pagos de convenios",
+  "agreements.reports.export": "Exportar reportes de convenios",
+  "price_list.view": "Ver listas de precios",
+  "price_list.create": "Crear listas de precios",
+  "price_list.edit_draft": "Editar borradores de precios",
+  "price_list.publish": "Publicar listas de precios",
+  "price_list.schedule": "Programar vigencia de precios",
+  "price_list.deactivate": "Desactivar listas de precios",
+  "price_list.compare_versions": "Comparar versiones de precios",
+  "price_list.import": "Importar listas de precios",
+  "price_list.export": "Exportar listas de precios",
+  "price_template.view": "Ver plantillas de precios",
+  "price_template.manage": "Administrar plantillas de precios",
+  "price_override.apply": "Aplicar excepciones de precio",
+  "price_override.approve": "Aprobar excepciones de precio",
+  "price_audit.view": "Ver auditor�a de precios",
+  "procedure.view": "Ver cat�logo cl�nico",
+  "procedure.create": "Crear prestaciones cl�nicas",
+  "procedure.edit": "Editar prestaciones cl�nicas",
+  "procedure.deactivate": "Desactivar prestaciones cl�nicas",
+  "laboratory_price.view": "Ver aranceles de laboratorio",
+  "laboratory_price.edit": "Editar aranceles de laboratorio",
+  "view_generated_documents": "Ver documentos generados",
+  "void_generated_document": "Anular documentos generados",
+  "print_complete_budget": "Imprimir presupuesto completo",
+  "print_total_only_budget": "Imprimir presupuesto solo total",
+  "print_budget_without_values": "Imprimir presupuesto sin valores",
+  "print_care_plan": "Imprimir plan de cuidado",
+  "print_treatment_sections": "Imprimir secciones de tratamiento",
+  "print_laboratory_order": "Imprimir orden de laboratorio",
+  "print_odontogram": "Imprimir odontograma",
+  "print_clinical_history": "Imprimir historia cl�nica",
+  "select_print_logo": "Seleccionar logotipo de impresi�n",
+  "manage_logos": "Administrar logotipos institucionales",
+  "assign_logos_to_branches": "Asignar logotipos a sucursales",
+  "system.manage_all": "Administrar todo",
+  "family_policies.read": "Ver pólizas familiares",
+  "family_policies.create": "Crear pólizas familiares",
+  "family_policies.manage": "Administrar pólizas familiares",
+  "family_policies.activate": "Registrar pago y activar pólizas",
+  "family_policies.coverage.read": "Ver coberturas de pólizas",
+  "family_policies.coverage.apply": "Aplicar coberturas a tratamientos",
+  "family_policies.usage.read": "Ver consumos de pólizas",
+  "dashboard.read": "Ver panel principal",
+  "users.read": "Ver usuarios",
+  "users.create": "Crear usuarios",
+  "users.update": "Editar usuarios",
+  "users.deactivate": "Desactivar usuarios",
+  "roles.read": "Ver perfiles",
+  "roles.create": "Crear perfiles",
+  "roles.update": "Editar perfiles",
+  "roles.deactivate": "Desactivar perfiles",
+  "permissions.read": "Ver permisos",
+  "permissions.create": "Crear permisos",
+  "permissions.update": "Editar permisos",
+  "permissions.deactivate": "Desactivar permisos",
+  "branches.read": "Ver sucursales",
+  "branches.create": "Crear sucursales",
+  "branches.update": "Editar sucursales",
+  "branches.deactivate": "Desactivar sucursales",
+  "branches.archive": "Archivar sucursales",
+  "branches.restore": "Restaurar sucursales",
+  "branches.assign_brand": "Mover sucursales de marca",
+  "branches.manage_contact": "Editar contacto de sucursales",
+  "branches.view_all": "Ver todas las sucursales",
+  "health_center.view": "Ver Mi centro de salud",
+  "health_center.manage": "Administrar Mi centro de salud",
+  "brands.view": "Ver marcas",
+  "brands.create": "Crear marcas",
+  "brands.update": "Editar marcas",
+  "brands.archive": "Archivar marcas",
+  "brands.manage_identity": "Administrar identidad de marcas",
+  "brands.manage_communications": "Administrar comunicaciones de marcas",
+  "users.manage_branch_access": "Administrar acceso a sucursales",
+  "settings.read": "Ver configuracion",
+  "settings.update": "Editar configuracion",
+  "specialties.read": "Ver especialidades",
+  "specialties.create": "Crear especialidades",
+  "specialties.update": "Editar especialidades",
+  "specialties.deactivate": "Desactivar especialidades",
+  "professionals.read": "Ver profesionales",
+  "professionals.create": "Crear profesionales",
+  "professionals.update": "Editar profesionales",
+  "professionals.deactivate": "Desactivar profesionales",
+  "schedules.read": "Ver horarios",
+  "schedules.create": "Crear horarios",
+  "schedules.update": "Editar horarios",
+  "schedules.deactivate": "Desactivar horarios",
+  "chairs.read": "Ver sillones",
+  "chairs.create": "Crear sillones",
+  "chairs.update": "Editar sillones",
+  "chairs.deactivate": "Desactivar sillones",
+  "payment_methods.read": "Ver metodos de pago",
+  "payment_methods.create": "Crear metodos de pago",
+  "payment_methods.update": "Editar metodos de pago",
+  "payment_methods.deactivate": "Desactivar metodos de pago",
+  "payment_methods.reactivate": "Reactivar medios de pago",
+  "payment_methods.configure_retention": "Configurar retención de medios de pago",
+  "payment_methods.configure_refunds": "Configurar devoluciones por medio",
+  "payment_methods.configure_multiple_settlements": "Configurar recepciones diferidas",
+  "payment_methods.configure_cash_impact": "Configurar impacto en caja y reportes",
+  "payment_methods.view_audit": "Auditar medios de pago",
+  "payment_settlements.read": "Ver recepciones programadas",
+  "payment_settlements.receive": "Recibir vencimientos programados",
+  "payment_settlements.cancel": "Cancelar vencimientos programados",
+  "payment_options.cash_discounts.view": "Ver descuentos por caja",
+  "payment_options.cash_discounts.create": "Crear descuentos por caja",
+  "payment_options.cash_discounts.update": "Editar descuentos por caja",
+  "payment_options.cash_discounts.disable": "Deshabilitar descuentos por caja",
+  "payment_options.cash_discounts.reactivate": "Reactivar descuentos por caja",
+  "payments.cash_discounts.apply": "Aplicar descuentos por caja",
+  "payments.cash_discounts.override": "Sobrescribir limites de descuentos por caja",
+  "payments.cash_discounts.view_audit": "Auditar descuentos por caja",
+  "procedure_categories.read": "Ver categorias de procedimientos",
+  "procedure_categories.create": "Crear categorias de procedimientos",
+  "procedure_categories.update": "Editar categorias de procedimientos",
+  "procedure_categories.deactivate": "Desactivar categorias de procedimientos",
+  "procedures.read": "Ver procedimientos",
+  "procedures.create": "Crear procedimientos",
+  "procedures.update": "Editar procedimientos",
+  "procedures.deactivate": "Desactivar procedimientos",
+  "price_lists.read": "Ver listas de precios",
+  "price_lists.create": "Crear listas de precios",
+  "price_lists.update": "Editar listas de precios",
+  "price_lists.configure_discount_limits": "Configurar máximos de descuento por prestación",
+  "price_lists.override_manual": "Sobrescribir precios manualmente",
+  "price_lists.deactivate": "Desactivar listas de precios",
+  "treatment_discount.apply": "Permitir descuento",
+  "treatment_discount.configure_user_limits": "Configurar máximos de descuento por usuario",
+  "treatment_discount.override": "Autorizar descuentos especiales",
+  "treatment_discount.view": "Ver descuentos de tratamiento",
+  "treatment_discount.audit": "Auditar descuentos de tratamiento",
+  "patients.read": "Ver pacientes",
+  "patient_analytics.read": "Ver analisis de pacientes",
+  "patient_analytics.read_financial": "Ver metricas financieras de pacientes",
+  "patient_analytics.view_all_branches": "Consolidar analisis de sucursales",
+  "patient_analytics.export": "Exportar analisis de pacientes",
+  "patient_analytics.refresh": "Actualizar analisis de pacientes",
+  "patient_analytics.view_patient_details": "Ver pacientes identificados en analisis",
+  "patients.create": "Permiso para crear pacientes",
+  "patients.update": "Editar pacientes",
+  "patient_identity.config.read": "Ver configuración de identidad",
+  "patient_identity.config.manage": "Administrar identidad de pacientes",
+  "contact_points.read": "Ver medios de contacto",
+  "contact_points.link": "Vincular medios de contacto",
+  "contact_points.verify": "Verificar medios de contacto",
+  "contact_points.transfer": "Transferir medios de contacto",
+  "contact_points.backfill": "Migrar teléfonos heredados",
+  "family_groups.read": "Ver grupos familiares",
+  "family_groups.create": "Crear grupos familiares",
+  "family_groups.manage_members": "Gestionar integrantes familiares",
+  "family_groups.manage_contacts": "Gestionar contactos familiares",
+  "family_groups.manage_permissions": "Gestionar permisos familiares",
+  "patient_duplicates.review": "Revisar pacientes duplicados",
+  "patients.merge": "Permite fusionar fichas de dos pacientes",
+  "booking_identity.review": "Revisar identidad de reservas",
+  "booking_identity.resolve": "Resolver identidad de reservas",
+  "patients.deactivate": "Permite deshabilitar pacientes",
+  "patients.notes.create": "Crear notas de pacientes",
+  "patients.alerts.create": "Crear alertas de pacientes",
+  "patients.tasks.read": "Ver tareas de pacientes",
+  "patients.tasks.create": "Crear tareas de pacientes",
+  "patients.tasks.update": "Editar tareas de pacientes",
+  "patients.tasks.complete": "Finalizar tareas de pacientes",
+  "crm.tasks.read": "Ver tareas de gestión CRM",
+  "crm.tasks.create": "Crear tareas de gestión CRM",
+  "crm.tasks.update": "Editar y reasignar tareas CRM",
+  "crm.tasks.complete": "Completar tareas CRM",
+  "crm.tasks.reopen": "Reabrir tareas CRM",
+  "crm.tasks.cancel": "Cancelar tareas CRM",
+  "crm.tasks.statistics.read": "Ver estadísticas de tareas CRM",
+  "crm.tasks.configuration.read": "Ver configuración de tareas CRM",
+  "crm.tasks.configuration.update": "Modificar configuración de tareas CRM",
+  "appointments.read": "Ver citas",
+  "appointments.create": "Crear citas",
+  "appointments.update": "Editar citas",
+  "appointments.cancel": "Cancelar citas",
+  "appointments.status.update": "Actualizar estado de citas",
+  "appointments.overbook": "Agendar fuera de disponibilidad",
+  "appointments.block": "Bloquear espacios de agenda",
+  "agenda.reprogramming.view": "Ver reprogramación de citas",
+  "agenda.reprogramming.mass_cancel": "Crear lotes de reprogramación",
+  "agenda.reprogramming.reschedule": "Reprogramar casos pendientes",
+  "agenda.reprogramming.change_professional": "Cambiar profesional al reprogramar",
+  "agenda.reprogramming.change_branch": "Cambiar sucursal al reprogramar",
+  "agenda.reprogramming.definitive_cancel": "Cancelar definitivamente casos",
+  "agenda.reprogramming.view_financial_status": "Ver situación financiera en reprogramación",
+  "agenda.reprogramming.view_audit": "Ver auditoría de reprogramación",
+  "clinical.read": "Ver expediente clinico",
+  "clinical.history.update": "Editar historia clinica",
+  "clinical.evolutions.create": "Crear evoluciones clinicas",
+  "clinical.evolutions.sign": "Firmar evoluciones clinicas",
+  "clinical.prescriptions.create": "Crear recetas",
+  "clinical.documents.create": "Crear documentos clinicos",
+  "clinical.templates.manage": "Administrar plantillas clinicas",
+  "clinical.odontogram.read": "Ver odontograma",
+  "clinical.odontogram.write": "Editar odontograma",
+  "clinical.periodontogram.read": "Ver periodontograma",
+  "clinical.periodontogram.write": "Crear periodontograma",
+  "treatment_plans.read": "Ver planes de tratamiento",
+  "treatment_plans.create": "Crear planes de tratamiento",
+  "treatment_plans.update": "Editar planes de tratamiento",
+  "treatment_plans.status.update": "Actualizar estado de tratamientos",
+  "treatment_plans.alternatives.manage": "Administrar alternativas de tratamiento",
+  "orthodontic_catalogs.manage": "Administrar catalogos de ortodoncia",
+  "orthodontic_diagnosis.read": "Ver diagnostico de ortodoncia",
+  "orthodontic_diagnosis.create": "Guardar diagnostico activo de ortodoncia",
+  "orthodontic_diagnosis.draft": "Guardar borrador de diagnostico de ortodoncia",
+  "orthodontic_diagnosis.update": "Actualizar diagnostico de ortodoncia",
+  "orthodontic_diagnosis.history.read": "Ver historial de diagnosticos de ortodoncia",
+  "orthodontic_diagnosis.catalogs.manage": "Administrar catalogos de diagnostico de ortodoncia",
+  "budgets.read": "Ver presupuestos",
+  "budgets.create": "Crear presupuestos",
+  "budgets.update": "Editar presupuestos",
+  "budgets.send": "Enviar presupuestos",
+  "budgets.accept": "Aceptar presupuestos",
+  "budgets.reject": "Rechazar presupuestos",
+  "budgets.print": "Imprimir presupuestos",
+  "payments.read": "Ver pagos",
+  "payments.create": "Registrar pagos",
+  "payments.update": "Modificar pagos",
+  "payments.allocate": "Asignar pagos",
+  "payments.refund": "Registrar devoluciones",
+  "payments.override.closed_cash": "Permitir pagos sin caja abierta",
+  "payment_links.create": "Crear enlaces de pago",
+  "installments.read": "Ver cuotas",
+  "installments.create": "Crear cuotas",
+  "installments.pay": "Registrar pago de cuotas",
+  "cash_register.read": "Ver caja",
+  "cash_register.open": "Abrir caja",
+  "cash_register.close": "Cerrar caja",
+  "cash_register.close_any": "Cerrar caja de otro usuario",
+  "cash_register.move": "Registrar movimiento de caja",
+  "cash_register.reports.read": "Ver reportes y arqueos de caja",
+  "expenses.read": "Ver gastos",
+  "expenses.create": "Registrar gastos",
+  "expenses.update": "Editar gastos",
+  "expenses.void": "Anular gastos",
+  "accounts_receivable.read": "Ver cuentas por cobrar",
+  "collections.read": "Ver cobranza",
+  "collections.create": "Crear casos de cobranza",
+  "collections.detect": "Detectar cuentas vencidas",
+  "collections.update": "Editar cobranza",
+  "collections.activities.create": "Crear actividades de cobranza",
+  "files.read": "Ver archivos",
+  "files.upload": "Subir archivos",
+  "photographic_templates.view": "Ver plantillas fotograficas",
+  "photographic_templates.create": "Crear plantillas fotograficas",
+  "photographic_templates.edit": "Editar plantillas fotograficas",
+  "photographic_templates.void": "Anular plantillas fotograficas",
+  "photographic_templates.link": "Vincular plantillas fotograficas",
+  "photographic_templates.mobile_upload": "Crear carga fotografica movil",
+  "photographic_templates.compare": "Comparar plantillas fotograficas",
+  "photographic_templates.view_voided": "Ver plantillas fotograficas anuladas",
+  "photographic_templates.configure_frequency": "Configurar frecuencia fotografica",
+  "photographic_templates.configure_slots": "Configurar posiciones fotograficas",
+  "photographic_photos.upload": "Subir fotografias de ortodoncia",
+  "photographic_photos.edit": "Editar fotografias de ortodoncia",
+  "photographic_photos.replace": "Reemplazar fotografias de ortodoncia",
+  "photographic_photos.void": "Anular fotografias de ortodoncia",
+  "patients.files.manage": "Administrar archivos de pacientes",
+  "consent_templates.read": "Ver plantillas de consentimiento",
+  "consent_templates.create": "Crear plantillas de consentimiento",
+  "consent_templates.update": "Editar plantillas de consentimiento",
+  "consent_templates.deactivate": "Desactivar plantillas de consentimiento",
+  "consents.read": "Ver consentimientos",
+  "consents.create": "Crear consentimientos",
+  "consents.sign": "Firmar consentimientos",
+  "consents.pdf": "Descargar PDF de consentimiento",
+  "consents.templates.read": "Consultar plantillas versionadas",
+  "consents.templates.create": "Crear borradores de consentimiento",
+  "consents.templates.update_draft": "Editar borradores de consentimiento",
+  "consents.templates.publish": "Publicar versiones de consentimiento",
+  "consents.templates.deactivate": "Deshabilitar plantillas de consentimiento",
+  "consents.templates.view_versions": "Consultar versiones de consentimiento",
+  "consents.templates.view_audit": "Auditar plantillas de consentimiento",
+  "consents.instances.read": "Consultar consentimientos clínicos",
+  "consents.instances.create": "Generar consentimientos clínicos",
+  "consents.instances.complete_fields": "Completar campos de consentimiento",
+  "consents.instances.sign_patient": "Registrar firma del paciente",
+  "consents.instances.sign_professional": "Registrar firma profesional",
+  "consents.instances.sign_representative": "Registrar firma del representante",
+  "consents.instances.finalize": "Finalizar consentimientos",
+  "consents.instances.void": "Anular consentimientos",
+  "consents.instances.download": "Descargar consentimiento final",
+  "consents.instances.view_evidence": "Consultar evidencia de consentimiento",
+  "reports.read": "Ver reportes",
+  "reports.export": "Exportar reportes",
+  "integrations.communications.read": "Ver comunicaciones CRM",
+  "integrations.communications.send": "Enviar comunicaciones CRM",
+  "integrations.surveys.read": "Ver encuestas y NPS",
+  "integrations.surveys.manage": "Administrar encuestas",
+  "integrations.chat.read": "Ver chat interno",
+  "integrations.chat.send": "Enviar mensajes de chat",
+  "integrations.telemedicine.read": "Ver telemedicina",
+  "integrations.telemedicine.manage": "Administrar telemedicina",
+  "integrations.imports.read": "Ver importaciones",
+  "integrations.imports.manage": "Administrar importaciones",
+  "integrations.ai.read": "Ver solicitudes IA",
+  "integrations.ai.request": "Crear solicitudes IA",
+  "integrations.ai.complete": "Completar solicitudes IA",
+  "document_requirements.read": "Ver requisitos documentales",
+  "document_requirements.manage": "Administrar requisitos documentales",
+  "document_requirements.satisfy": "Marcar requisitos cumplidos",
+  "document_requirements.waive": "Eximir requisitos documentales",
+  "payment_webhooks.read": "Ver webhooks de pago",
+  "payment_webhooks.manage": "Administrar webhooks de pago",
+  "lab_providers.read": "Ver laboratorios",
+  "lab_providers.create": "Crear laboratorios",
+  "lab_providers.update": "Editar laboratorios",
+  "lab_providers.deactivate": "Desactivar laboratorios",
+  "lab_orders.read": "Ver ordenes de laboratorio",
+  "lab_orders.create": "Crear ordenes de laboratorio",
+  "lab_orders.update": "Editar ordenes de laboratorio",
+  "lab_orders.cost.update": "Editar costo de ordenes de laboratorio",
+  "lab_profitability.read": "Ver rentabilidad de laboratorio",
+  "suppliers.read": "Ver proveedores",
+  "suppliers.create": "Crear proveedores",
+  "suppliers.update": "Editar proveedores",
+  "suppliers.deactivate": "Desactivar proveedores",
+  "inventory.read": "Ver inventario",
+  "inventory.create": "Crear articulos de inventario",
+  "inventory.update": "Editar inventario",
+  "inventory.deactivate": "Desactivar articulos de inventario",
+  "inventory.movements.read": "Ver movimientos de inventario",
+  "inventory.movements.create": "Crear movimientos de inventario",
+  "inventory.alerts.read": "Ver alertas de inventario",
+  "inventory.warehouses.read": "Ver bodegas de inventario",
+  "inventory.warehouses.manage": "Administrar bodegas de inventario",
+  "inventory.reports.read": "Exportar reportes de inventario",
+  "inventory.adjustments.create": "Crear ajustes de inventario",
+  "inventory.sell": "Vender productos de inventario",
+  "inventory.products.view": "Ver productos de inventario",
+  "inventory.products.create": "Crear productos de inventario",
+  "inventory.products.update": "Editar productos de inventario",
+  "inventory.products.reactivate": "Reactivar productos de inventario",
+  "inventory.entries.create": "Registrar entradas de inventario",
+  "inventory.exits.create": "Registrar salidas de inventario",
+  "inventory.transfers.create": "Transferir existencias",
+  "inventory.waste.create": "Registrar mermas",
+  "inventory.movements.compensate": "Compensar movimientos",
+  "inventory.safety_stock.update": "Editar stock de seguridad",
+  "inventory.reports.export": "Exportar reportes de inventario",
+  "inventory.audit.view": "Ver auditoría de inventario",
+  "inventory.costs.view": "Ver costos de inventario",
+  "inventory.stock_counts.create": "Crear conteos físicos",
+  "inventory.stock_counts.reconcile": "Conciliar conteos físicos",
+  "online_scheduling.read": "Ver agenda online",
+  "online_scheduling.update": "Editar agenda online",
+  "treatment_plans.duplicate": "Permite duplicar tratamiento",
+  "treatment_plans.reactivate": "Reactivar planes de tratamiento",
+  "treatment_plans.derive": "Derivar planes de tratamiento",
+  "clinical.documents.delete": "Eliminar documentos clinicos",
+  "clinical.files.delete": "Eliminar archivos clinicos",
+  "rx_analysis.run": "Ejecutar analisis RX",
+  "collections.payroll_discounts.manage": "Administrar descuentos por nomina",
+  "reports.collections.read": "Ver reportes de cobranza",
+  "patient_financing.view": "Ver financiamientos del paciente",
+  "payroll_financing.view": "Ver financiamiento a través de descuentos por planilla",
+  "patient_financing.create": "Generar financiamientos para el paciente",
+  "payroll_financing.create": "Generar financiamientos a través de descuentos por planilla",
+  "collections.manage": "Cobranza",
+  "treatment_items.price_override": "Modificar precio de los procedimientos de un tratamiento",
+  "payments.void": "Eliminar pagos realizados",
+  "payroll_discount.remove": "Eliminar descuento planilla asociado a un tratamiento del paciente",
+  "patient_financing.delete": "Eliminar financiamiento asociado a un tratamiento del paciente",
+  "agreement_payments.void": "Eliminar pagos asociados a convenios",
+  "payments.refund_and_reentry": "Efectuar devoluciones y reingresos de dinero",
+  "payments.receipt_date.update": "Modificar fecha de recepcion de los pagos",
+  "payments.metadata.update": "Permite modificar los datos ingresados del pago",
+  "treatment_plans.detail.manage": "Administrar detalle del tratamiento",
+  "budgets.evolve": "Evolucionar presupuestos",
+  "treatment_plans.commercial_discounts": "Descuentos comerciales",
+  "treatment_plans.deactivate_finished": "Desactivar tratamientos finalizados",
+  "treatment_plans.unlock": "Desbloquear tratamientos (presupuestos) bloqueados",
+  "clinical_actions.undo": "Desrealizar acciones clínicas y laboratorios",
+  "treatment_plans.transfer_branch": "Cambiar plan de tratamiento de sucursal",
+  "lab_orders.price_override": "Modificar precio de los laboratorios en un tratamiento",
+  "payments.reallocate_credits": "Reasignar abonos libres entre tratamientos de un mismo paciente (y sus cargas)",
+  "treatment_plans.delete": "Eliminar tratamientos de los pacientes",
+  "clinical_actions.warranty_undo": "Permite desrealizar (por garantía) una prestación ya liquidada",
+  "treatment_plans.comments.update": "Modificar comentarios en un Plan de Tratamiento",
+  "treatment_plans.comment_templates.manage": "Crear, modificar y eliminar plantillas de comentarios para un Plan de Tratamiento",
+  "treatment_plans.reactivate_expired": "Reactivar tratamientos expirados",
+  "payments.cash_discount.release_credit": "Permite liberar a abono libre, pagos que tengan descuento por caja",
+  "clinical.print_signature.view": "Visualizar firma del profesional en imprimibles",
+  "payments.unallocate": "Desasociar pagos de prestaciones",
+  "reports.management.read": "Reportes generales y específicos de gestión",
+  "dashboard.performance.view": "Ver el panel de desempeño",
+  "admin.users.manage": "Gestión de usuarios del sistema",
+  "admin.payment_methods_banks.manage": "Configuración de medios de pago y Bancos",
+  "admin.expenses.manage": "Administración de gastos",
+  "admin.inventory.manage": "Gestión de inventario",
+  "admin.price_lists_templates.manage": "Configuración de listado y plantillas",
+  "admin.laboratories.manage": "Gestión de laboratorios",
+  "admin.settlements.manage": "Gestión de liquidaciones",
+  "admin.dentists.manage": "Gestión de dentistas",
+  "admin.agreements.manage": "Gestión de convenios",
+  "admin.pending_void_payments.manage": "Gestión de pagos pendientes y anulados",
+  "admin.reports_excel.export": "Reportes Excel",
+  "admin.logo.manage": "Agregar o cambiar logo clínica",
+  "admin.patient_field_config.manage": "Edición de datos personales mostrados y requeridos al ingresar un paciente en la plataforma",
+  "admin.patient_admin_notes.view": "Permite ver los comentarios administrativos en datos del paciente",
+  "admin.templates_only.manage": "Configuración sólo de plantillas",
+  "admin.lab_requests.manage": "Gestión de solicitudes de laboratorios",
+  "admin.clinical_docs.manage": "Gestión de documentos clínicos",
+  "admin.ges_notifications.view_print": "Permite ver e imprimir notificaciones GES",
+  "admin.settlement_payment.update": "Editar pago de liquidación",
+  "admin.consent_templates.manage": "Permite crear, modificar y eliminar plantillas de consentimientos informados",
+  "admin.specialties.manage": "Permite poder gestionar especialidades",
+  "admin.roles.manage": "Permiso para administrar permisos para perfiles",
+  "admin.user_permissions.manage": "Permiso para administrar permisos para usuarios",
+  "admin.lab_payments.manage": "Gestión de pagos de laboratorios",
+  "admin.ges_config.manage": "Permiso para modificar parámetros de configuración GES",
+  "admin.online_tpv_dashboard.view": "Visualizar dashboard de transacciones para pago online y TPV",
+  "admin.user_security.manage": "Permite gestionar la seguridad de cuentas de usuarios",
+  "admin.price_lists.bulk_import": "Puede hacer carga masiva de aranceles de precios",
+  "admin.file_sync.configure": "Configurar sincronización de archivos",
+  "admin.file_sync.export_attach": "Exportar y adjuntar archivos sincronizados",
+  "admin.health_center.view": "Ver sección mi centro de salud",
+  "patients.records.manage": "Ver y editar fichas del paciente",
+  "patients.invoices.view": "Ver facturas del paciente",
+  "patients.images.upload": "Ver y subir imágenes",
+  "patients.family_groups.manage": "Gestión de cargas familiares",
+  "patients.personal_data.update": "Ver y modificar datos personales del paciente",
+  "patients.alerts.manage": "Ver y editar las alertas del paciente",
+  "patients.records.read_only": "Ver fichas y evoluciones del paciente (sin poder editar)",
+  "patients.alerts.view": "Ver las alertas del paciente",
+  "patients.document_number.update": "Editar el CURP del paciente",
+  "patients.personal_data.view": "Ver los datos personales del paciente",
+  "patients.prescriptions.manage": "Ver y crear las recetas del paciente",
+  "patients.medical_history.edit": "Editar antecedentes predeterminados",
+  "patients.medical_history_history.view": "Ver historial de cambios en antecedentes",
+  "patients.consents.manage": "Ver y editar consentimientos del paciente",
+  "patients.consents.read_only": "Ver consentimientos del paciente (Solo lectura, sin poder editar)",
+  "patients.clinical_history.download": "Descargar historia clínica del paciente",
+  "patients.images.delete": "Eliminar Rx e imágenes del paciente",
+  "patients.clinical_docs.delete": "Eliminar documentos clínicos del paciente",
+  "agenda.edit": "Editar agendas",
+  "agenda.view": "Ver agendas",
+  "agenda.appointments.create": "Agendar citas a los pacientes",
+  "agenda.overbooking.allow": "Permite agendar citas fuera de hora",
+  "agenda.online_booking.validate": "Validar citas en agenda online",
+  "agenda.reprogramming.manage": "Reprogramación agendas",
+  "cash_register.shifts.manage": "Apertura y cierre de cajas",
+  "cash_register.summaries.view": "Resúmenes de cajas",
+  "dentist_payouts.manage": "Pagos de Dentistas por período",
+  "crm.marketing_campaigns.manage": "Gestionar campañas de Marketing y fidelización de pacientes",
+  "crm.tasks.manage": "Gestión de tareas",
+  "crm.surveys.manage": "Gestionar encuestas de satisfacción",
+  "crm.surveys.edit": "Editar encuestas de satisfacción"
+};
+
+export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
+  "system.manage_all": "Permite administrar toda la plataforma sin restricciones de permisos.",
+  "dashboard.read": "Permite visualizar el panel principal.",
+  "users.read": "Permite consultar usuarios y colaboradores.",
+  "users.create": "Permite crear nuevos usuarios y colaboradores.",
+  "users.update": "Permite editar datos, acceso, rol y estado operativo de usuarios.",
+  "users.deactivate": "Permite desactivar usuarios.",
+  "roles.read": "Permite consultar perfiles y sus permisos.",
+  "roles.create": "Permite crear perfiles con permisos asignados.",
+  "roles.update": "Permite editar perfiles y sus permisos.",
+  "roles.deactivate": "Permite desactivar perfiles que no esten asignados a usuarios activos.",
+  "permissions.read": "Permite consultar el catalogo de permisos.",
+  "permissions.create": "Permite crear permisos del sistema.",
+  "permissions.update": "Permite editar permisos del sistema.",
+  "permissions.deactivate": "Permite desactivar permisos no protegidos del sistema.",
+  "branches.read": "Permite consultar sucursales.",
+  "branches.create": "Permite crear sucursales.",
+  "branches.update": "Permite editar sucursales.",
+  "branches.deactivate": "Permite desactivar sucursales.",
+  "branches.archive": "Permite archivar sucursales sin borrar su historial.",
+  "branches.restore": "Permite restaurar sucursales archivadas.",
+  "branches.assign_brand": "Permite mover sucursales entre marcas de la misma organizacion.",
+  "branches.manage_contact": "Permite editar datos de contacto y configuracion publica de sucursales.",
+  "branches.view_all": "Permite consultar todas las sucursales de la organizacion.",
+  "health_center.view": "Permite consultar el modulo Mi centro de salud.",
+  "health_center.manage": "Permite administrar marcas y sucursales desde Mi centro de salud.",
+  "brands.view": "Permite consultar marcas comerciales.",
+  "brands.create": "Permite crear marcas comerciales.",
+  "brands.update": "Permite editar marcas comerciales.",
+  "brands.archive": "Permite archivar marcas comerciales sin borrar datos.",
+  "brands.manage_identity": "Permite editar logotipo, colores y presencia publica de marca.",
+  "brands.manage_communications": "Permite editar remitentes, reply-to y dominios de marca.",
+  "users.manage_branch_access": "Permite asignar o retirar acceso de usuarios a sucursales.",
+  "settings.read": "Permite consultar configuraciones administrativas.",
+  "settings.update": "Permite modificar configuraciones administrativas.",
+  "specialties.read": "Permite consultar especialidades.",
+  "specialties.create": "Permite crear especialidades.",
+  "specialties.update": "Permite editar especialidades y sus reglas.",
+  "specialties.deactivate": "Permite desactivar especialidades.",
+  "professionals.read": "Permite consultar profesionales.",
+  "professionals.create": "Permite crear profesionales.",
+  "professionals.update": "Permite editar profesionales, agenda y configuracion asociada.",
+  "professionals.deactivate": "Permite desactivar profesionales.",
+  "schedules.read": "Permite consultar horarios de profesionales.",
+  "schedules.create": "Permite crear horarios.",
+  "schedules.update": "Permite editar horarios.",
+  "schedules.deactivate": "Permite desactivar horarios.",
+  "chairs.read": "Permite consultar sillones o cubiculos.",
+  "chairs.create": "Permite crear sillones o cubiculos.",
+  "chairs.update": "Permite editar sillones o cubiculos.",
+  "chairs.deactivate": "Permite desactivar sillones o cubiculos.",
+  "payment_methods.read": "Permite consultar metodos de pago.",
+  "payment_methods.create": "Permite crear metodos de pago.",
+  "payment_methods.update": "Permite editar metodos de pago.",
+  "payment_methods.deactivate": "Permite desactivar metodos de pago.",
+  "payment_methods.reactivate": "Permite reactivar medios deshabilitados sin perder historial.",
+  "payment_methods.configure_retention": "Permite configurar el porcentaje retenido por cada medio.",
+  "payment_methods.configure_refunds": "Permite decidir si un medio puede usarse en devoluciones.",
+  "payment_methods.configure_multiple_settlements": "Permite programar varias recepciones bancarias de un mismo cobro.",
+  "payment_methods.configure_cash_impact": "Permite cambiar cómo el medio afecta caja, cierres y reportes.",
+  "payment_methods.view_audit": "Permite consultar cambios históricos de medios de pago.",
+  "payment_settlements.read": "Permite consultar vencimientos y recepciones programadas.",
+  "payment_settlements.receive": "Permite confirmar un vencimiento como recibido en caja.",
+  "payment_settlements.cancel": "Permite cancelar un vencimiento pendiente con motivo y auditoría.",
+  "payment_options.cash_discounts.view": "Permite consultar reglas y vigencias de descuentos por caja.",
+  "payment_options.cash_discounts.create": "Permite crear promociones de liquidacion en caja.",
+  "payment_options.cash_discounts.update": "Permite editar reglas de descuentos por caja con versionado.",
+  "payment_options.cash_discounts.disable": "Permite deshabilitar promociones sin borrar su historial.",
+  "payment_options.cash_discounts.reactivate": "Permite reactivar promociones deshabilitadas.",
+  "payments.cash_discounts.apply": "Permite aplicar una promocion autorizada al liquidar prestaciones.",
+  "payments.cash_discounts.override": "Permiso reservado para excepciones; no se asigna por defecto.",
+  "payments.cash_discounts.view_audit": "Permite consultar aplicaciones, rechazos, anulaciones y devoluciones.",
+  "procedure_categories.read": "Permite consultar categorias de procedimientos.",
+  "procedure_categories.create": "Permite crear categorias de procedimientos.",
+  "procedure_categories.update": "Permite editar categorias de procedimientos.",
+  "procedure_categories.deactivate": "Permite desactivar categorias de procedimientos.",
+  "procedures.read": "Permite consultar procedimientos.",
+  "procedures.create": "Permite crear procedimientos.",
+  "procedures.update": "Permite editar procedimientos.",
+  "procedures.deactivate": "Permite desactivar procedimientos.",
+  "price_lists.read": "Permite consultar listas de precios.",
+  "price_lists.create": "Permite crear listas de precios.",
+  "price_lists.update": "Permite editar listas de precios y asignaciones por sucursal.",
+  "price_lists.configure_discount_limits": "Permite configurar si una prestación admite descuento y su porcentaje máximo.",
+  "price_lists.override_manual": "Permite registrar precios manuales distintos al arancel resuelto.",
+  "price_lists.deactivate": "Permite desactivar listas de precios.",
+  "treatment_discount.apply": "Permite aplicar descuentos solo sobre prestaciones elegibles.",
+  "treatment_discount.configure_user_limits": "Permite configurar el porcentaje máximo de descuento autorizado para cada usuario.",
+  "treatment_discount.override": "Permite autorizar descuentos que superan umbrales definidos.",
+  "treatment_discount.view": "Permite ver detalle de descuentos aplicados.",
+  "treatment_discount.audit": "Permite revisar auditoria de descuentos.",
+  "patients.read": "Permite consultar pacientes.",
+  "patient_analytics.read": "Permite consultar indicadores agregados del modulo Pacientes.",
+  "patient_analytics.read_financial": "Permite recibir deuda, pagos e importes de presupuestos en el analisis.",
+  "patient_analytics.view_all_branches": "Permite consolidar en una consulta todas las sucursales autorizadas.",
+  "patient_analytics.export": "Permite exportar detalles autorizados del analisis.",
+  "patient_analytics.refresh": "Permite solicitar un calculo actualizado de indicadores.",
+  "patient_analytics.view_patient_details": "Permite identificar pacientes y abrir su ficha desde el detalle analitico.",
+  "patients.create": "Permite dar de alta nuevos pacientes en el sistema.",
+  "patients.update": "Permite editar datos del paciente.",
+  "patient_identity.config.read": "Permite consultar las reglas y banderas de identidad.",
+  "patient_identity.config.manage": "Permite activar gradualmente resolución de identidad y grupos familiares.",
+  "contact_points.read": "Permite consultar teléfonos normalizados y sus relaciones.",
+  "contact_points.link": "Permite vincular un teléfono personal o compartido.",
+  "contact_points.verify": "Permite registrar verificación de control del canal.",
+  "contact_points.transfer": "Permite transferir vínculos telefónicos con auditoría.",
+  "contact_points.backfill": "Permite migrar teléfonos heredados al modelo de contactos.",
+  "family_groups.read": "Permite consultar grupos familiares sin otorgar acceso clínico.",
+  "family_groups.create": "Permite crear grupos familiares.",
+  "family_groups.manage_members": "Permite gestionar integrantes, roles y consentimientos.",
+  "family_groups.manage_contacts": "Permite administrar teléfonos compartidos del grupo.",
+  "family_groups.manage_permissions": "Permite administrar permisos granulares de agenda, recordatorios y acceso sensible por integrante.",
+  "patient_duplicates.review": "Permite revisar candidatos antes de crear o fusionar fichas.",
+  "patients.merge": "Permite unificar registros duplicados de pacientes.",
+  "booking_identity.review": "Permite revisar sesiones ambiguas del bot o Agenda Online.",
+  "booking_identity.resolve": "Permite resolver manualmente una identidad de reserva.",
+  "patients.deactivate": "Permite dar de baja o archivar registros de pacientes.",
+  "patients.notes.create": "Permite crear notas administrativas o clinicas del paciente.",
+  "patients.alerts.create": "Permite crear alertas del paciente.",
+  "patients.tasks.read": "Permite consultar tareas de gestion del paciente.",
+  "patients.tasks.create": "Permite crear tareas de gestion del paciente.",
+  "patients.tasks.update": "Permite editar responsable, vencimiento y detalle de tareas del paciente.",
+  "patients.tasks.complete": "Permite finalizar tareas de gestion del paciente.",
+  "appointments.read": "Permite consultar citas y agenda.",
+  "appointments.create": "Permite crear citas.",
+  "appointments.update": "Permite editar citas y notas asociadas.",
+  "appointments.cancel": "Permite cancelar citas.",
+  "appointments.status.update": "Permite cambiar el estado de citas.",
+  "appointments.overbook": "Permite crear citas aunque no haya disponibilidad normal.",
+  "appointments.block": "Permite bloquear espacios de agenda.",
+  "agenda.reprogramming.view": "Permite consultar la cola de citas pendientes de reprogramación.",
+  "agenda.reprogramming.mass_cancel": "Permite anular citas por rango y crear casos pendientes con vista previa.",
+  "agenda.reprogramming.reschedule": "Permite crear una nueva cita vinculada a la cita original.",
+  "agenda.reprogramming.change_professional": "Permite seleccionar otro profesional al crear la nueva cita.",
+  "agenda.reprogramming.change_branch": "Permite seleccionar otra sucursal dentro del acceso del usuario.",
+  "agenda.reprogramming.definitive_cancel": "Permite cerrar un caso sin crear una cita nueva.",
+  "agenda.reprogramming.view_financial_status": "Permite ver información financiera de solo lectura en la cola.",
+  "agenda.reprogramming.view_audit": "Permite consultar trazabilidad de lotes y casos de reprogramación.",
+  "clinical.read": "Permite consultar el expediente clinico.",
+  "clinical.history.update": "Permite editar historia clinica y antecedentes.",
+  "clinical.evolutions.create": "Permite crear evoluciones clinicas.",
+  "clinical.evolutions.sign": "Permite firmar evoluciones clinicas.",
+  "clinical.prescriptions.create": "Permite crear recetas.",
+  "clinical.documents.create": "Permite crear documentos clinicos.",
+  "clinical.templates.manage": "Permite administrar plantillas de documentos clinicos.",
+  "clinical.odontogram.read": "Permite consultar odontograma e historial dental.",
+  "clinical.odontogram.write": "Permite crear y editar registros del odontograma.",
+  "clinical.periodontogram.read": "Permite consultar periodontogramas y comparativos.",
+  "clinical.periodontogram.write": "Permite crear registros de periodontograma.",
+  "treatment_plans.read": "Permite consultar planes de tratamiento.",
+  "treatment_plans.create": "Permite crear planes de tratamiento.",
+  "treatment_plans.update": "Permite editar planes de tratamiento.",
+  "treatment_plans.status.update": "Permite actualizar estados de tratamientos o prestaciones.",
+  "treatment_plans.alternatives.manage": "Permite administrar alternativas de tratamiento.",
+  "orthodontic_catalogs.manage": "Permite crear, desactivar, reactivar y ordenar opciones tecnicas de ortodoncia.",
+  "orthodontic_diagnosis.read": "Permite consultar diagnosticos de ortodoncia.",
+  "orthodontic_diagnosis.create": "Permite guardar diagnosticos activos de ortodoncia.",
+  "orthodontic_diagnosis.draft": "Permite guardar borradores de diagnostico de ortodoncia.",
+  "orthodontic_diagnosis.update": "Permite crear nuevas versiones de diagnosticos activos.",
+  "orthodontic_diagnosis.history.read": "Permite consultar versiones anteriores del diagnostico.",
+  "orthodontic_diagnosis.catalogs.manage": "Permite crear, desactivar, reactivar y ordenar opciones del catalogo de diagnostico.",
+  "budgets.read": "Permite consultar presupuestos.",
+  "budgets.create": "Permite generar presupuestos.",
+  "budgets.update": "Permite editar presupuestos.",
+  "budgets.send": "Permite enviar presupuestos a pacientes.",
+  "budgets.accept": "Permite aceptar presupuestos y tratamientos.",
+  "budgets.reject": "Permite rechazar presupuestos.",
+  "budgets.print": "Permite imprimir presupuestos.",
+  "payments.read": "Permite consultar pagos y cobranza.",
+  "payments.create": "Permite registrar pagos de pacientes.",
+  "payments.update": "Permite modificar metadatos de pagos sin alterar montos.",
+  "payments.allocate": "Permite asignar pagos a tratamientos o cuotas.",
+  "payments.refund": "Permite registrar devoluciones o reembolsos.",
+  "payments.override.closed_cash": "Permite recibir pagos sin caja abierta.",
+  "payment_links.create": "Permite generar enlaces de pago.",
+  "installments.read": "Permite consultar planes de cuotas y cuotas.",
+  "installments.create": "Permite crear planes de cuotas.",
+  "installments.pay": "Permite registrar pagos de cuotas.",
+  "cash_register.read": "Permite consultar turnos y saldos de caja.",
+  "cash_register.open": "Permite abrir caja.",
+  "cash_register.close": "Permite cerrar caja.",
+  "cash_register.close_any": "Permite cerrar cajas abiertas por otro usuario.",
+  "cash_register.move": "Permite registrar movimientos manuales de caja.",
+  "cash_register.reports.read": "Permite consultar reportes, arqueos y cierres de turnos de caja.",
+  "expenses.read": "Permite consultar gastos administrativos y operativos.",
+  "expenses.create": "Permite registrar gastos y asignarlos a una caja abierta.",
+  "expenses.update": "Permite corregir gastos mientras su caja asociada siga abierta.",
+  "expenses.void": "Permite anular gastos conservando historial y contramovimientos.",
+  "accounts_receivable.read": "Permite consultar saldos pendientes y cuotas vencidas.",
+  "collections.read": "Permite consultar casos de cobranza.",
+  "collections.create": "Permite crear casos de cobranza.",
+  "collections.detect": "Permite detectar cuotas vencidas y crear casos.",
+  "collections.update": "Permite editar estado y asignacion de casos de cobranza.",
+  "collections.activities.create": "Permite registrar llamadas, mensajes y actividades de cobranza.",
+  "files.read": "Permite consultar archivos y adjuntos de pacientes.",
+  "files.upload": "Permite subir archivos y adjuntos.",
+  "patients.files.manage": "Permite eliminar archivos adjuntos de pacientes con trazabilidad.",
+  "consent_templates.read": "Permite consultar plantillas de consentimiento.",
+  "consent_templates.create": "Permite crear plantillas de consentimiento.",
+  "consent_templates.update": "Permite editar plantillas de consentimiento.",
+  "consent_templates.deactivate": "Permite desactivar plantillas de consentimiento.",
+  "consents.read": "Permite consultar consentimientos generados.",
+  "consents.create": "Permite generar consentimientos para pacientes.",
+  "consents.sign": "Permite firmar y bloquear consentimientos.",
+  "consents.pdf": "Permite descargar el PDF del consentimiento firmado.",
+  "reports.read": "Permite consultar dashboards y reportes.",
+  "reports.export": "Permite exportar reportes en archivos.",
+  "integrations.communications.read": "Permite consultar trabajos de comunicacion por email, WhatsApp y canales internos.",
+  "integrations.communications.send": "Permite crear y encolar comunicaciones para pacientes.",
+  "integrations.surveys.read": "Permite consultar encuestas y respuestas NPS.",
+  "integrations.surveys.manage": "Permite crear, enviar y administrar encuestas.",
+  "integrations.chat.read": "Permite consultar mensajes del chat interno.",
+  "integrations.chat.send": "Permite enviar mensajes en el chat interno.",
+  "integrations.telemedicine.read": "Permite consultar sesiones de telemedicina.",
+  "integrations.telemedicine.manage": "Permite crear y actualizar sesiones de telemedicina.",
+  "integrations.imports.read": "Permite consultar trabajos de importacion masiva.",
+  "integrations.imports.manage": "Permite crear y actualizar trabajos de importacion masiva.",
+  "integrations.ai.read": "Permite consultar solicitudes y resultados de IA.",
+  "integrations.ai.request": "Permite crear solicitudes de analisis IA.",
+  "integrations.ai.complete": "Permite registrar resultados devueltos por proveedores IA.",
+  "document_requirements.read": "Permite consultar requisitos documentales clinicos.",
+  "document_requirements.manage": "Permite crear y administrar requisitos documentales.",
+  "document_requirements.satisfy": "Permite marcar requisitos documentales como cumplidos.",
+  "document_requirements.waive": "Permite eximir requisitos documentales con motivo.",
+  "payment_webhooks.read": "Permite consultar eventos recibidos desde proveedores de pago.",
+  "payment_webhooks.manage": "Permite administrar eventos de webhooks de pago.",
+  "lab_providers.read": "Permite consultar proveedores de laboratorio.",
+  "lab_providers.create": "Permite crear proveedores de laboratorio.",
+  "lab_providers.update": "Permite editar proveedores de laboratorio.",
+  "lab_providers.deactivate": "Permite desactivar proveedores de laboratorio.",
+  "lab_orders.read": "Permite consultar ordenes de laboratorio.",
+  "lab_orders.create": "Permite crear ordenes de laboratorio.",
+  "lab_orders.update": "Permite actualizar estado de ordenes de laboratorio.",
+  "lab_orders.cost.update": "Permite editar costos de ordenes de laboratorio.",
+  "lab_profitability.read": "Permite ver rentabilidad de tratamientos con costos de laboratorio.",
+  "suppliers.read": "Permite consultar proveedores de inventario.",
+  "suppliers.create": "Permite crear proveedores de inventario.",
+  "suppliers.update": "Permite editar proveedores de inventario.",
+  "suppliers.deactivate": "Permite desactivar proveedores de inventario.",
+  "inventory.read": "Permite consultar articulos de inventario.",
+  "inventory.create": "Permite crear articulos de inventario.",
+  "inventory.update": "Permite editar articulos de inventario.",
+  "inventory.deactivate": "Permite desactivar articulos de inventario.",
+  "inventory.movements.read": "Permite consultar movimientos de inventario.",
+  "inventory.movements.create": "Permite crear movimientos de inventario.",
+  "inventory.alerts.read": "Permite consultar alertas de stock minimo.",
+  "inventory.warehouses.read": "Permite consultar bodegas de inventario.",
+  "inventory.warehouses.manage": "Permite crear y editar bodegas de inventario.",
+  "inventory.reports.read": "Permite exportar reportes operativos de inventario.",
+  "inventory.adjustments.create": "Permite crear ajustes de stock con trazabilidad.",
+  "inventory.sell": "Permite registrar ventas de productos de inventario.",
+  "inventory.products.view": "Permite consultar catálogo y detalle de productos.",
+  "inventory.products.create": "Permite crear productos, categorías y unidades.",
+  "inventory.products.update": "Permite editar productos, categorías y unidades.",
+  "inventory.products.reactivate": "Permite reactivar productos desactivados.",
+  "inventory.entries.create": "Permite publicar entradas de existencias.",
+  "inventory.exits.create": "Permite publicar salidas de existencias.",
+  "inventory.transfers.create": "Permite transferir existencias entre bodegas.",
+  "inventory.waste.create": "Permite registrar mermas con motivo.",
+  "inventory.movements.compensate": "Permite corregir movimientos mediante compensación.",
+  "inventory.safety_stock.update": "Permite modificar umbrales de stock de seguridad.",
+  "inventory.reports.export": "Permite exportar reportes filtrados de inventario.",
+  "inventory.audit.view": "Permite consultar trazabilidad y auditoría de inventario.",
+  "inventory.stock_counts.create": "Permite crear conteos físicos de bodega.",
+  "inventory.stock_counts.reconcile": "Permite conciliar conteos y generar ajustes.",
+  "treatment_plans.duplicate": "Permite clonar planes de tratamiento existentes.",
+  "treatment_plans.reactivate": "Permite reactivar planes de tratamiento cancelados.",
+  "treatment_plans.derive": "Permite derivar planes de tratamiento entre profesionales o sucursales.",
+  "clinical.documents.delete": "Permite eliminar logicamente documentos clinicos.",
+  "clinical.files.delete": "Permite eliminar logicamente archivos clinicos.",
+  "rx_analysis.run": "Permite ejecutar analisis IA sobre radiografias.",
+  "collections.payroll_discounts.manage": "Permite administrar descuentos de nomina asociados a cobranza.",
+  "reports.collections.read": "Permite consultar reportes de cobranza y morosidad.",
+  "patient_financing.view": "Permite consultar financiamientos y cuotas del paciente.",
+  "payroll_financing.view": "Permite consultar convenios y deudas por descuento en nómina.",
+  "patient_financing.create": "Permite crear financiamientos y planes de cuotas.",
+  "payroll_financing.create": "Permite generar financiamientos con cargo a nómina.",
+  "collections.manage": "Permite gestionar casos, acuerdos y cobranza de morosidad.",
+  "treatment_items.price_override": "Permite modificar manualmente el arancel de prestaciones.",
+  "payments.void": "Permite anular cobros y pagos registrados.",
+  "payroll_discount.remove": "Permite revocar descuentos de nómina aplicados.",
+  "patient_financing.delete": "Permite anular o cancelar financiamientos de cuotas.",
+  "agreement_payments.void": "Permite anular pagos o remesas empresariales.",
+  "payments.refund_and_reentry": "Permite realizar devoluciones y reingresos a caja.",
+  "payments.receipt_date.update": "Permite rectificar la fecha de recepción de cobros.",
+  "payments.metadata.update": "Permite editar notas, comprobante y asignación de pagos.",
+  "treatment_plans.detail.manage": "Permite crear y modificar fases y prestaciones del plan.",
+  "budgets.evolve": "Permite evolucionar presupuestos y registrar atenciones clínicas.",
+  "treatment_plans.commercial_discounts": "Permite aplicar promociones y descuentos autorizados.",
+  "treatment_plans.deactivate_finished": "Permite archivar o desactivar tratamientos concluidos.",
+  "treatment_plans.unlock": "Permite desbloquear planes de tratamiento cerrados.",
+  "clinical_actions.undo": "Permite revertir prestaciones y órdenes de laboratorio.",
+  "treatment_plans.transfer_branch": "Permite trasladar tratamientos a otra sucursal.",
+  "lab_orders.price_override": "Permite modificar costos de órdenes de laboratorio.",
+  "payments.reallocate_credits": "Permite transferir abonos a favor entre planes o familiares.",
+  "treatment_plans.delete": "Permite dar de baja planes de tratamiento.",
+  "clinical_actions.warranty_undo": "Permite rehacer prestaciones garantizadas liquidadas.",
+  "treatment_plans.comments.update": "Permite editar observaciones de los tratamientos.",
+  "treatment_plans.comment_templates.manage": "Permite gestionar plantillas de texto para planes.",
+  "treatment_plans.reactivate_expired": "Permite reabrir presupuestos con vigencia vencida.",
+  "payments.cash_discount.release_credit": "Permite liberar saldo a favor de pagos con descuento.",
+  "clinical.print_signature.view": "Permite mostrar firmas digitales en recetas e informes.",
+  "payments.unallocate": "Permite desvincular pagos de procedimientos específicos.",
+  "reports.management.read": "Permite consultar y exportar reportes operacionales y financieros.",
+  "dashboard.performance.view": "Permite acceder al panel ejecutivo y métricas de desempeño.",
+  "admin.users.manage": "Permite crear, editar y desactivar usuarios y colaboradores.",
+  "admin.payment_methods_banks.manage": "Permite configurar medios de pago, retenciones y entidades bancarias.",
+  "admin.expenses.manage": "Permite registrar, clasificar y anular gastos de la clínica.",
+  "admin.inventory.manage": "Permite administrar catálogo de insumos, bodegas y movimientos de stock.",
+  "admin.price_lists_templates.manage": "Permite administrar aranceles, listas de precios y categorías.",
+  "admin.laboratories.manage": "Permite administrar proveedores dentales y órdenes de trabajo.",
+  "admin.settlements.manage": "Permite consultar y procesar liquidaciones de comisiones.",
+  "admin.dentists.manage": "Permite dar de alta y configurar datos y horarios de profesionales.",
+  "admin.agreements.manage": "Permite administrar convenios empresariales y aranceles institucionales.",
+  "admin.pending_void_payments.manage": "Permite auditar cobros cancelados y vencimientos pendientes.",
+  "admin.reports_excel.export": "Permite descargar reportes maestros en formato Excel/CSV.",
+  "admin.logo.manage": "Permite personalizar identidad visual y logotipos por sucursal.",
+  "admin.patient_field_config.manage": "Permite configurar campos obligatorios en el registro de pacientes.",
+  "admin.patient_admin_notes.view": "Permite consultar notas internas de recepción y cobranza.",
+  "admin.templates_only.manage": "Permite gestionar plantillas de documentos clínicos y recetas.",
+  "admin.lab_requests.manage": "Permite emitir y dar seguimiento a pedidos a laboratorios dentales.",
+  "admin.clinical_docs.manage": "Permite administrar modelos de consentimientos y fichas clínicas.",
+  "admin.ges_notifications.view_print": "Permite gestionar documentos normativos e institucionales.",
+  "admin.settlement_payment.update": "Permite corregir o registrar pagos de liquidaciones profesionales.",
+  "admin.consent_templates.manage": "Permite configurar textos legales de consentimiento.",
+  "admin.specialties.manage": "Permite crear y asignar especialidades odontológicas.",
+  "admin.roles.manage": "Permite crear y editar perfiles de acceso y seguridad.",
+  "admin.user_permissions.manage": "Permite asignar perfiles y sucursales a los usuarios.",
+  "admin.lab_payments.manage": "Permite asentar pagos de facturas de laboratorios protésicos.",
+  "admin.ges_config.manage": "Permite modificar parámetros de atención protocolizada.",
+  "admin.online_tpv_dashboard.view": "Permite auditar transacciones de terminales bancarias y links de pago.",
+  "admin.user_security.manage": "Permite bloquear acceso o reiniciar credenciales de usuarios.",
+  "admin.price_lists.bulk_import": "Permite importar aranceles masivamente mediante archivos.",
+  "admin.file_sync.configure": "Permite vincular almacenamiento en la nube o local.",
+  "admin.file_sync.export_attach": "Permite exportar fichas con adjuntos masivos.",
+  "admin.health_center.view": "Permite consultar la ficha corporativa de marcas y sucursales.",
+  "patients.records.manage": "Permite consultar y editar historial clínico, odontograma y evoluciones.",
+  "patients.invoices.view": "Permite consultar historial de facturas, recibos y saldo pendiente.",
+  "patients.images.upload": "Permite cargar fotografías clínicas, radiografías y archivos adjuntos.",
+  "patients.family_groups.manage": "Permite asociar grupos familiares y autorizar tutores.",
+  "patients.personal_data.update": "Permite actualizar teléfono, correo, domicilio y datos de contacto.",
+  "patients.alerts.manage": "Permite crear y editar alertas médicas y administrativas críticas.",
+  "patients.records.read_only": "Permite consultar la historia clínica en modo solo lectura.",
+  "patients.alerts.view": "Permite visualizar advertencias médicas en la ficha.",
+  "patients.document_number.update": "Permite corregir el documento de identidad oficial del paciente.",
+  "patients.personal_data.view": "Permite consultar datos de contacto y demográficos del paciente.",
+  "patients.prescriptions.manage": "Permite emitir y consultar recetas médicas prescritas.",
+  "patients.medical_history.edit": "Permite registrar y modificar la anamnesis médica.",
+  "patients.medical_history_history.view": "Permite auditar modificaciones a la historia médica.",
+  "patients.consents.manage": "Permite generar, firmar y anular consentimientos informados.",
+  "patients.consents.read_only": "Permite consultar y descargar consentimientos firmados.",
+  "patients.clinical_history.download": "Permite exportar la historia clínica completa en PDF.",
+  "patients.images.delete": "Permite borrar fotografías y radiografías adjuntas.",
+  "patients.clinical_docs.delete": "Permite borrar documentos clínicos y archivos del paciente.",
+  "agenda.edit": "Permite reprogramar, cancelar, actualizar estados y bloquear espacios de la agenda.",
+  "agenda.view": "Permite consultar la agenda de citas, profesionales y sillones de la sucursal.",
+  "agenda.appointments.create": "Permite reservar y asignar nuevas citas médicas.",
+  "agenda.overbooking.allow": "Permite agendar citas en sobrecupo o fuera de disponibilidad normal.",
+  "agenda.online_booking.validate": "Permite revisar y confirmar reservas automáticas por internet.",
+  "agenda.reprogramming.manage": "Permite gestionar la cola y lotes de citas pendientes de reprogramar.",
+  "cash_register.shifts.manage": "Permite abrir turnos, registrar movimientos manuales y cerrar caja.",
+  "cash_register.summaries.view": "Permite consultar arqueos, reportes de turnos y balances de caja.",
+  "dentist_payouts.manage": "Permite consultar y registrar pagos periódicos a dentistas.",
+  "crm.marketing_campaigns.manage": "Permite crear y enviar campañas de correo masivo y WhatsApp.",
+  "crm.tasks.manage": "Permite crear, asignar, reasignar y completar tareas operativas.",
+  "crm.surveys.manage": "Permite crear, enviar y monitorear encuestas de calidad NPS.",
+  "crm.surveys.edit": "Permite modificar preguntas y configuración de encuestas."
+};
+
+export const PERMISSION_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  // Cross-cutting read resolutions for agenda & operations
+  "specialties.read": [
+    "agenda.view",
+    "agenda.edit",
+    "agenda.appointments.create",
+    "appointments.read",
+    "admin.specialties.manage"
+  ],
+  "professionals.read": [
+    "agenda.view",
+    "agenda.edit",
+    "agenda.appointments.create",
+    "admin.dentists.manage",
+    "dentist_payouts.manage",
+    "appointments.read"
+  ],
+  "schedules.read": [
+    "agenda.view",
+    "agenda.edit",
+    "agenda.appointments.create",
+    "admin.dentists.manage",
+    "appointments.read"
+  ],
+  "chairs.read": [
+    "agenda.view",
+    "agenda.edit",
+    "agenda.appointments.create",
+    "appointments.read"
+  ],
+  "branches.read": [
+    "agenda.view",
+    "agenda.edit",
+    "agenda.appointments.create",
+    "admin.health_center.view",
+    "cash_register.shifts.manage",
+    "appointments.read"
+  ],
+  "appointments.read": [
+    "agenda.view",
+    "agenda.edit",
+    "agenda.appointments.create"
+  ],
+  "price_list.view": [
+    "price_lists.read"
+  ],
+  "price_list.create": [
+    "price_lists.create"
+  ],
+  "price_list.edit_draft": [
+    "price_lists.update"
+  ],
+  "price_list.publish": [
+    "price_lists.update"
+  ],
+  "price_list.schedule": [
+    "price_lists.update"
+  ],
+  "price_list.deactivate": [
+    "price_lists.deactivate"
+  ],
+  "price_list.compare_versions": [
+    "price_lists.read"
+  ],
+  "price_list.import": [
+    "price_lists.update"
+  ],
+  "price_list.export": [
+    "price_lists.read"
+  ],
+  "procedure.view": [
+    "procedures.read"
+  ],
+  "procedure.create": [
+    "procedures.create"
+  ],
+  "procedure.edit": [
+    "procedures.update"
+  ],
+  "procedure.deactivate": [
+    "procedures.deactivate"
+  ],
+  "price_template.view": [
+    "price_lists.read"
+  ],
+  "price_template.manage": [
+    "price_lists.update"
+  ],
+  "price_override.apply": [
+    "price_lists.override_manual"
+  ],
+  "laboratory_price.view": [
+    "price_lists.read"
+  ],
+  "laboratory_price.edit": [
+    "price_lists.update"
+  ],
+  "price_audit.view": [
+    "price_lists.read"
+  ],
+  "treatment_discount.apply": [
+    "treatment_plans.update"
+  ],
+  "treatment_discount.view": [
+    "treatment_plans.read"
+  ],
+  "expenses.read": [
+    "settings.read"
+  ],
+  "expenses.create": [
+    "settings.update"
+  ],
+  "expenses.update": [
+    "settings.update"
+  ],
+  "expenses.void": [
+    "settings.update"
+  ],
+  "agreements.debt_report.read": [
+    "settings.read",
+    "agreements.read"
+  ],
+  "agreements.debt_report.all_branches": [
+    "branches.view_all"
+  ],
+  "agreements.payments.create": [
+    "settings.update",
+    "payments.create"
+  ],
+  "agreements.payments.approve": [
+    "settings.update",
+    "payments.allocate"
+  ],
+  "agreements.payments.void": [
+    "settings.update",
+    "payments.void"
+  ],
+  "agreements.reports.export": [
+    "settings.read",
+    "reports.export"
+  ],
+  "consents.templates.read": [
+    "consent_templates.read"
+  ],
+  "consents.templates.create": [
+    "consent_templates.create"
+  ],
+  "consents.templates.update_draft": [
+    "consent_templates.update"
+  ],
+  "consents.templates.publish": [
+    "consent_templates.update"
+  ],
+  "consents.templates.deactivate": [
+    "consent_templates.deactivate"
+  ],
+  "consents.templates.view_versions": [
+    "consent_templates.read"
+  ],
+  "consents.templates.view_audit": [
+    "consent_templates.read"
+  ],
+  "consents.instances.read": [
+    "consents.read"
+  ],
+  "consents.instances.create": [
+    "consents.create"
+  ],
+  "consents.instances.complete_fields": [
+    "consents.create",
+    "consents.sign"
+  ],
+  "consents.instances.sign_patient": [
+    "consents.sign",
+    "consents.instances.sign_professional",
+    "consents.instances.sign_representative"
+  ],
+  "consents.instances.finalize": [
+    "consents.sign"
+  ],
+  "consents.instances.void": [
+    "consents.sign"
+  ],
+  "consents.instances.download": [
+    "consents.pdf"
+  ],
+  "consents.instances.view_evidence": [
+    "consents.pdf",
+    "consents.read"
+  ],
+  "patient_analytics.read": [
+    "patients.read",
+    "reports.read"
+  ],
+  "patient_analytics.read_financial": [
+    "payments.read",
+    "accounts_receivable.read"
+  ],
+  "patient_analytics.view_all_branches": [
+    "branches.view_all",
+    "reports.read"
+  ],
+  "patient_analytics.export": [
+    "reports.export"
+  ],
+  "patient_analytics.refresh": [
+    "reports.read"
+  ],
+  "patient_analytics.view_patient_details": [
+    "patients.read"
+  ],
+  "crm.tasks.read": [
+    "patients.tasks.read"
+  ],
+  "crm.tasks.create": [
+    "patients.tasks.create"
+  ],
+  "crm.tasks.update": [
+    "patients.tasks.update"
+  ],
+  "crm.tasks.complete": [
+    "patients.tasks.complete"
+  ],
+  "crm.tasks.reopen": [
+    "patients.tasks.update",
+    "patients.tasks.complete"
+  ],
+  "crm.tasks.cancel": [
+    "patients.tasks.update"
+  ],
+  "crm.tasks.statistics.read": [
+    "patients.tasks.read",
+    "reports.read"
+  ],
+  "crm.tasks.configuration.read": [
+    "patients.tasks.read",
+    "settings.read"
+  ],
+  "crm.tasks.configuration.update": [
+    "settings.update"
+  ]
+};
+
+export const BUSINESS_GROUPS = [
+  "Gestión económica",
+  "Tratamientos",
+  "Reportes de gestión",
+  "Administración",
+  "Pacientes",
+  "Agenda",
+  "Cajas",
+  "CRM"
+] as const;
+
+export type PermissionBusinessGroup = (typeof BUSINESS_GROUPS)[number];
+
+const MODULE_BUSINESS_GROUP: Record<string, PermissionBusinessGroup> = {
+  accounts_receivable: "Gestión económica",
+  agreements: "Gestión económica",
+  budgets: "Gestión económica",
+  collections: "Gestión económica",
+  expenses: "Gestión económica",
+  installments: "Gestión económica",
+  payment_methods: "Gestión económica",
+  payment_settlements: "Gestión económica",
+  payments: "Gestión económica",
+  price_lists: "Gestión económica",
+  patient_financing: "Gestión económica",
+  payroll_financing: "Gestión económica",
+  treatment_items: "Gestión económica",
+  payroll_discount: "Gestión económica",
+  agreement_payments: "Gestión económica",
+  payments_void: "Gestión económica",
+  payments_refund: "Gestión económica",
+  payments_receipt_date: "Gestión económica",
+  payments_metadata: "Gestión económica",
+
+  clinical: "Tratamientos",
+  consents: "Tratamientos",
+  consent_templates: "Tratamientos",
+  laboratories: "Tratamientos",
+  orthodontic_diagnosis: "Tratamientos",
+  photographic_photos: "Tratamientos",
+  photographic_templates: "Tratamientos",
+  procedure_categories: "Tratamientos",
+  procedures: "Tratamientos",
+  treatment_plans: "Tratamientos",
+  clinical_actions: "Tratamientos",
+  lab_orders: "Tratamientos",
+
+  patient_analytics: "Reportes de gestión",
+  reports: "Reportes de gestión",
+  reports_management: "Reportes de gestión",
+  dashboard: "Reportes de gestión",
+
+  admin: "Administración",
+  branches: "Administración",
+  brands: "Administración",
+  chairs: "Administración",
+  health_center: "Administración",
+  online_scheduling: "Administración",
+  permissions: "Administración",
+  professionals: "Administración",
+  roles: "Administración",
+  schedules: "Administración",
+  settings: "Administración",
+  specialties: "Administración",
+  users: "Administración",
+  system: "Administración",
+  inventory: "Administración",
+  lab_providers: "Administración",
+  labs: "Administración",
+  suppliers: "Administración",
+
+  booking_identity: "Pacientes",
+  contact_points: "Pacientes",
+  documents: "Pacientes",
+  family_groups: "Pacientes",
+  family_policies: "Pacientes",
+  files: "Pacientes",
+  patient_identity: "Pacientes",
+  patients: "Pacientes",
+
+  appointments: "Agenda",
+  agenda: "Agenda",
+
+  cash_register: "Cajas",
+  dentist_payouts: "Cajas",
+
+  crm: "CRM",
+  integrations: "CRM"
+};
+
+export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly string[]>> = {
+  // 1. Gestión económica
+  "patient_financing.view": [
+    "installments.read",
+    "agreements.read"
+  ],
+  "payroll_financing.view": [
+    "agreements.debt_report.read",
+    "installments.read"
+  ],
+  "patient_financing.create": [
+    "installments.create",
+    "installments.pay",
+    "payment_settlements.read"
+  ],
+  "payroll_financing.create": [
+    "collections.payroll_discounts.manage"
+  ],
+  "collections.manage": [
+    "collections.read",
+    "collections.create",
+    "collections.detect",
+    "collections.update",
+    "collections.activities.create",
+    "accounts_receivable.read"
+  ],
+  "treatment_items.price_override": [
+    "price_lists.override_manual",
+    "treatment_discount.override",
+    "price_override.apply"
+  ],
+  "payments.void": [
+    "payments.refund",
+    "payments.update"
+  ],
+  "payroll_discount.remove": [
+    "treatment_discount.apply",
+    "agreements.payments.void"
+  ],
+  "patient_financing.delete": [
+    "installments.create",
+    "payment_settlements.cancel"
+  ],
+  "agreement_payments.void": [
+    "agreements.payments.void"
+  ],
+  "payments.refund_and_reentry": [
+    "payments.refund",
+    "cash_register.move"
+  ],
+  "payments.receipt_date.update": [
+    "payments.update",
+    "payment_settlements.receive"
+  ],
+  "payments.metadata.update": [
+    "payments.update",
+    "payments.allocate"
+  ],
+
+  // 2. Tratamientos
+  "treatment_plans.detail.manage": [
+    "treatment_plans.read",
+    "treatment_plans.create",
+    "treatment_plans.update",
+    "treatment_plans.alternatives.manage",
+    "procedures.read",
+    "budgets.print",
+    "budgets.reject",
+    "budgets.send"
+  ],
+  "budgets.evolve": [
+    "treatment_plans.status.update",
+    "clinical.evolutions.create",
+    "budgets.read",
+    "budgets.create",
+    "budgets.update",
+    "budgets.accept",
+    "orthodontic_catalogs.manage",
+    "orthodontic_diagnosis.catalogs.manage",
+    "orthodontic_diagnosis.create",
+    "orthodontic_diagnosis.draft",
+    "orthodontic_diagnosis.read"
+  ],
+  "treatment_plans.commercial_discounts": [
+    "treatment_discount.apply",
+    "price_lists.configure_discount_limits",
+    "treatment_discount.configure_user_limits",
+    "payment_options.cash_discounts.view",
+    "payments.cash_discounts.apply"
+  ],
+  "treatment_plans.deactivate_finished": [
+    "treatment_plans.status.update",
+    "treatment_plans.reactivate"
+  ],
+  "treatment_plans.unlock": [
+    "treatment_plans.update",
+    "price_override.apply"
+  ],
+  "clinical_actions.undo": [
+    "treatment_plans.status.update",
+    "lab_orders.update"
+  ],
+  "treatment_plans.transfer_branch": [
+    "treatment_plans.update",
+    "branches.read"
+  ],
+  "lab_orders.price_override": [
+    "lab_orders.cost.update",
+    "laboratory_price.edit"
+  ],
+  "payments.reallocate_credits": [
+    "payments.allocate",
+    "family_groups.read"
+  ],
+  "treatment_plans.delete": [
+    "treatment_plans.update"
+  ],
+  "clinical_actions.warranty_undo": [
+    "treatment_plans.status.update",
+    "payments.refund"
+  ],
+  "treatment_plans.comments.update": [
+    "treatment_plans.update"
+  ],
+  "treatment_plans.comment_templates.manage": [
+    "clinical.templates.manage"
+  ],
+  "treatment_plans.reactivate_expired": [
+    "treatment_plans.reactivate"
+  ],
+  "payments.cash_discount.release_credit": [
+    "payments.cash_discounts.apply",
+    "payments.allocate"
+  ],
+  "treatment_plans.duplicate": [
+    "treatment_plans.create",
+    "treatment_plans.duplicate"
+  ],
+  "clinical.print_signature.view": [
+    "clinical.evolutions.sign",
+    "documents.read"
+  ],
+  "payments.unallocate": [
+    "payments.allocate",
+    "payments.update"
+  ],
+
+  // 3. Reportes de gestión
+  "reports.management.read": [
+    "reports.read",
+    "patient_analytics.read",
+    "patient_analytics.export",
+    "patient_analytics.read_financial",
+    "patient_analytics.refresh"
+  ],
+  "dashboard.performance.view": [
+    "dashboard.read",
+    "reports.read"
+  ],
+
+  // 4. Administración
+  "admin.users.manage": [
+    "users.read",
+    "users.create",
+    "users.update",
+    "users.deactivate",
+    "roles.read"
+  ],
+  "admin.payment_methods_banks.manage": [
+    "payment_methods.read",
+    "payment_methods.create",
+    "payment_methods.update",
+    "payment_methods.deactivate",
+    "payment_methods.reactivate",
+    "payment_methods.view_audit",
+    "payment_links.create",
+    "payment_options.cash_discounts.create",
+    "payment_options.cash_discounts.disable",
+    "payment_options.cash_discounts.reactivate",
+    "payment_options.cash_discounts.update",
+    "payments.cash_discounts.view_audit",
+    "settings.read",
+    "settings.update"
+  ],
+  "admin.expenses.manage": [
+    "expenses.read",
+    "expenses.create",
+    "expenses.update",
+    "expenses.void"
+  ],
+  "admin.inventory.manage": [
+    "inventory.read",
+    "inventory.create",
+    "inventory.update",
+    "inventory.deactivate",
+    "inventory.products.view",
+    "inventory.products.create",
+    "inventory.products.update",
+    "inventory.products.reactivate",
+    "inventory.movements.read",
+    "inventory.movements.create",
+    "inventory.movements.compensate",
+    "inventory.warehouses.read",
+    "inventory.warehouses.manage",
+    "inventory.reports.read",
+    "inventory.reports.export",
+    "inventory.stock_counts.create",
+    "inventory.stock_counts.reconcile",
+    "inventory.adjustments.create",
+    "inventory.alerts.read",
+    "inventory.entries.create",
+    "inventory.exits.create",
+    "inventory.transfers.create",
+    "inventory.waste.create",
+    "inventory.sell",
+    "suppliers.read",
+    "suppliers.create",
+    "suppliers.update",
+    "suppliers.deactivate"
+  ],
+  "admin.price_lists_templates.manage": [
+    "price_lists.read",
+    "price_lists.create",
+    "price_lists.update",
+    "price_lists.deactivate",
+    "price_list.create",
+    "price_list.deactivate",
+    "price_list.edit_draft",
+    "price_list.publish",
+    "price_list.schedule",
+    "price_list.view",
+    "price_template.manage",
+    "price_template.view",
+    "procedure_categories.read",
+    "procedure_categories.create",
+    "procedure_categories.update",
+    "procedure_categories.deactivate",
+    "procedures.read",
+    "procedures.create",
+    "procedures.update"
+  ],
+  "admin.laboratories.manage": [
+    "lab_providers.read",
+    "lab_providers.create",
+    "lab_providers.update",
+    "lab_providers.deactivate",
+    "lab_orders.read",
+    "lab_profitability.read"
+  ],
+  "admin.settlements.manage": [
+    "payment_settlements.read",
+    "payment_settlements.receive",
+    "payment_settlements.cancel"
+  ],
+  "admin.dentists.manage": [
+    "professionals.read",
+    "professionals.create",
+    "professionals.update",
+    "professionals.deactivate",
+    "schedules.read",
+    "schedules.create",
+    "schedules.update",
+    "schedules.deactivate"
+  ],
+  "admin.agreements.manage": [
+    "agreements.read",
+    "agreements.manage",
+    "agreements.publish",
+    "agreements.assign",
+    "agreements.debt_report.read",
+    "agreements.payments.create",
+    "agreements.payments.approve",
+    "agreements.reports.export"
+  ],
+  "admin.pending_void_payments.manage": [
+    "payments.read",
+    "payments.update",
+    "payment_settlements.read"
+  ],
+  "admin.reports_excel.export": [
+    "reports.export",
+    "reports.read"
+  ],
+  "admin.logo.manage": [
+    "brands.manage_identity",
+    "brands.view",
+    "brands.update",
+    "manage_logos",
+    "assign_logos_to_branches"
+  ],
+  "admin.patient_field_config.manage": [
+    "patient_identity.config.read",
+    "patient_identity.config.manage",
+    "settings.update"
+  ],
+  "admin.patient_admin_notes.view": [
+    "patients.read"
+  ],
+  "admin.templates_only.manage": [
+    "clinical.templates.manage",
+    "consent_templates.read",
+    "consent_templates.update"
+  ],
+  "admin.lab_requests.manage": [
+    "lab_orders.read",
+    "lab_orders.create",
+    "lab_orders.update"
+  ],
+  "admin.clinical_docs.manage": [
+    "clinical.documents.create",
+    "clinical.templates.manage"
+  ],
+  "admin.ges_notifications.view_print": [
+    "documents.read",
+    "print_care_plan"
+  ],
+  "admin.settlement_payment.update": [
+    "payment_settlements.receive",
+    "payments.update"
+  ],
+  "admin.consent_templates.manage": [
+    "consent_templates.read",
+    "consent_templates.create",
+    "consent_templates.update",
+    "consent_templates.deactivate",
+    "consents.templates.read",
+    "consents.templates.create",
+    "consents.templates.publish",
+    "consents.templates.deactivate",
+    "consents.templates.update_draft",
+    "consents.templates.view_audit",
+    "consents.templates.view_versions"
+  ],
+  "admin.specialties.manage": [
+    "specialties.read",
+    "specialties.create",
+    "specialties.update",
+    "specialties.deactivate"
+  ],
+  "admin.roles.manage": [
+    "roles.read",
+    "roles.create",
+    "roles.update",
+    "roles.deactivate",
+    "permissions.create",
+    "permissions.deactivate"
+  ],
+  "admin.user_permissions.manage": [
+    "permissions.read",
+    "permissions.update",
+    "users.manage_branch_access"
+  ],
+  "admin.lab_payments.manage": [
+    "lab_orders.cost.update",
+    "expenses.create"
+  ],
+  "admin.ges_config.manage": [
+    "settings.update"
+  ],
+  "admin.online_tpv_dashboard.view": [
+    "payment_webhooks.read",
+    "payments.read"
+  ],
+  "admin.user_security.manage": [
+    "users.update",
+    "users.deactivate"
+  ],
+  "admin.price_lists.bulk_import": [
+    "price_list.import",
+    "price_lists.create",
+    "price_lists.update"
+  ],
+  "admin.file_sync.configure": [
+    "integrations.imports.manage"
+  ],
+  "admin.file_sync.export_attach": [
+    "files.upload",
+    "integrations.imports.read"
+  ],
+  "admin.health_center.view": [
+    "health_center.view",
+    "health_center.manage",
+    "branches.read",
+    "branches.create",
+    "branches.update",
+    "branches.deactivate",
+    "branches.archive",
+    "branches.restore",
+    "brands.view",
+    "brands.create",
+    "brands.archive",
+    "chairs.read",
+    "chairs.create",
+    "chairs.update",
+    "chairs.deactivate"
+  ],
+
+  // 5. Pacientes
+  "patients.records.manage": [
+    "patients.read",
+    "patients.update",
+    "patients.notes.create",
+    "patients.files.manage",
+    "clinical.read",
+    "clinical.history.update",
+    "clinical.odontogram.read",
+    "clinical.odontogram.write",
+    "clinical.periodontogram.read",
+    "clinical.periodontogram.write",
+    "document_requirements.read",
+    "document_requirements.manage",
+    "document_requirements.satisfy",
+    "document_requirements.waive"
+  ],
+  "patients.invoices.view": [
+    "payments.read",
+    "accounts_receivable.read",
+    "installments.read"
+  ],
+  "patients.images.upload": [
+    "files.read",
+    "files.upload",
+    "photographic_photos.upload",
+    "photographic_photos.edit",
+    "photographic_templates.view",
+    "photographic_templates.create",
+    "photographic_templates.edit",
+    "photographic_templates.compare",
+    "photographic_templates.configure_frequency",
+    "photographic_templates.configure_slots",
+    "photographic_templates.link",
+    "photographic_templates.mobile_upload"
+  ],
+  "patients.family_groups.manage": [
+    "family_groups.read",
+    "family_groups.create",
+    "family_groups.manage_members",
+    "family_groups.manage_contacts",
+    "family_groups.manage_permissions",
+    "family_policies.read",
+    "family_policies.create",
+    "family_policies.manage",
+    "family_policies.activate",
+    "family_policies.coverage.read",
+    "family_policies.coverage.apply"
+  ],
+  "patients.personal_data.update": [
+    "patients.read",
+    "patients.update",
+    "contact_points.read",
+    "contact_points.link",
+    "contact_points.verify",
+    "contact_points.backfill",
+    "contact_points.transfer"
+  ],
+  "patients.alerts.manage": [
+    "patients.alerts.create",
+    "patients.read"
+  ],
+  "patients.records.read_only": [
+    "patients.read",
+    "clinical.read",
+    "clinical.odontogram.read",
+    "clinical.periodontogram.read"
+  ],
+  "patients.alerts.view": [
+    "patients.read"
+  ],
+  "patients.document_number.update": [
+    "patients.update"
+  ],
+  "patients.personal_data.view": [
+    "patients.read",
+    "contact_points.read"
+  ],
+  "patients.prescriptions.manage": [
+    "clinical.prescriptions.create",
+    "clinical.read"
+  ],
+  "patients.deactivate": [
+    "patients.deactivate"
+  ],
+  "patients.medical_history.edit": [
+    "clinical.history.update"
+  ],
+  "patients.medical_history_history.view": [
+    "clinical.read"
+  ],
+  "patients.consents.manage": [
+    "consents.read",
+    "consents.create",
+    "consents.sign",
+    "consents.pdf",
+    "consents.instances.read",
+    "consents.instances.create",
+    "consents.instances.complete_fields",
+    "consents.instances.sign_patient",
+    "consents.instances.sign_professional",
+    "consents.instances.finalize",
+    "consents.instances.view_evidence",
+    "consents.instances.void"
+  ],
+  "patients.consents.read_only": [
+    "consents.read",
+    "consents.pdf",
+    "consents.instances.read",
+    "consents.instances.download"
+  ],
+  "patients.merge": [
+    "patients.merge",
+    "patient_duplicates.review"
+  ],
+  "patients.clinical_history.download": [
+    "print_clinical_history",
+    "clinical.read"
+  ],
+  "patients.images.delete": [
+    "clinical.files.delete",
+    "photographic_photos.void",
+    "photographic_templates.void"
+  ],
+  "patients.clinical_docs.delete": [
+    "clinical.documents.delete"
+  ],
+  "patients.create": [
+    "patients.create",
+    "contact_points.link"
+  ],
+
+  // 6. Agenda
+  "agenda.view": [
+    "appointments.read",
+    "professionals.read",
+    "schedules.read",
+    "chairs.read",
+    "branches.read",
+    "specialties.read"
+  ],
+  "agenda.edit": [
+    "appointments.update",
+    "appointments.cancel",
+    "appointments.status.update",
+    "appointments.block",
+    "appointments.read",
+    "professionals.read",
+    "schedules.read",
+    "chairs.read",
+    "branches.read",
+    "specialties.read"
+  ],
+  "agenda.appointments.create": [
+    "appointments.create",
+    "appointments.read",
+    "patients.read",
+    "professionals.read",
+    "schedules.read",
+    "chairs.read",
+    "branches.read",
+    "specialties.read"
+  ],
+  "agenda.overbooking.allow": ["appointments.overbook"],
+  "agenda.online_booking.validate": ["booking_identity.review", "booking_identity.resolve"],
+  "agenda.reprogramming.manage": [
+    "agenda.reprogramming.view",
+    "agenda.reprogramming.mass_cancel",
+    "agenda.reprogramming.reschedule",
+    "agenda.reprogramming.change_professional",
+    "agenda.reprogramming.change_branch",
+    "agenda.reprogramming.definitive_cancel",
+    "agenda.reprogramming.view_financial_status",
+    "agenda.reprogramming.view_audit"
+  ],
+
+  // 7. Cajas
+  "cash_register.shifts.manage": [
+    "cash_register.read",
+    "cash_register.open",
+    "cash_register.close",
+    "cash_register.move",
+    "branches.read"
+  ],
+  "cash_register.summaries.view": [
+    "cash_register.read",
+    "cash_register.reports.read"
+  ],
+  "dentist_payouts.manage": [
+    "payment_settlements.read",
+    "payment_settlements.receive",
+    "professionals.read"
+  ],
+
+  // 8. CRM
+  "crm.marketing_campaigns.manage": [
+    "integrations.communications.read",
+    "integrations.communications.send",
+    "integrations.ai.complete",
+    "integrations.ai.read",
+    "integrations.ai.request",
+    "integrations.chat.read",
+    "integrations.chat.send",
+    "integrations.telemedicine.manage",
+    "integrations.telemedicine.read"
+  ],
+  "crm.tasks.manage": [
+    "crm.tasks.read",
+    "crm.tasks.create",
+    "crm.tasks.update",
+    "crm.tasks.complete",
+    "crm.tasks.reopen",
+    "crm.tasks.cancel",
+    "crm.tasks.configuration.read",
+    "crm.tasks.configuration.update",
+    "crm.tasks.statistics.read",
+    "patients.tasks.read",
+    "patients.tasks.create",
+    "patients.tasks.update",
+    "patients.tasks.complete"
+  ],
+  "crm.surveys.manage": [
+    "integrations.surveys.read",
+    "integrations.surveys.manage"
+  ],
+  "crm.surveys.edit": [
+    "integrations.surveys.manage"
+  ]
+};
+
+const INTERNAL_PERMISSION_PREFIXES = [
+  "price_list.",
+  "procedure.",
+  "price_template.",
+  "laboratory_price."
+] as const;
+
+const INTERNAL_PERMISSION_KEYS = new Set([
+  "system.manage_all",
+  "price_override.apply",
+  "price_audit.view"
+]);
+
+const ADVANCED_ACTION_TOKENS = new Set([
+  "all_branches",
+  "approve",
+  "archive",
+  "audit",
+  "cancel",
+  "compensate",
+  "configure",
+  "deactivate",
+  "delete",
+  "export",
+  "import",
+  "lock",
+  "manage",
+  "override",
+  "publish",
+  "reactivate",
+  "reconcile",
+  "refund",
+  "restore",
+  "void",
+  "waive"
+]);
+
+export type PermissionMetadataInput = {
+  key: string;
+  name?: string | null;
+  description?: string | null;
+  module: string;
+  isSystem?: boolean;
+};
+
+export function getPermissionPresentationTier(key: string): PermissionPresentationTier {
+  if (INTERNAL_PERMISSION_KEYS.has(key) || INTERNAL_PERMISSION_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+    return "INTERNAL";
+  }
+  // All 98 canonical Dentalink permissions are primary and visible
+  if (CANONICAL_PERMISSION_KEYS.has(key)) {
+    return "BASIC";
+  }
+  return "ADVANCED";
+}
+
+export function getPermissionBusinessGroup(module: string): PermissionBusinessGroup {
+  return MODULE_BUSINESS_GROUP[module] ?? "Administración";
+}
+
+export function getPermissionMetadata(permission: PermissionMetadataInput) {
+  const compatibilityAliases = PERMISSION_ALIASES[permission.key] ?? [];
+  return {
+    label: PERMISSION_LABELS[permission.key] ?? permission.name ?? permission.key,
+    description: PERMISSION_DESCRIPTIONS[permission.key] ?? permission.description ?? null,
+    businessGroup: getPermissionBusinessGroup(permission.module),
+    presentationTier: getPermissionPresentationTier(permission.key),
+    compatibilityAliasOf: compatibilityAliases[0] ?? null,
+    sensitive: getPermissionPresentationTier(permission.key) !== "BASIC"
+  } as const;
+}
+
+export function hasEffectivePermission(grantedPermissions: readonly string[], requiredPermission: string): boolean {
+  if (grantedPermissions.includes("system.manage_all")) return true;
+  if (grantedPermissions.includes(requiredPermission)) return true;
+
+  // Direct alias resolution (e.g. requiredPermission is satisfied by an alias)
+  const aliases = PERMISSION_ALIASES[requiredPermission] ?? [];
+  if (aliases.some((alias) => grantedPermissions.includes(alias))) {
+    return true;
+  }
+
+  // Canonical Bundle resolution: Check if any granted permission is a bundle that contains requiredPermission or an alias
+  for (const granted of grantedPermissions) {
+    const bundle = CANONICAL_PERMISSION_BUNDLES[granted];
+    if (bundle) {
+      if (bundle.includes(requiredPermission)) return true;
+      if (aliases.some((alias) => bundle.includes(alias))) return true;
+    }
+  }
+
+  return false;
+}
+
+export function canDelegatePermission(grantedPermissions: readonly string[], permissionKey: string) {
+  if (permissionKey === "system.manage_all") return false;
+  return hasEffectivePermission(grantedPermissions, permissionKey);
+}
+
+export type PermissionKey = (typeof permissionDefinitions)[number][0];

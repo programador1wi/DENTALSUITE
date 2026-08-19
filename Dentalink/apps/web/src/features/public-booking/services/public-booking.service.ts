@@ -1,4 +1,5 @@
 import { http } from "@/lib/api/http-client";
+import type { PatientFieldConfigRecord } from "@/features/patients/services/patient-field-config.service";
 
 export type PublicAvailabilityQuery = {
   branchId: string;
@@ -8,12 +9,31 @@ export type PublicAvailabilityQuery = {
 
 export type PublicPatient = {
   firstName: string;
+  socialName?: string;
   lastName: string;
+  agreementId?: string;
+  internalNumber?: string;
   email?: string;
   phone?: string;
   documentType?: string;
   documentNumber?: string;
   birthDate?: string;
+  sex?: string;
+  gender?: string;
+  alternatePhone?: string;
+  occupation?: string;
+  employer?: string;
+  observations?: string;
+  referredBy?: string;
+  type?: string;
+  guardianName?: string;
+  guardianSocialName?: string;
+  guardianDocumentNumber?: string;
+  guardianGender?: string;
+  guardianRelationship?: string;
+  guardianPhone?: string;
+  guardianEmail?: string;
+  address?: { street?: string; city?: string; state?: string };
 };
 
 export type PublicCreateAppointmentDto = {
@@ -70,6 +90,18 @@ export type PublicConfig = {
   branches: Array<{ id: string; name: string }>;
   professionals: Array<{ id: string; firstName: string; lastName: string }>;
   specialties: Array<{ id: string; name: string }>;
+  agreements: Array<{ id: string; name: string }>;
+  patientFieldConfigs?: Array<{
+    fieldKey: string;
+    newPatientPresent: boolean;
+    newPatientRequired: boolean;
+    appointmentPresent: boolean;
+    appointmentRequired: boolean;
+    onlineAgendaPresent: boolean;
+    onlineAgendaRequired: boolean;
+    checkInPresent: boolean;
+    checkInRequired: boolean;
+  }>;
   mode: string;
   menuByProfessional: boolean;
   menuBySpecialty: boolean;
@@ -83,13 +115,25 @@ export async function getPublicConfig(slug: string) {
 }
 
 export async function getPublicAvailability(slug: string, query: PublicAvailabilityQuery) {
-  const params = new URLSearchParams({ branchId: query.branchId, professionalId: query.professionalId, date: query.date }).toString();
-  const { data } = await http.get<{ slots: AvailabilitySlot[] }>(`/public/booking/${slug}/availability?${params}`);
+  const params = new URLSearchParams({
+    branchId: query.branchId,
+    professionalId: query.professionalId,
+    date: query.date
+  }).toString();
+  const { data } = await http.get<{ slots: AvailabilitySlot[] }>(
+    `/public/booking/${slug}/availability?${params}`
+  );
   return data;
 }
 
-export async function createPublicAppointment(slug: string, dto: PublicCreateAppointmentDto, idempotencyKey: string) {
-  const { data } = await http.post(`/public/booking/${slug}/appointments`, dto, { headers: { "idempotency-key": idempotencyKey } });
+export async function createPublicAppointment(
+  slug: string,
+  dto: PublicCreateAppointmentDto,
+  idempotencyKey: string
+) {
+  const { data } = await http.post(`/public/booking/${slug}/appointments`, dto, {
+    headers: { "idempotency-key": idempotencyKey }
+  });
   return data;
 }
 
@@ -102,55 +146,92 @@ export async function resolvePublicIdentity(slug: string, patient: PublicPatient
 }
 
 export async function verifyPublicIdentity(slug: string, sessionId: string, patient: PublicPatient) {
-  const { data } = await http.post<PublicIdentitySession>(`/public/booking/${slug}/identity/${sessionId}/verify`, {
-    firstName: patient.firstName,
-    lastName: patient.lastName,
-    birthDate: patient.birthDate,
-    documentNumber: patient.documentNumber
-  });
+  const { data } = await http.post<PublicIdentitySession>(
+    `/public/booking/${slug}/identity/${sessionId}/verify`,
+    {
+      firstName: patient.firstName,
+      lastName: patient.lastName,
+      birthDate: patient.birthDate,
+      documentNumber: patient.documentNumber
+    }
+  );
   return data;
 }
 
-export async function selectPublicIdentity(slug: string, sessionId: string, candidate: PublicIdentityCandidate) {
-  const { data } = await http.post<PublicIdentitySession>(`/public/booking/${slug}/identity/${sessionId}/select`, {
-    patientId: candidate.patientId,
-    familyGroupId: candidate.familyGroupId
-  });
+export async function selectPublicIdentity(
+  slug: string,
+  sessionId: string,
+  candidate: PublicIdentityCandidate
+) {
+  const { data } = await http.post<PublicIdentitySession>(
+    `/public/booking/${slug}/identity/${sessionId}/select`,
+    {
+      patientId: candidate.patientId,
+      familyGroupId: candidate.familyGroupId
+    }
+  );
   return data;
 }
 
-export async function trackPublicEvent(slug: string, eventType: 'VISIT' | 'CONVERSION', campaignCode?: string) {
+export async function trackPublicEvent(
+  slug: string,
+  eventType: "VISIT" | "CONVERSION",
+  campaignCode?: string
+) {
   const { data } = await http.post(`/public/booking/${slug}/track`, { eventType, campaignCode });
   return data;
 }
 
 export type PublicPatientProfile = {
   firstName: string;
+  socialName?: string | null;
   lastName: string;
+  agreementId?: string | null;
+  internalNumber?: string | null;
   email?: string | null;
   phone?: string | null;
   documentType?: string | null;
   documentNumber?: string | null;
   birthDate?: string | null;
+  sex?: string | null;
   gender?: string | null;
   alternatePhone?: string | null;
+  occupation?: string | null;
+  employer?: string | null;
+  observations?: string | null;
+  referredBy?: string | null;
+  type?: string | null;
+  guardianName?: string | null;
+  guardianSocialName?: string | null;
+  guardianDocumentNumber?: string | null;
+  guardianGender?: string | null;
+  agreements: Array<{ id: string; name: string }>;
   address?: {
     street?: string | null;
     city?: string | null;
     state?: string | null;
   } | null;
+  patientFieldConfigs: PatientFieldConfigRecord[];
 };
 
-export type UpdatePublicPatientProfileDto = Partial<PublicPatientProfile> & {
+export type UpdatePublicPatientProfileDto = Partial<
+  Omit<PublicPatientProfile, "patientFieldConfigs" | "agreements">
+> & {
   privacyNoticeAccepted: boolean;
 };
 
 export async function getPublicPatientProfile(id: string, token: string) {
-  const { data } = await http.get<PublicPatientProfile>(`/public/booking/appointments/${id}/patient-profile?token=${token}`);
+  const { data } = await http.get<PublicPatientProfile>(
+    `/public/booking/appointments/${id}/patient-profile?token=${token}`
+  );
   return data;
 }
 
-export async function updatePublicPatientProfile(id: string, token: string, dto: UpdatePublicPatientProfileDto) {
+export async function updatePublicPatientProfile(
+  id: string,
+  token: string,
+  dto: UpdatePublicPatientProfileDto
+) {
   const { data } = await http.patch(`/public/booking/appointments/${id}/patient-profile?token=${token}`, dto);
   return data;
 }

@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils/cn";
 import type { Appointment } from "../services/appointments.service";
 
 export type AppointmentMenuAction =
+  | "contactWhatsApp"
   | "requestDataEmail"
   | "modifyDuration"
   | "addComment"
@@ -184,6 +185,9 @@ export function AppointmentActionsMenu({
               </ActionItem>
               <ActionItem disabled={!hasPatient} onClick={() => goToPatientRoute(`/patients/${appointment.patientId}/clinical`)}>
                 Ir a la ficha clínica del paciente
+              </ActionItem>
+              <ActionItem disabled={!hasPatient} onClick={() => handleAction("contactWhatsApp")}>
+                Contactar por WhatsApp
               </ActionItem>
               <ActionItem disabled={!hasPatient} onClick={() => handleAction("requestDataEmail")}>
                 Enviar solicitud de datos por mail

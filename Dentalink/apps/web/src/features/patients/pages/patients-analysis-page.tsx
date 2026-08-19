@@ -5,6 +5,7 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { WarnerSuitePanel } from "@/components/layout/module-tabs";
 import { PageHeader } from "@/components/layout/page-header";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
@@ -177,10 +178,13 @@ export function PatientsAnalysisPage() {
         ) : analysis.data ? (
           <>
             {!analysis.data.capabilities.canReadFinancial ? (
-              <div className="flex items-start gap-3 rounded-[var(--radius-md)] border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-900">
-                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                Vista clínica activa. API omitió deuda e importes de presupuestos porque sesión no tiene permiso financiero.
-              </div>
+              <Alert
+                variant="warning"
+                size="sm"
+                icon={<ShieldAlert className="h-4 w-4 shrink-0 text-amber-600" />}
+              >
+                Vista clínica activa. La API omitió deuda e importes de presupuestos porque la sesión actual no tiene permisos financieros asignados.
+              </Alert>
             ) : null}
             <React.Suspense fallback={<LoadingState message="Cargando modulo de conversión..." />}>
               <ConversionSection analysis={analysis.data} onOpenDetail={(metric, title) => setDetail({ metric, title })} />

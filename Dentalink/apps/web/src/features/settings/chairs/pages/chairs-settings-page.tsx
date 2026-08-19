@@ -266,9 +266,11 @@ export function ChairsSettingsPage() {
       </Card>
 
       <SimpleCrudPage
-        title="Cubiculos"
-        description="Recursos fisicos por sucursal"
+        title="Cubículo"
+        description="Recursos físicos por sucursal"
+        createButtonLabel="Nuevo cubículo"
         showHeader={false}
+        useModal={true}
         rows={chairs.data}
         loading={chairs.isLoading}
         error={chairs.error?.message}
@@ -277,8 +279,8 @@ export function ChairsSettingsPage() {
         active={active}
         setActive={setActive}
         fields={[
-          { key: "name", label: "Nombre", type: "text" },
-          { key: "description", label: "Descripcion", type: "textarea" }
+          { key: "name", label: "Nombre", type: "text", required: true },
+          { key: "description", label: "Descripción", type: "textarea" }
         ]}
         columns={[
           { key: "name", title: "Nombre" },

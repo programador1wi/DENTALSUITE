@@ -7,12 +7,14 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DataTable } from "@/components/ui/data-table";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
+import { TableActionGroup, TableToolbar } from "@/components/ui/table-toolbar";
 import { Textarea } from "@/components/ui/textarea";
 import { RichTextEditor } from "@/features/clinical/components/rich-text-editor";
 import {
@@ -123,6 +125,10 @@ export function SpecialtiesSettingsPage() {
   const createReason = useCreateSpecialtyAppointmentReason();
   const updateReason = useUpdateSpecialtyAppointmentReason();
   const sortedReasons = useMemo(() => sortReasonsByLegacyId(reasons.data ?? []), [reasons.data]);
+  const specialtyRows = useMemo(
+    () => (specialties.data ?? []).map((specialty, index) => ({ ...specialty, rowNumber: index + 1 })),
+    [specialties.data]
+  );
 
   const specialtyPending =
     createSpecialty.isPending || updateSpecialty.isPending || deactivateSpecialty.isPending;
@@ -291,8 +297,8 @@ export function SpecialtiesSettingsPage() {
         helpText="Las especialidades se asignan a profesionales y concentran las plantillas de prescripciones, evoluciones y motivos de atencion."
       />
 
-      <Card className="space-y-4">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+      <TableToolbar
+        leading={
           <Tabs
             active={view}
             onChange={(nextView) => setView(nextView as "true" | "false")}
@@ -301,120 +307,91 @@ export function SpecialtiesSettingsPage() {
               { key: "false", label: "Deshabilitadas" }
             ]}
           />
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <EntitySearchBox
-              placeholder="Buscar especialidad"
-              value={search}
-              onValueChange={setSearch}
-              items={search.trim() ? specialties.data ?? [] : []}
-              onSelect={(specialty) => {
-                setSearch(specialty.name);
-                openEditSpecialty(specialty);
-              }}
-              getItemKey={(specialty) => specialty.id}
-              emptyMessage="Sin especialidades encontradas"
-              renderItem={(specialty) => (
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{specialty.name}</p>
-                  <p className="mt-0.5 truncate text-xs text-slate-500">{specialty.description || "Sin descripcion"}</p>
-                </div>
-              )}
-              className="sm:w-72"
-            />
-            <Button onClick={openNewSpecialty}>Nueva especialidad</Button>
-          </div>
-        </div>
-      </Card>
+        }
+        search={
+          <EntitySearchBox
+            placeholder="Buscar especialidad"
+            value={search}
+            onValueChange={setSearch}
+            items={search.trim() ? specialties.data ?? [] : []}
+            onSelect={(specialty) => {
+              setSearch(specialty.name);
+              openEditSpecialty(specialty);
+            }}
+            getItemKey={(specialty) => specialty.id}
+            emptyMessage="Sin especialidades encontradas"
+            renderItem={(specialty) => (
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-slate-900">{specialty.name}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">{specialty.description || "Sin descripcion"}</p>
+              </div>
+            )}
+          />
+        }
+        actions={<Button onClick={openNewSpecialty}>Nueva especialidad</Button>}
+      />
 
       {specialties.isLoading ? <LoadingState message="Cargando especialidades..." /> : null}
       {specialties.isError ? <ErrorState message={specialties.error.message} /> : null}
 
       {!specialties.isLoading && specialties.data ? (
-        !specialties.data.length ? (
-          <EmptyState title="Sin especialidades" description="No hay registros para estos filtros." />
-        ) : (
-          <Card className="overflow-hidden p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[880px] border-collapse bg-white text-sm">
-                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="px-4 py-3">#</th>
-                    <th className="px-4 py-3">Nombre</th>
-                    <th className="px-4 py-3">Plantillas</th>
-                    <th className="px-4 py-3">Motivo de atencion</th>
-                    <th className="px-4 py-3">Estado</th>
-                    <th className="px-4 py-3 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {specialties.data.map((specialty, index) => (
-                    <tr key={specialty.id} className="border-t border-slate-100">
-                      <td className="px-4 py-4 text-slate-500">{index + 1}</td>
-                      <td className="px-4 py-4">
-                        <p className="font-semibold text-slate-900">{specialty.name}</p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {specialty.description || "Sin descripcion"}
-                        </p>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            variant="secondary"
-                            onClick={() => openTemplates(specialty, "PRESCRIPTION")}
-                          >
-                            Prescripciones
-                          </Button>
-                          <Button variant="secondary" onClick={() => openTemplates(specialty, "EVOLUTION")}>
-                            Evoluciones
-                          </Button>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <Button variant="secondary" onClick={() => openReasons(specialty)}>
-                          Configurar
-                        </Button>
-                      </td>
-                      <td className="px-4 py-4">
-                        <Badge
-                          value={specialty.isActive ? "HABILITADA" : "DESHABILITADA"}
-                          tone={specialty.isActive ? "success" : "warning"}
-                        />
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex justify-end gap-2">
-                          <Button variant="secondary" onClick={() => openEditSpecialty(specialty)}>
-                            Editar
-                          </Button>
-                          {specialty.isActive ? (
-                            <Button
-                              variant="danger"
-                              disabled={specialtyPending}
-                              onClick={() => void deactivateSpecialty.mutateAsync(specialty.id)}
-                            >
-                              Deshabilitar
-                            </Button>
-                          ) : (
-                            <Button
-                              disabled={specialtyPending}
-                              onClick={() =>
-                                void updateSpecialty.mutateAsync({
-                                  id: specialty.id,
-                                  payload: { isActive: true }
-                                })
-                              }
-                            >
-                              Habilitar
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        )
+        <DataTable
+          rows={specialtyRows}
+          getRowKey={(specialty) => specialty.id}
+          empty={<EmptyState title="Sin especialidades" description="No hay registros para estos filtros." />}
+          columns={[
+            { key: "rowNumber", title: "#", mobileHidden: true, cellClassName: "w-12 text-[var(--text-secondary)]" },
+            {
+              key: "name",
+              title: "Nombre",
+              primary: true,
+              wrap: true,
+              render: (specialty) => (
+                <div className="min-w-56">
+                  <p className="font-semibold text-[var(--text-brand-strong)]">{specialty.name}</p>
+                  <p className="mt-1 text-[var(--text-xs)] text-[var(--text-secondary)]">{specialty.description || "Sin descripcion"}</p>
+                </div>
+              )
+            },
+            {
+              key: "id",
+              title: "Plantillas",
+              wrap: true,
+              render: (specialty) => (
+                <TableActionGroup align="start">
+                  <Button variant="secondary" onClick={() => openTemplates(specialty, "PRESCRIPTION")}>Prescripciones</Button>
+                  <Button variant="secondary" onClick={() => openTemplates(specialty, "EVOLUTION")}>Evoluciones</Button>
+                </TableActionGroup>
+              )
+            },
+            {
+              key: "description",
+              title: "Motivo de atencion",
+              render: (specialty) => <Button variant="secondary" onClick={() => openReasons(specialty)}>Configurar</Button>
+            },
+            {
+              key: "isActive",
+              title: "Estado",
+              render: (specialty) => <Badge value={specialty.isActive ? "HABILITADA" : "DESHABILITADA"} tone={specialty.isActive ? "success" : "warning"} dot />
+            },
+            {
+              key: "id",
+              title: "Acciones",
+              actions: true,
+              headerClassName: "text-right",
+              render: (specialty) => (
+                <TableActionGroup>
+                  <Button variant="secondary" onClick={() => openEditSpecialty(specialty)}>Editar</Button>
+                  {specialty.isActive ? (
+                    <Button variant="danger" disabled={specialtyPending} onClick={() => void deactivateSpecialty.mutateAsync(specialty.id)}>Deshabilitar</Button>
+                  ) : (
+                    <Button disabled={specialtyPending} onClick={() => void updateSpecialty.mutateAsync({ id: specialty.id, payload: { isActive: true } })}>Habilitar</Button>
+                  )}
+                </TableActionGroup>
+              )
+            }
+          ]}
+        />
       ) : null}
 
       <Modal

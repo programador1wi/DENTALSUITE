@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { ApiError, parseApiError } from "./error";
 import { authStoreApi } from "@/stores/auth.store";
 
@@ -45,6 +45,24 @@ http.interceptors.request.use((config) => {
   return config;
 });
 
+// --- Silent token refresh on 401 ---
+let isRefreshing = false;
+let pendingQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (error: unknown) => void;
+}> = [];
+
+function processQueue(error: unknown, token: string | null) {
+  for (const promise of pendingQueue) {
+    if (token) {
+      promise.resolve(token);
+    } else {
+      promise.reject(error);
+    }
+  }
+  pendingQueue = [];
+}
+
 http.interceptors.response.use(
   (response) => {
     if (response.config.responseType !== "blob") {
@@ -52,10 +70,65 @@ http.interceptors.response.use(
     }
     return response;
   },
-  async (error) => {
-    if (error.response?.status === 401) {
-      authStoreApi.getState().clearSession();
+  async (error: AxiosError<{ message?: string }>) => {
+    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
+
+    // Only attempt refresh for 401 responses that have not already been retried
+    // and that are NOT the refresh endpoint itself (avoid infinite loop)
+    if (
+      error.response?.status === 401 &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes("/auth/refresh") &&
+      !originalRequest.url?.includes("/auth/login")
+    ) {
+      const refreshToken = authStoreApi.getState().refreshToken;
+
+      // No refresh token available, clear session immediately
+      if (!refreshToken) {
+        authStoreApi.getState().clearSession();
+        throw parseApiError(error);
+      }
+
+      // If another refresh is already in flight, queue this request
+      if (isRefreshing) {
+        return new Promise<string>((resolve, reject) => {
+          pendingQueue.push({ resolve, reject });
+        }).then((newToken) => {
+          originalRequest.headers.Authorization = `Bearer ${newToken}`;
+          return http(originalRequest);
+        });
+      }
+
+      originalRequest._retry = true;
+      isRefreshing = true;
+
+      try {
+        const { data } = await axios.post<{ accessToken: string; refreshToken: string }>(
+          `${baseURL}/auth/refresh`,
+          { refreshToken }
+        );
+
+        authStoreApi.getState().setSession({
+          user: authStoreApi.getState().user!,
+          accessToken: data.accessToken,
+          refreshToken: data.refreshToken
+        });
+
+        originalRequest.headers.Authorization = `Bearer ${data.accessToken}`;
+        processQueue(null, data.accessToken);
+
+        return http(originalRequest);
+      } catch (refreshError) {
+        processQueue(refreshError, null);
+        authStoreApi.getState().clearSession();
+        throw parseApiError(error);
+      } finally {
+        isRefreshing = false;
+      }
     }
+
+    // Non-401 errors or already retried: propagate normally
     throw parseApiError(error);
   }
 );
+

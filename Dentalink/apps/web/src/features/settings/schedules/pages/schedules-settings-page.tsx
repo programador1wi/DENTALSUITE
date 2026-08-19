@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -760,9 +761,9 @@ export function SchedulesSettingsPage() {
           </Card>
 
           {weeklyError ? (
-            <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--status-warning-bg)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--status-warning-text)]">
+            <Alert variant="warning" size="sm">
               {weeklyError}
-            </div>
+            </Alert>
           ) : null}
           </form>
         </div>
@@ -903,9 +904,9 @@ export function SchedulesSettingsPage() {
           </label>
 
           {!blockRange || blockDuration < 5 ? (
-            <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--status-danger-bg)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--status-danger-text)]">
-              La hora de termino debe ser posterior a la hora de inicio.
-            </div>
+            <Alert variant="danger" size="sm">
+              La hora de término debe ser posterior a la hora de inicio.
+            </Alert>
           ) : null}
 
           {blockConflictQuery.isFetching ? <LoadingState message="Revisando citas afectadas..." /> : null}
@@ -1021,29 +1022,23 @@ function ReadonlyField({ label, value }: { label: string; value: string }) {
 
 function ConflictWarning({ conflicts }: { conflicts: ScheduleBlockAppointment[] }) {
   return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--status-warning-bg)] p-[var(--space-4)] text-[var(--status-warning-text)]">
-      <div className="flex items-start gap-[var(--space-2)]">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-        <div>
-          <p className="text-[var(--text-sm)] font-semibold">Hay citas en este rango</p>
-          <p className="mt-1 text-[var(--text-sm)]">
-            Resuelve estas citas antes de bloquear el horario. El sistema no las reasigna automaticamente.
-          </p>
-        </div>
-      </div>
-      <div className="mt-[var(--space-3)] space-y-[var(--space-2)]">
+    <Alert variant="warning" size="sm" title="Hay citas en este rango">
+      <p className="mb-2">
+        Resuelve estas citas antes de bloquear el horario. El sistema no las reasigna automáticamente.
+      </p>
+      <div className="space-y-1.5 pt-1">
         {conflicts.slice(0, 5).map((appointment) => (
-          <div key={appointment.id} className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--text-primary)]">
+          <div key={appointment.id} className="rounded-md bg-white/90 border border-amber-200/60 px-2.5 py-1.5 text-xs text-slate-800">
             <span className="font-semibold">{formatTimeRange(appointment.startAt, appointment.endAt)}</span>
             {" - "}
             {appointment.patient ? `${appointment.patient.firstName} ${appointment.patient.lastName}` : appointment.title}
           </div>
         ))}
         {conflicts.length > 5 ? (
-          <p className="text-[var(--text-sm)] font-medium">Y {conflicts.length - 5} cita(s) mas.</p>
+          <p className="text-xs font-medium text-amber-900">Y {conflicts.length - 5} cita(s) más.</p>
         ) : null}
       </div>
-    </div>
+    </Alert>
   );
 }
 

@@ -1,32 +1,29 @@
 import {
   Archive,
   Building2,
-  CheckCircle2,
-  Clock3,
   Copy,
   Eye,
   FilePlus2,
-  FileSignature,
   History,
-  MoreHorizontal,
   Pencil,
   Plus,
   Search,
   Send,
-  ShieldCheck,
-  TriangleAlert,
-  XCircle
+  ShieldCheck
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { DataTable } from "@/components/ui/data-table";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { TableActionGroup } from "@/components/ui/table-toolbar";
 import { Tabs } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { PageHeader } from "@/components/layout/page-header";
@@ -268,45 +265,241 @@ export function ConsentTemplatesSettingsPage() {
       ) : null}
 
       {templatesList.length ? (
-        <Card className="overflow-hidden p-0">
-          <div className="hidden grid-cols-[minmax(240px,1.4fr)_110px_100px_180px_150px_120px] gap-[var(--space-3)] border-b border-[var(--border-default)] bg-[var(--bg-subtle)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-xs)] font-medium uppercase tracking-wide text-[var(--text-brand)] lg:grid">
-            <span>Plantilla</span><span>Versión</span><span>Alcance</span><span>Firmas</span><span>Actualización</span><span>Acciones</span>
-          </div>
-          {templatesList.map((template) => (
-            <TemplateRow
-              key={template.id}
-              template={template}
-              onEdit={() => openEdit(template)}
-              onPreview={() => {
+        <DataTable
+          rows={templatesList}
+          empty={<EmptyState title="Sin consentimientos" description="No hay plantillas que coincidan con los filtros." />}
+          columns={[
+            {
+              key: "name",
+              title: "Plantilla",
+              primary: true,
+              render: (template) => (
+                <div className="min-w-0 space-y-1 py-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      className="text-left font-semibold text-[var(--text-primary)] hover:text-[var(--text-brand)] hover:underline"
+                      onClick={() => {
+                        const version = template.draftVersion ?? template.currentPublishedVersion;
+                        if (!version) return;
+                        mutations.previewConsentTemplate.mutate(
+                          { editorSchemaJson: version.editorSchemaJson, requiredSigners: version.requiredSigners ?? version.requiredSignersJson },
+                          {
+                            onSuccess: (result) => {
+                              setPreviewHtml(result.html);
+                              setPreviewValidation(result.validation);
+                            }
+                          }
+                        );
+                      }}
+                    >
+                      {template.name}
+                    </button>
+                    <Badge
+                      value={template.status}
+                      tone={template.status === "PUBLISHED" ? "success" : template.status === "INACTIVE" ? "warning" : "brand"}
+                    />
+                  </div>
+                  <p className="line-clamp-1 text-xs text-[var(--text-secondary)]">
+                    {template.internalDescription || "Sin descripción interna"}
+                  </p>
+                  <p className="text-xs font-medium text-[var(--text-tertiary)]">
+                    {template.generatedCount} consentimientos generados
+                  </p>
+                </div>
+              )
+            },
+            {
+              key: "version",
+              title: "Versión",
+              priority: "P2",
+              render: (template) => {
                 const version = template.draftVersion ?? template.currentPublishedVersion;
-                if (!version) return;
-                mutations.previewConsentTemplate.mutate(
-                  { editorSchemaJson: version.editorSchemaJson, requiredSigners: version.requiredSigners ?? version.requiredSignersJson },
-                  {
-                    onSuccess: (result) => {
-                      setPreviewHtml(result.html);
-                      setPreviewValidation(result.validation);
-                    }
-                  }
+                return (
+                  <div className="text-sm">
+                    <span className="font-semibold text-[var(--text-primary)]">v{version?.versionNumber ?? "—"}</span>
+                    {template.draftVersion ? (
+                      <span className="ml-1.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                        Borrador
+                      </span>
+                    ) : null}
+                  </div>
                 );
-              }}
-              onDuplicate={() => mutations.duplicateConsentTemplate.mutate(template.id)}
-              onNewVersion={() => newVersionAndEdit(template)}
-              onPublish={() => mutations.publishConsentTemplate.mutate({ id: template.id, expectedVersion: template.version })}
-              onDeactivate={() => {
-                if (window.confirm("La plantilla dejará de generar nuevos documentos. Los consentimientos previos se conservarán.")) {
-                  mutations.deactivateConsentTemplate.mutate({ id: template.id, expectedVersion: template.version });
-                }
-              }}
-              onVersions={() => setVersionsTemplateId(template.id)}
-              onAudit={() => setAuditTemplateId(template.id)}
-              canEdit={can("consents.templates.update_draft", "consent_templates.update")}
-              canPublish={can("consents.templates.publish", "consent_templates.update")}
-              canDeactivate={can("consents.templates.deactivate", "consent_templates.deactivate")}
-              canDuplicate={can("consents.templates.create", "consent_templates.create")}
-            />
-          ))}
-        </Card>
+              }
+            },
+            {
+              key: "scopeType",
+              title: "Alcance",
+              priority: "P2",
+              render: (template) => {
+                const scopeLabel =
+                  template.scopeType === "ORGANIZATION"
+                    ? "Global"
+                    : template.scopeType === "BRANCHES"
+                      ? `${template.branchIds.length} suc.`
+                      : template.scopeType === "SPECIALTY"
+                        ? "Especialidad"
+                        : "Tratamientos";
+                return (
+                  <span className="inline-flex items-center gap-1.5 text-sm text-[var(--text-secondary)]">
+                    <Building2 className="h-4 w-4 shrink-0 text-[var(--text-tertiary)]" />
+                    <span>{scopeLabel}</span>
+                  </span>
+                );
+              }
+            },
+            {
+              key: "id",
+              title: "Firmas",
+              priority: "P2",
+              render: (template) => {
+                const version = template.draftVersion ?? template.currentPublishedVersion;
+                const signers = version?.requiredSigners ?? version?.requiredSignersJson;
+                const signerLabels = [
+                  signers?.patient.enabled ? "Paciente" : "",
+                  signers?.professional.enabled ? "Profesional" : "",
+                  signers?.representative.enabled ? "Representante" : ""
+                ].filter(Boolean);
+                return (
+                  <span className="text-sm text-[var(--text-secondary)]">
+                    {signerLabels.join(", ") || "Sin firmantes"}
+                  </span>
+                );
+              }
+            },
+            {
+              key: "updatedAt",
+              title: "Actualización",
+              priority: "P3",
+              render: (template) => (
+                <div className="text-xs">
+                  <p className="font-medium text-[var(--text-primary)]">{new Date(template.updatedAt).toLocaleDateString()}</p>
+                  <p className="text-[var(--text-secondary)]">{template.updatedByName ?? "Usuario del sistema"}</p>
+                </div>
+              )
+            },
+            {
+              key: "id",
+              title: "Acciones",
+              actions: true,
+              headerClassName: "text-right",
+              cellClassName: "text-right",
+              render: (template) => (
+                <TableActionGroup>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      const version = template.draftVersion ?? template.currentPublishedVersion;
+                      if (!version) return;
+                      mutations.previewConsentTemplate.mutate(
+                        { editorSchemaJson: version.editorSchemaJson, requiredSigners: version.requiredSigners ?? version.requiredSignersJson },
+                        {
+                          onSuccess: (result) => {
+                            setPreviewHtml(result.html);
+                            setPreviewValidation(result.validation);
+                          }
+                        }
+                      );
+                    }}
+                    title="Vista previa"
+                  >
+                    <Eye className="h-4 w-4" />
+                    <span className="hidden xl:inline">Vista previa</span>
+                  </Button>
+
+                  {template.draftVersion && can("consents.templates.update_draft", "consent_templates.update") ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => openEdit(template)}
+                      title="Editar borrador"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Editar
+                    </Button>
+                  ) : null}
+
+                  {!template.draftVersion && template.currentPublishedVersion && can("consents.templates.update_draft", "consent_templates.update") ? (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => void newVersionAndEdit(template)}
+                      title="Crear nueva versión"
+                    >
+                      <FilePlus2 className="h-4 w-4" />
+                      Nueva versión
+                    </Button>
+                  ) : null}
+
+                  {template.draftVersion && can("consents.templates.publish", "consent_templates.update") ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void mutations.publishConsentTemplate.mutate({ id: template.id, expectedVersion: template.version })}
+                      title="Publicar plantilla"
+                    >
+                      <Send className="h-4 w-4" />
+                      Publicar
+                    </Button>
+                  ) : null}
+
+                  {can("consents.templates.create", "consent_templates.create") ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => void mutations.duplicateConsentTemplate.mutate(template.id)}
+                      title="Duplicar plantilla"
+                    >
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setVersionsTemplateId(template.id)}
+                    title="Historial de versiones"
+                  >
+                    <History className="h-4 w-4" />
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setAuditTemplateId(template.id)}
+                    title="Consultar auditoría"
+                  >
+                    <ShieldCheck className="h-4 w-4" />
+                  </Button>
+
+                  {template.status === "PUBLISHED" && can("consents.templates.deactivate", "consent_templates.deactivate") ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-[var(--text-danger)] hover:bg-rose-50"
+                      onClick={() => {
+                        if (window.confirm("La plantilla dejará de generar nuevos documentos. Los consentimientos previos se conservarán.")) {
+                          mutations.deactivateConsentTemplate.mutate({ id: template.id, expectedVersion: template.version });
+                        }
+                      }}
+                      title="Deshabilitar"
+                    >
+                      <Archive className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                </TableActionGroup>
+              )
+            }
+          ]}
+        />
       ) : null}
 
       <Modal open={isEditorOpen} title={editing?.id ? `Editar borrador · ${form.name || "Sin nombre"}` : "Nueva plantilla"} size="2xl" onClose={closeEditor}>
@@ -475,103 +668,12 @@ export function ConsentTemplatesSettingsPage() {
                 <p className="font-medium text-[var(--text-primary)]">{entry.action}</p>
                 <time className="text-[var(--text-xs)] text-[var(--text-secondary)]">{new Date(entry.createdAt).toLocaleString()}</time>
               </div>
-              <p className="mt-1 text-[var(--text-xs)] text-[var(--text-secondary)]">Actor: {entry.actorUserId ?? entry.userId ?? "Sistema"} · Correlation ID: {entry.correlationId ?? "—"}</p>
+              <p className="mt-1 text-[var(--text-xs)] text-[var(--text-secondary)]">Usuario responsable: {entry.actorUserId ?? entry.userId ? "Administrador" : "Sistema"}</p>
             </div>
           ))}
         </div>
       </Modal>
     </section>
-  );
-}
-
-function TemplateRow({
-  template,
-  onEdit,
-  onPreview,
-  onDuplicate,
-  onNewVersion,
-  onPublish,
-  onDeactivate,
-  onVersions,
-  onAudit,
-  canEdit,
-  canPublish,
-  canDeactivate,
-  canDuplicate
-}: {
-  template: ConsentTemplate;
-  onEdit: () => void;
-  onPreview: () => void;
-  onDuplicate: () => void;
-  onNewVersion: () => void;
-  onPublish: () => void;
-  onDeactivate: () => void;
-  onVersions: () => void;
-  onAudit: () => void;
-  canEdit: boolean;
-  canPublish: boolean;
-  canDeactivate: boolean;
-  canDuplicate: boolean;
-}) {
-  const version = template.draftVersion ?? template.currentPublishedVersion;
-  const signers = version?.requiredSigners ?? version?.requiredSignersJson;
-  const signerLabels = [
-    signers?.patient.enabled ? "Paciente" : "",
-    signers?.professional.enabled ? "Profesional" : "",
-    signers?.representative.enabled ? "Representante" : ""
-  ].filter(Boolean);
-  const scopeLabel =
-    template.scopeType === "ORGANIZATION" ? "Global" :
-      template.scopeType === "BRANCHES" ? `${template.branchIds.length} suc.` :
-        template.scopeType === "SPECIALTY" ? "Especialidad" : "Tratamientos";
-
-  return (
-    <div className="grid gap-[var(--space-3)] border-b border-[var(--border-default)] px-[var(--space-4)] py-[var(--space-4)] last:border-b-0 lg:grid-cols-[minmax(240px,1.4fr)_110px_100px_180px_150px_120px] lg:items-center">
-      <div>
-        <div className="flex flex-wrap items-center gap-[var(--space-2)]">
-          <p className="font-medium text-[var(--text-primary)]">{template.name}</p>
-          <Badge value={template.status} tone={template.status === "PUBLISHED" ? "success" : template.status === "INACTIVE" ? "warning" : "brand"} />
-        </div>
-        <p className="mt-1 line-clamp-1 text-[var(--text-xs)] text-[var(--text-secondary)]">{template.internalDescription || "Sin descripción interna"}</p>
-        <p className="mt-1 text-[var(--text-xs)] text-[var(--text-secondary)]">{template.generatedCount} consentimientos generados</p>
-      </div>
-      <div className="text-[var(--text-sm)]">
-        <p className="font-medium text-[var(--text-primary)]">v{version?.versionNumber ?? "—"}</p>
-        {template.draftVersion ? <span className="text-[var(--text-warning)]">Borrador</span> : null}
-      </div>
-      <div className="flex items-center gap-[var(--space-1)] text-[var(--text-sm)] text-[var(--text-secondary)]">
-        <Building2 className="h-4 w-4" /> {scopeLabel}
-      </div>
-      <p className="text-[var(--text-sm)] text-[var(--text-secondary)]">{signerLabels.join(", ") || "Sin firmantes"}</p>
-      <div>
-        <p className="text-[var(--text-sm)] text-[var(--text-primary)]">{new Date(template.updatedAt).toLocaleDateString()}</p>
-        <p className="text-[var(--text-xs)] text-[var(--text-secondary)]">{template.updatedByName ?? "Usuario del sistema"}</p>
-      </div>
-      <div className="flex flex-wrap gap-[var(--space-1)]">
-        <Action icon={Eye} label="Previsualizar" onClick={onPreview} />
-        {template.draftVersion && canEdit ? <Action icon={Pencil} label="Editar borrador" onClick={onEdit} /> : null}
-        {!template.draftVersion && template.currentPublishedVersion && canEdit ? <Action icon={FilePlus2} label="Crear nueva versión" onClick={onNewVersion} /> : null}
-        {template.draftVersion && canPublish ? <Action icon={Send} label="Publicar" onClick={onPublish} /> : null}
-        {canDuplicate ? <Action icon={Copy} label="Duplicar" onClick={onDuplicate} /> : null}
-        <Action icon={History} label="Consultar versiones" onClick={onVersions} />
-        <Action icon={ShieldCheck} label="Consultar auditoría" onClick={onAudit} />
-        {template.status === "PUBLISHED" && canDeactivate ? <Action icon={Archive} label="Deshabilitar" onClick={onDeactivate} danger /> : null}
-      </div>
-    </div>
-  );
-}
-
-function Action({ icon: Icon, label, onClick, danger = false }: { icon: typeof Eye; label: string; onClick: () => void; danger?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      title={label}
-      className={`flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] ${danger ? "text-[var(--text-danger)] hover:bg-[var(--bg-subtle)]" : "text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-brand)]"}`}
-    >
-      <Icon className="h-4 w-4" />
-    </button>
   );
 }
 
@@ -654,28 +756,30 @@ function SignerCard({
 function ValidationPanel({ validation }: { validation: ConsentValidation }) {
   if (!validation.errors.length && !validation.warnings.length) {
     return (
-      <div className="flex items-center gap-[var(--space-2)] rounded-[var(--radius-md)] border border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] p-[var(--space-3)] text-[var(--text-sm)] text-[var(--text-brand-strong)]">
-        <CheckCircle2 className="h-4 w-4" /> Estructura válida para publicar.
-      </div>
+      <Alert variant="success" size="sm" title="Estructura válida para publicar">
+        Todos los campos requeridos y variables dinámicas han sido validados correctamente.
+      </Alert>
     );
   }
   return (
-    <div className="grid gap-[var(--space-3)] md:grid-cols-2">
+    <div className="space-y-3">
       {validation.errors.length ? (
-        <div className="rounded-[var(--radius-md)] border border-[var(--text-danger)] p-[var(--space-3)]">
-          <p className="flex items-center gap-[var(--space-2)] font-medium text-[var(--text-danger)]"><XCircle className="h-4 w-4" /> Errores de publicación</p>
-          <ul className="mt-[var(--space-2)] list-disc space-y-1 pl-[var(--space-5)] text-[var(--text-sm)] text-[var(--text-primary)]">
-            {validation.errors.map((error) => <li key={error}>{error}</li>)}
+        <Alert variant="danger" size="sm" title="Errores de publicación">
+          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs">
+            {validation.errors.map((error) => (
+              <li key={error}>{error}</li>
+            ))}
           </ul>
-        </div>
+        </Alert>
       ) : null}
       {validation.warnings.length ? (
-        <div className="rounded-[var(--radius-md)] border border-[var(--text-warning)] p-[var(--space-3)]">
-          <p className="flex items-center gap-[var(--space-2)] font-medium text-[var(--text-primary)]"><TriangleAlert className="h-4 w-4 text-[var(--text-warning)]" /> Advertencias</p>
-          <ul className="mt-[var(--space-2)] list-disc space-y-1 pl-[var(--space-5)] text-[var(--text-sm)] text-[var(--text-primary)]">
-            {validation.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+        <Alert variant="warning" size="sm" title="Advertencias">
+          <ul className="mt-1 list-disc space-y-0.5 pl-4 text-xs">
+            {validation.warnings.map((warning) => (
+              <li key={warning}>{warning}</li>
+            ))}
           </ul>
-        </div>
+        </Alert>
       ) : null}
     </div>
   );

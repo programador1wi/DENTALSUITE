@@ -220,10 +220,11 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           const availableHeight = direction === "up" ? spaceAbove - 16 : spaceBelow - 16;
           const maxHeight = Math.max(150, Math.min(300, availableHeight));
 
+          const width = Math.min(Math.max(280, rect.width), window.innerWidth - 24);
           setCoords({
             top,
-            left: rect.left,
-            width: rect.width,
+            left: Math.min(Math.max(12, rect.left), window.innerWidth - width - 12),
+            width,
             direction,
             maxHeight
           });
@@ -244,7 +245,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
     const hasSearch = options.length > 8;
 
     return (
-      <div ref={containerRef} className={cn("relative w-full", containerClassName)}>
+      <div ref={containerRef} className={cn("relative min-w-0 w-full", containerClassName)}>
         {/* Hidden select for form bindings and refs */}
         <select
           ref={selectRef}
@@ -254,6 +255,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             if (onChange) onChange(e);
           }}
           className="sr-only"
+          aria-label={props["aria-label"] ?? displayLabel}
           disabled={disabled}
           {...props}
         >
@@ -265,7 +267,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
           type="button"
           onClick={() => !disabled && setOpen(!open)}
           className={cn(
-            "flex h-10 w-full items-center justify-between rounded-[var(--radius-md)] border px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--text-sm)] shadow-sm outline-none transition-all duration-[var(--duration-fast)] ease-[var(--ease-default)] cursor-pointer",
+            "flex h-10 min-w-0 w-full items-center justify-between rounded-[var(--radius-md)] border px-[var(--space-3)] py-[var(--space-2)] text-left text-[var(--text-sm)] shadow-sm outline-none transition-all duration-[var(--duration-fast)] ease-[var(--ease-default)] cursor-pointer",
             theme === "dark"
               ? "border-[rgba(255,255,255,0.08)] bg-[rgba(255,255,255,0.04)] text-[rgba(248,250,252,0.85)] hover:bg-[rgba(255,255,255,0.08)] hover:border-[rgba(255,255,255,0.15)] focus:border-[var(--border-brand)] focus:ring-[var(--focus-ring)]"
               : "border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--border-strong)] focus:border-[var(--border-brand)] focus:ring-2 focus:ring-[var(--focus-ring)]",
@@ -301,7 +303,7 @@ export const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
             style={{
               top: coords.top,
               left: coords.left,
-              width: `${Math.max(280, coords.width)}px`,
+              width: `${coords.width}px`,
               transform: coords.direction === "up" ? "translateY(-100%)" : "none",
               maxHeight: `${coords.maxHeight}px`
             }}

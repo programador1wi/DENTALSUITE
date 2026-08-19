@@ -19,10 +19,11 @@ export function useProcedureCategories(search?: string, active?: string) {
   });
 }
 
-export function useProcedures(search?: string, active?: string, categoryId?: string) {
+export function useProcedures(search?: string, active?: string, categoryId?: string, enabled = true) {
   return useQuery({
     queryKey: ["settings", "procedures", search, active, categoryId],
-    queryFn: () => listProcedures({ search, active, categoryId })
+    queryFn: () => listProcedures({ search, active, categoryId }),
+    enabled
   });
 }
 

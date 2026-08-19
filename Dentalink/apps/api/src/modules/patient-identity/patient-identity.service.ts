@@ -11,6 +11,7 @@ import {
 import { Prisma, type Patient } from "@prisma/client";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
+import { generateUniquePatientNumber } from "../../common/utils/patient-number.util";
 import { AppointmentsService } from "../appointments/appointments.service";
 import {
   AddFamilyContactDto,
@@ -734,6 +735,7 @@ export class PatientIdentityService {
         existingPatient ??
         (await tx.patient.create({
           data: {
+            patientNumber: await generateUniquePatientNumber(tx),
             organizationId: actor.organizationId,
             branchId: dto.branchId,
             firstName: this.normalizeText(dto.firstName),
@@ -1603,6 +1605,7 @@ export class PatientIdentityService {
           })
         : await tx.patient.create({
             data: {
+              patientNumber: await generateUniquePatientNumber(tx),
               organizationId,
               branchId: dto.branchId,
               firstName: this.normalizeText(dto.responsible.firstName),
@@ -1657,6 +1660,7 @@ export class PatientIdentityService {
             })
           : await tx.patient.create({
               data: {
+                patientNumber: await generateUniquePatientNumber(tx),
                 organizationId,
                 branchId: dto.branchId,
                 firstName: this.normalizeText(memberInput.firstName),
@@ -1801,6 +1805,7 @@ export class PatientIdentityService {
         existingPatient ??
         (await tx.patient.create({
           data: {
+            patientNumber: await generateUniquePatientNumber(tx),
             organizationId,
             branchId: dto.branchId,
             firstName: this.normalizeText(dto.firstName),

@@ -1046,11 +1046,13 @@ export class ClinicalService {
           data: {
             organizationId: actor.organizationId,
             branchId: patient.branchId!,
+            code: `CLIN-${patient.branchId!.slice(-8).toUpperCase()}`,
             name: "Bodega central",
             description: "Bodega creada automaticamente para consumo clinico.",
             isDefault: true
           }
         });
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${`${actor.organizationId}:${warehouse.id}:${inventoryItem.id}`}))`;
         const stockRow = await tx.inventoryStock.upsert({
           where: { inventoryItemId_warehouseId: { inventoryItemId: inventoryItem.id, warehouseId: warehouse.id } },
           create: {
@@ -1073,6 +1075,7 @@ export class ClinicalService {
         // Crear movimiento
         const movement = await tx.inventoryMovement.create({
           data: {
+            organizationId: actor.organizationId,
             inventoryItemId: inventoryItem.id,
             branchId: patient.branchId!,
             warehouseId: warehouse.id,
@@ -1080,6 +1083,9 @@ export class ClinicalService {
             quantity: numericQty,
             reason: `Consumo por evolución clínica ${current.id}`,
             source: "CLINICAL",
+            sourceWarehouseId: warehouse.id,
+            occurredAt: new Date(),
+            postedAt: new Date(),
             createdById: actor.id,
             patientId,
             clinicalEvolutionId: current.id,
@@ -1091,10 +1097,25 @@ export class ClinicalService {
           }
         });
 
+        await tx.inventoryMovementLine.create({
+          data: {
+            movementId: movement.id,
+            inventoryItemId: inventoryItem.id,
+            quantity: numericQty,
+            unitCost: stockRow.averageCost,
+            totalCost: numericQty * Number(stockRow.averageCost),
+            stockBefore: numericStock,
+            stockAfter: numericStock - numericQty,
+            averageCostBefore: stockRow.averageCost,
+            averageCostAfter: stockRow.averageCost,
+            notes: `Consumo por evolución clínica ${current.id}`
+          }
+        });
+
         // Descontar
         await tx.inventoryStock.update({
           where: { id: stockRow.id },
-          data: { stock: { decrement: numericQty } }
+          data: { stock: { decrement: numericQty }, lastMovementAt: new Date(), version: { increment: 1 } }
         });
         await tx.inventoryItem.update({
           where: { id: inventoryItem.id },
@@ -1171,6 +1192,7 @@ export class ClinicalService {
           
           const reversal = await tx.inventoryMovement.create({
             data: {
+              organizationId: actor.organizationId,
               inventoryItemId: inventoryItem.id,
               branchId: material.inventoryMovement.branchId,
               warehouseId: material.inventoryMovement.warehouseId,
@@ -1178,6 +1200,9 @@ export class ClinicalService {
               quantity: numericQty,
               reason: `Reversa por anulación de evolución clínica ${current.id}. Motivo: ${dto.reason}`,
               source: "CLINICAL_REVERSAL",
+              destinationWarehouseId: material.inventoryMovement.warehouseId,
+              occurredAt: new Date(),
+              postedAt: new Date(),
               createdById: actor.id,
               patientId,
               clinicalEvolutionId: current.id,
@@ -1187,10 +1212,25 @@ export class ClinicalService {
             }
           });
 
+          await tx.inventoryMovementLine.create({
+            data: {
+              movementId: reversal.id,
+              inventoryItemId: inventoryItem.id,
+              quantity: numericQty,
+              unitCost: material.inventoryMovement.unitCost ?? 0,
+              totalCost: numericQty * Number(material.inventoryMovement.unitCost ?? 0),
+              stockBefore: numericStock,
+              stockAfter: numericStock + numericQty,
+              averageCostBefore: material.inventoryMovement.unitCost ?? 0,
+              averageCostAfter: material.inventoryMovement.unitCost ?? 0,
+              notes: `Reversa por anulación de evolución clínica ${current.id}`
+            }
+          });
+
           if (material.inventoryMovement.warehouseId) {
             await tx.inventoryStock.updateMany({
               where: { inventoryItemId: inventoryItem.id, warehouseId: material.inventoryMovement.warehouseId },
-              data: { stock: { increment: numericQty } }
+              data: { stock: { increment: numericQty }, lastMovementAt: new Date(), version: { increment: 1 } }
             });
           }
           await tx.inventoryItem.update({
@@ -1841,8 +1881,17 @@ export class ClinicalService {
   }
 
   private async ensurePatient(actor: AuthUser, patientId: string) {
+    const trimmed = patientId.trim();
+    const isNumeric = /^\d+$/.test(trimmed);
     const patient = await this.prisma.patient.findFirst({
-      where: { id: patientId, organizationId: actor.organizationId, branchId: branchScope(actor), deletedAt: null }
+      where: {
+        organizationId: actor.organizationId,
+        branchId: branchScope(actor),
+        deletedAt: null,
+        ...(isNumeric
+          ? { OR: [{ id: trimmed }, { patientNumber: parseInt(trimmed, 10) }] }
+          : { id: trimmed })
+      }
     });
     if (!patient) throw new NotFoundException("Patient not found");
     return patient;

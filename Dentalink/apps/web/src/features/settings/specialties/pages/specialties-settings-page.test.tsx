@@ -67,7 +67,7 @@ describe("SpecialtiesSettingsPage appointment reasons", () => {
   it("shows legacy ids, suspended state, and opens the edit modal", () => {
     render(<SpecialtiesSettingsPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Configurar" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Configurar" })[0]!);
 
     expect(screen.getByText("207")).toBeInTheDocument();
     expect(screen.getByText("208")).toBeInTheDocument();
@@ -78,13 +78,13 @@ describe("SpecialtiesSettingsPage appointment reasons", () => {
 
     expect(screen.getByText("Editar motivo de atención")).toBeInTheDocument();
     expect(screen.getByDisplayValue("ADITAMENTOS ADICIONALES")).toBeInTheDocument();
-    expect(screen.getByRole("combobox", { name: "Duración 30 min" })).toHaveValue("30");
+    expect(screen.getByRole("combobox", { name: "30 min" })).toHaveValue("30");
   });
 
   it("suspends a reason through the row action", async () => {
     render(<SpecialtiesSettingsPage />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Configurar" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Configurar" })[0]!);
     fireEvent.click(screen.getByRole("button", { name: "Suspender ADITAMENTOS ADICIONALES" }));
 
     await waitFor(() => {

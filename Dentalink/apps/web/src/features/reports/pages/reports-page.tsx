@@ -26,7 +26,7 @@ export function ReportsPage() {
       <PageHeader title="Reportes" description="Modulo reorganizado en desempeno, Excel y reportes graficos." />
       <div className="grid gap-3 md:grid-cols-3">
         {ITEMS.map((item) => (
-          <Link key={item.to} to={item.to}>
+          <Link key={item.to} to={item.to} data-allow-multiline>
             <Card className="h-full">
               <h3 className="text-base font-semibold text-slate-900">{item.title}</h3>
               <p className="mt-1 text-sm text-slate-600">{item.description}</p>

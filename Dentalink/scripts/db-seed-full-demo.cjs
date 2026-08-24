@@ -6,15 +6,4 @@ const base = spawnSync("npm", ["run", "prisma:seed", "--workspace=@dentalwarner/
   shell: true
 });
 
-if ((base.status ?? 1) !== 0) process.exit(base.status ?? 1);
-
-const fullDemo = spawnSync(
-  "npm",
-  ["run", "prisma:seed:full-demo", "--workspace=@dentalwarner/database"],
-  {
-    stdio: "inherit",
-    shell: true
-  }
-);
-
-process.exit(fullDemo.status ?? 1);
+process.exit(base.status ?? 0);

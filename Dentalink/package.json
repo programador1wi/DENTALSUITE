@@ -34,6 +34,7 @@
     "db:studio": "node scripts/db-studio.cjs",
     "db:backup": "node scripts/db-backup.cjs",
     "db:index:check": "node scripts/db-index-check.cjs",
+    "db:restore": "node scripts/db-restore.cjs",
     "prisma:generate": "npm run prisma:generate --workspace=@dentalwarner/database",
     "prisma:migrate": "npm run prisma:migrate --workspace=@dentalwarner/database",
     "prisma:seed": "npm run prisma:seed --workspace=@dentalwarner/database"

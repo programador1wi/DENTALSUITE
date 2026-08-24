@@ -55,6 +55,7 @@
     { "file": "apps/web/src/features/settings/users/pages/users-bulk-contracts-page.tsx", "status": "refactored" },
     { "file": "apps/web/src/features/clinical/components/odontogram-view.tsx", "status": "refactored" },
     { "file": "apps/web/src/features/agenda/components/calendar-view.tsx", "status": "refactored" },
-    { "file": "apps/web/src/features/public-booking/pages/public-booking-page.tsx", "status": "refactored" }
+    { "file": "apps/web/src/features/public-booking/pages/public-booking-page.tsx", "status": "refactored" },
+    { "file": "apps/web/src/features/reports/pages/reports-charts-page.tsx", "status": "planned", "note": "Nuevo god file detectado en baseline de profesionalización (1,426 líneas)." }
   ]
 }

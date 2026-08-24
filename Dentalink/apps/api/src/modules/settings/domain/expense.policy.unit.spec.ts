@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException } from "@nestjs/common";
 import { CashRegisterStatus, ExpenseStatus } from "@prisma/client";
-import { ExpensePolicy, type ExpensePolicySource } from "./expense.policy";
+import { ExpensePolicy, type ExpensePolicySource } from "../application/expense.policy";
 
 function expense(status?: CashRegisterStatus): ExpensePolicySource {
   return {

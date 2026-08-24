@@ -203,12 +203,13 @@ export type Expense = {
   total: string;
   paidAt: string;
   invoicedAt?: string | null;
+  accountingDate?: string | null;
   notes?: string | null;
   documentUrl?: string | null;
   voidReason?: string | null;
   voidedAt?: string | null;
   branch: { id: string; name: string };
-  category: { id: string; name: string };
+  category: { id: string; name: string; reportGroup: "PROFESSIONALS" | "LABORATORIES" | "COMMISSIONS" | "GENERAL" };
   paymentMethod?: { id: string; name: string; type: string } | null;
   cashMovements: Array<{
     id: string;
@@ -244,11 +245,13 @@ export type Expense = {
 export type ExpensePayload = {
   branchId: string;
   categoryName: string;
+  categoryReportGroup: "PROFESSIONALS" | "LABORATORIES" | "COMMISSIONS" | "GENERAL";
   description: string;
   supplierName?: string;
   quantity: number;
   unitCost: number;
   invoicedAt?: string;
+  accountingDate: string;
   paidAt: string;
   notes?: string;
   paymentMethodId?: string;

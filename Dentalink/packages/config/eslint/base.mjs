@@ -10,6 +10,14 @@ export default tseslint.config(
       "**/build/**",
       "**/coverage/**",
       "**/*.tsbuildinfo",
+      "scratch/**",
+      "scripts/publish-release.cjs",
+      "scripts/maintenance/archive/**",
+      "apps/api/test-*",
+      "apps/web/scan_*.js",
+      "packages/database/test.*",
+      "packages/database/seed-templates.js",
+      "test-*",
       "package-lock.json"
     ]
   },
@@ -24,9 +32,12 @@ export default tseslint.config(
     }
   },
   {
-    files: ["**/*.cjs", "scripts/**/*.cjs"],
+    files: ["**/*.{cjs,js}", "scripts/**/*.cjs"],
     languageOptions: {
       globals: {
+        __dirname: "readonly",
+        Buffer: "readonly",
+        URL: "readonly",
         module: "readonly",
         require: "readonly",
         process: "readonly",

@@ -42,6 +42,7 @@ const dynamicRoutes: Array<{ route: string; fixtures: Record<string, string> }> 
   { route: "/pagos/:paymentNumber/comprobante", fixtures: { paymentNumber: "E2E_PAYMENT_NUMBER" } },
   { route: "/public/surveys/respond/:token", fixtures: { token: "E2E_SURVEY_TOKEN" } },
   { route: "/settings/price-lists/categories/:categoryId", fixtures: { categoryId: "E2E_PRICE_LIST_CATEGORY_ID" } },
+  { route: "/configuracion/listas-precios/categories/:categoryId", fixtures: { categoryId: "E2E_PRICE_LIST_CATEGORY_ID" } },
   { route: "/configuracion/listas-precios/categorias/:categoryId", fixtures: { categoryId: "E2E_PRICE_LIST_CATEGORY_ID" } },
   { route: "/settings/roles/:id", fixtures: { id: "E2E_ROLE_ID" } },
   { route: "/configuracion/roles/:id", fixtures: { id: "E2E_ROLE_ID" } }

@@ -28,8 +28,7 @@ describe("TreatmentPlansService professional branch validation", () => {
   };
 
   it("rejects treatment plans with a professional outside the selected branch", async () => {
-    let prisma: any;
-    prisma = {
+    const prisma: any = {
       branch: {
         findFirst: jest.fn().mockResolvedValue({ id: "branch-1" })
       },
@@ -100,8 +99,7 @@ describe("TreatmentPlansService professional branch validation", () => {
       alternativesAsParent: [],
       clinicalEvolutions: []
     };
-    let prisma: any;
-    prisma = {
+    const prisma: any = {
       treatmentPlan: {
         findFirst: jest.fn().mockResolvedValueOnce(currentPlan).mockResolvedValueOnce(detailPlan)
       },

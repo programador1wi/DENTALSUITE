@@ -106,6 +106,7 @@ describe("PatientsService exact duplicate guard", () => {
   it("persists the social and legacy identity fields when creating a patient", async () => {
     const tx = {
       patient: {
+        findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({
           id: "patient-social",
           firstName: "Alex",
@@ -194,36 +195,31 @@ describe("PatientsService exact duplicate guard", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it("rejects updating a patient into another patient's exact identity", async () => {
+  it("rejects another patient's exact identity when excluding the current patient", async () => {
     const prisma = {
       patient: {
-        findFirst: jest.fn().mockResolvedValue({
-          id: "patient-current",
-          branchId: "branch-1",
-          firstName: "Otra",
-          lastName: "Persona",
-          phone: "5550000000",
-          email: "otra@example.com",
-          documentNumber: null,
-          contacts: [],
-          address: null,
-          medicalAlerts: []
-        }),
         findMany: jest.fn().mockResolvedValue([duplicatePatient])
-      },
-      $transaction: jest.fn()
+      }
     };
-    const service = new PatientsService(prisma as never);
+    const service = exactDuplicateService(prisma);
 
     await expect(
-      service.update(actor, "patient-current", {
+      service.ensureNoExactPatientDuplicate(
+        actor,
+        {
         firstName: "CHANONA",
         lastName: "ARREOLA",
         phone: "9613184040",
         email: "programador1.wi@gmail.com"
-      })
+        },
+        "patient-current"
+      )
     ).rejects.toThrow("Ya existe un paciente con el mismo nombre");
-    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(prisma.patient.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { not: "patient-current" } })
+      })
+    );
   });
 
   it("allows the same name when phone is different", async () => {

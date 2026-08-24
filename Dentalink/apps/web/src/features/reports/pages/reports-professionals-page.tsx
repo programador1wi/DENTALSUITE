@@ -62,8 +62,8 @@ export function ReportsProfessionalsPage() {
             { key: "bookedMinutes", title: "Minutos" },
             { key: "production", title: "Producción" },
             { key: "cancellationRate", title: "Cancelación %" },
-            { key: "noShowRate", title: "No show %" },
-            { key: "labPending", title: "Lab pendiente" }
+            { key: "noShowRate", title: "No asistencia %" },
+            { key: "labPending", title: "Laboratorio pendiente" }
           ]}
         />
       </Card>

@@ -34,7 +34,7 @@ import {
   VoidExpenseDto
 } from "./dto/admin-workflows.dto";
 import { UpdateGeneralSettingsDto } from "./dto/update-general-settings.dto";
-import { ExpensePolicy, type ExpensePolicySource } from "./domain/expense.policy";
+import { ExpensePolicy, type ExpensePolicySource } from "./application/expense.policy";
 
 const PAYROLL_PAYMENT_STATUSES: PaymentStatus[] = [
   PaymentStatus.RECEIVED,
@@ -1258,8 +1258,8 @@ export class SettingsService {
           async (tx) => {
             const category = await tx.expenseCategory.upsert({
               where: { organizationId_name: { organizationId: actor.organizationId, name: categoryName } },
-              create: { organizationId: actor.organizationId, name: categoryName },
-              update: { isActive: true }
+              create: { organizationId: actor.organizationId, name: categoryName, reportGroup: dto.categoryReportGroup },
+              update: { isActive: true, reportGroup: dto.categoryReportGroup }
             });
 
             const expense = await tx.expense.create({
@@ -1273,6 +1273,7 @@ export class SettingsService {
                 quantity: this.toDecimal(quantity),
                 unitCost: this.toDecimal(unitCost),
                 total: this.toDecimal(total),
+                accountingDate: new Date(dto.accountingDate),
                 invoicedAt: dto.invoicedAt ? new Date(dto.invoicedAt) : null,
                 paidAt: new Date(dto.paidAt),
                 paymentMethodId: dto.paymentMethodId,
@@ -1381,8 +1382,15 @@ export class SettingsService {
           if (categoryName) {
             const category = await tx.expenseCategory.upsert({
               where: { organizationId_name: { organizationId: actor.organizationId, name: categoryName } },
-              create: { organizationId: actor.organizationId, name: categoryName },
-              update: { isActive: true }
+              create: {
+                organizationId: actor.organizationId,
+                name: categoryName,
+                reportGroup: dto.categoryReportGroup ?? current.category.reportGroup
+              },
+              update: {
+                isActive: true,
+                ...(dto.categoryReportGroup ? { reportGroup: dto.categoryReportGroup } : {})
+              }
             });
             categoryId = category.id;
           }
@@ -1396,6 +1404,7 @@ export class SettingsService {
               quantity: this.toDecimal(quantity),
               unitCost: this.toDecimal(unitCost),
               total: this.toDecimal(total),
+              accountingDate: dto.accountingDate ? new Date(dto.accountingDate) : undefined,
               invoicedAt: dto.invoicedAt ? new Date(dto.invoicedAt) : undefined,
               paidAt: dto.paidAt ? new Date(dto.paidAt) : undefined,
               paymentMethodId: dto.paymentMethodId,

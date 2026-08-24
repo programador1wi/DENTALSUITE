@@ -73,11 +73,13 @@ function expenseNumber(expense: Pick<Expense, "publicNumber">) {
 
 type ExpenseForm = {
   categoryName: string;
+  categoryReportGroup: "PROFESSIONALS" | "LABORATORIES" | "COMMISSIONS" | "GENERAL";
   description: string;
   supplierName: string;
   quantity: string;
   unitCost: string;
   invoicedAt: string;
+  accountingDate: string;
   paidAt: string;
   paymentMethodId: string;
   documentUrl: string;
@@ -87,11 +89,13 @@ type ExpenseForm = {
 
 const EMPTY_FORM: ExpenseForm = {
   categoryName: "",
+  categoryReportGroup: "GENERAL",
   description: "",
   supplierName: "",
   quantity: "1",
   unitCost: "",
   invoicedAt: "",
+  accountingDate: today(),
   paidAt: today(),
   paymentMethodId: "",
   documentUrl: "",
@@ -169,11 +173,13 @@ export function ExpensesSettingsPage() {
     setBranchId(expense.branch.id);
     setForm({
       categoryName: expense.category.name,
+      categoryReportGroup: expense.category.reportGroup,
       description: expense.description,
       supplierName: expense.supplierName ?? "",
       quantity: expense.quantity,
       unitCost: expense.unitCost,
       invoicedAt: expense.invoicedAt?.slice(0, 10) ?? "",
+      accountingDate: expense.accountingDate?.slice(0, 10) ?? "",
       paidAt: expense.paidAt.slice(0, 10),
       paymentMethodId: expense.paymentMethod?.id ?? "",
       documentUrl: expense.documentUrl ?? "",
@@ -189,11 +195,13 @@ export function ExpensesSettingsPage() {
     const payload = {
       branchId,
       categoryName: form.categoryName.trim(),
+      categoryReportGroup: form.categoryReportGroup,
       description: form.description.trim(),
       supplierName: form.supplierName.trim() || undefined,
       quantity: Number(form.quantity),
       unitCost: Number(form.unitCost),
       invoicedAt: form.invoicedAt || undefined,
+      accountingDate: form.accountingDate,
       paidAt: form.paidAt,
       paymentMethodId: form.paymentMethodId || undefined,
       documentUrl: form.documentUrl.trim() || undefined,
@@ -639,7 +647,17 @@ export function ExpensesSettingsPage() {
               />
             </label>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="text-sm font-medium text-slate-700">
+              Fecha correspondencia
+              <Input
+                className="mt-1"
+                type="date"
+                value={form.accountingDate}
+                onChange={(event) => setField("accountingDate", event.target.value)}
+                required
+              />
+            </label>
             <label className="text-sm font-medium text-slate-700">
               Fecha factura
               <Input
@@ -660,6 +678,19 @@ export function ExpensesSettingsPage() {
               />
             </label>
           </div>
+          <label className="text-sm font-medium text-slate-700">
+            Grupo para reportes
+            <Select
+              className="mt-1"
+              value={form.categoryReportGroup}
+              onChange={(event) => setField("categoryReportGroup", event.target.value as ExpenseForm["categoryReportGroup"])}
+            >
+              <option value="GENERAL">Gastos generales</option>
+              <option value="PROFESSIONALS">Profesionales</option>
+              <option value="LABORATORIES">Laboratorios</option>
+              <option value="COMMISSIONS">Comisiones</option>
+            </Select>
+          </label>
           <label className="text-sm font-medium text-slate-700">
             Medio de pago
             <Select

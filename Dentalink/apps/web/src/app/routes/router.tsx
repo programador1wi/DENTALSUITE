@@ -41,6 +41,7 @@ const ReportsProfessionalsPage = lazy(() => import("@/features/reports/pages/rep
 const ReportsTreatmentsPage = lazy(() => import("@/features/reports/pages/reports-treatments-page").then(m => ({ default: m.ReportsTreatmentsPage })));
 const ConsentTemplatesSettingsPage = lazy(() => import("@/features/settings/consent-templates/pages/consent-templates-settings-page").then(m => ({ default: m.ConsentTemplatesSettingsPage })));
 const ProfilePage = lazy(() => import("@/features/settings/profile/pages/profile-page").then(m => ({ default: m.ProfilePage })));
+const NovedadesPage = lazy(() => import("@/features/novedades").then(m => ({ default: m.NovedadesPage })));
 const UsersPage = lazy(() => import("@/features/settings/users/pages/users-page").then(m => ({ default: m.UsersPage })));
 const AccessUsersBlockPage = lazy(() => import("@/features/settings/users/pages/users-blocks-page").then(m => ({ default: m.AccessUsersBlockPage })));
 const AgendaUsersBlockPage = lazy(() => import("@/features/settings/users/pages/users-blocks-page").then(m => ({ default: m.AgendaUsersBlockPage })));
@@ -292,6 +293,7 @@ export const router = createBrowserRouter([
           { path: "/configuracion/perfil", element: <ProfilePage /> },
           { path: "/settings/profile", element: <RedirectWithSearch to="/configuracion/perfil" /> },
           { path: "/perfil", element: <RedirectWithSearch to="/configuracion/perfil" /> },
+          { path: "/novedades", element: <NovedadesPage /> },
 
           // Centro de salud
           {
@@ -389,6 +391,7 @@ export const router = createBrowserRouter([
             children: [
               { path: "/configuracion/listas-precios", element: <PriceListsSettingsPage /> },
               { path: "/configuracion/listas-precios/categorias/:categoryId", element: <PriceListsSettingsPage /> },
+              { path: "/configuracion/listas-precios/categories/:categoryId", element: <RedirectDynamicParam builder={(p, s) => `${APP_ROUTES.settings.priceListCategory(p.categoryId ?? "")}${s}`} /> },
 
               // Legacy price-list redirects
               { path: "/settings/price-lists", element: <RedirectWithSearch to="/configuracion/listas-precios" /> },

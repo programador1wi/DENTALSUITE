@@ -8,7 +8,7 @@ import { CrmTasksModule } from "../crm-tasks/crm-tasks.module";
 import { AppointmentsController } from "./appointments.controller";
 import { AppointmentsService } from "./appointments.service";
 
-import { AttendanceAnalyticsService } from "./domain/services/attendance-analytics.service";
+import { AttendanceAnalyticsService } from "./application/attendance-analytics.service";
 
 @Module({
   imports: [PrismaModule, NotificationsModule, TreatmentPlansModule, CrmSurveysModule, CrmTasksModule, JwtModule.register({})],

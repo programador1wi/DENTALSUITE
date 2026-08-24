@@ -9,11 +9,31 @@ const branchDateRange: ReportParameterDefinition[] = [
   { key: "dateTo", label: "Fecha final", type: "date" as const, required: true, maxRangeDays: 366 }
 ];
 
+const APPOINTMENT_STATUS_LABELS: Partial<Record<AppointmentStatus, string>> = {
+  [AppointmentStatus.SCHEDULED]: "Agendada",
+  [AppointmentStatus.CONFIRMED]: "Confirmada",
+  [AppointmentStatus.COMPLETED]: "Atendida",
+  [AppointmentStatus.CANCELLED_BY_PATIENT]: "Cancelada por paciente",
+  [AppointmentStatus.CANCELLED_BY_CLINIC]: "Cancelada por clínica",
+  [AppointmentStatus.NO_SHOW]: "No asistió"
+};
+
+const PAYMENT_STATUS_LABELS: Partial<Record<PaymentStatus, string>> = {
+  [PaymentStatus.RECEIVED]: "Recibido",
+  [PaymentStatus.PARTIALLY_ALLOCATED]: "Parcialmente asignado",
+  [PaymentStatus.ALLOCATED]: "Asignado",
+  [PaymentStatus.VOIDED]: "Anulado",
+  [PaymentStatus.REFUNDED]: "Reembolsado"
+};
+
 const appointmentStatusOptions = Object.values(AppointmentStatus).map((status) => ({
-  label: status,
+  label: APPOINTMENT_STATUS_LABELS[status] ?? status,
   value: status
 }));
-const paymentStatusOptions = Object.values(PaymentStatus).map((status) => ({ label: status, value: status }));
+const paymentStatusOptions = Object.values(PaymentStatus).map((status) => ({
+  label: PAYMENT_STATUS_LABELS[status] ?? status,
+  value: status
+}));
 
 function enabled(
   code: string,
@@ -66,7 +86,21 @@ function disabled(
   };
 }
 
-export const excelReportDefinitions: ExcelReportDefinition[] = [
+const rawExcelReportDefinitions: ExcelReportDefinition[] = [
+  enabled(
+    "DAILY_COLLECTION",
+    "Informe de recaudación diario",
+    "Presupuestos, recaudación y medios de pago por sucursal.",
+    "FINANZAS",
+    "graphical-daily-collection"
+  ),
+  enabled(
+    "PATIENT_REFERRALS",
+    "Derivación de pacientes",
+    "Tratamientos derivados entre sucursales y profesionales.",
+    "PACIENTES",
+    "graphical-patient-referrals"
+  ),
   enabled(
     "APPOINTMENTS_SUMMARY",
     "Agenda",
@@ -230,7 +264,19 @@ export const excelReportDefinitions: ExcelReportDefinition[] = [
     "AGENDA"
   ),
 
-  disabled("PRICE_LIST", "Listado de precios", "Listado de precios vigente.", "LISTADO DE PRECIOS"),
+  enabled(
+    "PRICE_LIST",
+    "Listado de precios",
+    "Tratamientos y precios vigentes del arancel asignado a una sucursal.",
+    "LISTADO DE PRECIOS",
+    "price-list",
+    [
+      { key: "branchId", label: "Sucursal", type: "branch", required: true },
+      { key: "priceListId", label: "Arancel", type: "priceList", required: true, dependsOn: "branchId" }
+    ],
+    "price_list.export",
+    ["arancel", "precios", "tratamientos", "categorias"]
+  ),
   disabled(
     "PRICE_LIST_TEMPLATES",
     "Plantillas de arancel",
@@ -509,7 +555,13 @@ export const excelReportDefinitions: ExcelReportDefinition[] = [
     "Acciones pagadas sin realizar.",
     "TRATAMIENTOS"
   ),
-  disabled("CAPTURED_BUDGETS", "Presupuestos capturados", "Presupuestos capturados.", "TRATAMIENTOS"),
+  enabled(
+    "CAPTURED_BUDGETS",
+    "Presupuestos capturados",
+    "Captación por profesional en una ventana móvil de tres meses.",
+    "TRATAMIENTOS",
+    "graphical-captured-budgets"
+  ),
   disabled("BUDGET_UNEXPIRATIONS", "Des-expiraciones", "Des-expiraciones de presupuestos.", "TRATAMIENTOS"),
   enabled(
     "DENTIST_CONTRACTS",
@@ -527,5 +579,173 @@ export const excelReportDefinitions: ExcelReportDefinition[] = [
     ],
     "reports.read",
     ["contratos", "dentistas", "profesionales", "nomina"]
+  ),
+  disabled(
+    "PAYROLL_COLLECTION_PERIOD",
+    "Informe de Cobranza de Descuentos por Planilla (Intervalo de fechas)",
+    "Cobranza por descuento de planilla dentro de un rango de fechas.",
+    "FINANZAS"
+  ),
+  disabled(
+    "PAYROLL_COLLECTION_ACTION_DETAIL",
+    "Informe de Cobranza de Descuentos por Planilla detalle por accion",
+    "Cobranza por planilla desglosada por prestacion.",
+    "FINANZAS"
+  ),
+  disabled(
+    "PAYROLL_COLLECTION_ACTION_DETAIL_PERIOD",
+    "Informe de Cobranza de Descuentos por Planilla detalle por accion (Intervalo de fechas)",
+    "Cobranza por planilla desglosada por prestacion y periodo.",
+    "FINANZAS"
+  ),
+  disabled("CHECKS_RECEIVABLE", "Cheques por cobrar", "Cheques pendientes de cobro.", "FINANZAS"),
+  disabled(
+    "PAYROLL_DISCOUNT_STATUS",
+    "Estado de descuentos por planilla",
+    "Estado vigente de descuentos y cargos por planilla.",
+    "FINANZAS"
+  ),
+  disabled(
+    "PAYROLL_DISCOUNT_ORIGINALS",
+    "Descuento por planilla originales",
+    "Montos originalmente programados por descuento de planilla.",
+    "FINANZAS"
+  ),
+  disabled(
+    "PAYROLL_DISCOUNT_CURRENT",
+    "Descuento por planilla actuales",
+    "Saldo actual de descuentos por planilla.",
+    "FINANZAS"
+  ),
+  disabled(
+    "FINANCING_STATUS",
+    "Estado de financiamientos",
+    "Estado actual de planes de financiamiento y cuotas.",
+    "FINANZAS"
+  ),
+  disabled(
+    "INVENTORY_TRAFFIC_LIGHT",
+    "Semaforizacion de productos",
+    "Estado de existencias frente al stock de seguridad.",
+    "INVENTARIO"
+  ),
+  disabled(
+    "WARRANTIES_APPLIED",
+    "Garantias aplicadas",
+    "Reposiciones clinicas generadas por garantia.",
+    "TRATAMIENTOS"
   )
 ];
+
+const LEGACY_SUMMARY_CODES = new Set([
+  "APPOINTMENTS_SUMMARY",
+  "PATIENTS_SUMMARY",
+  "TREATMENTS_SUMMARY",
+  "FINANCIAL_SUMMARY",
+  "PROFESSIONALS_SUMMARY"
+]);
+
+const CURRENT_CODES = new Set([
+  "PRICE_LIST",
+  "PRICE_LIST_TEMPLATES",
+  "AGREEMENTS_LIST",
+  "AGREEMENT_AFFILIATES",
+  "SAFETY_STOCK",
+  "INVENTORY_PRODUCTS",
+  "INVENTORY_TRAFFIC_LIGHT",
+  "PATIENT_FOLLOWUP",
+  "PATIENTS_WITH_ODONTOGRAM",
+  "PATIENT_TREATMENT_PLANS",
+  "DELINQUENT_PATIENTS",
+  "ORTHODONTIC_PATIENTS",
+  "PATIENTS_WITHOUT_TREATMENTS",
+  "BALANCE_SUMMARY",
+  "UNFINISHED_PLANS_NO_FUTURE_APPOINTMENTS",
+  "PAID_NOT_PERFORMED_ACTIONS",
+  "PAYROLL_DISCOUNT_STATUS",
+  "PAYROLL_DISCOUNT_ORIGINALS",
+  "PAYROLL_DISCOUNT_CURRENT",
+  "FINANCING_STATUS",
+  "USERS_LIST",
+  "DENTIST_CONTRACTS"
+]);
+
+const MONTH_CODES = new Set(["MONTHLY_PATIENT_APPOINTMENT_STATUSES"]);
+const AS_OF_CODES = new Set(["AGREEMENT_BUDGET_PAYMENT_STATUS", "DELINQUENT_PATIENTS_FINANCING"]);
+
+const DATE_FIELDS: Record<string, string> = {
+  APPOINTMENTS_IN_RANGE: "Appointment.createdAt",
+  ONLINE_CAMPAIGN_APPOINTMENTS: "OnlineSchedulingEvent.createdAt",
+  CRM_TASKS_PERIOD: "PatientTask.createdAt",
+  CRM_TASKS_DUE: "PatientTask.dueDate",
+  SATISFACTION_SURVEY_RESPONSES: "SurveyResponse.submittedAt",
+  REFUND_REQUESTS: "Refund.createdAt",
+  PAYMENTS_BY_DUE_DATE: "Installment.dueDate",
+  PAYMENTS_BY_DUE_DATE_CURRENT: "Installment.dueDate",
+  DELETED_PAYMENTS: "Payment.voidedAt",
+  FINANCING_PAYMENTS: "Installment.paidAt",
+  PAYROLL_DISCOUNT_PAYMENTS: "CompanyPayment.paymentDate",
+  CASH_DISCOUNTS: "CashDiscountApplication.createdAt",
+  FLOW: "PatientLedgerEntry.occurredAt",
+  CASH_FLOW: "CashMovement.occurredAt",
+  OPERATIONAL_INCOME_STATEMENT: "TreatmentPlanItem.completedAt/Expense.expenseDate",
+  EXPENSE_DETAIL: "Expense.expenseDate",
+  CHECKS_RECEIVABLE: "PaymentSettlement.dueAt",
+  INVENTORY_TRANSACTIONS: "InventoryMovement.occurredAt",
+  FINALIZED_PAYROLL_LIQUIDATIONS: "PayrollLiquidation.finalizedAt",
+  PAYROLLS: "PayrollLiquidation.finalizedAt",
+  NEW_PATIENTS_REGISTERED: "Patient.createdAt",
+  NEW_PATIENTS_FIRST_APPOINTMENT: "Appointment.startAt",
+  NEW_PATIENTS_ONLINE: "AppointmentBookingActor.createdAt",
+  NEW_PATIENTS_FIRST_PROFESSIONAL: "Appointment.startAt",
+  PATIENT_EVOLUTIONS: "ClinicalEvolution.createdAt",
+  PATIENTS_TREATED_BY_PROFESSIONAL: "Appointment.startAt",
+  UNREALIZED_PROCEDURES: "ClinicalEvolution.annulledAt",
+  ACTIONS_PERFORMED_PERIOD: "TreatmentPlanItem.completedAt",
+  FINALIZED_TREATMENT_PLANS: "TreatmentPlan.completedAt",
+  BUDGET_STATUS_BY_ACTION: "Budget.createdAt",
+  GENERATED_BUDGET_STATUS: "Budget.createdAt",
+  CAPTURED_BUDGETS: "Budget.createdAt",
+  BUDGET_UNEXPIRATIONS: "BudgetUnexpiration.createdAt",
+  WARRANTIES_APPLIED: "TreatmentWarranty.appliedAt"
+};
+
+function decorateDefinition(definition: ExcelReportDefinition): ExcelReportDefinition {
+  const legacyOnly = LEGACY_SUMMARY_CODES.has(definition.code);
+  const temporalMode = CURRENT_CODES.has(definition.code)
+    ? "CURRENT"
+    : MONTH_CODES.has(definition.code)
+      ? "MONTH"
+      : AS_OF_CODES.has(definition.code)
+        ? "AS_OF"
+        : "RANGE";
+  const category =
+    definition.code === "AGREEMENT_AFFILIATES" || definition.code === "AGREEMENT_BUDGET_PAYMENT_STATUS"
+      ? "CONVENIOS"
+      : definition.code === "PATIENT_FOLLOWUP"
+        ? "CRM"
+        : definition.code === "DELINQUENT_PATIENTS_FINANCING"
+          ? "FINANZAS"
+          : definition.category;
+  return {
+    ...definition,
+    category,
+    enabled: legacyOnly ? definition.enabled : true,
+    handler: legacyOnly ? definition.handler : definition.handler ?? "period-generic",
+    supportedFormats: definition.supportedFormats,
+    surfaces: legacyOnly ? ["REQUEST"] : ["REQUEST", "PERIOD"],
+    temporalMode,
+    dateField:
+      temporalMode === "CURRENT"
+        ? null
+        : DATE_FIELDS[definition.code] ??
+          (definition.code.startsWith("LAB_") ? "LabOrder.createdAt" : "Appointment.startAt"),
+    requiredPermissions: [definition.permission, ...(definition.code === "PATIENT_REFERRALS" ? ["patients.read"] : []), "reports.export"],
+    parameters:
+      temporalMode === "CURRENT"
+        ? definition.parameters.filter((parameter) => parameter.key !== "dateFrom" && parameter.key !== "dateTo")
+        : definition.parameters
+  };
+}
+
+export const excelReportDefinitions: ExcelReportDefinition[] = rawExcelReportDefinitions.map(decorateDefinition);

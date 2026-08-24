@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils/cn";
 import { Drawer } from "@/components/ui/drawer";
 import { APP_ROUTES } from "@/lib/routes";
 import { getPatientRouteId } from "@/lib/utils/patient-id";
+import { NovedadesButton, NovedadesDrawer, useNovedadesStore } from "@/features/novedades";
 
 type HeaderBranch = Pick<Branch, "id" | "name"> & {
   code?: string | null;
@@ -41,6 +42,11 @@ export function Header() {
   // Custom multi-step branch dropdown state
   const [branchDropdownOpen, setBranchDropdownOpen] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
+
+  const openNovedadesDrawer = useNovedadesStore((state) => state.openDrawer);
+  const unreadNovedadesCount = useNovedadesStore((state) =>
+    state.releases.filter((r) => !state.readIds.includes(r.id)).length
+  );
 
   const dropdownRef = useRef<HTMLDivElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
@@ -72,6 +78,7 @@ export function Header() {
 
   const fullName = user ? `${user.firstName} ${user.lastName}` : "Usuario";
   const initials = user ? `${user.firstName[0]}${user.lastName[0]}`.toUpperCase() : "U";
+  const primaryRole = user?.roleNames?.[0] || null;
 
   const assignedBranches = useMemo<HeaderBranch[]>(() => {
     const source: HeaderBranch[] = canReadBranches ? (branches ?? []) : (user?.branches ?? []);
@@ -138,14 +145,14 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm">
-      <div className="mx-auto max-w-[1536px] px-4 sm:px-6 lg:px-8">
-        <div className="flex min-w-0 items-center justify-between gap-x-3 lg:gap-x-4">
+      <div className="w-full px-3 sm:px-6 lg:px-8">
+        <div className="flex min-h-14 sm:min-h-16 min-w-0 items-center justify-between gap-x-2 lg:gap-x-4 py-1">
           
           {/* Logo & Branch Switcher */}
-          <div className="flex h-14 min-w-0 items-center gap-2 sm:gap-4 xl:gap-6 xl:shrink-0">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3 xl:gap-4 shrink-0">
             <button
               type="button"
-              className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-default)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)] xl:hidden"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-[var(--border-default)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)] xl:hidden"
               aria-label="Abrir navegación"
               aria-expanded={mobileNavOpen}
               onClick={() => setMobileNavOpen(true)}
@@ -154,9 +161,9 @@ export function Header() {
             </button>
             <Link to="/" className="flex items-center gap-2 shrink-0">
               {user?.organization?.logoUrl ? (
-                <img src={user.organization.logoUrl} alt="Logo" className="h-10 lg:h-12 w-auto object-contain" />
+                <img src={user.organization.logoUrl} alt="Logo" className="h-11 sm:h-12 lg:h-13 w-auto max-w-[170px] object-contain" />
               ) : (
-                <span className="truncate text-lg font-semibold tracking-tight text-[var(--text-brand-strong)] sm:text-2xl">
+                <span className="truncate text-lg font-bold tracking-tight text-[var(--text-brand-strong)] sm:text-2xl">
                   Warner Suite
                 </span>
               )}
@@ -168,10 +175,10 @@ export function Header() {
                 <button
                   type="button"
                   onClick={() => setBranchDropdownOpen(!branchDropdownOpen)}
-                  className="flex h-8 items-center gap-1.5 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-default)] hover:border-zinc-300 transition-colors px-2 sm:px-3 text-xs font-semibold text-[var(--text-primary)] cursor-pointer"
+                  className="flex h-8 items-center gap-1.5 rounded-lg bg-[var(--bg-subtle)] border border-[var(--border-default)] hover:border-slate-300 transition-colors px-2 sm:px-2.5 text-xs font-semibold text-[var(--text-primary)] cursor-pointer"
                 >
                   <Building2 size={13} className="text-[var(--text-secondary)] opacity-70 shrink-0" />
-                  <span className="truncate max-w-[90px] sm:max-w-[160px]" title={activeBranchName}>{activeBranchName}</span>
+                  <span className="truncate max-w-[90px] sm:max-w-[150px]" title={activeBranchName}>{activeBranchName}</span>
                   <ChevronDown size={13} className="text-[var(--text-secondary)] opacity-60 shrink-0" />
                 </button>
 
@@ -292,7 +299,7 @@ export function Header() {
           </div>
 
           {/* Navigation Tabs — second row on mobile/tablet, inline on desktop */}
-          <nav ref={navRef} className="hidden min-w-0 flex-1 items-center gap-1 whitespace-nowrap py-1 xl:flex">
+          <nav ref={navRef} className="hidden min-w-0 flex-1 items-center justify-start 2xl:justify-center gap-0.5 2xl:gap-1 whitespace-nowrap py-1 xl:flex">
             {navigation.map((item) => {
               const hasChildren = Boolean(item.children && item.children.length > 0);
               const isActive = itemMatchesPath(location.pathname, item) ||
@@ -317,14 +324,14 @@ export function Header() {
                         type="button"
                         onClick={() => setActiveDropdown(prev => prev === item.to ? null : item.to)}
                         className={cn(
-                          "flex items-center gap-1 rounded-md px-3 py-1.5 text-[13px] font-semibold transition-all duration-[var(--duration-fast)]",
+                          "flex items-center gap-1 rounded-md px-2 2xl:px-2.5 py-1.5 text-xs 2xl:text-[13px] font-semibold transition-all duration-[var(--duration-fast)]",
                           isActive 
                             ? "bg-[var(--bg-brand-light)] text-[var(--text-brand)] font-bold" 
                             : "text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]"
                         )}
                       >
                         <span>{item.label}</span>
-                        <ChevronDown size={14} className={cn("transition-transform duration-200", activeDropdown === item.to ? "rotate-180 opacity-100" : "opacity-60")} />
+                        <ChevronDown size={13} className={cn("transition-transform duration-200", activeDropdown === item.to ? "rotate-180 opacity-100" : "opacity-60")} />
                       </button>
 
                       {/* Cobranza Custom Dropdown (Only Search Box) */}
@@ -367,14 +374,14 @@ export function Header() {
                       type="button"
                       onClick={() => setActiveDropdown(prev => prev === item.to ? null : item.to)}
                       className={cn(
-                        "flex items-center gap-1 rounded-md px-3 py-1.5 text-[13px] font-semibold transition-all duration-[var(--duration-fast)]",
+                        "flex items-center gap-1 rounded-md px-2 2xl:px-2.5 py-1.5 text-xs 2xl:text-[13px] font-semibold transition-all duration-[var(--duration-fast)]",
                         isActive 
                           ? "bg-[var(--bg-brand-light)] text-[var(--text-brand)] font-bold" 
                           : "text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]"
                       )}
                     >
                       <span>{item.label}</span>
-                      <ChevronDown size={14} className={cn("transition-transform duration-200", activeDropdown === item.to ? "rotate-180 opacity-100" : "opacity-60")} />
+                      <ChevronDown size={13} className={cn("transition-transform duration-200", activeDropdown === item.to ? "rotate-180 opacity-100" : "opacity-60")} />
                     </button>
 
                     {/* Standard Dropdown / Mega Menu */}
@@ -428,7 +435,7 @@ export function Header() {
                   key={item.to}
                   to={item.to}
                   className={cn(
-                    "shrink-0 rounded-md px-3 py-1.5 text-[13px] font-semibold transition-all duration-[var(--duration-fast)]",
+                    "shrink-0 rounded-md px-2 2xl:px-2.5 py-1.5 text-xs 2xl:text-[13px] font-semibold transition-all duration-[var(--duration-fast)]",
                     isActive
                       ? "bg-[var(--bg-brand-light)] text-[var(--text-brand)] font-bold"
                       : "text-[var(--text-secondary)] hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]"
@@ -441,21 +448,24 @@ export function Header() {
           </nav>
 
           {/* Right Section: Search & Profile */}
-          <div className="flex h-14 shrink-0 items-center gap-1 sm:gap-2 lg:gap-3">
-            {/* Brand Logo */}
+          <div className="flex min-h-14 sm:min-h-16 shrink-0 items-center gap-1.5 sm:gap-2 2xl:gap-3">
+            {/* Brand Logo (Marca de Sucursal) */}
             {activeBranchBrand?.logoUrl && (
-              <div className="mr-1 hidden items-center border-r border-[var(--border-default)] pr-3 xl:flex" title={`Marca: ${activeBranchBrand.name}`}>
-                <img 
-                  src={activeBranchBrand.logoUrl} 
-                  alt={activeBranchBrand.name} 
-                  className="h-9 lg:h-11 max-w-[100px] lg:max-w-[160px] object-contain rounded-sm"
+              <div
+                className="hidden xl:flex items-center border-r border-slate-200 pr-3.5 mr-1 shrink-0"
+                title={`Marca: ${activeBranchBrand.name}`}
+              >
+                <img
+                  src={activeBranchBrand.logoUrl}
+                  alt={activeBranchBrand.name}
+                  className="h-10 sm:h-11 lg:h-12 max-w-[140px] lg:max-w-[170px] object-contain rounded-xs"
                 />
               </div>
             )}
 
             {/* Search Box */}
             {canSearchPatients ? (
-              <div className="relative hidden w-48 xl:block xl:w-64">
+              <div className="relative hidden w-40 xl:block 2xl:w-56">
                 <PatientSearchBox
                   value={globalSearch}
                   onValueChange={setGlobalSearch}
@@ -465,51 +475,95 @@ export function Header() {
                     setGlobalSearch("");
                   }}
                   placeholder="Buscar pacientes..."
-                  inputClassName="bg-[var(--bg-subtle)] border-transparent hover:border-[var(--border-default)] focus:bg-white focus:ring-2 focus:ring-[var(--focus-ring)] rounded-full px-4 text-xs h-9"
+                  inputClassName="bg-[var(--bg-subtle)] border-transparent hover:border-[var(--border-default)] focus:bg-white focus:ring-2 focus:ring-[var(--focus-ring)] rounded-full px-3.5 text-xs h-8"
                 />
               </div>
             ) : null}
 
-            {/* Megaphone / Notifications */}
-            <button
-              type="button"
-              className="relative hidden h-9 w-9 items-center justify-center rounded-full text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)] sm:flex"
-              aria-label="Novedades"
-            >
-              <Megaphone className="h-4 w-4" />
-              <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-red-500 ring-2 ring-white"></span>
-            </button>
+            {/* Novedades / Release Notes */}
+            <NovedadesButton />
 
             {/* Profile Dropdown */}
             <div className="relative" ref={dropdownRef}>
               <button
                 type="button"
                 onClick={() => setUserDropdownOpen(!userDropdownOpen)}
-                className="flex items-center gap-2 rounded-full focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] focus:ring-offset-2"
+                className={cn(
+                  "flex h-9 items-center gap-2 rounded-full border border-[var(--border-default)] bg-[var(--bg-surface)] pl-1.5 pr-2.5 py-1 text-slate-700 transition-all hover:border-[var(--border-strong)] hover:bg-[var(--bg-subtle)] focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)] shadow-xs",
+                  userDropdownOpen && "border-[var(--border-brand)] bg-[var(--bg-subtle)] ring-1 ring-[var(--focus-ring)]"
+                )}
+                aria-label="Menú de usuario"
+                aria-expanded={userDropdownOpen}
               >
-                <div className="relative flex h-9 w-9 items-center justify-center rounded-[var(--radius-full)] border border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] text-[11px] font-semibold text-[var(--text-brand-strong)]">
-                  <div className="flex h-full w-full items-center justify-center rounded-[var(--radius-full)]">
-                    {initials}
-                  </div>
-                  <span className="absolute bottom-0 right-0 h-2 w-2 rounded-full border border-white bg-[var(--color-base-emerald-500)]" />
+                {/* Avatar with active green indicator */}
+                <div className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] text-[11px] font-bold text-[var(--text-brand-strong)]">
+                  {user?.avatarUrl ? (
+                    <img src={user.avatarUrl} alt={fullName} className="h-full w-full rounded-full object-cover" />
+                  ) : (
+                    <span>{initials}</span>
+                  )}
+                  <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-white bg-emerald-500" />
                 </div>
+
+                {/* Name & primary role */}
+                <div className="hidden xl:flex items-center gap-1.5 text-left">
+                  <span className="truncate max-w-[120px] text-xs font-semibold text-slate-800" title={fullName}>
+                    {fullName}
+                  </span>
+                  {primaryRole && (
+                    <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-600 border border-slate-200">
+                      {primaryRole}
+                    </span>
+                  )}
+                </div>
+
+                <ChevronDown className={cn("h-3.5 w-3.5 text-slate-400 transition-transform duration-200", userDropdownOpen && "rotate-180")} />
               </button>
 
               {userDropdownOpen && (
-                <div className="absolute right-0 z-50 mt-2 w-48 rounded-lg border border-[var(--border-default)] bg-white py-1.5 shadow-lg animate-in fade-in zoom-in-95 duration-100">
-                  <div className="border-b border-[var(--border-default)] px-4 py-2">
-                    <p className="truncate text-xs font-bold text-slate-900" title={fullName}>{fullName}</p>
-                    <p className="truncate text-[10px] text-slate-500 mt-0.5" title={user?.email}>{user?.email}</p>
+                <div className="absolute right-0 z-50 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
+                  {/* User Profile Card Header */}
+                  <div className="flex items-center gap-3 border-b border-slate-100 p-3 bg-slate-50/80 rounded-xl">
+                    <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-100 text-xs font-bold text-blue-800 shadow-xs">
+                      {user?.avatarUrl ? (
+                        <img src={user.avatarUrl} alt={fullName} className="h-full w-full rounded-full object-cover" />
+                      ) : (
+                        <span>{initials}</span>
+                      )}
+                      <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[13px] font-bold text-slate-900 leading-tight" title={fullName}>{fullName}</p>
+                      <p className="truncate text-[11px] text-slate-500 mt-0.5" title={user?.email}>{user?.email}</p>
+                      {primaryRole && (
+                        <div className="mt-1.5 flex items-center gap-1">
+                          <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[9px] font-bold text-blue-800 uppercase tracking-wide">
+                            {primaryRole}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
+
+                  {/* Profile Actions */}
                   <div className="py-1">
                     <Link
                       to={APP_ROUTES.settings.profile}
                       onClick={() => setUserDropdownOpen(false)}
-                      className="flex items-center gap-2 px-4 py-2 text-xs text-slate-700 hover:bg-slate-50"
+                      className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
                     >
-                      <UserRound size={14} className="opacity-70" />
-                      <span>Mi perfil</span>
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                        <UserRound size={16} />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold text-slate-800">Mi perfil</span>
+                        <span className="text-[10px] text-slate-400">Datos personales y preferencias</span>
+                      </div>
                     </Link>
+                  </div>
+
+                  {/* Log Out Action */}
+                  <div className="border-t border-slate-100 pt-1">
                     <button
                       type="button"
                       onClick={() => {
@@ -517,10 +571,15 @@ export function Header() {
                         logout.mutate();
                       }}
                       disabled={logout.isPending}
-                      className="flex w-full items-center gap-2 px-4 py-2 text-left text-xs text-red-600 hover:bg-red-50"
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors disabled:opacity-50"
                     >
-                      <LogOut size={14} className="opacity-70" />
-                      <span>Cerrar sesión</span>
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600">
+                        <LogOut size={16} />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className="font-semibold">{logout.isPending ? "Cerrando sesión..." : "Cerrar sesión"}</span>
+                        <span className="text-[10px] text-red-400">Finalizar sesión activa</span>
+                      </div>
                     </button>
                   </div>
                 </div>
@@ -641,19 +700,71 @@ export function Header() {
           </nav>
 
           <div className="border-t border-[var(--border-default)] pt-[var(--space-4)]">
-            <p className="truncate text-[var(--text-sm)] font-semibold text-[var(--text-primary)]" title={fullName}>{fullName}</p>
-            <p className="truncate text-[var(--text-xs)] text-[var(--text-secondary)]" title={user?.email}>{user?.email}</p>
-            <div className="mt-[var(--space-3)] grid gap-[var(--space-2)]">
-              <Link to={APP_ROUTES.settings.profile} onClick={() => setMobileNavOpen(false)} className="flex min-h-11 items-center gap-[var(--space-2)] rounded-[var(--radius-md)] px-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--text-primary)] hover:bg-[var(--bg-subtle)]">
-                <UserRound className="h-4 w-4" aria-hidden="true" /> Mi perfil
+            <div className="flex items-center gap-3 px-2 mb-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+              <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-blue-100 text-xs font-bold text-blue-800 shadow-xs">
+                {user?.avatarUrl ? (
+                  <img src={user.avatarUrl} alt={fullName} className="h-full w-full rounded-full object-cover" />
+                ) : (
+                  <span>{initials}</span>
+                )}
+                <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 border-white bg-emerald-500" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-bold text-slate-900" title={fullName}>{fullName}</p>
+                <p className="truncate text-[10px] text-slate-500 mt-0.5" title={user?.email}>{user?.email}</p>
+                {primaryRole && (
+                  <div className="mt-1 flex items-center gap-1">
+                    <span className="inline-block rounded border border-blue-200 bg-blue-50 px-1.5 py-0.5 text-[9px] font-bold text-blue-800 uppercase tracking-tight">
+                      {primaryRole}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="grid gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setMobileNavOpen(false);
+                  openNovedadesDrawer();
+                }}
+                className="flex min-h-10 items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <div className="flex items-center gap-2.5">
+                  <Megaphone className="h-4 w-4 text-[var(--text-brand)]" aria-hidden="true" />
+                  <span className="font-semibold text-slate-800">Novedades</span>
+                </div>
+                {unreadNovedadesCount > 0 && (
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+                    {unreadNovedadesCount}
+                  </span>
+                )}
+              </button>
+
+              <Link
+                to={APP_ROUTES.settings.profile}
+                onClick={() => setMobileNavOpen(false)}
+                className="flex min-h-10 items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <UserRound className="h-4 w-4 text-slate-500" aria-hidden="true" />
+                <span className="font-semibold text-slate-800">Mi perfil</span>
               </Link>
-              <button type="button" onClick={() => logout.mutate()} disabled={logout.isPending} className="flex min-h-11 items-center gap-[var(--space-2)] rounded-[var(--radius-md)] px-[var(--space-3)] text-left text-[var(--text-sm)] font-medium text-[var(--status-danger-text)] hover:bg-[var(--status-danger-bg)] disabled:opacity-40">
-                <LogOut className="h-4 w-4" aria-hidden="true" /> Cerrar sesión
+
+              <button
+                type="button"
+                onClick={() => logout.mutate()}
+                disabled={logout.isPending}
+                className="flex min-h-10 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40"
+              >
+                <LogOut className="h-4 w-4 text-red-500" aria-hidden="true" />
+                <span className="font-semibold">{logout.isPending ? "Cerrando sesión..." : "Cerrar sesión"}</span>
               </button>
             </div>
           </div>
         </div>
       </Drawer>
+      <NovedadesDrawer />
     </header>
   );
 }

@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
-import { PrismaClient, AppointmentStatus } from "@prisma/client";
-import { PrismaService } from "../../../../database/prisma.service";
+import { AppointmentStatus } from "@prisma/client";
+import { PrismaService } from "../../../database/prisma.service";
 
 export type ConfidenceLevel = "INSUFFICIENT" | "LOW" | "MEDIUM" | "HIGH";
 

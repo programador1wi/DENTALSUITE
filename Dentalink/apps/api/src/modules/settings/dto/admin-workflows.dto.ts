@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { AgreementStatus, AgreementType } from "@prisma/client";
+import { AgreementStatus, AgreementType, ExpenseReportGroup } from "@prisma/client";
 import {
   IsArray,
   IsBoolean,
@@ -363,6 +363,9 @@ export class CreateExpenseDto {
   @IsString()
   categoryName!: string;
 
+  @IsEnum(ExpenseReportGroup)
+  categoryReportGroup!: ExpenseReportGroup;
+
   @IsString()
   description!: string;
 
@@ -381,6 +384,9 @@ export class CreateExpenseDto {
   @IsOptional()
   @IsDateString()
   invoicedAt?: string;
+
+  @IsDateString()
+  accountingDate!: string;
 
   @IsDateString()
   paidAt!: string;
@@ -412,6 +418,10 @@ export class UpdateExpenseDto {
   categoryName?: string;
 
   @IsOptional()
+  @IsEnum(ExpenseReportGroup)
+  categoryReportGroup?: ExpenseReportGroup;
+
+  @IsOptional()
   @IsString()
   description?: string;
 
@@ -432,6 +442,10 @@ export class UpdateExpenseDto {
   @IsOptional()
   @IsDateString()
   invoicedAt?: string;
+
+  @IsOptional()
+  @IsDateString()
+  accountingDate?: string;
 
   @IsOptional()
   @IsDateString()

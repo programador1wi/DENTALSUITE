@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { usePaymentMethods } from "@/features/settings/payment-methods/hooks/use-payment-methods";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
-import { requestExcelReport } from "../hooks/use-reports";
+import { requestExcelReport, usePriceListReportOptions } from "../hooks/use-reports";
 import type { ExcelCatalogItem, ExcelReportRequest, ReportParameterDefinition } from "../services/reports.service";
 
 type ParameterValue = string | string[] | boolean | number;
@@ -45,11 +45,114 @@ function relativeTime(value?: string) {
   return `hace ${Math.floor(hours / 24)} dias`;
 }
 
-function formatParameterSummary(parameters?: Record<string, unknown>) {
+function parseYmd(dateStr: string): string {
+  if (!dateStr) return "-";
+  const trimmed = dateStr.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const [, y, m, d] = match;
+    return `${d}/${m}/${y}`;
+  }
+  return dateStr;
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  SCHEDULED: "Agendada",
+  CONFIRMED: "Confirmada",
+  ATTENDED: "Atendida",
+  CANCELLED: "Cancelada",
+  NO_SHOW: "No asistió",
+  PENDING: "Pendiente",
+  PROCESSING: "Procesando",
+  COMPLETED: "Completado",
+  FAILED: "Fallido",
+  EXPIRED: "Expirado",
+  ALL: "Todos",
+  ENABLED: "Habilitados",
+  DISABLED: "Deshabilitados"
+};
+
+function translateValue(val: unknown): string {
+  if (typeof val === "boolean") return val ? "Sí" : "No";
+  if (typeof val === "string") return STATUS_LABELS[val] ?? val;
+  if (Array.isArray(val)) return val.map((v) => STATUS_LABELS[String(v)] ?? String(v)).join(", ");
+  return String(val ?? "-");
+}
+
+function formatParameterSummary(
+  parameters?: Record<string, unknown>,
+  branchMap?: Map<string, string>,
+  profMap?: Map<string, string>,
+  pmMap?: Map<string, string>
+) {
   if (!parameters || !Object.keys(parameters).length) return "Sin parametros";
-  return Object.entries(parameters)
-    .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(", ") : String(value)}`)
-    .join(" | ");
+  const items: string[] = [];
+
+  const dateFrom = parameters.dateFrom ? String(parameters.dateFrom) : null;
+  const dateTo = parameters.dateTo ? String(parameters.dateTo) : null;
+  if (dateFrom && dateTo) {
+    const fromFmt = parseYmd(dateFrom);
+    const toFmt = parseYmd(dateTo);
+    items.push(`Periodo: ${fromFmt === toFmt ? fromFmt : `${fromFmt} - ${toFmt}`}`);
+  } else if (dateFrom) {
+    items.push(`Desde: ${parseYmd(dateFrom)}`);
+  } else if (dateTo) {
+    items.push(`Hasta: ${parseYmd(dateTo)}`);
+  }
+
+  if (parameters.branchId) {
+    const name = String(parameters.branchName ?? branchMap?.get(String(parameters.branchId)) ?? "Sucursal seleccionada");
+    items.push(`Sucursal: ${name}`);
+  } else if (Array.isArray(parameters.branchIds) && parameters.branchIds.length > 0) {
+    const names = (parameters.branchIds as string[])
+      .map((id) => branchMap?.get(id))
+      .filter((n): n is string => Boolean(n));
+    items.push(`Sucursales: ${names.length > 0 ? names.join(", ") : `${parameters.branchIds.length} sucursales`}`);
+  }
+
+  if (parameters.professionalId) {
+    const name = profMap?.get(String(parameters.professionalId)) ?? "Profesional asignado";
+    items.push(`Profesional: ${name}`);
+  }
+
+  if (parameters.paymentMethodId) {
+    const name = pmMap?.get(String(parameters.paymentMethodId)) ?? "Medio de pago";
+    items.push(`Medio de pago: ${name}`);
+  }
+
+  if (parameters.priceListId) {
+    items.push(`Arancel: ${String(parameters.priceListName ?? "Arancel seleccionado")}`);
+  }
+
+  const handledKeys = new Set([
+    "dateFrom",
+    "dateTo",
+    "branchId",
+    "branchIds",
+    "branchName",
+    "professionalId",
+    "paymentMethodId",
+    "priceListId",
+    "priceListName",
+    "priceListCode",
+    "priceListVersionId",
+    "priceListVersionNumber",
+    "priceListCurrency"
+  ]);
+  for (const [key, value] of Object.entries(parameters)) {
+    if (handledKeys.has(key)) continue;
+    if (value === undefined || value === null || value === "") continue;
+    let keyLabel = key;
+    if (key === "status" || key === "statuses") keyLabel = "Estado";
+    else if (key === "cashRegisterId") keyLabel = "Caja";
+
+    const valStr = String(value);
+    if (typeof value === "string" && valStr.length > 20 && !valStr.includes(" ")) continue;
+
+    items.push(`${keyLabel}: ${translateValue(value)}`);
+  }
+
+  return items.length ? items.join(" | ") : "Sin parametros";
 }
 
 function isDateRangeInvalid(values: Record<string, ParameterValue>) {
@@ -68,9 +171,15 @@ export function ReportRequestModal({ reportId, reports, open, onClose, onRequest
   const previousFocusRef = useRef<HTMLElement | null>(null);
 
   const selectedBranchId = typeof values.branchId === "string" ? values.branchId : "";
+  const needsPriceList = Boolean(report?.parameters.some((parameter) => parameter.type === "priceList"));
   const branches = useBranches(undefined, "ACTIVE");
   const professionals = useProfessionals(undefined, "true", { branchId: selectedBranchId || undefined, pageSize: 100 });
   const paymentMethods = usePaymentMethods(undefined, "true");
+  const priceLists = usePriceListReportOptions(selectedBranchId, open && needsPriceList);
+
+  const branchMap = useMemo(() => new Map((branches.data ?? []).map((b) => [b.id, b.name])), [branches.data]);
+  const profMap = useMemo(() => new Map((professionals.data ?? []).map((p) => [p.id, `${p.firstName} ${p.lastName}`.trim()])), [professionals.data]);
+  const pmMap = useMemo(() => new Map((paymentMethods.data ?? []).map((m) => [m.id, m.name])), [paymentMethods.data]);
 
   useEffect(() => {
     if (!open) return;
@@ -107,6 +216,7 @@ export function ReportRequestModal({ reportId, reports, open, onClose, onRequest
   function validate() {
     if (!report) return "Reporte no encontrado";
     if (!report.enabled) return "El generador del reporte no esta implementado.";
+    if (needsPriceList && priceLists.isError) return "No fue posible cargar los aranceles vigentes.";
     for (const parameter of report.parameters) {
       const value = values[parameter.key];
       const missing = value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
@@ -138,10 +248,11 @@ export function ReportRequestModal({ reportId, reports, open, onClose, onRequest
         reportCode: report.code,
         format,
         parameters: values,
-        idempotencyKey: `${report.code}-${format}-${Date.now()}`
+        idempotencyKey: `${report.code}-${format}-${Date.now()}`,
+        surface: "REQUEST"
       });
       onRequested(result);
-      setSuccess("El reporte fue agregado a la cola de generacion.");
+      setSuccess("Solicitud creada. Puedes seguir su avance en Historial de solicitudes.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "No fue posible generar el reporte.");
     } finally {
@@ -195,6 +306,35 @@ export function ReportRequestModal({ reportId, reports, open, onClose, onRequest
           {branches.isLoading ? <p className="text-[12px] text-[var(--text-muted)]">Cargando sucursales autorizadas...</p> : null}
           {branches.isError ? <p className="text-[12px] text-[var(--text-danger)]">No fue posible cargar sucursales.</p> : null}
           {!branches.isLoading && !branches.isError && !branchOptions.length ? <p className="text-[12px] text-[var(--text-muted)]">No hay sucursales autorizadas disponibles.</p> : null}
+        </div>
+      );
+    }
+
+    if (parameter.type === "priceList") {
+      const options = priceLists.data ?? [];
+      return (
+        <div className="space-y-1.5">
+          <Select
+            {...common}
+            value={String(value ?? "")}
+            onChange={(event) => updateValue(parameter, event.target.value)}
+            disabled={!selectedBranchId || priceLists.isLoading || priceLists.isError || options.length === 0}
+            dropdownClassName="max-h-[320px]"
+          >
+            <option value="" disabled>
+              {!selectedBranchId ? "Selecciona primero una sucursal" : "Selecciona arancel"}
+            </option>
+            {options.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.name} · v{option.versionNumber} · {option.currency}
+              </option>
+            ))}
+          </Select>
+          {selectedBranchId && priceLists.isLoading ? <p className="text-[12px] text-[var(--text-muted)]">Cargando aranceles vigentes...</p> : null}
+          {selectedBranchId && priceLists.isError ? <p className="text-[12px] text-[var(--text-danger)]">No fue posible cargar los aranceles vigentes.</p> : null}
+          {selectedBranchId && !priceLists.isLoading && !priceLists.isError && options.length === 0 ? (
+            <p className="text-[12px] text-[var(--text-muted)]">No hay aranceles vigentes con tratamientos activos para esta sucursal.</p>
+          ) : null}
         </div>
       );
     }
@@ -282,7 +422,7 @@ export function ReportRequestModal({ reportId, reports, open, onClose, onRequest
               </div>
               <div>
                 <p className="text-[12px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Parametros usados</p>
-                <p className="mt-1 break-words text-[13px] text-[var(--text-secondary)]">{formatParameterSummary(lastRequest?.parameters)}</p>
+                <p className="mt-1 break-words text-[13px] text-[var(--text-secondary)]">{formatParameterSummary(lastRequest?.parameters, branchMap, profMap, pmMap)}</p>
               </div>
             </div>
 
@@ -293,7 +433,13 @@ export function ReportRequestModal({ reportId, reports, open, onClose, onRequest
                     {parameter.label}{parameter.required ? " *" : ""}
                   </label>
                   {renderParameter(parameter)}
-                  {parameter.dependsOn ? <p className="text-[12px] text-[var(--text-muted)]">Depende de {parameter.dependsOn}. Al cambiarlo se limpian valores incompatibles.</p> : null}
+                  {parameter.dependsOn ? (
+                    <p className="text-[12px] text-[var(--text-muted)]">
+                      {parameter.type === "priceList"
+                        ? "La sucursal determina los aranceles disponibles. Al cambiarla se limpia el arancel seleccionado."
+                        : `Depende de ${parameter.dependsOn}. Al cambiarlo se limpian valores incompatibles.`}
+                    </p>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -315,13 +461,13 @@ export function ReportRequestModal({ reportId, reports, open, onClose, onRequest
             <div className="sticky bottom-0 -mx-6 -mb-6 flex flex-wrap justify-end gap-2 border-t border-[var(--border-default)] bg-[var(--bg-surface)] p-4">
               <Button type="button" variant="secondary" onClick={closeModal}>Cerrar</Button>
               {report.supportedFormats.includes("csv") ? (
-                <Button type="button" variant="secondary" onClick={() => submit("csv")} disabled={!report.enabled || submittingFormat !== null}>
+                <Button type="button" variant="secondary" onClick={() => submit("csv")} disabled={!report.enabled || submittingFormat !== null || (needsPriceList && priceLists.isFetching)}>
                   {submittingFormat === "csv" ? "Solicitando..." : "Solicitar archivo CSV"}
                 </Button>
               ) : null}
               {report.supportedFormats.includes("xlsx") ? (
-                <Button type="button" onClick={() => submit("xlsx")} disabled={!report.enabled || submittingFormat !== null}>
-                  {submittingFormat === "xlsx" ? "Solicitando..." : "Solicitar archivo XLSX"}
+                <Button type="button" onClick={() => submit("xlsx")} disabled={!report.enabled || submittingFormat !== null || (needsPriceList && priceLists.isFetching)}>
+                  {submittingFormat === "xlsx" ? "Generando solicitud..." : "Solicitar archivo XLSX"}
                 </Button>
               ) : null}
             </div>

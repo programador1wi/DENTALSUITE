@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AuthUser } from "@/types/auth";
 import { authStoreApi } from "@/stores/auth.store";
 import { useBranchStore } from "@/stores/branch.store";
+import { novedadesStoreApi } from "@/features/novedades";
 import { Header } from "./header";
 
 const branchMocks = vi.hoisted(() => ({
@@ -154,5 +155,38 @@ describe("Header Branch & Zone Selector", () => {
     // Now SUR branches should be visible and back button to Zonas exists
     expect(screen.getByText("Sucursal Sur 1")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Zonas/i })).toBeInTheDocument();
+  });
+});
+
+describe("Header Novedades Integration", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    novedadesStoreApi.setState({
+      isOpen: false,
+      readIds: []
+    });
+    authStoreApi.setState({ user: userWith([]) });
+    useBranchStore.setState({ activeBranchId: undefined });
+  });
+
+  it("renders Novedades button and opens NovedadesDrawer on click", () => {
+    render(
+      <MemoryRouter>
+        <Header />
+      </MemoryRouter>
+    );
+
+    const novedadesButton = screen.getByRole("button", { name: /Novedades/i });
+    expect(novedadesButton).toBeInTheDocument();
+
+    // Before clicking, drawer is closed
+    expect(novedadesStoreApi.getState().isOpen).toBe(false);
+
+    // Click novedades button
+    fireEvent.click(novedadesButton);
+
+    // Drawer should open
+    expect(novedadesStoreApi.getState().isOpen).toBe(true);
+    expect(screen.getByText("Novedades y Actualizaciones")).toBeInTheDocument();
   });
 });

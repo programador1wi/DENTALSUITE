@@ -1128,7 +1128,7 @@ export class PhotographicTemplatesService {
     plan: { id: string; patientId: string },
     link: CreatePhotographicLinkDto
   ) {
-    let exists = false;
+    let exists: boolean;
     if (link.linkedEntityType === PhotographicLinkedEntityType.APPOINTMENT) {
       exists = Boolean(
         await this.prisma.appointment.findFirst({

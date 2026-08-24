@@ -1,7 +1,6 @@
 export const APP_ROUTES = {
   auth: {
-    login: "/iniciar-sesion",
-    registerOrg: "/registro-organizacion"
+    login: "/iniciar-sesion"
   },
   public: {
     book: (slug: string) => `/reservar/${slug}`,
@@ -11,6 +10,7 @@ export const APP_ROUTES = {
     surveyResponse: (token: string) => `/publico/encuestas/responder/${token}`
   },
   dashboard: "/panel",
+  novedades: "/novedades",
   healthCenter: "/centro-salud",
   agenda: {
     root: "/agenda",

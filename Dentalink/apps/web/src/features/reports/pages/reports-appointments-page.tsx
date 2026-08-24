@@ -71,7 +71,7 @@ export function ReportsAppointmentsPage() {
             { key: "date", title: "Fecha" },
             { key: "total", title: "Total" },
             { key: "cancelled", title: "Canceladas" },
-            { key: "noShow", title: "No show" }
+            { key: "noShow", title: "No asistencias" }
           ]}
         />
       </Card>

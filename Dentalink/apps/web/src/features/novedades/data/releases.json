@@ -1,0 +1,81 @@
+[
+  {
+    "id": "rel-2026-08-20-01",
+    "version": "2.4.0",
+    "title": "Contact Center inteligente con automatizaciones y recordatorios multicanal",
+    "summary": "Tu asistente virtual y gestión de citas ahora cuenta con flujos automatizados de confirmación por WhatsApp y reprogramación en tiempo real.",
+    "content": [
+      "Activamos nuevas herramientas de gestión inteligente diseñadas para optimizar los tiempos de respuesta de tu clínica.",
+      "Agendamiento y confirmación de citas automatizado con sincronización bidireccional.",
+      "Panel de control centralizado para supervisar conversaciones y evitar pacientes en el olvido."
+    ],
+    "category": "NEW",
+    "tags": ["IA", "Agenda", "Automatización"],
+    "publishedAt": "2026-08-20",
+    "author": {
+      "name": "Equipo de Producto",
+      "role": "Warner Suite"
+    },
+    "actionUrl": "/configuracion/agenda-online",
+    "actionLabel": "Configurar Agenda Online"
+  },
+  {
+    "id": "rel-2026-07-15-01",
+    "version": "2.3.0",
+    "title": "Fintech Dental: Conciliación automática y pasarelas de pago integradas",
+    "summary": "Cobros con tarjeta y links de pago directo vinculados al plan de tratamiento y estado de cuenta del paciente.",
+    "content": [
+      "Generación de enlaces de pago seguros enviados por WhatsApp o correo electrónico.",
+      "Liquidación automática de presupuestos al registrar pagos parciales o totales.",
+      "Reportes financieros descargables en Excel con desglose por sucursal y profesional."
+    ],
+    "category": "NEW",
+    "tags": ["Fintech", "Cobranza", "Reportes"],
+    "publishedAt": "2026-07-15",
+    "author": {
+      "name": "Finanzas & Pagos",
+      "role": "Warner Suite"
+    },
+    "actionUrl": "/pagos",
+    "actionLabel": "Ir a Módulo de Pagos"
+  },
+  {
+    "id": "rel-2026-06-10-01",
+    "version": "2.2.0",
+    "title": "Firma Digital en Consentimientos y Recetas Electrónicas",
+    "summary": "Los pacientes y profesionales ahora pueden firmar documentos clínicos desde cualquier tablet o pantalla táctil con validez y registro de auditoría.",
+    "content": [
+      "Pad de firma táctil optimizado para consentimientos informados.",
+      "Bloqueo contra edición una vez que el documento es firmado y sellado.",
+      "Exportación en PDF con código QR de verificación de autenticidad."
+    ],
+    "category": "IMPROVEMENT",
+    "tags": ["Ficha Clínica", "Seguridad"],
+    "publishedAt": "2026-06-10",
+    "author": {
+      "name": "Equipo Clínico",
+      "role": "Warner Suite"
+    },
+    "actionUrl": "/configuracion/plantillas-consentimiento",
+    "actionLabel": "Ver Plantillas Clínicas"
+  },
+  {
+    "id": "rel-2026-05-02-01",
+    "version": "2.1.0",
+    "title": "Optimizaciones de Rendimiento y Carga en la Agenda",
+    "summary": "Mejoras en el tiempo de renderizado de la vista semanal y diaria con alta concurrencia de profesionales.",
+    "content": [
+      "Reducción del 45% en los tiempos de respuesta al alternar entre sucursales.",
+      "Filtrado por sillón dental y especialidad en tiempo real sin recargar la página."
+    ],
+    "category": "IMPROVEMENT",
+    "tags": ["Rendimiento", "Agenda"],
+    "publishedAt": "2026-05-02",
+    "author": {
+      "name": "Equipo de Ingeniería",
+      "role": "Warner Suite"
+    },
+    "actionUrl": "/agenda",
+    "actionLabel": "Ir a la Agenda"
+  }
+]

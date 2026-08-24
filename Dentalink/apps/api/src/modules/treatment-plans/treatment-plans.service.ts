@@ -6658,6 +6658,11 @@ export class TreatmentPlansService {
         }
       });
 
+      const linkedReferral = await tx.treatmentPlanReferral.update({
+        where: { id: referral.id },
+        data: { destinationTreatmentPlanId: newPlan.id }
+      });
+
       if (plan.kind === TreatmentPlanKind.ORTHODONTICS) {
         await tx.orthodonticTreatmentProfile.create({
           data: plan.orthodonticProfile
@@ -6757,7 +6762,7 @@ export class TreatmentPlansService {
         data: { status: "CANCELLED" }
       });
 
-      return referral;
+      return linkedReferral;
     });
   }
 

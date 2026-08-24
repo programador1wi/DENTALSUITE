@@ -18,7 +18,7 @@ import { AppointmentsService } from "./appointments.service";
 import { CreateAppointmentDto, CreateAppointmentsBatchDto } from "./dto/create-appointment.dto";
 import { UpdateAppointmentStatusDto } from "./dto/update-appointment-status.dto";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
-import { AttendanceAnalyticsService } from "./domain/services/attendance-analytics.service";
+import { AttendanceAnalyticsService } from "./application/attendance-analytics.service";
 
 @ApiTags("Appointments")
 @ApiBearerAuth()

@@ -62,7 +62,15 @@ describe("ReportsService Excel requests", () => {
     expect(catalog.some((item) => item.code === "USERS_LIST")).toBe(false);
   });
 
-  it("rejects disabled reports instead of letting the frontend choose a generator", async () => {
+  it("does not empty the catalog for a system administrator", () => {
+    const service = new ReportsService({} as never);
+    const systemAdmin = { ...actor, permissions: ["system.manage_all"] };
+
+    expect(service.getExcelCatalog(systemAdmin, "REQUEST")).toHaveLength(88);
+    expect(service.getExcelCatalog(systemAdmin, "PERIOD")).toHaveLength(83);
+  });
+
+  it("requires the specific price list export permission", async () => {
     const service = new ReportsService({} as never);
 
     await expect(
@@ -71,7 +79,67 @@ describe("ReportsService Excel requests", () => {
         format: ReportExportFormat.CSV,
         parameters: {}
       })
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("generates Listado de precios with the specialized provider", async () => {
+    const priceListActor = { ...actor, permissions: [...actor.permissions, "price_list.export"] };
+    const priceListReport = {
+      rows: jest.fn().mockResolvedValue({
+        selection: {
+          branchId: "branch-1",
+          branchName: "Sucursal Norte",
+          priceListId: "price-list-1",
+          priceListName: "Arancel general"
+        },
+        rows: [
+          {
+            Sucursal: "Sucursal Norte",
+            Arancel: "Arancel general",
+            Categoria: "Diagnostico",
+            Codigo: "DX-01",
+            Tratamiento: "Consulta"
+          }
+        ]
+      }),
+      fileBaseName: jest.fn().mockReturnValue("listado-precios-sucursal-norte-arancel-general")
+    };
+    const service = new ReportsService(
+      { branch: { findFirst: jest.fn().mockResolvedValue({ id: "branch-1" }) } } as never,
+      undefined,
+      priceListReport as never
+    );
+
+    const result = await service.createExcelRequest(priceListActor, {
+      reportCode: "PRICE_LIST",
+      format: ReportExportFormat.CSV,
+      parameters: {
+        branchId: "branch-1",
+        priceListId: "price-list-1",
+        priceListVersionId: "version-2"
+      }
+    });
+
+    expect(priceListReport.rows).toHaveBeenCalledWith(
+      priceListActor,
+      expect.objectContaining({ branchId: "branch-1", priceListId: "price-list-1", priceListVersionId: "version-2" })
+    );
+    expect(result.status).toBe("COMPLETED");
+    expect(result.fileName).toBe("listado-precios-sucursal-norte-arancel-general.csv");
+    expect(Buffer.from(result.file?.base64 ?? "", "base64").toString("utf8")).toContain("Diagnostico");
+
+    const xlsxResult = await service.createExcelRequest(priceListActor, {
+      reportCode: "PRICE_LIST",
+      format: ReportExportFormat.XLSX,
+      parameters: {
+        branchId: "branch-1",
+        priceListId: "price-list-1",
+        priceListVersionId: "version-2"
+      }
+    });
+    const workbook = unzipSync(Buffer.from(xlsxResult.file?.base64 ?? "", "base64"));
+    expect(Buffer.from(workbook["xl/workbook.xml"]).toString("utf8")).toContain('name="Listado de precios"');
+    expect(xlsxResult.fileName).toBe("listado-precios-sucursal-norte-arancel-general.xlsx");
   });
 
   it("rejects report-specific permissions", async () => {

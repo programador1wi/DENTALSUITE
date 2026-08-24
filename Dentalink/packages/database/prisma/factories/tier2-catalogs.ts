@@ -32,14 +32,16 @@ export async function seedTier2Catalogs(prisma: PrismaClient, orgId: string, bra
     createdMethods.push(created);
   }
 
-  (await prisma.financialInstitution.findFirst({ where: { organizationId: orgId, name: "BBVA" } })) ??
-    (await prisma.financialInstitution.create({
+  if (!(await prisma.financialInstitution.findFirst({ where: { organizationId: orgId, name: "BBVA" } }))) {
+    await prisma.financialInstitution.create({
       data: { organizationId: orgId, name: "BBVA", isActive: true }
-    }));
-  (await prisma.financialInstitution.findFirst({ where: { organizationId: orgId, name: "Santander" } })) ??
-    (await prisma.financialInstitution.create({
+    });
+  }
+  if (!(await prisma.financialInstitution.findFirst({ where: { organizationId: orgId, name: "Santander" } }))) {
+    await prisma.financialInstitution.create({
       data: { organizationId: orgId, name: "Santander", isActive: true }
-    }));
+    });
+  }
 
   // 2. Specialties
   const specialties = [
@@ -278,10 +280,10 @@ export async function seedTier2Catalogs(prisma: PrismaClient, orgId: string, bra
 
   // Assign Price Lists to Branches
   for (const branchId of branchIds) {
-    (await prisma.branchPriceList.findFirst({
+    if (!(await prisma.branchPriceList.findFirst({
       where: { organizationId: orgId, branchId, priceListId: priceListBase.id }
-    })) ??
-      (await prisma.branchPriceList.create({
+    }))) {
+      await prisma.branchPriceList.create({
         data: {
           organizationId: orgId,
           branchId,
@@ -290,12 +292,13 @@ export async function seedTier2Catalogs(prisma: PrismaClient, orgId: string, bra
           isDefault: true,
           isActive: true
         }
-      }));
+      });
+    }
 
-    (await prisma.branchPriceList.findFirst({
+    if (!(await prisma.branchPriceList.findFirst({
       where: { organizationId: orgId, branchId, priceListId: priceListPoliza.id }
-    })) ??
-      (await prisma.branchPriceList.create({
+    }))) {
+      await prisma.branchPriceList.create({
         data: {
           organizationId: orgId,
           branchId,
@@ -304,13 +307,14 @@ export async function seedTier2Catalogs(prisma: PrismaClient, orgId: string, bra
           isDefault: false,
           isActive: true
         }
-      }));
+      });
+    }
   }
 
   // Generate Price List Items and Categories
   for (const cat of createdCategories) {
     // BASE PriceListCategory
-    let plCatBase =
+    const plCatBase =
       (await prisma.priceListCategory.findFirst({
         where: { organizationId: orgId, priceListId: priceListBase.id, procedureCategoryId: cat.id }
       })) ??
@@ -326,7 +330,7 @@ export async function seedTier2Catalogs(prisma: PrismaClient, orgId: string, bra
       }));
 
     // POLIZA PriceListCategory
-    let plCatPoliza =
+    const plCatPoliza =
       (await prisma.priceListCategory.findFirst({
         where: { organizationId: orgId, priceListId: priceListPoliza.id, procedureCategoryId: cat.id }
       })) ??
@@ -345,10 +349,10 @@ export async function seedTier2Catalogs(prisma: PrismaClient, orgId: string, bra
     const procsInCat = createdProcedures.filter((p) => p.categoryName === cat.name);
     for (const proc of procsInCat) {
       // BASE Item
-      (await prisma.priceListItem.findFirst({
+      if (!(await prisma.priceListItem.findFirst({
         where: { priceListId: priceListBase.id, procedureId: proc.id }
-      })) ??
-        (await prisma.priceListItem.create({
+      }))) {
+        await prisma.priceListItem.create({
           data: {
             priceListId: priceListBase.id,
             priceListCategoryId: plCatBase.id,
@@ -358,13 +362,14 @@ export async function seedTier2Catalogs(prisma: PrismaClient, orgId: string, bra
             currency: "MXN",
             allowsDiscount: true
           }
-        }));
+        });
+      }
 
       // POLIZA Item (-15%)
-      (await prisma.priceListItem.findFirst({
+      if (!(await prisma.priceListItem.findFirst({
         where: { priceListId: priceListPoliza.id, procedureId: proc.id }
-      })) ??
-        (await prisma.priceListItem.create({
+      }))) {
+        await prisma.priceListItem.create({
           data: {
             priceListId: priceListPoliza.id,
             priceListCategoryId: plCatPoliza.id,
@@ -374,7 +379,8 @@ export async function seedTier2Catalogs(prisma: PrismaClient, orgId: string, bra
             currency: "MXN",
             allowsDiscount: false
           }
-        }));
+        });
+      }
     }
   }
 

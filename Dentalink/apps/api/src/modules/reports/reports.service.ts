@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import {
   AppointmentStatus,
   CashMovementType,
@@ -14,18 +14,25 @@ import {
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { createXlsxWorkbook } from "../../common/utils/xlsx.util";
 import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
+import { hasEffectivePermission } from "@dentalwarner/shared";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
   BaseReportQueryDto,
+  ChartReportType,
   CreateExcelReportRequestDto,
   ExcelReportDefinition,
+  GenerateChartReportDto,
   ProfessionalsReportQueryDto,
   ReportExportFormat,
   ReportParameterDefinition,
-  ReportResponse
+  ReportResponse,
+  ReportsPeriodPreset
 } from "./dto/reports.dto";
 import { excelReportDefinitions } from "./reports-catalog";
+import { PeriodReportProviderService } from "./period-report-provider.service";
+import { PriceListReportService } from "./price-list-report.service";
+import { ReportsAnalyticsService } from "./reports-analytics.service";
 
 type ResolvedFilters = {
   start: Date;
@@ -37,11 +44,23 @@ type ResolvedFilters = {
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly periodProvider?: PeriodReportProviderService,
+    @Optional() private readonly priceListReport?: PriceListReportService,
+    @Optional() private readonly analytics?: ReportsAnalyticsService
+  ) {}
 
-  getExcelCatalog(actor?: AuthUser) {
+  getExcelCatalog(actor?: AuthUser, surface?: "REQUEST" | "PERIOD") {
     return excelReportDefinitions
-      .filter((definition) => !actor || this.hasPermission(actor, definition.permission))
+      .filter(
+        (definition) =>
+          (!surface || definition.surfaces?.includes(surface)) &&
+          (!actor ||
+            (definition.requiredPermissions ?? [definition.permission, "reports.export"]).every((permission) =>
+              this.hasPermission(actor, permission)
+            ))
+      )
       .map((definition) => this.serializeExcelDefinition(definition));
   }
 
@@ -75,6 +94,59 @@ export class ReportsService {
       response = await this.getExpenseDetailReport(actor, query);
     else if (definition.handler === "dentist-contracts")
       response = await this.getDentistContractsReport(actor, query);
+    else if (definition.handler === "price-list") {
+      if (!this.priceListReport) throw new BadRequestException("El generador del arancel no esta disponible");
+      const result = await this.priceListReport.rows(actor, {
+        ...(dto.parameters ?? {}),
+        ...parameters
+      });
+      const filters = await this.resolveFilters(actor, { ...query, branchId: result.selection.branchId });
+      response = await this.withExport(
+        this.wrapResponse(filters, { rows: result.rows }),
+        this.priceListReport.fileBaseName(result.selection.branchName, result.selection.priceListName),
+        result.rows,
+        format,
+        "Listado de precios"
+      );
+    }
+    else if (definition.handler?.startsWith("graphical-")) {
+      const reportTypeByHandler: Record<string, ChartReportType> = {
+        "graphical-daily-collection": "daily-collection",
+        "graphical-patient-referrals": "patient-referrals",
+        "graphical-captured-budgets": "captured-budgets"
+      };
+      const reportType = reportTypeByHandler[definition.handler];
+      if (!reportType) throw new BadRequestException("Exportador grafico no disponible");
+      if (!this.analytics) throw new BadRequestException("El proveedor analitico no esta disponible");
+      const rows = await this.analytics.exportChartReportRows(actor, reportType, {
+        preset: ReportsPeriodPreset.CUSTOM,
+        dateFrom: String(parameters.dateFrom),
+        dateTo: String(parameters.dateTo),
+        branchId: parameters.branchId ? String(parameters.branchId) : undefined,
+        page: 1,
+        pageSize: 1_000_000
+      } as GenerateChartReportDto);
+      response = await this.withExport(
+        this.wrapResponse(await this.resolveFilters(actor, query), { rows }),
+        definition.id,
+        rows,
+        format,
+        definition.name
+      );
+    }
+    else if (definition.handler === "period-generic") {
+      if (!this.periodProvider) throw new BadRequestException("El proveedor del reporte no esta disponible");
+      const rows = await this.periodProvider.rows(definition, actor, {
+        ...(dto.parameters ?? {}),
+        ...parameters
+      });
+      response = await this.withExport(
+        this.wrapResponse(await this.resolveFilters(actor, query), { rows }),
+        definition.id,
+        rows,
+        format
+      );
+    }
     else throw new BadRequestException("El generador del reporte no esta implementado");
 
     const completedAt = new Date();
@@ -1026,7 +1098,8 @@ export class ReportsService {
 
   private assertCanRequestReport(actor: AuthUser, definition: ExcelReportDefinition) {
     if (!definition.enabled) throw new BadRequestException("El generador del reporte no esta implementado");
-    if (!this.hasPermission(actor, definition.permission)) {
+    const permissions = definition.requiredPermissions ?? [definition.permission, "reports.export"];
+    if (permissions.some((permission) => !this.hasPermission(actor, permission))) {
       throw new ForbiddenException("No tienes permiso para solicitar este reporte");
     }
   }
@@ -1120,7 +1193,7 @@ export class ReportsService {
   }
 
   private hasPermission(actor: AuthUser, permission: string) {
-    return actor.permissions.includes(permission) || actor.permissions.includes("*");
+    return hasEffectivePermission(actor.permissions, permission);
   }
 
   private estimateRowCount(data: unknown) {
@@ -1467,7 +1540,8 @@ export class ReportsService {
     response: ReportResponse<T>,
     baseFileName: string,
     rows: Record<string, unknown>[],
-    format: ReportExportFormat
+    format: ReportExportFormat,
+    sheetName = "Reporte"
   ): Promise<ReportResponse<T>> {
     if (format === ReportExportFormat.JSON) return response;
     const normalized = rows.map((row) => this.normalizeRow(row));
@@ -1485,7 +1559,7 @@ export class ReportsService {
       };
     }
 
-    const xlsx = createXlsxWorkbook([{ name: "Reporte", rows: normalized }]);
+    const xlsx = createXlsxWorkbook([{ name: sheetName, rows: normalized }]);
     return {
       ...response,
       export: {

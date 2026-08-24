@@ -23,6 +23,13 @@ export type AnalyticsFilters = ReportFilters & {
   month?: string;
   year?: string;
   currency?: string;
+  criteria?: string;
+  limit?: number;
+  search?: string;
+  professionalId?: string;
+  specialtyId?: string;
+  page?: number;
+  pageSize?: number;
 };
 
 export type ExcelReportType = "appointments" | "patients" | "treatments" | "financial" | "professionals" | string;
@@ -38,6 +45,7 @@ export type ReportParameterType =
   | "number"
   | "checkbox"
   | "branch"
+  | "priceList"
   | "professional"
   | "patient"
   | "appointmentStatus"
@@ -78,6 +86,10 @@ export type ExcelCatalogItem = {
   keywords?: string[];
   filters: string[];
   lastRunAt: string | null;
+  surfaces?: Array<"REQUEST" | "PERIOD">;
+  temporalMode?: "RANGE" | "MONTH" | "AS_OF" | "CURRENT";
+  dateField?: string | null;
+  requiredPermissions?: string[];
 };
 
 export type ExcelReportRequest = {
@@ -87,14 +99,14 @@ export type ExcelReportRequest = {
   reportName: string;
   category: string;
   format: "csv" | "xlsx";
-  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "EXPIRED" | "CANCELLED";
+  status: "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "EXPIRED";
   requestedBy?: string;
   requestedAt: string;
   startedAt?: string;
   completedAt?: string;
   expiresAt?: string;
   parameters?: Record<string, unknown>;
-  filters: ReportEnvelope<unknown>["filters"];
+  filters?: ReportEnvelope<unknown>["filters"];
   file: ReportEnvelope<unknown>["export"] | null;
   fileName?: string | null;
   mimeType?: string | null;
@@ -108,6 +120,7 @@ export type ExcelReportRequestPayload = {
   format: "csv" | "xlsx";
   parameters: Record<string, unknown>;
   idempotencyKey?: string;
+  surface?: "REQUEST" | "PERIOD";
 };
 
 export type PerformanceDashboard = {
@@ -120,6 +133,8 @@ export type PerformanceDashboard = {
     timezone: string;
     currency: string;
     preset: string;
+    periodMode: "automatic" | "historical";
+    asOf: string;
   };
   updatedAt: string;
   definitions: Record<string, unknown>;
@@ -157,16 +172,25 @@ export type ChartCatalogItem = {
   type: string;
   title: string;
   description: string;
+  renderer: ChartReportRenderer;
+  destination?: string;
 };
 
+export type ChartReportRenderer = "chart-table" | "table" | "matrix" | "stacked-cohort" | "redirect" | "captured-budgets";
+
 export type GeneratedChartReport = {
+  schemaVersion: 2;
+  type: string;
+  renderer: ChartReportRenderer;
   title: string;
   description: string;
   filters: PerformanceDashboard["filters"];
   definitions: Record<string, unknown>;
   summary: Record<string, number | string>;
-  chart: Array<Record<string, number | string>>;
-  rows: Array<Record<string, number | string | null>>;
+  chart: Array<Record<string, unknown>>;
+  rows: Array<Record<string, unknown>>;
+  data?: Record<string, unknown>;
+  exportCode?: string;
 };
 
 export async function getPerformanceReport(params?: AnalyticsFilters) {
@@ -179,14 +203,58 @@ export async function getChartsCatalog() {
   return data;
 }
 
-export async function generateChartReport(type: string, payload: AnalyticsFilters & { criteria?: string }) {
+export async function generateChartReport(type: string, payload: AnalyticsFilters) {
   const { data } = await http.post<GeneratedChartReport>(`/reports/charts/${type}/generate`, payload);
   return data;
 }
 
-export async function getExcelCatalog() {
-  const { data } = await http.get<ExcelCatalogItem[]>("/reports/excel/catalog");
+export async function getExcelCatalog(surface?: "REQUEST" | "PERIOD") {
+  const { data } = await http.get<ExcelCatalogItem[]>("/reports/excel/catalog", { params: surface ? { surface } : undefined });
   return data;
+}
+
+export type ExcelRequestsPage = {
+  rows: ExcelReportRequest[];
+  total: number;
+  page: number;
+  pageSize: number;
+};
+
+export type PriceListReportOption = {
+  id: string;
+  code: string;
+  name: string;
+  currency: string;
+  versionNumber: number;
+};
+
+export async function getExcelReportRequests(params?: { status?: string; category?: string; search?: string; page?: number; pageSize?: number }) {
+  const { data } = await http.get<ExcelRequestsPage>("/reports/excel/requests", { params });
+  return data;
+}
+
+export async function getPriceListReportOptions(branchId: string) {
+  const { data } = await http.get<PriceListReportOption[]>("/reports/excel/options/price-lists", {
+    params: { branchId }
+  });
+  return data;
+}
+
+export async function downloadStoredExcelReport(id: string, fileName?: string | null) {
+  const { data, headers } = await http.get<Blob>(`/reports/excel/requests/${id}/download`, { responseType: "blob" });
+  const url = URL.createObjectURL(data);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName || extractDownloadName(headers["content-disposition"]) || "reporte.xlsx";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function extractDownloadName(header?: string) {
+  const encoded = header?.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  return encoded ? decodeURIComponent(encoded) : undefined;
 }
 
 export async function createExcelReportRequest(payload: ExcelReportRequestPayload | (ReportFilters & { type: ExcelReportType; search?: string; category?: string })) {

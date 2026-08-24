@@ -502,6 +502,13 @@ enum ExpenseStatus {
   VOIDED
 }
 
+enum ExpenseReportGroup {
+  PROFESSIONALS
+  LABORATORIES
+  COMMISSIONS
+  GENERAL
+}
+
 enum RefundStatus {
   PENDING
   PROCESSED
@@ -861,6 +868,14 @@ enum ProfessionalContractPaymentCondition {
   THIRTY_DAYS
 }
 
+enum ReportRequestStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  EXPIRED
+}
+
 model Organization {
   id                          String                           @id @default(cuid())
   name                        String
@@ -954,6 +969,7 @@ model Organization {
   inventoryExternalMappings   InventoryExternalEntityMapping[]
   suppliers                   Supplier[]
   auditLogs                   AuditLog[]
+  reportRequests              ReportRequest[]
   createdAt                   DateTime                         @default(now())
   updatedAt                   DateTime                         @updatedAt
   deletedAt                   DateTime?
@@ -1261,6 +1277,7 @@ model User {
   inventorySalesCreated         InventoryProductSale[]       @relation("InventoryProductSaleCreatedBy")
   payrollLiquidationsFinalized  PayrollLiquidation[]
   auditLogs                     AuditLog[]                   @relation("AuditLogUser")
+  reportRequests                ReportRequest[]              @relation("ReportRequestRequestedBy")
   createdAt                     DateTime                     @default(now())
   updatedAt                     DateTime                     @updatedAt
   deletedAt                     DateTime?
@@ -2518,6 +2535,7 @@ model ExpenseCategory {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   name           String
+  reportGroup    ExpenseReportGroup @default(GENERAL)
   isActive       Boolean      @default(true)
   expenses       Expense[]
   createdAt      DateTime     @default(now())
@@ -2541,6 +2559,7 @@ model Expense {
   quantity        Decimal         @default(1) @db.Decimal(10, 2)
   unitCost        Decimal         @db.Decimal(10, 2)
   total           Decimal         @db.Decimal(10, 2)
+  accountingDate  DateTime?
   invoicedAt      DateTime?
   paidAt          DateTime
   paymentMethodId String?
@@ -2565,6 +2584,7 @@ model Expense {
   @@index([organizationId, paidAt])
   @@index([branchId, paidAt])
   @@index([categoryId, paidAt])
+  @@index([organizationId, branchId, accountingDate])
 }
 
 model PriceListItem {
@@ -4104,6 +4124,7 @@ model TreatmentPlan {
   updatedAt                     DateTime                       @updatedAt
 
   referrals                TreatmentPlanReferral[]
+  destinationReferrals     TreatmentPlanReferral[]          @relation("ReferralDestinationPlan")
   payrollDiscounts         PayrollDiscount[]
   payrollDiscountPlans     PayrollDiscountPlan[]
   agreementCharges         AgreementCharge[]
@@ -6192,6 +6213,44 @@ model AuditLog {
   @@index([createdAt])
 }
 
+model ReportRequest {
+  id                  String              @id @default(cuid())
+  organizationId      String
+  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedById       String
+  requestedBy         User                @relation("ReportRequestRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  reportCode          String
+  reportNameSnapshot  String
+  categorySnapshot    String
+  surface             String              @default("PERIOD")
+  format              String              @default("xlsx")
+  parametersJson      Json
+  resolvedBranchIds   String[]
+  branchWindowsJson   Json
+  status              ReportRequestStatus @default(PENDING)
+  idempotencyKey      String
+  attempts            Int                 @default(0)
+  leaseExpiresAt      DateTime?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  expiresAt           DateTime?
+  rowCount            Int?
+  fileName            String?
+  mimeType            String?
+  fileSize            Int?
+  storageKey          String?
+  checksum            String?
+  errorMessage        String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
+  @@unique([organizationId, requestedById, idempotencyKey])
+  @@index([organizationId, requestedById, createdAt])
+  @@index([organizationId, status, createdAt])
+  @@index([status, leaseExpiresAt])
+  @@index([expiresAt])
+}
+
 model OnlineSchedulingConfig {
   id                                   String       @id @default(cuid())
   organizationId                       String
@@ -6264,6 +6323,8 @@ model TreatmentPlanReferral {
   id                 String        @id @default(cuid())
   treatmentPlanId    String
   treatmentPlan      TreatmentPlan @relation(fields: [treatmentPlanId], references: [id], onDelete: Cascade)
+  destinationTreatmentPlanId String?
+  destinationTreatmentPlan   TreatmentPlan? @relation("ReferralDestinationPlan", fields: [destinationTreatmentPlanId], references: [id], onDelete: SetNull)
   organizationId     String
   fromBranchId       String
   toBranchId         String
@@ -6282,6 +6343,8 @@ model TreatmentPlanReferral {
   professionalId     String?
 
   @@index([treatmentPlanId, createdAt])
+  @@index([destinationTreatmentPlanId])
+  @@index([organizationId, createdAt])
 }
 
 model PayrollDiscount {

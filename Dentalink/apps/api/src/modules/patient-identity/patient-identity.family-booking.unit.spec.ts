@@ -471,6 +471,7 @@ describe("PatientIdentityService family booking policy", () => {
     const session = familySession();
     const tx = {
       patient: {
+        findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({
           id: "new-child",
           firstName: "Sofia",
@@ -522,6 +523,7 @@ describe("PatientIdentityService family booking policy", () => {
     });
     const tx = {
       patient: {
+        findUnique: jest.fn().mockResolvedValue(null),
         create: jest
           .fn()
           .mockResolvedValueOnce({

@@ -1,8 +1,6 @@
 import { Activity, ShieldCheck, Timer } from "lucide-react";
-import { Link } from "react-router-dom";
 import { LoginAntigravityBackground } from "@/features/auth/components/login-antigravity-background";
 import { LoginForm } from "@/features/auth/components/login-form";
-import { APP_ROUTES } from "@/lib/routes";
 
 const highlights = [
   {
@@ -27,7 +25,7 @@ export function LoginPage() {
     <>
       <LoginAntigravityBackground />
 
-      <div className="relative z-10 w-full max-w-[1020px]">
+      <div className="relative z-10 w-full max-w-[1020px] px-4 py-8 sm:px-6">
         <section className="grid items-center gap-8 lg:grid-cols-[1.1fr_420px]">
           <aside className="hidden lg:block">
             <p className="mb-4 inline-flex items-center rounded-full border border-white/70 bg-white/65 px-3 py-1 text-[11px] font-semibold tracking-wide text-zinc-700 backdrop-blur">
@@ -76,14 +74,7 @@ export function LoginPage() {
 
             <LoginForm />
 
-            <div className="mt-5 text-center text-xs font-medium text-zinc-500">
-              ¿No tienes cuenta?{" "}
-              <Link className="font-semibold text-zinc-900 underline-offset-2 hover:underline" to={APP_ROUTES.auth.registerOrg}>
-                Registra tu clínica
-              </Link>
-            </div>
-
-            <div className="mt-5 border-t border-zinc-200/80 pt-4 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400">
+            <div className="mt-6 border-t border-zinc-200/80 pt-4 text-center text-[10px] font-semibold uppercase tracking-[0.2em] text-zinc-400">
               © {new Date().getFullYear()} Warner Suite
             </div>
           </article>
@@ -92,3 +83,4 @@ export function LoginPage() {
     </>
   );
 }
+

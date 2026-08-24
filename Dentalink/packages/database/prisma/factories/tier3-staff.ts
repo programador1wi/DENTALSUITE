@@ -43,9 +43,9 @@ export async function seedTier3Staff(prisma: PrismaClient, orgId: string, branch
 
     // 2. Receptionist
     const recEmail = `recepcion.${branch.code.toLowerCase()}@dentalwarner.local`;
-    let receptionist = await prisma.user.findUnique({ where: { email: recEmail } });
+    const receptionist = await prisma.user.findUnique({ where: { email: recEmail } });
     if (!receptionist) {
-      receptionist = await prisma.user.create({
+      await prisma.user.create({
         data: {
           organizationId: orgId,
           firstName: "Recepción",

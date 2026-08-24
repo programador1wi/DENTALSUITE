@@ -1495,7 +1495,14 @@ export class ConsentsService {
   }
 
   private cleanAgent(value?: string) {
-    return value?.replace(/[\u0000-\u001F\u007F]/g, "").slice(0, 500) || undefined;
+    return value
+      ?.split("")
+      .filter((character) => {
+        const code = character.charCodeAt(0);
+        return code > 31 && code !== 127;
+      })
+      .join("")
+      .slice(0, 500) || undefined;
   }
 
   private protectIp(value?: string) {

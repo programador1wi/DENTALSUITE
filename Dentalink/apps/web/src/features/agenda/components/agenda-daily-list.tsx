@@ -852,7 +852,7 @@ function FinancialSituationBadge({ appointment }: { appointment: Appointment }) 
   if (!situation) {
     return (
       <span
-        className="inline-flex h-7 items-center rounded-full bg-slate-100 border border-slate-300 px-2.5 text-[11px] font-semibold text-slate-700 whitespace-nowrap shadow-2xs"
+        className="inline-flex h-7 items-center rounded-full bg-slate-100 border border-slate-200/80 px-2.5 text-[11px] font-medium text-slate-600 whitespace-nowrap shadow-2xs"
         title="La cita no tiene un plan de tratamiento vinculado"
       >
         Sin plan
@@ -867,11 +867,11 @@ function FinancialSituationBadge({ appointment }: { appointment: Appointment }) 
     : null;
   const title = `${appointment.treatmentPlan?.name ?? "Plan de tratamiento"}: ${situation.label}${amount ? ` ${amount}` : ""}`;
   const styles = {
-    DEBT: "bg-red-700 text-white border-red-800",
-    AVAILABLE_BALANCE: "bg-emerald-700 text-white border-emerald-800",
-    DIAGNOSTIC: "bg-emerald-700 text-white border-emerald-800",
-    NO_AVAILABLE_BALANCE: "bg-amber-700 text-white border-amber-800",
-    CANCELLED: "bg-slate-700 text-white border-slate-800"
+    DEBT: "bg-rose-50 text-rose-700 border-rose-200/80",
+    AVAILABLE_BALANCE: "bg-emerald-50 text-emerald-700 border-emerald-200/80",
+    DIAGNOSTIC: "bg-teal-50 text-teal-700 border-teal-200/80",
+    NO_AVAILABLE_BALANCE: "bg-amber-50 text-amber-700 border-amber-200/80",
+    CANCELLED: "bg-slate-100 text-slate-600 border-slate-200/80"
   } as const;
   const Icon =
     situation.code === "DEBT"
@@ -884,10 +884,10 @@ function FinancialSituationBadge({ appointment }: { appointment: Appointment }) 
 
   return (
     <span
-      className={`inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-bold border shadow-2xs whitespace-nowrap ${styles[situation.code]}`}
+      className={`inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] font-semibold border shadow-2xs whitespace-nowrap ${styles[situation.code]}`}
       title={title}
     >
-      <Icon className="h-3.5 w-3.5 shrink-0 stroke-[2.5]" />
+      <Icon className="h-3.5 w-3.5 shrink-0 stroke-[2]" />
       {situation.label}
     </span>
   );

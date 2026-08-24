@@ -45,6 +45,14 @@ import {
   WaiveDocumentRequirementDto
 } from "./dto/integrations.dto";
 import { ManualAiProvider, ManualNotificationProvider, ManualPaymentProvider } from "./providers/integration-providers";
+import {
+  deliveryStatusToJobUpdate,
+  isTerminalImportStatus,
+  npsCategory,
+  resolveSurveyRecipient,
+  toJson
+} from "./application/integration-rules";
+import { writeIntegrationAudit } from "./infrastructure/integration-audit";
 
 @Injectable()
 export class IntegrationsService {
@@ -99,12 +107,12 @@ export class IntegrationsService {
         subject: dto.subject?.trim(),
         body: dto.body.trim(),
         scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : undefined,
-        metadata: this.toJson(dto.metadata)
+        metadata: toJson(dto.metadata)
       },
       include: this.communicationJobInclude()
     });
 
-    await this.audit(this.prisma, actor, {
+    await writeIntegrationAudit(this.prisma, actor, {
       entity: "CommunicationJob",
       entityId: job.id,
       action: "create",
@@ -149,7 +157,7 @@ export class IntegrationsService {
         }
       });
 
-      await this.audit(tx, actor, {
+      await writeIntegrationAudit(tx, actor, {
         entity: "CommunicationJob",
         entityId: id,
         action: "queue",
@@ -169,7 +177,7 @@ export class IntegrationsService {
   async recordMessageDelivery(actor: AuthUser, id: string, dto: RecordMessageDeliveryDto) {
     const job = await this.getScopedCommunicationJob(actor, id);
     const now = new Date();
-    const jobUpdate = this.deliveryStatusToJobUpdate(dto.status, dto.errorMessage, now);
+    const jobUpdate = deliveryStatusToJobUpdate(dto.status, dto.errorMessage, now);
 
     const delivery = await this.prisma.$transaction(async (tx) => {
       const created = await tx.messageDelivery.create({
@@ -178,7 +186,7 @@ export class IntegrationsService {
           status: dto.status,
           provider: dto.provider?.trim() || job.provider,
           providerMessageId: dto.providerMessageId?.trim() || job.providerMessageId,
-          rawPayload: this.toJson(dto.rawPayload),
+          rawPayload: toJson(dto.rawPayload),
           deliveredAt:
             dto.status === MessageDeliveryStatus.DELIVERED ||
             dto.status === MessageDeliveryStatus.READ ||
@@ -196,7 +204,7 @@ export class IntegrationsService {
       });
 
       await tx.communicationJob.update({ where: { id }, data: jobUpdate });
-      await this.audit(tx, actor, {
+      await writeIntegrationAudit(tx, actor, {
         entity: "MessageDelivery",
         entityId: created.id,
         action: "record",
@@ -247,11 +255,11 @@ export class IntegrationsService {
         token: randomUUID(),
         status: scheduledAt ? SurveyStatus.SCHEDULED : SurveyStatus.DRAFT,
         scheduledAt,
-        metadata: this.toJson(dto.metadata)
+        metadata: toJson(dto.metadata)
       }
     });
 
-    await this.audit(this.prisma, actor, {
+    await writeIntegrationAudit(this.prisma, actor, {
       entity: "Survey",
       entityId: survey.id,
       action: "create",
@@ -276,7 +284,7 @@ export class IntegrationsService {
     }
     if (!survey.patient) throw new BadRequestException("Survey needs a patient before it can be sent");
 
-    const recipient = this.resolveSurveyRecipient(survey.channel, survey.patient);
+    const recipient = resolveSurveyRecipient(survey.channel, survey.patient);
     if (!recipient) throw new BadRequestException("Patient does not have a valid recipient for this survey channel");
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -299,7 +307,7 @@ export class IntegrationsService {
         data: { status: SurveyStatus.SENT, sentAt: new Date() }
       });
 
-      await this.audit(tx, actor, {
+      await writeIntegrationAudit(tx, actor, {
         entity: "Survey",
         entityId: id,
         action: "send",
@@ -335,12 +343,12 @@ export class IntegrationsService {
               create: {
                 surveyId: survey.id,
                 score: dto.score,
-                category: this.npsCategory(dto.score),
+                category: npsCategory(dto.score),
                 comment: dto.comment?.trim()
               },
               update: {
                 score: dto.score,
-                category: this.npsCategory(dto.score),
+                category: npsCategory(dto.score),
                 comment: dto.comment?.trim(),
                 respondedAt: new Date()
               }
@@ -386,7 +394,7 @@ export class IntegrationsService {
         senderUserId: actor.id,
         body: dto.body.trim(),
         threadKey: dto.threadKey?.trim() || (dto.patientId ? `patient:${dto.patientId}` : "organization"),
-        metadata: this.toJson(dto.metadata)
+        metadata: toJson(dto.metadata)
       },
       include: {
         patient: this.patientSummarySelect(),
@@ -412,11 +420,11 @@ export class IntegrationsService {
         joinUrl: dto.joinUrl?.trim(),
         startsAt: new Date(dto.startsAt),
         notes: dto.notes?.trim(),
-        metadata: this.toJson(dto.metadata)
+        metadata: toJson(dto.metadata)
       }
     });
 
-    await this.audit(this.prisma, actor, {
+    await writeIntegrationAudit(this.prisma, actor, {
       entity: "TelemedicineSession",
       entityId: session.id,
       action: "create",
@@ -473,7 +481,7 @@ export class IntegrationsService {
       }
     });
 
-    await this.audit(this.prisma, actor, {
+    await writeIntegrationAudit(this.prisma, actor, {
       entity: "TelemedicineSession",
       entityId: id,
       action: "status_update",
@@ -513,7 +521,7 @@ export class IntegrationsService {
         createdById: actor.id,
         type: dto.type,
         fileName: dto.fileName?.trim(),
-        summary: this.toJson(dto.summary)
+        summary: toJson(dto.summary)
       }
     });
   }
@@ -537,10 +545,10 @@ export class IntegrationsService {
         totalRows: dto.totalRows,
         successRows: dto.successRows,
         errorRows: dto.errorRows,
-        summary: this.toJson(dto.summary),
-        errors: this.toJson(dto.errors),
+        summary: toJson(dto.summary),
+        errors: toJson(dto.errors),
         startedAt: dto.status === ImportJobStatus.PROCESSING && !current.startedAt ? now : undefined,
-        completedAt: this.isTerminalImportStatus(dto.status ?? current.status) ? now : undefined
+        completedAt: isTerminalImportStatus(dto.status ?? current.status) ? now : undefined
       }
     });
   }
@@ -596,11 +604,11 @@ export class IntegrationsService {
         description: dto.description?.trim(),
         requiredBefore: dto.requiredBefore?.trim(),
         dueAt: dto.dueAt ? new Date(dto.dueAt) : undefined,
-        metadata: this.toJson(dto.metadata)
+        metadata: toJson(dto.metadata)
       }
     });
 
-    await this.audit(this.prisma, actor, {
+    await writeIntegrationAudit(this.prisma, actor, {
       entity: "DocumentRequirement",
       entityId: requirement.id,
       action: "create",
@@ -637,7 +645,7 @@ export class IntegrationsService {
       }
     });
 
-    await this.audit(this.prisma, actor, {
+    await writeIntegrationAudit(this.prisma, actor, {
       entity: "DocumentRequirement",
       entityId: id,
       action: "satisfy",
@@ -664,7 +672,7 @@ export class IntegrationsService {
       }
     });
 
-    await this.audit(this.prisma, actor, {
+    await writeIntegrationAudit(this.prisma, actor, {
       entity: "DocumentRequirement",
       entityId: id,
       action: "waive",
@@ -720,7 +728,7 @@ export class IntegrationsService {
           eventType: dto.eventType.trim(),
           idempotencyKey,
           status: shouldMarkLinkPaid ? PaymentWebhookEventStatus.PROCESSED : PaymentWebhookEventStatus.IGNORED,
-          payload: this.toJson(dto.payload ?? {}) ?? {},
+          payload: toJson(dto.payload ?? {}) ?? {},
           processedAt: new Date()
         }
       });
@@ -784,12 +792,12 @@ export class IntegrationsService {
         useCase: dto.useCase,
         provider: providerStart.provider,
         prompt: dto.prompt?.trim(),
-        input: this.toJson(dto.input),
+        input: toJson(dto.input),
         status: providerStart.status
       }
     });
 
-    await this.audit(this.prisma, actor, {
+    await writeIntegrationAudit(this.prisma, actor, {
       entity: "AiRequest",
       entityId: request.id,
       action: "create",
@@ -812,12 +820,12 @@ export class IntegrationsService {
         create: {
           organizationId: actor.organizationId,
           aiRequestId: id,
-          output: this.toJson(dto.output) ?? {},
+          output: toJson(dto.output) ?? {},
           summary: dto.summary?.trim(),
           confidence: dto.confidence
         },
         update: {
-          output: this.toJson(dto.output) ?? {},
+          output: toJson(dto.output) ?? {},
           summary: dto.summary?.trim(),
           confidence: dto.confidence
         }
@@ -828,7 +836,7 @@ export class IntegrationsService {
         data: { status: AiRequestStatus.COMPLETED, errorMessage: null }
       });
 
-      await this.audit(tx, actor, {
+      await writeIntegrationAudit(tx, actor, {
         entity: "AiRequest",
         entityId: id,
         action: "complete",
@@ -988,66 +996,4 @@ export class IntegrationsService {
     }
   }
 
-  private deliveryStatusToJobUpdate(
-    status: MessageDeliveryStatus,
-    errorMessage: string | undefined,
-    now: Date
-  ): Prisma.CommunicationJobUpdateInput {
-    if (status === MessageDeliveryStatus.FAILED) {
-      return { status: CommunicationJobStatus.FAILED, failedAt: now, errorMessage: errorMessage?.trim() };
-    }
-    if (status === MessageDeliveryStatus.QUEUED) {
-      return { status: CommunicationJobStatus.QUEUED, queuedAt: now };
-    }
-    return { status: CommunicationJobStatus.SENT, sentAt: now, failedAt: null, errorMessage: null };
-  }
-
-  private resolveSurveyRecipient(channel: string, patient: { email: string | null; phone: string | null }) {
-    if (channel === "EMAIL") return patient.email?.trim();
-    if (["WHATSAPP", "SMS", "PHONE"].includes(channel)) return patient.phone?.trim();
-    return patient.email?.trim() || patient.phone?.trim();
-  }
-
-  private npsCategory(score: number) {
-    if (score >= 9) return "PROMOTER";
-    if (score >= 7) return "PASSIVE";
-    return "DETRACTOR";
-  }
-
-  private isTerminalImportStatus(status: ImportJobStatus) {
-    return (
-      status === ImportJobStatus.COMPLETED ||
-      status === ImportJobStatus.FAILED ||
-      status === ImportJobStatus.CANCELLED
-    );
-  }
-
-  private toJson(value: Record<string, unknown> | undefined): Prisma.InputJsonValue | undefined {
-    return value === undefined ? undefined : (value as Prisma.InputJsonValue);
-  }
-
-  private async audit(
-    tx: Prisma.TransactionClient | PrismaService,
-    actor: AuthUser,
-    payload: {
-      entity: string;
-      entityId?: string;
-      action: string;
-      before?: Prisma.InputJsonValue;
-      after?: Prisma.InputJsonValue;
-    }
-  ) {
-    await tx.auditLog.create({
-      data: {
-        organizationId: actor.organizationId,
-        userId: actor.id,
-        actorUserId: actor.id,
-        entity: payload.entity,
-        entityId: payload.entityId,
-        action: payload.action,
-        before: payload.before,
-        after: payload.after
-      }
-    });
-  }
 }

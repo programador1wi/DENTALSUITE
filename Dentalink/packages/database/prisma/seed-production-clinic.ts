@@ -530,7 +530,7 @@ async function ensureAllBranchCoverage(db: Db, organizationId: string, adminId: 
     await db.clinicalEvolution.updateMany({ where: { branchId: branch.id, patient: { source: SCENARIO } }, data: { professionalId: professional.id, createdById: user.id, signedById: user.id } });
     await db.labOrder.updateMany({ where: { organizationId, treatmentPlan: { branchId: branch.id }, patient: { source: SCENARIO } }, data: { professionalId: professional.id } });
 
-    let branchPatients = await db.patient.findMany({ where: { organizationId, branchId: branch.id, source: SCENARIO }, orderBy: { createdAt: "asc" } });
+    const branchPatients = await db.patient.findMany({ where: { organizationId, branchId: branch.id, source: SCENARIO }, orderBy: { createdAt: "asc" } });
     for (let patientIndex = branchPatients.length; patientIndex < 8; patientIndex++) {
       const sequence = index * 10 + patientIndex + 500;
       const patient = await db.patient.create({ data: {

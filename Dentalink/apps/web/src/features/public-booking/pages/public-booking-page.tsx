@@ -24,12 +24,17 @@ import {
   getVisibleFormFields,
   getRequiredFormFields
 } from "@/features/patients/config/patient-field-settings";
+import {
+  createEmptyPublicPatient,
+  type PublicBookingSearchMode,
+  type PublicBookingStep
+} from "./public-booking-model";
 
 export function PublicBookingPage() {
   const { slug } = useParams<{ slug: string }>();
   const [searchParams] = useSearchParams();
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
-  const [searchMode, setSearchMode] = useState<"professional" | "specialty" | "">("");
+  const [step, setStep] = useState<PublicBookingStep>(1);
+  const [searchMode, setSearchMode] = useState<PublicBookingSearchMode>("");
 
   const [selectedSpecialty, setSelectedSpecialty] = useState<string>("");
   const [selectedBranch, setSelectedBranch] = useState<string>("");
@@ -37,34 +42,7 @@ export function PublicBookingPage() {
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0]);
   const [selectedSlot, setSelectedSlot] = useState<string>("");
 
-  const [patient, setPatient] = useState<PublicPatient>({
-    firstName: "",
-    socialName: "",
-    lastName: "",
-    agreementId: "",
-    internalNumber: "",
-    email: "",
-    phone: "",
-    documentNumber: "",
-    documentType: "",
-    birthDate: "",
-    sex: "",
-    gender: "",
-    alternatePhone: "",
-    occupation: "",
-    employer: "",
-    observations: "",
-    referredBy: "",
-    type: "",
-    guardianName: "",
-    guardianSocialName: "",
-    guardianDocumentNumber: "",
-    guardianGender: "",
-    guardianRelationship: "",
-    guardianPhone: "",
-    guardianEmail: "",
-    address: { street: "", city: "", state: "" }
-  });
+  const [patient, setPatient] = useState<PublicPatient>(createEmptyPublicPatient);
   const [motive, setMotive] = useState<string>("");
   const [identitySession, setIdentitySession] = useState<PublicIdentitySession | null>(null);
   const [identityCandidates, setIdentityCandidates] = useState<PublicIdentityCandidate[]>([]);

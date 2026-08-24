@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./error";
-import { assertApiResponseContract, resolveApiBaseUrl } from "./http-client";
+import { assertApiResponseContract, resolveApiBaseUrl, tokenExpiresSoon } from "./http-client";
+
+function tokenWithExpiry(exp: number) {
+  const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  return `${encode({ alg: "none" })}.${encode({ exp })}.signature`;
+}
 
 describe("resolveApiBaseUrl", () => {
   it("uses the IPv4 loopback address by default", () => {
@@ -35,5 +40,15 @@ describe("assertApiResponseContract", () => {
     } catch (error) {
       expect(error).toMatchObject({ statusCode: 502 });
     }
+  });
+});
+
+describe("tokenExpiresSoon", () => {
+  it("detects expired access tokens before auth/me emits a 401", () => {
+    expect(tokenExpiresSoon(tokenWithExpiry(Math.floor(Date.now() / 1000) - 1))).toBe(true);
+  });
+
+  it("keeps valid access tokens without an unnecessary refresh", () => {
+    expect(tokenExpiresSoon(tokenWithExpiry(Math.floor(Date.now() / 1000) + 300))).toBe(false);
   });
 });

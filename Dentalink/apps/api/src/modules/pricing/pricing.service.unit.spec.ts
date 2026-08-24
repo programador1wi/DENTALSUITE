@@ -41,6 +41,7 @@ describe("PricingService", () => {
 
   it("blocks a treatment when no active price exists", async () => {
     const prisma = {
+      agreement: { findFirst: jest.fn().mockResolvedValue(null) },
       procedure: { findFirst: jest.fn().mockResolvedValue(procedure()) },
       priceListVersionItem: { findMany: jest.fn().mockResolvedValue([]) }
     };
@@ -50,6 +51,7 @@ describe("PricingService", () => {
 
   it("selects the highest explicit scope priority deterministically and returns exact decimal strings", async () => {
     const prisma = {
+      agreement: { findFirst: jest.fn().mockResolvedValue(null) },
       procedure: { findFirst: jest.fn().mockResolvedValue(procedure()) },
       priceListVersionItem: { findMany: jest.fn().mockResolvedValue([priceItem(10, "low"), priceItem(200, "high")]) }
     };
@@ -63,6 +65,7 @@ describe("PricingService", () => {
 
   it("rejects a manual price without backend permission", async () => {
     const prisma = {
+      agreement: { findFirst: jest.fn().mockResolvedValue(null) },
       procedure: { findFirst: jest.fn().mockResolvedValue(procedure()) },
       priceListVersionItem: { findMany: jest.fn().mockResolvedValue([priceItem(10)]) }
     };

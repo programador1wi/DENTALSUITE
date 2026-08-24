@@ -27,12 +27,16 @@ import {
   DebtReportQueryDto,
   VoidCompanyPaymentDto
 } from "./dto/agreement-debts.dto";
-
-type RequestAuditContext = {
-  correlationId?: string;
-  ipAddress?: string;
-  userAgent?: string;
-};
+import * as debtRules from "./domain/agreement-debt-rules";
+import {
+  writeAgreementDebtAudit,
+  type RequestAuditContext
+} from "./infrastructure/agreement-debt-audit";
+import {
+  ACTIVE_PAYMENT_STATUSES,
+  INVALID_CHARGE_STATUSES
+} from "./application/agreement-debt-statuses";
+import { findRequiredAgreement } from "./infrastructure/agreement-debt-repository";
 
 type DebtChargeSource = Prisma.AgreementChargeGetPayload<{
   include: {
@@ -45,20 +49,26 @@ type DebtChargeSource = Prisma.AgreementChargeGetPayload<{
   };
 }>;
 
-const ACTIVE_PAYMENT_STATUSES: CompanyPaymentStatus[] = [
-  CompanyPaymentStatus.CONFIRMED,
-  CompanyPaymentStatus.PARTIALLY_APPLIED,
-  CompanyPaymentStatus.APPLIED
-];
-
-const INVALID_CHARGE_STATUSES: AgreementChargeStatus[] = [
-  AgreementChargeStatus.CANCELLED,
-  AgreementChargeStatus.REVERSED
-];
-
 @Injectable()
 export class AgreementDebtsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private readonly audit = writeAgreementDebtAudit;
+  private readonly dueDateAllocations = debtRules.dueDateAllocations;
+  private readonly proportionalAllocations = debtRules.proportionalAllocations;
+  private readonly splitMoney = debtRules.splitMoney;
+  private readonly installmentDueDate = debtRules.installmentDueDate;
+  private readonly appliedAmount = debtRules.appliedAmount;
+  private readonly chargeState = debtRules.chargeState;
+  private readonly persistedChargeStatus = debtRules.persistedChargeStatus;
+  private readonly summaryState = debtRules.summaryState;
+  private readonly startOfDay = debtRules.startOfDay;
+  private readonly endOfDay = debtRules.endOfDay;
+  private readonly daysBetween = debtRules.daysBetween;
+  private readonly cents = debtRules.cents;
+  private readonly money = debtRules.money;
+  private readonly clean = debtRules.clean;
+  private readonly csvCell = debtRules.csvCell;
 
   async getDebtReport(actor: AuthUser, query: DebtReportQueryDto) {
     const cutoff = this.endOfDay(query.cutoffDate);
@@ -188,7 +198,7 @@ export class AgreementDebtsService {
   }
 
   async getDebtDetails(actor: AuthUser, agreementId: string, query: DebtDetailsQueryDto) {
-    await this.ensureAgreement(actor, agreementId);
+    await findRequiredAgreement(this.prisma, actor, agreementId);
     const cutoff = this.endOfDay(query.cutoffDate);
     const branchIds = await this.resolveBranchScope(actor, query.branchId, query.scope);
     const page = query.page ?? 1;
@@ -454,7 +464,7 @@ export class AgreementDebtsService {
       include: { allocations: true }
     });
     if (existing) return existing;
-    const agreement = await this.ensureAgreement(actor, agreementId);
+    const agreement = await findRequiredAgreement(this.prisma, actor, agreementId);
     if (dto.confirm && !this.has(actor, "agreements.payments.approve"))
       throw new ForbiddenException("No tienes permiso para aprobar pagos empresariales");
     if (dto.branchId) await this.resolveBranchScope(actor, dto.branchId, "AUTHORIZED");
@@ -976,156 +986,11 @@ export class AgreementDebtsService {
     return scope === "ALL" && canViewAll ? undefined : actor.branchIds;
   }
 
-  private ensureAgreement(actor: AuthUser, agreementId: string) {
-    return this.prisma.agreement
-      .findFirst({
-        where: { id: agreementId, organizationId: actor.organizationId },
-        include: { company: true }
-      })
-      .then((agreement) => {
-        if (!agreement) throw new NotFoundException("Convenio no encontrado");
-        return agreement;
-      });
-  }
-
-  private async audit(
-    client: Prisma.TransactionClient | PrismaService,
-    actor: AuthUser,
-    context: RequestAuditContext,
-    event: {
-      action: string;
-      entity: string;
-      entityId?: string;
-      branchId?: string;
-      reason?: string;
-      before?: Prisma.InputJsonValue;
-      after?: Prisma.InputJsonValue;
-    }
-  ) {
-    await client.auditLog.create({
-      data: {
-        organizationId: actor.organizationId,
-        branchId: event.branchId,
-        userId: actor.id,
-        actorUserId: actor.id,
-        action: event.action,
-        entity: event.entity,
-        entityId: event.entityId,
-        reason: event.reason,
-        before: event.before,
-        after: event.after,
-        oldValue: event.before,
-        newValue: event.after,
-        ipAddress: context.ipAddress,
-        userAgent: context.userAgent,
-        correlationId: context.correlationId?.trim() || randomUUID()
-      }
-    });
-  }
-
-  private dueDateAllocations(charges: Array<{ id: string; outstandingAmount: Prisma.Decimal }>, amount: number) {
-    let remaining = this.cents(amount);
-    return charges.map((charge) => {
-      const allocated = Math.min(remaining, this.cents(Number(charge.outstandingAmount)));
-      remaining -= allocated;
-      return { chargeId: charge.id, amount: allocated / 100 };
-    });
-  }
-
-  private proportionalAllocations(
-    charges: Array<{ id: string; outstandingAmount: Prisma.Decimal }>,
-    amount: number,
-    totalDebt: number
-  ) {
-    const target = this.cents(amount);
-    const total = this.cents(totalDebt);
-    let assigned = 0;
-    return charges.map((charge, index) => {
-      const capacity = this.cents(Number(charge.outstandingAmount));
-      const share =
-        index === charges.length - 1
-          ? target - assigned
-          : Math.min(capacity, Math.floor((target * capacity) / total));
-      assigned += share;
-      return { chargeId: charge.id, amount: share / 100 };
-    });
-  }
-
-  private splitMoney(amount: number, count: number) {
-    const cents = this.cents(amount);
-    const base = Math.floor(cents / count);
-    const remainder = cents % count;
-    return Array.from({ length: count }, (_, index) => (base + (index < remainder ? 1 : 0)) / 100);
-  }
-
-  private installmentDueDate(first: Date, frequency: InstallmentFrequency, index: number) {
-    const date = new Date(first);
-    if (frequency === InstallmentFrequency.WEEKLY) date.setUTCDate(date.getUTCDate() + index * 7);
-    if (frequency === InstallmentFrequency.BIWEEKLY) date.setUTCDate(date.getUTCDate() + index * 14);
-    if (frequency === InstallmentFrequency.MONTHLY) date.setUTCMonth(date.getUTCMonth() + index);
-    return date;
-  }
-
-  private appliedAmount(allocations: Array<{ allocatedAmount: Prisma.Decimal }>) {
-    return this.money(allocations.reduce((sum, allocation) => sum + Number(allocation.allocatedAmount), 0));
-  }
-
-  private chargeState(status: AgreementChargeStatus, dueDate: Date, paid: number, outstanding: number) {
-    if (status === AgreementChargeStatus.CANCELLED) return "CANCELLED";
-    if (status === AgreementChargeStatus.REVERSED) return "REVERSED";
-    if (outstanding <= 0) return "PAID";
-    if (paid > 0) return dueDate < new Date() ? "OVERDUE" : "PARTIALLY_PAID";
-    return dueDate < new Date() ? "OVERDUE" : dueDate > new Date() ? "SCHEDULED" : "PENDING";
-  }
-
-  private persistedChargeStatus(dueDate: Date, paid: number, outstanding: number) {
-    if (outstanding <= 0) return AgreementChargeStatus.PAID;
-    if (paid > 0) return AgreementChargeStatus.PARTIALLY_PAID;
-    return dueDate < new Date() ? AgreementChargeStatus.OVERDUE : AgreementChargeStatus.PENDING;
-  }
-
-  private summaryState(generated: number, paid: number, debt: number) {
-    if (generated <= 0) return "NO_CHARGES";
-    if (debt <= 0 && paid >= generated) return "PAID";
-    if (debt <= 0) return "ADJUSTED_ZERO";
-    return "OUTSTANDING";
-  }
-
   private has(actor: AuthUser, permission: string) {
     return actor.permissions.includes("system.manage_all") || actor.permissions.includes(permission);
-  }
-
-  private startOfDay(value: string) {
-    return new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
-  }
-
-  private endOfDay(value: string) {
-    return new Date(`${value.slice(0, 10)}T23:59:59.999Z`);
-  }
-
-  private daysBetween(from: Date, to: Date) {
-    return Math.max(0, Math.floor((to.getTime() - from.getTime()) / 86_400_000));
-  }
-
-  private cents(value: number) {
-    return Math.round(value * 100);
-  }
-
-  private money(value: number) {
-    return this.cents(value) / 100;
   }
 
   private decimal(value: number) {
     return new Prisma.Decimal(this.money(value));
   }
-
-  private clean(value?: string) {
-    const text = value?.trim();
-    return text || null;
-  }
-
-  private readonly csvCell = (value: unknown) => {
-    const text = String(value ?? "");
-    return `"${text.replace(/"/g, '""')}"`;
-  };
 }

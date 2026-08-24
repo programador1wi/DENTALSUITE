@@ -34,8 +34,42 @@ export const http = axios.create({
   }
 });
 
-http.interceptors.request.use((config) => {
-  const token = authStoreApi.getState().accessToken;
+let proactiveRefresh: Promise<string> | null = null;
+
+export function tokenExpiresSoon(token: string, toleranceSeconds = 30) {
+  try {
+    const encoded = token.split(".")[1];
+    if (!encoded) return false;
+    const normalized = encoded.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(encoded.length / 4) * 4, "=");
+    const payload = JSON.parse(atob(normalized)) as { exp?: number };
+    return typeof payload.exp === "number" && payload.exp <= Math.floor(Date.now() / 1000) + toleranceSeconds;
+  } catch {
+    return false;
+  }
+}
+
+async function refreshBeforeRequest() {
+  if (proactiveRefresh) return proactiveRefresh;
+  const session = authStoreApi.getState();
+  if (!session.refreshToken || !session.user) return session.accessToken;
+  proactiveRefresh = axios
+    .post<{ accessToken: string; refreshToken: string }>(`${baseURL}/auth/refresh`, { refreshToken: session.refreshToken })
+    .then(({ data }) => {
+      authStoreApi.getState().setSession({ user: session.user!, accessToken: data.accessToken, refreshToken: data.refreshToken });
+      return data.accessToken;
+    })
+    .finally(() => {
+      proactiveRefresh = null;
+    });
+  return proactiveRefresh;
+}
+
+http.interceptors.request.use(async (config) => {
+  let token = authStoreApi.getState().accessToken;
+  const isAuthRequest = config.url?.includes("/auth/login") || config.url?.includes("/auth/refresh");
+  if (token && !isAuthRequest && tokenExpiresSoon(token)) {
+    token = await refreshBeforeRequest();
+  }
   if (config.data instanceof FormData) {
     delete config.headers["Content-Type"];
   }

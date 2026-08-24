@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsDateString, IsEnum, IsIn, IsObject, IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsDateString, IsEnum, IsIn, IsInt, IsObject, IsOptional, IsString, Max, Min } from "class-validator";
 import { PaginationQueryDto } from "../../../common/dto/pagination-query.dto";
 
 export enum ReportExportFormat {
@@ -78,6 +78,7 @@ export const reportParameterTypes = [
   "number",
   "checkbox",
   "branch",
+  "priceList",
   "professional",
   "patient",
   "appointmentStatus",
@@ -102,6 +103,9 @@ export type ReportParameterDefinition = {
   maxRangeDays?: number;
 };
 
+export type ReportSurface = "REQUEST" | "PERIOD";
+export type ReportTemporalMode = "RANGE" | "MONTH" | "AS_OF" | "CURRENT";
+
 export type ExcelReportDefinition = {
   id: string;
   code: string;
@@ -117,6 +121,11 @@ export type ExcelReportDefinition = {
   country?: string;
   plan?: string;
   keywords?: string[];
+  surfaces?: ReportSurface[];
+  temporalMode?: ReportTemporalMode;
+  dateField?: string | null;
+  sourceModel?: string;
+  requiredPermissions?: string[];
 };
 
 export class AnalyticsReportQueryDto extends BaseReportQueryDto {
@@ -141,6 +150,29 @@ export class GenerateChartReportDto extends AnalyticsReportQueryDto {
   @IsOptional()
   @IsString()
   criteria?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsString()
+  professionalId?: string;
+
+  @IsOptional()
+  @IsString()
+  specialtyId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  includeSuggestedBudget?: boolean;
 }
 
 export class CreateExcelReportRequestDto extends BaseReportQueryDto {
@@ -167,6 +199,10 @@ export class CreateExcelReportRequestDto extends BaseReportQueryDto {
   @IsOptional()
   @IsString()
   category?: string;
+
+  @IsOptional()
+  @IsIn(["REQUEST", "PERIOD"])
+  surface?: ReportSurface;
 }
 
 export type ReportExportPayload = {

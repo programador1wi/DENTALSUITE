@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Patch, Post, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Patch, Post, Req, Res, UnauthorizedException, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from "@nestjs/swagger";
-import type { Request } from "express";
+import type { Request, Response } from "express";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
+import { Public } from "../../common/decorators/public.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import { AuthService } from "./auth.service";
@@ -16,34 +17,77 @@ import { ChangePasswordDto } from "./dto/change-password.dto";
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  private extractCookie(cookieHeader: string | undefined, name: string): string | undefined {
+    if (!cookieHeader) return undefined;
+    const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+    return match ? decodeURIComponent(match[1]) : undefined;
+  }
+
+  private setRefreshTokenCookie(response: Response, token: string) {
+    response.cookie("refreshToken", token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/api/v1/auth",
+      maxAge: 7 * 24 * 60 * 60 * 1000
+    });
+  }
+
+  @Public()
   @Post("register-organization")
   @ApiOperation({ summary: "Register organization and bootstrap initial admin" })
   @ApiResponse({ status: 201, description: "Organization registered successfully" })
-  registerOrganization(@Body() dto: RegisterOrganizationDto, @Req() request: Request) {
-    return this.authService.registerOrganization(dto, {
+  async registerOrganization(
+    @Body() dto: RegisterOrganizationDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const result = await this.authService.registerOrganization(dto, {
       userAgent: request.headers["user-agent"],
       ipAddress: request.ip
     });
+    this.setRefreshTokenCookie(response, result.refreshToken);
+    return result;
   }
 
+  @Public()
   @Post("login")
   @ApiOperation({ summary: "Login with email and password" })
   @ApiResponse({ status: 200, description: "Login success" })
-  login(@Body() dto: LoginDto, @Req() request: Request) {
-    return this.authService.login(dto, {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const result = await this.authService.login(dto, {
       userAgent: request.headers["user-agent"],
       ipAddress: request.ip
     });
+    this.setRefreshTokenCookie(response, result.refreshToken);
+    return result;
   }
 
+  @Public()
   @Post("refresh")
   @ApiOperation({ summary: "Refresh access token" })
   @ApiResponse({ status: 200, description: "Token refreshed" })
-  refresh(@Body() dto: RefreshTokenDto, @Req() request: Request) {
-    return this.authService.refresh(dto.refreshToken, {
+  async refresh(
+    @Body() dto: Partial<RefreshTokenDto>,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const cookieToken = this.extractCookie(request.headers.cookie, "refreshToken");
+    const token = dto.refreshToken || cookieToken;
+    if (!token) {
+      throw new UnauthorizedException("Refresh token is required");
+    }
+
+    const result = await this.authService.refresh(token, {
       userAgent: request.headers["user-agent"],
       ipAddress: request.ip
     });
+    this.setRefreshTokenCookie(response, result.refreshToken);
+    return result;
   }
 
   @UseGuards(JwtAuthGuard)
@@ -51,8 +95,21 @@ export class AuthController {
   @ApiBearerAuth()
   @ApiOperation({ summary: "Logout and revoke session(s)" })
   @ApiResponse({ status: 200, description: "Logout success" })
-  logout(@CurrentUser() user: AuthUser, @Body() dto: Partial<RefreshTokenDto>) {
-    return this.authService.logout(user.id, dto.refreshToken);
+  async logout(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: Partial<RefreshTokenDto>,
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const cookieToken = this.extractCookie(request.headers.cookie, "refreshToken");
+    const token = dto.refreshToken || cookieToken;
+    response.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      path: "/api/v1/auth"
+    });
+    return this.authService.logout(user.id, token);
   }
 
   @UseGuards(JwtAuthGuard)

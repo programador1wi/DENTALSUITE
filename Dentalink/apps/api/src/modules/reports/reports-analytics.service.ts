@@ -441,7 +441,7 @@ export class ReportsAnalyticsService {
     const now = new Date();
     let start: Date;
     let end: Date;
-    let asOf = this.dateKey(now, timezone);
+    let asOf: string;
 
     if (periodMode === "automatic") {
       ({ start, end, asOf } = this.automaticReportRange(type, now, timezone));

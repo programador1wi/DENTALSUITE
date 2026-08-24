@@ -45,7 +45,8 @@ vi.mock("react-router-dom", async (importOriginal) => {
     ...actual,
     Link: ({ to, children, ...props }: any) => <a href={to} {...props}>{children}</a>,
     useParams: () => ({ id: "patient-1" }),
-    useLocation: () => ({ pathname: "/patients/patient-1/clinical/files" })
+    useLocation: () => ({ pathname: "/patients/patient-1/clinical/files" }),
+    useNavigate: () => vi.fn()
   };
 });
 

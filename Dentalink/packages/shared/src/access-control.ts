@@ -603,7 +603,7 @@ export const permissionDefinitions = [
   ]
 ] as const;
 
-const CANONICAL_PERMISSION_KEYS = new Set<string>(permissionDefinitions.map(([key]) => key));
+export const CANONICAL_PERMISSION_KEYS = new Set<string>(permissionDefinitions.map(([key]) => key));
 
 export const roleDefinitions = [
   {

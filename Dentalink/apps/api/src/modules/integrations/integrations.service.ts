@@ -685,8 +685,7 @@ export class IntegrationsService {
 
   async ingestPaymentWebhook(provider: string, dto: IngestPaymentWebhookDto, providedSecret?: string) {
     const expectedSecret = this.config.get<string>("PAYMENT_WEBHOOK_SECRET");
-    const isProduction = this.config.get<string>("NODE_ENV") === "production";
-    if (isProduction && !expectedSecret) throw new UnauthorizedException("Payment webhook secret is required");
+    if (!expectedSecret) throw new UnauthorizedException("Payment webhook secret is not configured");
     if (!this.paymentProvider.validateWebhookSecret(expectedSecret, providedSecret)) {
       throw new UnauthorizedException("Invalid payment webhook secret");
     }

@@ -1,5 +1,6 @@
 import { Controller, Get } from "@nestjs/common";
 import { ApiTags } from "@nestjs/swagger";
+import { Public } from "../../common/decorators/public.decorator";
 import { PrismaService } from "../../database/prisma.service";
 
 @ApiTags("Health")
@@ -7,6 +8,7 @@ import { PrismaService } from "../../database/prisma.service";
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
+  @Public()
   @Get()
   async check() {
     await this.prisma.$queryRaw`SELECT 1`;

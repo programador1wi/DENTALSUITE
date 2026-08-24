@@ -1,7 +1,9 @@
 import { Controller, Get, Post, Patch, Body, Headers, Param, Query } from '@nestjs/common';
+import { Public } from '../../common/decorators/public.decorator';
 import { PublicBookingService } from './public-booking.service';
 import { PublicAvailabilityQueryDto, PublicCreateAppointmentDto, PublicIdentityResolveDto, PublicIdentitySelectDto, PublicIdentityVerifyDto, UpdatePublicPatientProfileDto } from './dto/public-booking.dto';
 
+@Public()
 @Controller('public/booking')
 export class PublicBookingController {
   constructor(private readonly publicBookingService: PublicBookingService) {}

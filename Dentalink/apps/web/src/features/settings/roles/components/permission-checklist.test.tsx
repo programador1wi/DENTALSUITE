@@ -46,21 +46,41 @@ function StatefulChecklist() {
 }
 
 describe("PermissionChecklist", () => {
-  it("shows usual permissions first and keeps internal permissions hidden", () => {
+  it("shows non-internal permissions and keeps internal permissions hidden", () => {
     render(<StatefulChecklist />);
 
     expect(screen.getByText("Ver pacientes")).toBeInTheDocument();
-    expect(screen.queryByText("Desactivar pacientes")).not.toBeInTheDocument();
+    expect(screen.getByText("Desactivar pacientes")).toBeInTheDocument();
     expect(screen.queryByText("Administración total")).not.toBeInTheDocument();
   });
 
-  it("reveals advanced permissions without losing hidden selections", () => {
+  it("filters permissions by search query", () => {
     render(<StatefulChecklist />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Mostrar avanzadas" }));
+    const searchInput = screen.getByPlaceholderText("Filtrar permisos...");
+    fireEvent.change(searchInput, { target: { value: "Desactivar" } });
+
+    expect(screen.queryByText("Ver pacientes")).not.toBeInTheDocument();
+    expect(screen.getByText("Desactivar pacientes")).toBeInTheDocument();
+  });
+
+  it("preserves hidden selections when toggling visible permissions", () => {
+    render(<StatefulChecklist />);
+
     expect(screen.getByRole("checkbox", { name: "Desactivar pacientes" })).toBeChecked();
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "Ver pacientes" }));
+    fireEvent.click(screen.getByText("Ver pacientes"));
+    expect(screen.getByRole("checkbox", { name: "Ver pacientes" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Desactivar pacientes" })).toBeChecked();
+  });
+
+  it("allows selecting all visible delegable permissions without losing internal selections", () => {
+    render(<StatefulChecklist />);
+
+    const selectAllCheckbox = screen.getByLabelText("Marcar todos los permisos");
+    fireEvent.click(selectAllCheckbox);
+
+    expect(screen.getByRole("checkbox", { name: "Ver pacientes" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Desactivar pacientes" })).toBeChecked();
   });
 });

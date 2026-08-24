@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseGuards } 
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { Public } from "../../common/decorators/public.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
@@ -187,6 +188,7 @@ export class IntegrationsController {
 }
 
 @ApiTags("Public integrations")
+@Public()
 @Controller("public/integrations")
 export class PublicIntegrationsController {
   constructor(private readonly service: IntegrationsService) {}

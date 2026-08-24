@@ -51,7 +51,7 @@ describe("route permission guards", () => {
     authStoreApi.setState({ user: null, accessToken: null, refreshToken: null });
   });
 
-  it("redirects a forbidden direct URL to the first authorized module and warns once", async () => {
+  it("renders PermissionDeniedState when accessing a route without required permissions", async () => {
     authStoreApi.setState({ user: userWith(["patients.read"]) });
     const router = createMemoryRouter(
       [
@@ -59,9 +59,7 @@ describe("route permission guards", () => {
           path: "/configuracion/convenios",
           element: <RequirePermissions required={["settings.read"]} />,
           children: [{ index: true, element: <div>Convenios protegidos</div> }]
-        },
-        { path: "/pacientes", element: <div>Pacientes autorizados</div> },
-        { path: "/configuracion/perfil", element: <div>Perfil</div> }
+        }
       ],
       { initialEntries: ["/configuracion/convenios"] }
     );
@@ -72,16 +70,40 @@ describe("route permission guards", () => {
       </QueryClientProvider>
     );
 
-    expect(await screen.findByText("Pacientes autorizados")).toBeInTheDocument();
+    expect(await screen.findByText("Acceso no autorizado")).toBeInTheDocument();
     expect(screen.queryByText("Convenios protegidos")).not.toBeInTheDocument();
-    expect(toastMocks.warning).toHaveBeenCalledTimes(1);
   });
 
-  it("does not render stale permissions while auth/me is pending", async () => {
+  it("renders protected content when user possesses required permissions", async () => {
+    authStoreApi.setState({ user: userWith(["settings.read"]) });
+    const router = createMemoryRouter(
+      [
+        {
+          path: "/configuracion/convenios",
+          element: <RequirePermissions required={["settings.read"]} />,
+          children: [{ index: true, element: <div>Convenios protegidos</div> }]
+        }
+      ],
+      { initialEntries: ["/configuracion/convenios"] }
+    );
+
+    render(
+      <QueryClientProvider client={testClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    );
+
+    expect(await screen.findByText("Convenios protegidos")).toBeInTheDocument();
+    expect(screen.queryByText("Acceso no autorizado")).not.toBeInTheDocument();
+  });
+
+  it("does not render protected content while auth/me is pending and displays loading state", async () => {
     let resolveCurrentUser!: (user: AuthUser) => void;
-    authMocks.me.mockReturnValue(new Promise<AuthUser>((resolve) => {
-      resolveCurrentUser = resolve;
-    }));
+    authMocks.me.mockReturnValue(
+      new Promise<AuthUser>((resolve) => {
+        resolveCurrentUser = resolve;
+      })
+    );
     authStoreApi.setState({
       user: userWith(["settings.read"]),
       accessToken: "access-token",
@@ -97,9 +119,7 @@ describe("route permission guards", () => {
               path: "/configuracion/convenios",
               element: <RequirePermissions required={["settings.read"]} />,
               children: [{ index: true, element: <div>Convenios protegidos</div> }]
-            },
-            { path: "/pacientes", element: <div>Pacientes autorizados</div> },
-            { path: "/configuracion/perfil", element: <div>Perfil</div> }
+            }
           ]
         }
       ],
@@ -115,10 +135,9 @@ describe("route permission guards", () => {
     expect(screen.getByText(/Validando sesi/i)).toBeInTheDocument();
     expect(screen.queryByText("Convenios protegidos")).not.toBeInTheDocument();
 
-    await act(async () => resolveCurrentUser(userWith(["patients.read"])));
+    await act(async () => resolveCurrentUser(userWith(["settings.read"])));
 
-    expect(await screen.findByText("Pacientes autorizados")).toBeInTheDocument();
-    expect(authStoreApi.getState().user?.permissions).toEqual(["patients.read"]);
-    await waitFor(() => expect(toastMocks.warning).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Convenios protegidos")).toBeInTheDocument();
+    expect(authStoreApi.getState().user?.permissions).toEqual(["settings.read"]);
   });
 });

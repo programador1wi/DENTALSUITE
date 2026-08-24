@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Put, Query,
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { Public } from "../../common/decorators/public.decorator";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
@@ -180,6 +181,7 @@ export class CrmSurveySendConfigurationController {
 }
 
 @ApiTags("Public Satisfaction Surveys")
+@Public()
 @Controller("public/surveys")
 export class PublicCrmSurveysController {
   constructor(private readonly service: CrmSurveysService) {}

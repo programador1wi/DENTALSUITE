@@ -16,6 +16,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "lint": "eslint .",
     "architecture:audit": "node scripts/architecture-audit.cjs",
+    "permissions:audit": "node scripts/permissions-audit.cjs",
     "contracts:routes": "node scripts/route-contracts.cjs",
     "contracts:routes:update": "node scripts/route-contracts.cjs --update",
     "verify:refactor": "node scripts/architecture-audit.cjs --strict && node scripts/route-contracts.cjs && npm run typecheck && npm run lint && npm run test && npm run build",

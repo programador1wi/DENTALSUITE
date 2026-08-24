@@ -31,6 +31,7 @@ import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import { EmailService } from "../notifications/email.service";
 import { CashDiscountsService, CashDiscountPreviewResult } from "../cash-discounts/cash-discounts.service";
+import { PaymentCashRegisterService } from "./payment-cash-register.service";
 import {
   AddPaymentAllocationsDto,
   CloseCashRegisterDto,
@@ -65,7 +66,8 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emailService?: EmailService,
-    private readonly cashDiscounts?: CashDiscountsService
+    private readonly cashDiscounts?: CashDiscountsService,
+    private readonly cashRegisterService?: PaymentCashRegisterService
   ) {}
 
   private paymentDetailInclude() {
@@ -2190,86 +2192,12 @@ export class PaymentsService {
     return { register: await this.getCashRegister(actor, register.id), ...result };
   }
 
-  async listCashRegisters(actor: AuthUser, query: ListCashRegistersQueryDto) {
-    const { skip, take } = resolvePagination(query);
-    const search = query.search?.trim();
-    const publicNumber = search?.replace(/^CAJ-/i, "");
-    const parsedPublicNumber = publicNumber && /^\d{1,6}$/.test(publicNumber) ? Number(publicNumber) : null;
-    const openedAt = this.resolveOptionalDateRange(query.openedFrom, query.openedTo);
-    const closedAt = this.resolveOptionalDateRange(query.closedFrom, query.closedTo);
-    const registers = await this.prisma.cashRegister.findMany({
-      where: {
-        organizationId: actor.organizationId,
-        branchId: branchScope(actor, query.branchId),
-        ...(query.status ? { status: query.status as CashRegisterStatus } : {}),
-        ...(query.responsibleUserId ? { responsibleUserId: query.responsibleUserId } : {}),
-        ...(openedAt ? { openedAt } : {}),
-        ...(closedAt ? { closedAt } : {}),
-        ...(query.withDifference === "true" ? { differenceAmount: { not: 0 } } : {}),
-        ...(search
-          ? {
-              OR: [
-                ...(parsedPublicNumber !== null ? [{ publicNumber: parsedPublicNumber }] : []),
-                { branch: { name: { contains: search, mode: "insensitive" } } },
-                { responsibleUser: { firstName: { contains: search, mode: "insensitive" } } },
-                { responsibleUser: { lastName: { contains: search, mode: "insensitive" } } },
-                { openedBy: { firstName: { contains: search, mode: "insensitive" } } },
-                { openedBy: { lastName: { contains: search, mode: "insensitive" } } },
-                { closedBy: { firstName: { contains: search, mode: "insensitive" } } },
-                { closedBy: { lastName: { contains: search, mode: "insensitive" } } },
-                { movements: { some: { reference: { contains: search, mode: "insensitive" } } } },
-                {
-                  movements: {
-                    some: { payment: { patient: { firstName: { contains: search, mode: "insensitive" } } } }
-                  }
-                },
-                {
-                  movements: {
-                    some: { payment: { patient: { lastName: { contains: search, mode: "insensitive" } } } }
-                  }
-                }
-              ]
-            }
-          : {})
-      },
-      include: {
-        branch: { select: { id: true, name: true } },
-        openedBy: { select: { id: true, firstName: true, lastName: true } },
-        responsibleUser: { select: { id: true, firstName: true, lastName: true } },
-        closedBy: { select: { id: true, firstName: true, lastName: true } },
-        movements: {
-          include: {
-            paymentMethod: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-                includeInPhysicalCashBalance: true,
-                includeInClosingSummary: true
-              }
-            },
-            payment: {
-              select: {
-                paymentMethod: {
-                  select: {
-                    id: true,
-                    name: true,
-                    type: true,
-                    includeInPhysicalCashBalance: true,
-                    includeInClosingSummary: true
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      skip,
-      take,
-      orderBy: { openedAt: "desc" }
-    });
+  private getCashRegisterModuleService(): PaymentCashRegisterService {
+    return this.cashRegisterService ?? new PaymentCashRegisterService(this.prisma);
+  }
 
-    return Promise.all(registers.map((register) => this.enrichCashRegister(actor, register)));
+  async listCashRegisters(actor: AuthUser, query: ListCashRegistersQueryDto) {
+    return this.getCashRegisterModuleService().listCashRegisters(actor, query);
   }
 
   async getCashRegisterDetail(actor: AuthUser, registerId: string) {
@@ -2412,205 +2340,17 @@ export class PaymentsService {
 
   async getCashRegisterReportPdf(actor: AuthUser, registerId: string) {
     const register = await this.getCashRegisterDetail(actor, registerId);
-    const document = await PDFDocument.create();
-    const regular = await document.embedFont(StandardFonts.Helvetica);
-    const bold = await document.embedFont(StandardFonts.HelveticaBold);
-    const margin = 42;
-    let page = document.addPage([595.28, 841.89]);
-    let y = 800;
-    const line = (label: string, value?: unknown, strong = false) => {
-      if (y < 58) {
-        page = document.addPage([595.28, 841.89]);
-        y = 800;
-      }
-      page.drawText(value === undefined ? label : `${label}: ${String(value)}`, {
-        x: margin,
-        y,
-        size: strong ? 12 : 9,
-        font: strong ? bold : regular,
-        color: rgb(0.12, 0.18, 0.25)
-      });
-      y -= strong ? 19 : 14;
-    };
-    const number = `CAJ-${String(register.publicNumber).padStart(6, "0")}`;
-    line(`${register.branch.name} | ${number}`, undefined, true);
-    line("Estado", register.status);
-    line("Responsable", this.displayName(register.responsibleUser));
-    line("Apertura", register.openedAt.toISOString?.() ?? register.openedAt);
-    line("Cierre", register.closedAt?.toISOString?.() ?? register.closedAt ?? "-");
-    y -= 6;
-    line("CONCILIACION", undefined, true);
-    line("Saldo anterior", this.formatCurrency(register.previousClosingBalance));
-    line("Abono inicial", this.formatCurrency(register.initialDeposit));
-    line("Saldo inicial", this.formatCurrency(register.openingAmount));
-    line("Total recaudado", this.formatCurrency(register.incomeTotal));
-    line("Gastos", this.formatCurrency(register.expenseTotal));
-    line("Devoluciones", this.formatCurrency(register.refundTotal));
-    line("Pagos anulados", this.formatCurrency(register.voidTotal));
-    line("Efectivo esperado", this.formatCurrency(register.expectedCashBalance ?? register.expectedClosing));
-    line("Efectivo declarado", this.formatCurrency(register.declaredCashBalance ?? 0));
-    line(
-      "Saldo dejado en caja",
-      this.formatCurrency(register.closingCarryover ?? register.closingAmount ?? 0)
-    );
-    line("Monto retirado", this.formatCurrency(register.withdrawnAmount ?? 0));
-    line("Diferencia", this.formatCurrency(register.differenceAmount ?? 0));
-    y -= 6;
-    line("MOVIMIENTOS", undefined, true);
-    for (const movement of register.movements) {
-      const paymentNumber = movement.payment?.paymentNumber
-        ? String(movement.payment.paymentNumber).padStart(6, "0")
-        : "-";
-      const method = movement.paymentMethod?.name ?? movement.payment?.paymentMethod?.name ?? "-";
-      const signedAmount =
-        movement.direction === CashMovementDirection.OUT
-          ? Number(movement.amount) * -1
-          : Number(movement.amount);
-      const voidDetails =
-        movement.type === CashMovementType.PAYMENT_VOID
-          ? ` | Motivo: ${movement.payment?.voidReason ?? movement.voidReason ?? "-"} | Anulado por: ${
-              movement.payment?.voidedBy
-                ? this.displayName(movement.payment.voidedBy)
-                : this.displayName(movement.createdBy)
-            }`
-          : "";
-      line(
-        `${new Date(movement.createdAt).toLocaleString("es-MX")} | ${movement.type} | Pago ${paymentNumber} | ${method} | ${this.formatCurrency(signedAmount)}${voidDetails}`
-      );
-    }
-    const bytes = await document.save();
-    await this.audit(this.prisma, actor, {
-      entity: "CashRegister",
-      entityId: register.id,
-      action: "export_pdf",
-      after: { publicNumber: register.publicNumber }
-    });
-    return { fileNumber: number, bytes };
+    return this.getCashRegisterModuleService().generatePdfFromRegister(actor, register);
   }
 
   async getCashRegisterReportCsv(actor: AuthUser, registerId: string) {
     const register = await this.getCashRegisterDetail(actor, registerId);
-    const headers = [
-      "Caja",
-      "Fecha",
-      "Tipo",
-      "Direccion",
-      "Pago",
-      "Paciente",
-      "Medio",
-      "Referencia",
-      "Importe",
-      "Estado",
-      "Fecha anulacion",
-      "Anulado por",
-      "Motivo anulacion"
-    ];
-    const number = `CAJ-${String(register.publicNumber).padStart(6, "0")}`;
-    const rows = register.movements.map((movement) => {
-      const patient = movement.payment?.patient ? this.displayName(movement.payment.patient) : "";
-      const isPaymentVoid = movement.type === CashMovementType.PAYMENT_VOID;
-      return [
-        number,
-        new Date(movement.createdAt).toISOString(),
-        movement.type,
-        movement.direction,
-        movement.payment?.paymentNumber ? String(movement.payment.paymentNumber).padStart(6, "0") : "",
-        patient,
-        movement.paymentMethod?.name ?? movement.payment?.paymentMethod?.name ?? "",
-        movement.reference ?? movement.payment?.reference ?? "",
-        movement.direction === CashMovementDirection.OUT
-          ? Number(movement.amount) * -1
-          : Number(movement.amount),
-        movement.voidedAt ? "MOVEMENT_VOIDED" : isPaymentVoid ? "PAYMENT_VOIDED" : "ACTIVE",
-        isPaymentVoid ? new Date(movement.payment?.voidedAt ?? movement.createdAt).toISOString() : "",
-        isPaymentVoid
-          ? movement.payment?.voidedBy
-            ? this.displayName(movement.payment.voidedBy)
-            : this.displayName(movement.createdBy)
-          : "",
-        isPaymentVoid ? (movement.payment?.voidReason ?? movement.voidReason ?? "") : ""
-      ]
-        .map((value) => this.csvCell(value))
-        .join(",");
-    });
-    await this.audit(this.prisma, actor, {
-      entity: "CashRegister",
-      entityId: register.id,
-      action: "export_csv",
-      after: { publicNumber: register.publicNumber, movementCount: register.movements.length }
-    });
-    return { fileNumber: number, content: [headers.join(","), ...rows].join("\r\n") };
+    return this.getCashRegisterModuleService().generateCsvFromRegister(actor, register);
   }
 
   async getCashRegisterReportXlsx(actor: AuthUser, registerId: string) {
     const register = await this.getCashRegisterDetail(actor, registerId);
-    const number = `CAJ-${String(register.publicNumber).padStart(6, "0")}`;
-    const summaryRows = [
-      { concept: "Caja", value: number },
-      { concept: "Estado", value: register.status },
-      { concept: "Sucursal", value: register.branch.name },
-      { concept: "Responsable", value: this.displayName(register.responsibleUser) },
-      { concept: "Apertura", value: new Date(register.openedAt) },
-      { concept: "Cierre", value: register.closedAt ? new Date(register.closedAt) : "" },
-      { concept: "Moneda", value: register.currency ?? "MXN" },
-      { concept: "Saldo anterior", value: Number(register.previousClosingBalance ?? 0) },
-      { concept: "Abono inicial", value: Number(register.initialDeposit ?? 0) },
-      { concept: "Saldo inicial", value: Number(register.openingAmount ?? 0) },
-      { concept: "Total recaudado", value: Number(register.incomeTotal ?? 0) },
-      { concept: "Gastos", value: Number(register.expenseTotal ?? 0) },
-      { concept: "Devoluciones", value: Number(register.refundTotal ?? 0) },
-      {
-        concept: "Efectivo esperado",
-        value: Number(register.expectedCashBalance ?? register.expectedClosing ?? 0)
-      },
-      { concept: "Efectivo declarado", value: Number(register.declaredCashBalance ?? 0) },
-      { concept: "Saldo dejado", value: Number(register.closingCarryover ?? register.closingAmount ?? 0) },
-      { concept: "Monto retirado", value: Number(register.withdrawnAmount ?? 0) },
-      { concept: "Diferencia", value: Number(register.differenceAmount ?? 0) }
-    ];
-    const movementRows = register.movements.map((movement) => ({
-      date: new Date(movement.createdAt),
-      type: movement.type,
-      direction: movement.direction,
-      payment: movement.payment?.paymentNumber ? String(movement.payment.paymentNumber).padStart(6, "0") : "",
-      patient: movement.payment?.patient ? this.displayName(movement.payment.patient) : "",
-      method: movement.paymentMethod?.name ?? movement.payment?.paymentMethod?.name ?? "",
-      reference: movement.reference ?? movement.payment?.reference ?? "",
-      amount:
-        movement.direction === CashMovementDirection.OUT
-          ? Number(movement.amount) * -1
-          : Number(movement.amount),
-      status: movement.voidedAt
-        ? "MOVEMENT_VOIDED"
-        : movement.type === CashMovementType.PAYMENT_VOID
-          ? "PAYMENT_VOIDED"
-          : "ACTIVE",
-      voidedAt:
-        movement.type === CashMovementType.PAYMENT_VOID
-          ? new Date(movement.payment?.voidedAt ?? movement.createdAt)
-          : "",
-      voidedBy:
-        movement.type === CashMovementType.PAYMENT_VOID
-          ? movement.payment?.voidedBy
-            ? this.displayName(movement.payment.voidedBy)
-            : this.displayName(movement.createdBy)
-          : "",
-      voidReason:
-        movement.type === CashMovementType.PAYMENT_VOID
-          ? (movement.payment?.voidReason ?? movement.voidReason ?? "")
-          : ""
-    }));
-    const bytes = createXlsxWorkbook([
-      { name: "Conciliacion", rows: summaryRows },
-      { name: "Movimientos", rows: movementRows }
-    ]);
-    await this.audit(this.prisma, actor, {
-      entity: "CashRegister",
-      entityId: register.id,
-      action: "export_xlsx",
-      after: { publicNumber: register.publicNumber, movementCount: register.movements.length }
-    });
-    return { fileNumber: number, bytes };
+    return this.getCashRegisterModuleService().generateXlsxFromRegister(actor, register);
   }
 
   async createCashMovement(actor: AuthUser, registerId: string, dto: CreateCashMovementDto) {

@@ -4,7 +4,7 @@ import { IntegrationsService } from "./integrations.service";
 function buildService(prisma: Record<string, unknown>) {
   return new IntegrationsService(
     prisma as never,
-    { get: jest.fn().mockReturnValue(undefined) } as never,
+    { get: jest.fn((key: string) => (key === "PAYMENT_WEBHOOK_SECRET" ? "whsec_test" : undefined)) } as never,
     { queue: jest.fn() } as never,
     { validateWebhookSecret: jest.fn().mockReturnValue(true) } as never,
     { start: jest.fn() } as never

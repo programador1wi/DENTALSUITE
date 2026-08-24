@@ -82,6 +82,8 @@ import {
   resolveTreatmentPlanStatusFromClinicalProgress
 } from "./treatment-plan-progress";
 import { TreatmentPlanFinancialSummaryService } from "./treatment-plan-financial-summary.service";
+import { TreatmentPlanOrthodonticsService } from "./treatment-plan-orthodontics.service";
+import { TreatmentPlanPricingService } from "./treatment-plan-pricing.service";
 import { CrmTasksService } from "../crm-tasks/crm-tasks.service";
 
 type TreatmentAgreementSnapshot = {
@@ -962,7 +964,9 @@ export class TreatmentPlansService {
     private readonly orthodonticProgressService?: OrthodonticProgressService,
     private readonly discountAuthorization?: DiscountAuthorizationService,
     private readonly financialSummaryService?: TreatmentPlanFinancialSummaryService,
-    private readonly crmTasksService?: CrmTasksService
+    private readonly crmTasksService?: CrmTasksService,
+    private readonly orthodonticsService?: TreatmentPlanOrthodonticsService,
+    private readonly treatmentPlanPricingService?: TreatmentPlanPricingService
   ) {}
 
   async listTreatmentPlans(actor: AuthUser, query: ListTreatmentPlansQueryDto) {
@@ -1171,161 +1175,32 @@ export class TreatmentPlansService {
     return this.getTreatmentPlan(actor, created.id);
   }
 
+  private getOrthodonticsService(): TreatmentPlanOrthodonticsService {
+    return this.orthodonticsService ?? new TreatmentPlanOrthodonticsService(this.prisma);
+  }
+
   async listOrthodonticOptionFields(actor: AuthUser) {
-    await this.ensureOrthodonticCatalogSeed(actor.organizationId, actor.id);
-    return this.findOrthodonticOptionFields(actor.organizationId, true);
+    return this.getOrthodonticsService().listOrthodonticOptionFields(actor);
   }
 
   async createOrthodonticFieldOption(actor: AuthUser, fieldId: string, dto: CreateOrthodonticOptionDto) {
-    const label = this.cleanOptionLabel(dto.label);
-    const field = await (this.prisma as any).orthodonticOptionField.findFirst({
-      where: { id: fieldId, organizationId: actor.organizationId }
-    });
-    if (!field) throw new NotFoundException("Orthodontic option field not found");
-    const normalizedLabel = this.normalizeOptionLabel(label);
-    const existing = await (this.prisma as any).orthodonticFieldOption.findUnique({
-      where: { fieldId_normalizedLabel: { fieldId, normalizedLabel } }
-    });
-    if (existing) throw new BadRequestException("An equivalent option already exists for this field");
-    const max = await (this.prisma as any).orthodonticFieldOption.aggregate({
-      where: { fieldId },
-      _max: { sortOrder: true }
-    });
-    const created = await (this.prisma as any).orthodonticFieldOption.create({
-      data: {
-        fieldId,
-        code: this.optionCode(label),
-        label,
-        normalizedLabel,
-        sortOrder: (max._max.sortOrder ?? -1) + 1,
-        createdById: actor.id,
-        updatedById: actor.id
-      }
-    });
-    await this.audit(
-      actor,
-      "OrthodonticFieldOption",
-      created.id,
-      "create",
-      {},
-      created as Prisma.InputJsonValue
-    );
-    return this.findOrthodonticOptionFields(actor.organizationId, true);
+    return this.getOrthodonticsService().createOrthodonticFieldOption(actor, fieldId, dto);
   }
 
   async updateOrthodonticFieldOption(actor: AuthUser, optionId: string, dto: UpdateOrthodonticOptionDto) {
-    const current = await this.findOrthodonticOptionForActor(actor, optionId);
-    const data: Record<string, unknown> = {
-      updatedById: actor.id,
-      version: { increment: 1 }
-    };
-    if (dto.label !== undefined) {
-      const label = this.cleanOptionLabel(dto.label);
-      const normalizedLabel = this.normalizeOptionLabel(label);
-      const usedCount = await this.countOrthodonticOptionUsage(optionId);
-      if (usedCount > 0 && normalizedLabel !== current.normalizedLabel) {
-        throw new BadRequestException(
-          "Used options cannot be renamed; create a new option and deactivate the previous one"
-        );
-      }
-      data.label = label;
-      data.normalizedLabel = normalizedLabel;
-      data.code = this.optionCode(label);
-    }
-    if (dto.sortOrder !== undefined) data.sortOrder = dto.sortOrder;
-    const updated = await (this.prisma as any).orthodonticFieldOption.update({
-      where: { id: optionId },
-      data
-    });
-    await this.audit(
-      actor,
-      "OrthodonticFieldOption",
-      optionId,
-      "update",
-      current as Prisma.InputJsonValue,
-      updated as Prisma.InputJsonValue
-    );
-    return this.findOrthodonticOptionFields(actor.organizationId, true);
+    return this.getOrthodonticsService().updateOrthodonticFieldOption(actor, optionId, dto);
   }
 
   async deactivateOrthodonticFieldOption(actor: AuthUser, optionId: string, reason?: string) {
-    const current = await this.findOrthodonticOptionForActor(actor, optionId);
-    const updated = await (this.prisma as any).orthodonticFieldOption.update({
-      where: { id: optionId },
-      data: {
-        isActive: false,
-        deactivatedById: actor.id,
-        deactivatedAt: new Date(),
-        deactivationReason: reason?.trim() || null,
-        updatedById: actor.id,
-        version: { increment: 1 }
-      }
-    });
-    await this.audit(
-      actor,
-      "OrthodonticFieldOption",
-      optionId,
-      "deactivate",
-      current as Prisma.InputJsonValue,
-      updated as Prisma.InputJsonValue
-    );
-    return this.findOrthodonticOptionFields(actor.organizationId, true);
+    return this.getOrthodonticsService().deactivateOrthodonticFieldOption(actor, optionId, reason);
   }
 
   async reactivateOrthodonticFieldOption(actor: AuthUser, optionId: string) {
-    const current = await this.findOrthodonticOptionForActor(actor, optionId);
-    const activeEquivalent = await (this.prisma as any).orthodonticFieldOption.findFirst({
-      where: {
-        fieldId: current.fieldId,
-        normalizedLabel: current.normalizedLabel,
-        isActive: true,
-        id: { not: optionId }
-      }
-    });
-    if (activeEquivalent) throw new BadRequestException("An active equivalent option already exists");
-    const updated = await (this.prisma as any).orthodonticFieldOption.update({
-      where: { id: optionId },
-      data: {
-        isActive: true,
-        reactivatedById: actor.id,
-        reactivatedAt: new Date(),
-        updatedById: actor.id,
-        version: { increment: 1 }
-      }
-    });
-    await this.audit(
-      actor,
-      "OrthodonticFieldOption",
-      optionId,
-      "reactivate",
-      current as Prisma.InputJsonValue,
-      updated as Prisma.InputJsonValue
-    );
-    return this.findOrthodonticOptionFields(actor.organizationId, true);
+    return this.getOrthodonticsService().reactivateOrthodonticFieldOption(actor, optionId);
   }
 
   async sortOrthodonticFieldOptions(actor: AuthUser, fieldId: string, dto: SortOrthodonticOptionsDto) {
-    const field = await (this.prisma as any).orthodonticOptionField.findFirst({
-      where: { id: fieldId, organizationId: actor.organizationId },
-      include: { options: true }
-    });
-    if (!field) throw new NotFoundException("Orthodontic option field not found");
-    const knownIds = new Set(field.options.map((option: { id: string }) => option.id));
-    if (dto.optionIds.some((id) => !knownIds.has(id))) {
-      throw new BadRequestException("One or more options do not belong to this field");
-    }
-    await this.prisma.$transaction(
-      dto.optionIds.map((id, index) =>
-        (this.prisma as any).orthodonticFieldOption.update({
-          where: { id },
-          data: { sortOrder: index, updatedById: actor.id, version: { increment: 1 } }
-        })
-      )
-    );
-    await this.audit(actor, "OrthodonticOptionField", fieldId, "sort_options", {}, {
-      optionIds: dto.optionIds
-    } as Prisma.InputJsonValue);
-    return this.findOrthodonticOptionFields(actor.organizationId, true);
+    return this.getOrthodonticsService().sortOrthodonticFieldOptions(actor, fieldId, dto);
   }
 
   async getTreatmentPlan(actor: AuthUser, id: string) {
@@ -2311,80 +2186,15 @@ export class TreatmentPlansService {
     };
   }
 
+  private getPricingModuleService(): TreatmentPlanPricingService {
+    return (
+      this.treatmentPlanPricingService ??
+      new TreatmentPlanPricingService(this.prisma, this.pricing)
+    );
+  }
+
   async repricePreview(actor: AuthUser, treatmentPlanId: string, dto: RepriceTreatmentPlanDto) {
-    if (!this.pricing || process.env.PRICE_LISTS_V2_ENABLED !== "true") {
-      throw new BadRequestException("Versioned pricing is disabled");
-    }
-    const plan = await this.prisma.treatmentPlan.findFirst({
-      where: { id: treatmentPlanId, organizationId: actor.organizationId, branchId: branchScope(actor) },
-      include: {
-        items: {
-          where: {
-            status: { not: TreatmentPlanItemStatus.CANCELLED },
-            ...(dto.itemIds?.length ? { id: { in: dto.itemIds } } : {})
-          },
-          include: { paymentAllocations: true, budgetItems: { include: { budget: true } } }
-        }
-      }
-    });
-    if (!plan) throw new NotFoundException("Treatment plan not found");
-    const results = [];
-    for (const item of plan.items) {
-      try {
-        const price = await this.pricing.resolve(actor, {
-          branchId: plan.branchId,
-          patientId: plan.patientId,
-          planId: plan.id,
-          procedureId: item.procedureId,
-          clinicalDate: dto.clinicalDate,
-          agreementId: plan.agreementId ?? undefined,
-          currency: item.priceCurrency
-        });
-        const quantity = new Prisma.Decimal(item.quantity);
-        const newTotal = new Prisma.Decimal(price.finalPrice).mul(quantity).toDecimalPlaces(2);
-        results.push({
-          itemId: item.id,
-          procedureId: item.procedureId,
-          current: {
-            unitPrice: item.unitPrice.toFixed(2),
-            discount: item.discount.toFixed(2),
-            total: item.total.toFixed(2),
-            versionId: item.priceListVersionId,
-            versionNumber: item.priceListVersionNumber,
-            versionItemId: item.priceListVersionItemId
-          },
-          proposed: { ...price, quantity: quantity.toFixed(2), total: newTotal.toFixed(2) },
-          difference: newTotal.sub(item.total).toFixed(2),
-          hasFinancialDependencies:
-            item.paymentAllocations.length > 0 ||
-            item.budgetItems.some((budgetItem) => budgetItem.budget.status !== BudgetStatus.DRAFT),
-          error: null
-        });
-      } catch (error) {
-        results.push({
-          itemId: item.id,
-          procedureId: item.procedureId,
-          current: {
-            unitPrice: item.unitPrice.toFixed(2),
-            discount: item.discount.toFixed(2),
-            total: item.total.toFixed(2)
-          },
-          proposed: null,
-          difference: null,
-          hasFinancialDependencies: item.paymentAllocations.length > 0 || item.budgetItems.length > 0,
-          error: error instanceof Error ? error.message : "Price resolution failed"
-        });
-      }
-    }
-    return {
-      planId: plan.id,
-      status: plan.status,
-      canApply:
-        plan.status === TreatmentPlanStatus.DRAFT &&
-        results.every((result) => !result.error && !result.hasFinancialDependencies),
-      requiresRevision: plan.status !== TreatmentPlanStatus.DRAFT,
-      items: results
-    };
+    return this.getPricingModuleService().repricePreview(actor, treatmentPlanId, dto);
   }
 
   async repriceApply(actor: AuthUser, treatmentPlanId: string, dto: RepriceTreatmentPlanDto) {
@@ -2398,120 +2208,7 @@ export class TreatmentPlansService {
     }
     if (!preview.canApply)
       throw new ConflictException("Plan contains pricing errors or financial dependencies");
-    const pricedAt = new Date();
-    await this.prisma.$transaction(async (tx) => {
-      for (const row of preview.items) {
-        if (!row.proposed) continue;
-        const quantity = new Prisma.Decimal(row.proposed.quantity);
-        const normalTotal = new Prisma.Decimal(row.proposed.basePrice).mul(quantity).toDecimalPlaces(2);
-        const finalTotal = new Prisma.Decimal(row.proposed.total);
-        const discountAmount = normalTotal.sub(finalTotal).toDecimalPlaces(2);
-        await tx.treatmentPlanItem.update({
-          where: { id: row.itemId },
-          data: {
-            unitPrice: new Prisma.Decimal(row.proposed.basePrice),
-            discount: discountAmount,
-            total: finalTotal,
-            originalPrice: normalTotal,
-            allowsDiscountSnapshot: row.proposed.allowDiscount,
-            maximumDiscountPercentSnapshot: new Prisma.Decimal(row.proposed.maxDiscountPercent),
-            discountType: discountAmount.gt(0) ? "AMOUNT" : null,
-            discountValue: discountAmount.gt(0) ? discountAmount : null,
-            discountAmount,
-            finalPrice: finalTotal,
-            discountAuthorizedBy: discountAmount.gt(0) ? actor.id : null,
-            discountedAt: discountAmount.gt(0) ? pricedAt : null,
-            appliedDiscountPercent: 0,
-            userMaximumDiscountSnapshot: 0,
-            effectiveMaximumDiscountSnapshot: 0,
-            priceListId: row.proposed.priceList.id,
-            priceListItemId: null,
-            priceListVersionId: row.proposed.version.id,
-            priceListVersionNumber: row.proposed.version.number,
-            priceListVersionItemId: row.proposed.version.itemId,
-            priceSource: TreatmentPriceSource.PRICE_LIST,
-            priceSnapshotName: row.proposed.priceList.name,
-            priceSnapshotCode: row.proposed.procedure.code,
-            priceSnapshotCategory: row.proposed.procedure.category,
-            procedureCodeSnapshot: row.proposed.procedure.code,
-            procedureNameSnapshot: row.proposed.procedure.name,
-            procedureCategorySnapshot: row.proposed.procedure.category,
-            priceListNameSnapshot: row.proposed.priceList.name,
-            priceResolvedAt: pricedAt,
-            priceCurrency: row.proposed.currency,
-            laboratoryCostSnapshot: new Prisma.Decimal(row.proposed.laboratoryCost),
-            internalCostSnapshot: new Prisma.Decimal(row.proposed.internalCost),
-            pricingRuleSnapshot: row.proposed.rule as Prisma.InputJsonValue,
-            pricedById: actor.id,
-            agreementId: row.proposed.agreement?.id,
-            agreementVersionId: row.proposed.agreement?.versionId,
-            agreementVersionNumber: row.proposed.agreement?.version,
-            agreementSnapshot: row.proposed.agreement
-              ? ({ ...row.proposed.agreement, rule: row.proposed.rule } as Prisma.InputJsonValue)
-              : undefined,
-            agreementNormalPrice: row.proposed.agreement ? new Prisma.Decimal(row.proposed.basePrice) : null,
-            agreementAppliedPrice: row.proposed.agreement
-              ? new Prisma.Decimal(row.proposed.finalPrice)
-              : null,
-            agreementDiscountAmount: row.proposed.agreement
-              ? new Prisma.Decimal(row.proposed.discountAmount)
-              : null,
-            agreementCoverage: new Prisma.Decimal(row.proposed.coverageAmount),
-            version: { increment: 1 }
-          }
-        });
-      }
-      await tx.pricingAuditEvent.create({
-        data: {
-          organizationId: actor.organizationId,
-          branchId: preview.items[0]?.proposed?.trace.branchId,
-          actorUserId: actor.id,
-          entity: "TreatmentPlan",
-          entityId: treatmentPlanId,
-          action: "treatment_plan.repriced",
-          reason,
-          oldValue: {
-            items: preview.items.map((item) => ({
-              itemId: item.itemId,
-              procedureId: item.procedureId,
-              ...item.current
-            }))
-          },
-          newValue: {
-            pricedAt,
-            items: preview.items.map((item) => ({
-              itemId: item.itemId,
-              procedureId: item.procedureId,
-              versionId: item.proposed?.version.id ?? null,
-              versionNumber: item.proposed?.version.number ?? null,
-              versionItemId: item.proposed?.version.itemId ?? null,
-              unitPrice: item.proposed?.basePrice ?? null,
-              discount: item.proposed?.discountAmount ?? null,
-              total: item.proposed?.total ?? null,
-              difference: item.difference
-            }))
-          },
-          metadata: {
-            priceListIds: [
-              ...new Set(
-                preview.items
-                  .map((item) => item.proposed?.priceList.id)
-                  .filter((id): id is string => Boolean(id))
-              )
-            ]
-          }
-        }
-      });
-      await tx.outboxEvent.create({
-        data: {
-          organizationId: actor.organizationId,
-          aggregateType: "TreatmentPlan",
-          aggregateId: treatmentPlanId,
-          eventType: "treatment_plan.repriced",
-          payload: { itemIds: preview.items.map((item) => item.itemId), pricedAt, actorUserId: actor.id }
-        }
-      });
-    });
+    await this.getPricingModuleService().applyRepricedItems(actor, treatmentPlanId, reason, preview);
     return this.getTreatmentPlan(actor, treatmentPlanId);
   }
 

@@ -294,9 +294,9 @@ export function AppointmentModal({
   });
 
   const { hasPermission } = usePermissions();
-  const canReadTreatmentPlans = hasPermission("treatment_plans.read") || hasPermission("system.manage_all");
+  const canReadTreatmentPlans = hasPermission("treatment_plans.read") || hasPermission("organization.manage_all");
   const canCreateTreatmentPlans =
-    hasPermission("treatment_plans.create") || hasPermission("system.manage_all");
+    hasPermission("treatment_plans.create") || hasPermission("organization.manage_all");
   const specialties = useSpecialties(undefined, "true");
   const reasons = useSpecialtyAppointmentReasons(form.specialtyId);
   const selectedSlotsLookupRange = useMemo(

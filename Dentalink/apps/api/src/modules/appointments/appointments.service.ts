@@ -19,6 +19,7 @@ import { ConfigService } from "@nestjs/config";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { assertBranchAccess, branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
+import { DomainActorContext, domainActorAuditFields } from "../../common/types/domain-actor-context";
 import { PrismaService } from "../../database/prisma.service";
 import {
   isAllowedSpecialtyName,
@@ -238,6 +239,18 @@ export type PreparedAppointmentCreate = {
   attendanceMode: AttendanceMode;
 };
 
+type AppointmentConcurrencyCandidate = {
+  professionalId: string;
+  patientId?: string;
+  chairId?: string;
+  chairIndex: number;
+  isOverbooking: boolean;
+  attendanceMode: AttendanceMode;
+  status: AppointmentStatus;
+  startAt: Date;
+  endAt: Date;
+};
+
 @Injectable()
 export class AppointmentsService {
   private readonly logger = new Logger(AppointmentsService.name);
@@ -252,7 +265,11 @@ export class AppointmentsService {
     private readonly crmTasksService?: CrmTasksService
   ) {}
 
-  async dispatchEmailNotification(appointmentId: string, type: "SCHEDULED" | "CONFIRMATION") {
+  async dispatchEmailNotification(
+    appointmentId: string,
+    type: "SCHEDULED" | "CONFIRMATION" | "CANCELLATION",
+    options?: { stage?: "48H" | "24H"; cancellationReason?: string; idempotencyKey?: string }
+  ) {
     const appointment = await this.prisma.appointment.findUnique({
       where: { id: appointmentId },
       include: {
@@ -332,9 +349,22 @@ export class AppointmentsService {
 
       if (expSeconds <= 0) return; // Ya pasó la cita
 
-      const token = this.jwtService.sign({ sub: appointment.id }, { secret, expiresIn: expSeconds });
+      const token = this.jwtService.sign(
+        {
+          sub: appointment.id,
+          purpose: "APPOINTMENT_CONFIRMATION",
+          appointmentStartAt: appointment.startAt.toISOString()
+        },
+        { secret, expiresIn: expSeconds }
+      );
       data.confirmUrl = this.buildConfirmationUrl(frontendUrl, appointment.id, token);
-      await this.emailService.sendAppointmentConfirmationRequired(patientEmail, data);
+      return this.emailService.sendAppointmentConfirmationRequired(patientEmail, data, {
+        stage: options?.stage,
+        idempotencyKey: options?.idempotencyKey
+      });
+    } else if (type === "CANCELLATION") {
+      data.cancellationReason = options?.cancellationReason;
+      await this.emailService.sendAppointmentCancelled(patientEmail, data);
     }
   }
 
@@ -492,18 +522,39 @@ export class AppointmentsService {
       .slice(0, 24);
   }
 
-  async create(actor: AuthUser, dto: CreateAppointmentDto) {
-    const prepared = await this.prepareAppointmentForCreate(actor, dto);
-    await this.enforcePatientDailyLimit(actor, this.toPatientDailyLimitInput(prepared));
+  async create(actor: DomainActorContext, dto: CreateAppointmentDto) {
+    const prepared = await this.prepareAppointmentForTransactionalCreate(actor, dto);
 
-    const created = await this.prisma.$transaction(async (tx) => {
-      await this.lockAndRevalidateAppointmentCreate(tx, actor, prepared);
-      return this.createAppointmentInTransaction(tx, actor, prepared, dto.treatmentPlanId);
-    });
+    const created = await this.prisma.$transaction((tx) =>
+      this.createPreparedAppointmentInTransaction(tx, actor, prepared)
+    );
 
     await this.dispatchEmailNotification(created.id, "SCHEDULED");
 
     return this.findOne(actor, created.id);
+  }
+
+  async prepareAppointmentForTransactionalCreate(
+    actor: DomainActorContext,
+    dto: CreateAppointmentDto
+  ): Promise<PreparedAppointmentCreate> {
+    const prepared = await this.prepareAppointmentForCreate(actor, dto);
+    await this.enforcePatientDailyLimit(actor, this.toPatientDailyLimitInput(prepared));
+    return prepared;
+  }
+
+  async createPreparedAppointmentInTransaction(
+    tx: Prisma.TransactionClient,
+    actor: DomainActorContext,
+    prepared: PreparedAppointmentCreate
+  ) {
+    await this.lockAndRevalidateAppointmentCreate(tx, actor, prepared);
+    return this.createAppointmentInTransaction(
+      tx,
+      actor,
+      prepared,
+      prepared.dto.treatmentPlanId
+    );
   }
 
   async createBatch(actor: AuthUser, dto: CreateAppointmentsBatchDto) {
@@ -561,7 +612,7 @@ export class AppointmentsService {
   }
 
   async prepareReprogrammedAppointment(
-    actor: AuthUser,
+    actor: DomainActorContext,
     dto: CreateAppointmentDto,
     originalAppointmentId: string
   ) {
@@ -649,6 +700,17 @@ export class AppointmentsService {
     }
 
     await this.prisma.$transaction(async (tx) => {
+      await this.lockAndRevalidateAppointmentSlot(tx, actor, {
+        professionalId,
+        patientId: dto.patientId ?? current.patientId ?? undefined,
+        chairId,
+        chairIndex,
+        isOverbooking,
+        attendanceMode,
+        status,
+        startAt,
+        endAt
+      }, id);
       await tx.appointment.update({
         where: { id },
         data: {
@@ -805,6 +867,18 @@ export class AppointmentsService {
     );
 
     await this.prisma.$transaction(async (tx) => {
+      await this.lockAndRevalidateAppointmentSlot(tx, actor, {
+        professionalId,
+        patientId: current.patientId ?? undefined,
+        chairId,
+        chairIndex,
+        isOverbooking,
+        attendanceMode,
+        status: AppointmentStatus.SCHEDULED,
+        startAt,
+        endAt
+      }, id);
+
       await tx.appointment.update({
         where: { id },
         data: {
@@ -1082,13 +1156,13 @@ export class AppointmentsService {
     });
 
     if (newStatus !== AppointmentStatus.NOTIFIED_BY_EMAIL) {
-      await this.dispatchStatusSideEffects(id, newStatus);
+      await this.dispatchStatusSideEffects(id, newStatus, extra?.cancellationReason as string | undefined);
     }
 
     return this.findOne(actor, id);
   }
 
-  private async dispatchStatusSideEffects(id: string, newStatus: AppointmentStatus) {
+  private async dispatchStatusSideEffects(id: string, newStatus: AppointmentStatus, cancellationReason?: string) {
     if (newStatus === AppointmentStatus.NOTIFIED_BY_WHATSAPP) {
       try {
         await this.prisma.appointmentReminder.create({
@@ -1106,6 +1180,22 @@ export class AppointmentsService {
     }
     if (newStatus === AppointmentStatus.NOTIFIED_BY_EMAIL) {
       await this.dispatchEmailNotification(id, "CONFIRMATION");
+    }
+    if (this.isCancellationStatus(newStatus)) {
+      try {
+        await this.dispatchEmailNotification(id, "CANCELLATION", { cancellationReason });
+        await this.prisma.appointmentReminder.create({
+          data: {
+            appointmentId: id,
+            channel: "EMAIL_CANCELLATION",
+            scheduledAt: new Date(),
+            sentAt: new Date(),
+            status: "SENT"
+          }
+        });
+      } catch (error) {
+        this.logger.error(`No fue posible enviar o registrar correo de cancelacion para la cita ${id}`, error);
+      }
     }
     if (newStatus === AppointmentStatus.COMPLETED && this.crmSurveysService) {
       try {
@@ -1231,7 +1321,7 @@ export class AppointmentsService {
 
   private async createAppointmentInTransaction(
     tx: Prisma.TransactionClient,
-    actor: AuthUser,
+    actor: DomainActorContext,
     prepared: PreparedAppointmentCreate,
     treatmentPlanId?: string
   ) {
@@ -1265,12 +1355,21 @@ export class AppointmentsService {
         endAt,
         durationMinutes,
         notes: dto.notes?.trim(),
-        createdById: actor.id,
-        updatedById: actor.id
+        createdById: actor.domainActor?.type === "API_KEY" ? undefined : actor.id,
+        createdByApiKeyId: actor.domainActor?.type === "API_KEY" ? actor.domainActor.apiKeyId : undefined,
+        updatedById: actor.domainActor?.type === "API_KEY" ? undefined : actor.id
       }
     });
 
-    await this.createStatusHistory(tx, appointment.id, null, status, actor.id, "create");
+    await this.createStatusHistory(
+      tx,
+      appointment.id,
+      null,
+      status,
+      actor.domainActor?.type === "API_KEY" ? undefined : actor.id,
+      "create",
+      actor.domainActor?.type === "API_KEY" ? actor.domainActor.apiKeyId : undefined
+    );
     await this.audit(tx, actor, appointment.id, "create", { status, startAt, endAt });
     return appointment;
   }
@@ -1280,12 +1379,35 @@ export class AppointmentsService {
     actor: AuthUser,
     prepared: PreparedAppointmentCreate
   ) {
-    if (FREE_STATUSES.includes(prepared.status)) return;
+    return this.lockAndRevalidateAppointmentSlot(tx, actor, {
+      professionalId: prepared.dto.professionalId,
+      patientId: prepared.dto.patientId,
+      chairId: prepared.chairId,
+      chairIndex: prepared.chairIndex,
+      isOverbooking: prepared.isOverbooking,
+      attendanceMode: prepared.attendanceMode,
+      status: prepared.status,
+      startAt: prepared.startAt,
+      endAt: prepared.endAt
+    });
+  }
+
+  private async lockAndRevalidateAppointmentSlot(
+    tx: Prisma.TransactionClient,
+    actor: AuthUser,
+    candidate: AppointmentConcurrencyCandidate,
+    excludeId?: string
+  ) {
+    if (FREE_STATUSES.includes(candidate.status)) return;
 
     const lockKeys = [
-      `appointment:professional:${actor.organizationId}:${prepared.dto.professionalId}:${prepared.chairIndex}`,
-      ...(prepared.chairId && this.requiresPhysicalChair(prepared.attendanceMode)
-        ? [`appointment:chair:${actor.organizationId}:${prepared.chairId}`]
+      ...(excludeId ? [`appointment:id:${actor.organizationId}:${excludeId}`] : []),
+      `appointment:professional:${actor.organizationId}:${candidate.professionalId}:${candidate.chairIndex}`,
+      ...(candidate.chairId && this.requiresPhysicalChair(candidate.attendanceMode)
+        ? [`appointment:chair:${actor.organizationId}:${candidate.chairId}`]
+        : []),
+      ...(this.countsAgainstPatientDailyLimit(candidate.patientId, candidate.status)
+        ? [`appointment:patient-day:${actor.organizationId}:${candidate.patientId}:${this.clinicDayKey(candidate.startAt)}`]
         : [])
     ].sort();
 
@@ -1294,47 +1416,50 @@ export class AppointmentsService {
     }
 
     const hasOverbookingPermission =
-      actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
-    const canOverbook = prepared.isOverbooking && hasOverbookingPermission;
+      actor.permissions.includes("appointments.overbook") || actor.permissions.includes("organization.manage_all");
+    const canOverbook = candidate.isOverbooking && hasOverbookingPermission;
 
     if (!canOverbook) {
       const professionalOverlap = await tx.appointment.findFirst({
         where: {
           organizationId: actor.organizationId,
-          professionalId: prepared.dto.professionalId,
-          chairIndex: prepared.chairIndex,
+          professionalId: candidate.professionalId,
+          chairIndex: candidate.chairIndex,
           isOverbooking: false,
           status: { notIn: FREE_STATUSES },
-          startAt: { lt: prepared.endAt },
-          endAt: { gt: prepared.startAt }
+          ...(excludeId ? { id: { not: excludeId } } : {}),
+          startAt: { lt: candidate.endAt },
+          endAt: { gt: candidate.startAt }
         },
         select: { id: true }
       });
       if (professionalOverlap) throw new ConflictException("El horario acaba de ser ocupado por otra cita");
     }
 
-    if (prepared.chairId && this.requiresPhysicalChair(prepared.attendanceMode)) {
+    if (candidate.chairId && this.requiresPhysicalChair(candidate.attendanceMode)) {
       const chairOverlap = await tx.appointment.findFirst({
         where: {
           organizationId: actor.organizationId,
-          chairId: prepared.chairId,
+          chairId: candidate.chairId,
           attendanceMode: { in: [AttendanceMode.PRESENTIAL, AttendanceMode.BOTH] },
           status: { notIn: FREE_STATUSES },
-          startAt: { lt: prepared.endAt },
-          endAt: { gt: prepared.startAt }
+          ...(excludeId ? { id: { not: excludeId } } : {}),
+          startAt: { lt: candidate.endAt },
+          endAt: { gt: candidate.startAt }
         },
         select: { id: true }
       });
       if (chairOverlap) throw new ConflictException("El box acaba de ser ocupado por otra cita");
     }
 
-    if (this.countsAgainstPatientDailyLimit(prepared.dto.patientId, prepared.status)) {
-      const range = this.clinicDayRange(prepared.startAt);
+    if (this.countsAgainstPatientDailyLimit(candidate.patientId, candidate.status)) {
+      const range = this.clinicDayRange(candidate.startAt);
       const patientAppointment = await tx.appointment.findFirst({
         where: {
           organizationId: actor.organizationId,
-          patientId: prepared.dto.patientId,
+          patientId: candidate.patientId,
           status: { notIn: FREE_STATUSES },
+          ...(excludeId ? { id: { not: excludeId } } : {}),
           startAt: { gte: range.start, lt: range.end }
         },
         select: { id: true }
@@ -1345,7 +1470,7 @@ export class AppointmentsService {
 
   private enforceBatchSchedulingRules(actor: AuthUser, appointments: PreparedAppointmentCreate[]) {
     const canOverbook =
-      actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
+      actor.permissions.includes("appointments.overbook") || actor.permissions.includes("organization.manage_all");
 
     for (let i = 0; i < appointments.length; i++) {
       const current = appointments[i];
@@ -1649,7 +1774,7 @@ export class AppointmentsService {
     if (FREE_STATUSES.includes(input.status)) return;
 
     const hasOverbookingPermission =
-      actor.permissions.includes("appointments.overbook") || actor.permissions.includes("system.manage_all");
+      actor.permissions.includes("appointments.overbook") || actor.permissions.includes("organization.manage_all");
     const canOverbook = input.allowOverbooking === true && hasOverbookingPermission;
     if (input.allowOverbooking && !hasOverbookingPermission) {
       throw new BadRequestException("Overbooking permission is required");
@@ -1829,17 +1954,18 @@ export class AppointmentsService {
     appointmentId: string,
     previousStatus: AppointmentStatus | null,
     newStatus: AppointmentStatus,
-    changedById: string,
-    reason?: string
+    changedById: string | undefined,
+    reason?: string,
+    changedByApiKeyId?: string
   ) {
     await tx.appointmentStatusHistory.create({
-      data: { appointmentId, previousStatus, newStatus, changedById, reason }
+      data: { appointmentId, previousStatus, newStatus, changedById, changedByApiKeyId, reason }
     });
   }
 
   private async audit(
     tx: Prisma.TransactionClient,
-    actor: AuthUser,
+    actor: DomainActorContext,
     entityId: string,
     action: string,
     after: Prisma.InputJsonValue
@@ -1847,7 +1973,7 @@ export class AppointmentsService {
     await tx.auditLog.create({
       data: {
         organizationId: actor.organizationId,
-        actorUserId: actor.id,
+        ...domainActorAuditFields(actor),
         entity: "Appointment",
         entityId,
         action,

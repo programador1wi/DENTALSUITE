@@ -5,6 +5,7 @@ import { CreateBranchDto } from "../branches/dto/create-branch.dto";
 import { BranchesService } from "../branches/branches.service";
 import { PrismaService } from "../../database/prisma.service";
 import { CreateBrandDto, ListBrandsQueryDto, UpdateBrandDto } from "./dto/brand.dto";
+import { normalizeLogoReference, safeLogoForPresentation } from "../../common/utils/logo-reference.util";
 
 const DOMAIN_REGEX = /^(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z]{2,63}$/i;
 
@@ -27,7 +28,7 @@ export class HealthCenterService {
     if (!organization) throw new NotFoundException("Organization not found");
 
     return {
-      organization,
+      organization: { ...organization, logoUrl: safeLogoForPresentation(organization.logoUrl) },
       brands,
       permissions: {
         canManage: this.hasAny(actor, ["health_center.manage", "brands.create", "brands.update"]),
@@ -110,6 +111,7 @@ export class HealthCenterService {
 
     return brands.map((brand) => ({
       ...brand,
+      logoUrl: safeLogoForPresentation(brand.logoUrl),
       branchCount: brand.branches.length
     }));
   }
@@ -284,11 +286,11 @@ export class HealthCenterService {
   }
 
   private canViewAllBranches(actor: AuthUser) {
-    return this.hasAny(actor, ["system.manage_all", "branches.view_all", "health_center.manage"]);
+    return this.hasAny(actor, ["organization.manage_all", "branches.view_all", "health_center.manage"]);
   }
 
   private hasAny(actor: AuthUser, permissions: string[]) {
-    if (actor.permissions.includes("system.manage_all")) return true;
+    if (actor.permissions.includes("organization.manage_all")) return true;
     return permissions.some((permission) => actor.permissions.includes(permission));
   }
 
@@ -328,8 +330,10 @@ export class HealthCenterService {
       shortName: dto.shortName !== undefined ? this.optionalText(dto.shortName) : current?.shortName ?? undefined,
       slug,
       description: dto.description !== undefined ? this.optionalText(dto.description) : current?.description ?? undefined,
-      logoUrl: dto.logoUrl !== undefined ? this.optionalText(dto.logoUrl) : current?.logoUrl ?? undefined,
-      logoStorageKey: dto.logoStorageKey !== undefined ? this.optionalText(dto.logoStorageKey) : current?.logoStorageKey ?? undefined,
+      logoUrl: dto.logoUrl !== undefined
+        ? normalizeLogoReference(dto.logoUrl, current?.logoUrl)
+        : current?.logoUrl ?? undefined,
+      logoStorageKey: current?.logoStorageKey ?? undefined,
       primaryColor: dto.primaryColor ?? current?.primaryColor ?? "#0f766e",
       secondaryColor: dto.secondaryColor ?? current?.secondaryColor ?? "#0f172a",
       accentColor: dto.accentColor !== undefined ? dto.accentColor : current?.accentColor ?? undefined,

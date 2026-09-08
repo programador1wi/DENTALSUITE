@@ -19,7 +19,8 @@ export const APP_ROUTES = {
     week: "/agenda/semana",
     month: "/agenda/mes",
     print: "/agenda/imprimir",
-    reprogramming: "/agenda/reprogramacion"
+    reprogramming: "/agenda/reprogramacion",
+    reminders: "/agenda/recordatorios"
   },
   patients: {
     root: "/pacientes",
@@ -66,7 +67,8 @@ export const APP_ROUTES = {
     closed: "/cajas/cerradas",
     reports: "/cajas/reportes",
     search: "/cajas/buscar",
-    detail: (registerNumber?: string | number | null) => (registerNumber ? `/cajas/${registerNumber}` : "/cajas/cerradas")
+    detail: (registerNumber?: string | number | null) =>
+      registerNumber ? `/cajas/${registerNumber}` : "/cajas/cerradas"
   },
   payments: {
     root: "/pagos",
@@ -120,7 +122,8 @@ export const APP_ROUTES = {
     emailMarketing: "/crm/email-marketing",
     emailMarketingReports: "/crm/email-marketing/reportes",
     emailMarketingReportDetail: (reportCode: string) => `/crm/email-marketing/reportes/${reportCode}`,
-    emailMarketingReportCampaign: (reportCode: string) => `/crm/email-marketing/reportes/${reportCode}/campana`,
+    emailMarketingReportCampaign: (reportCode: string) =>
+      `/crm/email-marketing/reportes/${reportCode}/campana`,
     emailMarketingCampaigns: "/crm/email-marketing/campanas",
     emailMarketingTemplates: "/crm/email-marketing/plantillas",
     emailMarketingSettings: "/crm/email-marketing/configuracion",
@@ -160,6 +163,9 @@ export const APP_ROUTES = {
     usersBulkContracts: "/configuracion/usuarios/contratos/masivos",
     userContractsBulk: "/configuracion/usuarios/contratos/masivos",
     roles: "/configuracion/roles",
-    roleDetail: (id: string) => `/configuracion/roles/${id}`
+    roleDetail: (id: string) => `/configuracion/roles/${id}`,
+    apiKeys: "/configuracion/credenciales-api",
+    apiKeyNew: "/configuracion/credenciales-api/nueva",
+    apiKeyEdit: (id: string) => `/configuracion/credenciales-api/${id}/editar`
   }
 } as const;

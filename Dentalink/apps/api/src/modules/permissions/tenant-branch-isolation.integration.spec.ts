@@ -63,11 +63,11 @@ describe("Tenant & Branch Security Isolation", () => {
       branchIds: ["branch-1"]
     };
 
-    it("prevents assigning system.manage_all to any custom role", async () => {
+    it("prevents assigning organization.manage_all to any custom role", async () => {
       const prisma = {
         permission: {
           findMany: jest.fn().mockResolvedValue([
-            { id: "perm-sys", key: "system.manage_all", isActive: true, deletedAt: null }
+            { id: "perm-sys", key: "organization.manage_all", isActive: true, deletedAt: null }
           ])
         }
       };

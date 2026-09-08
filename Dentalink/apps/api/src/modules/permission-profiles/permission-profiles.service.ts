@@ -131,7 +131,7 @@ export class PermissionProfilesService {
   }
 
   private organizationScope(actor: AuthUser): Prisma.PermissionProfileWhereInput {
-    return actor.permissions.includes("system.manage_all") ? {} : { organizationId: actor.organizationId };
+    return { organizationId: actor.organizationId };
   }
 
   private async validatePermissions(actor: AuthUser, permissionIds: string[]) {
@@ -143,7 +143,7 @@ export class PermissionProfilesService {
     if (permissions.length !== uniqueIds.length) {
       throw new BadRequestException("One or more permissions are invalid");
     }
-    if (permissions.some((permission) => permission.key === "system.manage_all")) {
+    if (permissions.some((permission) => permission.key === "organization.manage_all")) {
       throw new ForbiddenException("PROTECTED_PERMISSION");
     }
     if (permissions.some((permission) => !canDelegatePermission(actor.permissions, permission.key))) {

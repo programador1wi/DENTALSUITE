@@ -3,6 +3,7 @@ node_modules
 dist
 build
 coverage
+artifacts/
 apps/web/playwright-report/
 apps/web/test-results/
 .env

@@ -8,9 +8,10 @@ import {
   PatientConsentsController
 } from "./consents/consents.controller";
 import { ConsentsService } from "./consents/consents.service";
+import { StorageModule } from "../storage/storage.module";
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, StorageModule],
   controllers: [
     DocumentsController,
     ConsentTemplatesController,

@@ -155,16 +155,16 @@ function RuleState({ enabled, label }: { enabled: boolean; label: string }) {
 export function PaymentMethodsSettingsPage() {
   const { hasPermission } = usePermissions();
   const canConfigureDiscounts =
-    hasPermission("treatment_discount.configure_user_limits") || hasPermission("system.manage_all");
+    hasPermission("treatment_discount.configure_user_limits") || hasPermission("organization.manage_all");
   const canViewCashDiscounts =
-    hasPermission("payment_options.cash_discounts.view") || hasPermission("system.manage_all");
-  const canCreateMethod = hasPermission("payment_methods.create") || hasPermission("system.manage_all");
-  const canUpdateMethod = hasPermission("payment_methods.update") || hasPermission("system.manage_all");
+    hasPermission("payment_options.cash_discounts.view") || hasPermission("organization.manage_all");
+  const canCreateMethod = hasPermission("payment_methods.create") || hasPermission("organization.manage_all");
+  const canUpdateMethod = hasPermission("payment_methods.update") || hasPermission("organization.manage_all");
   const canDeactivateMethod =
-    hasPermission("payment_methods.deactivate") || hasPermission("system.manage_all");
+    hasPermission("payment_methods.deactivate") || hasPermission("organization.manage_all");
   const canReactivateMethod =
-    hasPermission("payment_methods.reactivate") || hasPermission("system.manage_all");
-  const canViewAudit = hasPermission("payment_methods.view_audit") || hasPermission("system.manage_all");
+    hasPermission("payment_methods.reactivate") || hasPermission("organization.manage_all");
+  const canViewAudit = hasPermission("payment_methods.view_audit") || hasPermission("organization.manage_all");
   const [section, setSection] = useState<"methods" | "cash-discounts" | "user-discounts">("methods");
   const [search, setSearch] = useState("");
   const [active, setActive] = useState<"true" | "false">("true");

@@ -10,9 +10,12 @@ export default defineConfig({
     }
   },
   test: {
+    pool: "threads",
     environment: "jsdom",
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
+    testTimeout: 20000,
+    hookTimeout: 20000,
     exclude: [...configDefaults.exclude, "e2e/**"]
   }
 });

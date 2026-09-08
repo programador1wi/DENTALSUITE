@@ -9,7 +9,7 @@ const actor = {
   lastName: "Admin",
   roleIds: ["role-1"],
   roleNames: ["ADMIN"],
-  permissions: ["system.manage_all"],
+  permissions: ["organization.manage_all"],
   branchIds: ["branch-1", "branch-2"]
 };
 

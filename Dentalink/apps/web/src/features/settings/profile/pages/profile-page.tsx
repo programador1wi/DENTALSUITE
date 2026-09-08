@@ -141,7 +141,7 @@ export function ProfilePage() {
       Boolean(user?.roleNames?.includes("SUPER_ADMIN")) ||
       Boolean(user?.roleNames?.includes("Super Administrador")) ||
       Boolean(user?.roleNames?.includes("super_admin")) ||
-      Boolean(user?.permissions?.includes("system.manage_all"))
+      Boolean(user?.permissions?.includes("organization.manage_all"))
     );
   }, [user]);
 

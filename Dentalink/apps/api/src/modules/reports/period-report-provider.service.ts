@@ -1,7 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
-import { ExcelReportDefinition } from "./dto/reports.dto";
+import { ExcelReportDefinition, ReportExportFormat } from "./dto/reports.dto";
+import { ReportRow } from "./report-provider";
 
 type SourceSpec = {
   delegate: string;
@@ -9,6 +10,7 @@ type SourceSpec = {
   branchPath?: string;
   datePath?: string;
   fixedWhere?: Record<string, unknown>;
+  branchArray?: boolean;
 };
 
 const source = (
@@ -29,14 +31,14 @@ const SOURCES: Record<string, SourceSpec> = {
   PROFESSIONAL_STATUS_SUMMARY: source("appointment", "organizationId", "branchId", "startAt"),
   APPOINTMENTS_IN_RANGE: source("appointment", "organizationId", "branchId", "createdAt"),
   ONLINE_CAMPAIGN_APPOINTMENTS: source("onlineSchedulingEvent", "organizationId", "appointment.branchId", "createdAt", { eventType: "CONVERSION" }),
-  PRICE_LIST_TEMPLATES: source("priceTemplate", "organizationId", undefined, "createdAt"),
+  PRICE_LIST_TEMPLATES: { ...source("priceTemplate", "organizationId", "branchIds", "createdAt"), branchArray: true },
   AGREEMENTS_LIST: source("agreement", "organizationId", "branches[].branchId", "createdAt"),
-  AGREEMENT_AFFILIATES: source("agreementPatientAssignment", "agreement.organizationId", "patient.branchId", "createdAt"),
+  AGREEMENT_AFFILIATES: source("agreementPatientAssignment", "organizationId", "patient.branchId", "assignedAt"),
   AGREEMENT_BUDGET_PAYMENT_STATUS: source("agreementCharge", "organizationId", "branchId", "dueDate"),
   PATIENT_FOLLOWUP: source("patientTask", "organizationId", "branchId", "createdAt"),
   CRM_TASKS_PERIOD: source("patientTask", "organizationId", "branchId", "createdAt"),
   CRM_TASKS_DUE: source("patientTask", "organizationId", "branchId", "dueDate"),
-  SATISFACTION_SURVEY_RESPONSES: source("surveyResponse", "organizationId", "branchId", "submittedAt", { status: "COMPLETED" }),
+  SATISFACTION_SURVEY_RESPONSES: source("surveyResponse", "organizationId", "branchId", "submittedAt", { status: "SUBMITTED" }),
   REFUND_REQUESTS: source("refund", "organizationId", "branchId", "createdAt"),
   PAYMENTS_BY_ACTION_DETAIL: source("paymentAllocation", "payment.organizationId", "payment.branchId", "payment.paidAt"),
   PAYMENTS_BY_DUE_DATE: source("installment", "installmentPlan.organizationId", "installmentPlan.treatmentPlan.branchId", "dueDate"),
@@ -73,7 +75,7 @@ const SOURCES: Record<string, SourceSpec> = {
   PATIENTS_WITH_ODONTOGRAM: source("odontogramRecord", "patient.organizationId", "patient.branchId", "createdAt"),
   PATIENT_TREATMENT_PLANS: source("treatmentPlan", "organizationId", "branchId", "createdAt"),
   DELINQUENT_PATIENTS: source("patientLedgerEntry", "organizationId", "branchId", "occurredAt", { debitAmount: { gt: 0 } }),
-  ORTHODONTIC_PATIENTS: source("treatmentPlan", "organizationId", "branchId", "createdAt", { kind: "ORTHODONTIC" }),
+  ORTHODONTIC_PATIENTS: source("treatmentPlan", "organizationId", "branchId", "createdAt", { kind: "ORTHODONTICS" }),
   INFORMED_CONSENTS: source("consent", "organizationId", "branchId", "createdAt"),
   NEW_PATIENTS_REGISTERED: source("patient", "organizationId", "branchId", "createdAt"),
   NEW_PATIENTS_FIRST_APPOINTMENT: source("appointment", "organizationId", "branchId", "startAt"),
@@ -92,17 +94,40 @@ const SOURCES: Record<string, SourceSpec> = {
   UNFINISHED_PLANS_NO_FUTURE_APPOINTMENTS: source("treatmentPlan", "organizationId", "branchId", "createdAt", { status: { notIn: ["COMPLETED", "CANCELLED", "REJECTED"] }, appointments: { none: { startAt: { gt: new Date() } } } }),
   PAID_NOT_PERFORMED_ACTIONS: source("treatmentPlanItem", "treatmentPlan.organizationId", "treatmentPlan.branchId", "createdAt", { status: { not: "COMPLETED" }, paymentAllocations: { some: {} } }),
   CAPTURED_BUDGETS: source("budget", "organizationId", "treatmentPlan.branchId", "acceptedAt", { status: "ACCEPTED" }),
-  BUDGET_UNEXPIRATIONS: source("budgetUnexpiration", "budget.organizationId", "budget.treatmentPlan.branchId", "createdAt"),
-  WARRANTIES_APPLIED: source("treatmentWarranty", "organizationId", "branchId", "appliedAt")
 };
 
 const OMIT = new Set(["passwordHash", "refreshTokenHash", "idempotencyKey", "metadata", "rawPayload"]);
 
 @Injectable()
 export class PeriodReportProviderService {
+  private readonly batchSize = 5_000;
+  private readonly maxXlsxRows = 1_048_575;
+
   constructor(private readonly prisma: PrismaService) {}
 
-  async rows(definition: ExcelReportDefinition, actor: AuthUser, parameters: Record<string, unknown>) {
+  async rows(
+    definition: ExcelReportDefinition,
+    actor: AuthUser,
+    parameters: Record<string, unknown>,
+    format: ReportExportFormat = ReportExportFormat.XLSX
+  ) {
+    const allRows: ReportRow[] = [];
+    for await (const row of this.iterateRows(definition, actor, parameters)) {
+      allRows.push(row);
+      if (format === ReportExportFormat.XLSX && allRows.length > this.maxXlsxRows) {
+        throw new BadRequestException(
+          "LIMIT_EXCEEDED: El reporte supera el límite de 1,048,575 filas de Excel. Exporta en formato CSV."
+        );
+      }
+    }
+    return allRows;
+  }
+
+  async *iterateRows(
+    definition: ExcelReportDefinition,
+    actor: AuthUser,
+    parameters: Record<string, unknown>
+  ): AsyncGenerator<ReportRow> {
     const spec = SOURCES[definition.code];
     if (!spec) throw new BadRequestException(`Fuente no configurada para ${definition.code}`);
     const delegate = (this.prisma as unknown as Record<string, { findMany(args: Record<string, unknown>): Promise<Array<Record<string, unknown>>> }>)[spec.delegate];
@@ -110,11 +135,31 @@ export class PeriodReportProviderService {
     const branchIds = actor.branchIds;
     const windows = Array.isArray(parameters.branchWindows) ? parameters.branchWindows as Array<Record<string, string>> : [];
     const scope = this.path(spec.organizationPath, actor.organizationId);
-    const branches = spec.branchPath ? this.path(spec.branchPath, { in: branchIds }) : {};
+    const branches = spec.branchPath
+      ? this.path(spec.branchPath, spec.branchArray ? { hasSome: branchIds } : { in: branchIds })
+      : {};
     const dateRange = this.dateRange(spec.datePath, parameters, windows);
     const where = this.merge(scope, branches, spec.fixedWhere ?? {}, dateRange);
-    const rows = await delegate.findMany({ where, orderBy: spec.datePath ? this.path(spec.datePath, "asc") : undefined, take: 50_000 });
-    return rows.map((row) => this.normalize(row));
+
+    let cursor: string | undefined;
+
+    while (true) {
+      const batch = await delegate.findMany({
+        where,
+        orderBy: spec.datePath ? [this.path(spec.datePath, "asc"), { id: "asc" }] : { id: "asc" },
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        take: this.batchSize
+      });
+
+      if (!batch || batch.length === 0) break;
+      for (const row of batch) yield this.normalize(row);
+      const lastId = batch.at(-1)?.id;
+      if (typeof lastId !== "string" || !lastId) {
+        throw new Error(`Fuente ${spec.delegate} no expone un cursor id estable`);
+      }
+      cursor = lastId;
+      if (batch.length < this.batchSize) break;
+    }
   }
 
   private dateRange(datePath: string | undefined, parameters: Record<string, unknown>, windows: Array<Record<string, string>>) {

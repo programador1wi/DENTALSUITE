@@ -1540,7 +1540,7 @@ export class ConsentsService {
   }
 
   private assertSignerPermission(actor: AuthUser, signerType: AddConsentSignatureDto["signerType"]) {
-    if (actor.permissions.includes("system.manage_all") || actor.permissions.includes("consents.sign")) return;
+    if (actor.permissions.includes("organization.manage_all") || actor.permissions.includes("consents.sign")) return;
     const permissionByType: Record<AddConsentSignatureDto["signerType"], string> = {
       PATIENT: "consents.instances.sign_patient",
       PROFESSIONAL: "consents.instances.sign_professional",

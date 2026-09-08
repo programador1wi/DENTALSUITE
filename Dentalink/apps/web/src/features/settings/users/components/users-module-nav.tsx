@@ -35,7 +35,7 @@ export function UsersModuleNav({ actions, children, className }: UsersModuleNavP
   const location = useLocation();
   const navigate = useNavigate();
   const { can } = usePermissions();
-  const canManageAll = can("system.manage_all");
+  const canManageAll = can("organization.manage_all");
   const canReadRoles = canManageAll || can("roles.read");
   const canBlockAgenda = canManageAll || (can("appointments.create") && can("professionals.read"));
   const canBlockAccess = canManageAll || can("users.update");

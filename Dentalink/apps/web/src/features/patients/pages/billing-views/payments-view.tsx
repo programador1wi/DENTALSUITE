@@ -65,8 +65,8 @@ export function PaymentsView() {
   if (payments.isError || !payments.data) return <ErrorState message="Error al cargar pagos" />;
   
   const rows = payments.data.payments.filter((p) => p.status !== "VOIDED");
-  const canUpdate = hasPermission("payments.update") || hasPermission("system.manage_all");
-  const canVoid = hasPermission("payments.refund") || hasPermission("system.manage_all");
+  const canUpdate = hasPermission("payments.update") || hasPermission("organization.manage_all");
+  const canVoid = hasPermission("payments.refund") || hasPermission("organization.manage_all");
 
   const handleViewReceipt = (payment: Payment) => {
     window.open(`/payments/${encodeURIComponent(payment.paymentNumber)}/receipt`, "_blank", "noopener,noreferrer");

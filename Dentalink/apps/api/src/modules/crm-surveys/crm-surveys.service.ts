@@ -21,6 +21,7 @@ import {
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { ConfigService } from "@nestjs/config";
 import { AuthUser } from "../../common/types/auth-user";
+import { sanitizePlainText, sanitizeRichTextHtml } from "../../common/utils/sanitize-rich-text.util";
 import { PrismaService } from "../../database/prisma.service";
 import {
   CreateSurveyDefinitionDto,
@@ -1239,7 +1240,7 @@ export class CrmSurveysService {
   }
 
   private isGlobal(actor: AuthUser) {
-    return actor.permissions.includes("system.manage_all") || actor.permissions.includes("branches.view_all");
+    return actor.permissions.includes("organization.manage_all") || actor.permissions.includes("branches.view_all");
   }
 
   private assertExactIds(existing: string[], requested: string[]) {
@@ -1250,17 +1251,11 @@ export class CrmSurveysService {
 
   private sanitizeHtml(value: string) {
     if (value.length > 100_000) throw new BadRequestException("El contenido supera el tamaño permitido");
-    return value
-      .replace(/<!--[\s\S]*?-->/g, "")
-      .replace(/<\s*(script|iframe|object|embed|form|input|button|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
-      .replace(/<\s*(script|iframe|object|embed|form|input|button|style)[^>]*\/?>/gi, "")
-      .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/javascript\s*:/gi, "")
-      .trim();
+    return sanitizeRichTextHtml(value);
   }
 
   private sanitizePlain(value: string) {
-    return value.replace(/<[^>]*>/g, "").replace(/\p{Cc}/gu, " ").trim();
+    return sanitizePlainText(value);
   }
 
   private assertVariables(value: string) {

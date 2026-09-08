@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
-import type { ReadStream } from 'node:fs';
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import * as nodemailer from "nodemailer";
+import type { Readable } from "node:stream";
+import { createHash } from "node:crypto";
 
 export interface AppointmentEmailData {
   patientName: string;
@@ -16,11 +17,12 @@ export interface AppointmentEmailData {
   replyToEmail?: string;
   confirmUrl?: string; // Solo para el de confirmación
   completeProfileUrl?: string; // Enlace público para completar datos
+  cancellationReason?: string;
 }
 
 export type PatientEmailAttachment = {
   filename: string;
-  content: ReadStream | Buffer;
+  content: Readable | Buffer;
   contentType?: string;
 };
 
@@ -34,6 +36,7 @@ export type SendPatientEmailInput = {
   html: string;
   text: string;
   attachments?: PatientEmailAttachment[];
+  idempotencyKey?: string;
 };
 
 @Injectable()
@@ -45,19 +48,19 @@ export class EmailService {
   private readonly fromName: string;
 
   constructor(private readonly configService: ConfigService) {
-    this.isEnabled = this.configService.get<string>('MAIL_ENABLED') === 'true';
-    this.fromAddress = this.configService.get<string>('MAIL_FROM_ADDRESS') || 'no-reply@dentalsuite.com';
-    this.fromName = this.configService.get<string>('MAIL_FROM_NAME') || 'DentalSuite';
+    this.isEnabled = this.configService.get<string>("MAIL_ENABLED") === "true";
+    this.fromAddress = this.configService.get<string>("MAIL_FROM_ADDRESS") || "no-reply@dentalsuite.com";
+    this.fromName = this.configService.get<string>("MAIL_FROM_NAME") || "DentalSuite";
 
     if (this.isEnabled) {
       this.transporter = nodemailer.createTransport({
-        host: this.configService.get<string>('MAIL_HOST'),
-        port: parseInt(this.configService.get<string>('MAIL_PORT') || '587', 10),
-        secure: this.configService.get<string>('MAIL_SECURE') === 'true',
+        host: this.configService.get<string>("MAIL_HOST"),
+        port: parseInt(this.configService.get<string>("MAIL_PORT") || "587", 10),
+        secure: this.configService.get<string>("MAIL_SECURE") === "true",
         auth: {
-          user: this.configService.get<string>('MAIL_USER'),
-          pass: this.configService.get<string>('MAIL_PASSWORD'),
-        },
+          user: this.configService.get<string>("MAIL_USER"),
+          pass: this.configService.get<string>("MAIL_PASSWORD")
+        }
       });
     }
   }
@@ -66,20 +69,26 @@ export class EmailService {
     return {
       fromAddress: this.fromAddress,
       fromName: this.fromName,
-      provider: this.configService.get<string>('MAIL_PROVIDER')?.trim() || 'smtp'
+      provider: this.configService.get<string>("MAIL_PROVIDER")?.trim() || "smtp"
     };
   }
 
   async sendPatientEmail(input: SendPatientEmailInput): Promise<{ providerMessageId?: string }> {
     if (!this.isEnabled) {
-      throw new ServiceUnavailableException('El servicio de correo no esta configurado para esta organizacion');
+      throw new ServiceUnavailableException(
+        "El servicio de correo no esta configurado para esta organizacion"
+      );
     }
 
     try {
       const fromAddress = input.fromAddress?.trim().toLowerCase() || this.fromAddress;
       const fromName = input.fromName?.trim() || this.fromName;
-      if (/[^\x20-\x7E]/.test(fromAddress) || /[\r\n]/.test(fromName) || !/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(fromAddress)) {
-        throw new BadRequestException('El remitente configurado no es valido');
+      if (
+        /[^\x20-\x7E]/.test(fromAddress) ||
+        /[\r\n]/.test(fromName) ||
+        !/^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(fromAddress)
+      ) {
+        throw new BadRequestException("El remitente configurado no es valido");
       }
       const result = await this.transporter.sendMail({
         from: `"${fromName.replace(/["<>]/g, "")}" <${fromAddress}>`,
@@ -89,26 +98,38 @@ export class EmailService {
         subject: input.subject,
         html: input.html,
         text: input.text,
-        attachments: input.attachments
+        attachments: input.attachments,
+        ...(input.idempotencyKey
+          ? {
+              messageId: `<${createHash("sha256").update(input.idempotencyKey).digest("hex")}@dentalink.local>`
+            }
+          : {})
       });
 
       this.logger.log(`Patient email sent to ${input.to}`);
       return { providerMessageId: result.messageId };
     } catch (error) {
       this.logger.error(`Failed to send patient email to ${input.to}`, error);
-      throw new ServiceUnavailableException('No fue posible enviar el correo. Intenta nuevamente.');
+      throw new ServiceUnavailableException("No fue posible enviar el correo. Intenta nuevamente.", {
+        cause: error
+      });
     }
   }
 
-  private getBaseTemplate(title: string, content: string, clinicPhone: string, data?: AppointmentEmailData): string {
-    const brandName = this.escapeHtml(data?.brandName || 'Dental+');
-    const primaryColor = /^#[0-9a-f]{6}$/i.test(data?.primaryColor || '') ? data?.primaryColor : '#2563eb';
+  private getBaseTemplate(
+    title: string,
+    content: string,
+    clinicPhone: string,
+    data?: AppointmentEmailData
+  ): string {
+    const brandName = this.escapeHtml(data?.brandName || "Dental+");
+    const primaryColor = /^#[0-9a-f]{6}$/i.test(data?.primaryColor || "") ? data?.primaryColor : "#2563eb";
     const safeClinicPhone = this.escapeHtml(clinicPhone);
-    const safeLogoUrl = data?.logoUrl && /^https:\/\//i.test(data.logoUrl) ? this.escapeHtmlAttribute(data.logoUrl) : undefined;
-    const logo =
-      safeLogoUrl
-        ? `<img src="${safeLogoUrl}" alt="${brandName}" style="display:block;max-width:160px;max-height:72px;height:auto;border:0;">`
-        : `<div class="logo">${brandName}</div>`;
+    const safeLogoUrl =
+      data?.logoUrl && /^https:\/\//i.test(data.logoUrl) ? this.escapeHtmlAttribute(data.logoUrl) : undefined;
+    const logo = safeLogoUrl
+      ? `<img src="${safeLogoUrl}" alt="${brandName}" style="display:block;max-width:160px;max-height:72px;height:auto;border:0;">`
+      : `<div class="logo">${brandName}</div>`;
     return `
 <!DOCTYPE html>
 <html lang="es">
@@ -156,12 +177,17 @@ export class EmailService {
     `;
   }
 
-  private generateAppointmentContent(title: string, data: AppointmentEmailData, withConfirmBtn: boolean = false): string {
-    const btnHtml = withConfirmBtn && data.confirmUrl 
-      ? `<a href="${data.confirmUrl}" class="btn">Confirma o anula tu cita aquí</a>` 
-      : data.completeProfileUrl
-      ? `<a href="${data.completeProfileUrl}" class="btn" style="background-color: #3b82f6;">Completa tus datos</a>`
-      : ``;
+  private generateAppointmentContent(
+    title: string,
+    data: AppointmentEmailData,
+    withConfirmBtn: boolean = false
+  ): string {
+    const btnHtml =
+      withConfirmBtn && data.confirmUrl
+        ? `<a href="${data.confirmUrl}" class="btn">Confirma o anula tu cita aquí</a>`
+        : data.completeProfileUrl
+          ? `<a href="${data.completeProfileUrl}" class="btn" style="background-color: #3b82f6;">Completa tus datos</a>`
+          : ``;
 
     return `
       <div style="font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 8px;">${data.patientName}</div>
@@ -209,16 +235,16 @@ export class EmailService {
       return;
     }
 
-    const content = this.generateAppointmentContent('Cita agendada', data, false);
-    const html = this.getBaseTemplate('Cita agendada', content, data.clinicPhone, data);
+    const content = this.generateAppointmentContent("Cita agendada", data, false);
+    const html = this.getBaseTemplate("Cita agendada", content, data.clinicPhone, data);
 
     try {
       await this.transporter.sendMail({
         from: `"${this.fromName}" <${this.fromAddress}>`,
         to,
         replyTo: data.replyToEmail,
-        subject: 'Tu cita ha sido agendada',
-        html,
+        subject: "Tu cita ha sido agendada",
+        html
       });
       this.logger.log(`Email 'Scheduled' sent to ${to}`);
     } catch (error) {
@@ -226,44 +252,128 @@ export class EmailService {
     }
   }
 
-  async sendAppointmentConfirmationRequired(to: string, data: AppointmentEmailData): Promise<void> {
+  async sendAppointmentConfirmationRequired(
+    to: string,
+    data: AppointmentEmailData,
+    options?: { stage?: "48H" | "24H"; idempotencyKey?: string }
+  ): Promise<{ providerMessageId?: string }> {
     if (!this.isEnabled) {
-      this.logger.warn(`[Email Disabled] Confirmation email was not sent to ${to}. Link: ${data.confirmUrl}`);
-      return;
+      throw new ServiceUnavailableException("El servicio de correo esta deshabilitado");
     }
 
     if (!data.confirmUrl) {
-      throw new BadRequestException('No se genero el enlace de confirmacion de la cita');
+      throw new BadRequestException("No se genero el enlace de confirmacion de la cita");
     }
 
-    const content = this.generateAppointmentContent('Confirma tu cita', data, true);
-    const html = this.getBaseTemplate('Confirma tu cita', content, data.clinicPhone, data);
+    const title = options?.stage === "24H" ? "Recordatorio: Confirma tu cita" : "Confirma tu cita";
+    const subject =
+      options?.stage === "24H"
+        ? "Recordatorio: Confirma tu cita para mañana"
+        : "Acción requerida: Confirma tu cita";
+
+    const content = this.generateAppointmentContent(title, data, true);
+    const html = this.getBaseTemplate(title, content, data.clinicPhone, data);
+
+    try {
+      const result = await this.transporter.sendMail({
+        from: `"${this.fromName}" <${this.fromAddress}>`,
+        to,
+        replyTo: data.replyToEmail,
+        subject,
+        html,
+        ...(options?.idempotencyKey
+          ? {
+              messageId: `<${createHash("sha256").update(options.idempotencyKey).digest("hex")}@dentalink.local>`
+            }
+          : {})
+      });
+      this.logger.log(`Email 'Confirmation Required (${options?.stage || "DEFAULT"})' sent to ${to}`);
+      return { providerMessageId: result.messageId };
+    } catch (error) {
+      this.logger.error(`Failed to send 'Confirmation Required' email to ${to}`, error);
+      throw new ServiceUnavailableException("No se pudo enviar el correo de confirmacion", { cause: error });
+    }
+  }
+
+  async sendAppointmentCancelled(to: string, data: AppointmentEmailData): Promise<void> {
+    if (!this.isEnabled) {
+      this.logger.log(`[Email Disabled] Would send 'Cancelled' email to ${to}`);
+      return;
+    }
+
+    const cancellationNotice = data.cancellationReason
+      ? `<div style="background-color: #fee2e2; border-left: 4px solid #ef4444; padding: 12px 16px; border-radius: 6px; margin-bottom: 24px;">
+          <p style="margin: 0; font-size: 14px; color: #991b1b; font-weight: 600;">Motivo de cancelación:</p>
+          <p style="margin: 4px 0 0; font-size: 14px; color: #7f1d1d;">${this.escapeHtml(data.cancellationReason)}</p>
+        </div>`
+      : "";
+
+    const content = `
+      <div style="font-size: 12px; color: #6b7280; text-transform: uppercase; font-weight: 600; margin-bottom: 8px;">${this.escapeHtml(data.patientName)}</div>
+      <h1 class="title" style="color: #dc2626;">Cita cancelada</h1>
+      <p style="font-size: 14px; color: #4b5563; margin-bottom: 20px;">Te informamos que la siguiente cita programada ha sido cancelada:</p>
+      ${cancellationNotice}
+      <div class="datetime-card" style="background-color: #fef2f2;">
+        <div class="datetime-item">
+          <div class="icon" style="color: #ef4444; border-color: #fecaca;">📅</div>
+          <div>
+            <p class="datetime-label">Fecha original</p>
+            <p class="datetime-val">${this.escapeHtml(data.dateStr)}</p>
+          </div>
+        </div>
+        <div class="datetime-item">
+          <div class="icon" style="color: #ef4444; border-color: #fecaca;">🕒</div>
+          <div>
+            <p class="datetime-label">Hora original</p>
+            <p class="datetime-val">${this.escapeHtml(data.timeStr)}</p>
+          </div>
+        </div>
+      </div>
+      <table class="details-table">
+        <tr>
+          <td>Paciente</td>
+          <td>${this.escapeHtml(data.patientName)}</td>
+        </tr>
+        <tr>
+          <td>Profesional</td>
+          <td>${this.escapeHtml(data.professionalName)}</td>
+        </tr>
+        <tr>
+          <td>Dirección</td>
+          <td>${this.escapeHtml(data.address)}</td>
+        </tr>
+      </table>
+      <div style="margin-top: 24px; text-align: center;">
+        <p style="font-size: 14px; color: #4b5563;">Si deseas volver a agendar tu cita, ponte en contacto con nosotros.</p>
+      </div>
+    `;
+
+    const html = this.getBaseTemplate("Cita cancelada", content, data.clinicPhone, data);
 
     try {
       await this.transporter.sendMail({
         from: `"${this.fromName}" <${this.fromAddress}>`,
         to,
         replyTo: data.replyToEmail,
-        subject: 'Acción requerida: Confirma tu cita',
-        html,
+        subject: "Tu cita ha sido cancelada",
+        html
       });
-      this.logger.log(`Email 'Confirmation Required' sent to ${to}`);
+      this.logger.log(`Email 'Cancelled' sent to ${to}`);
     } catch (error) {
-      this.logger.error(`Failed to send 'Confirmation Required' email to ${to}`, error);
-      throw new ServiceUnavailableException('No se pudo enviar el correo de confirmacion');
+      this.logger.error(`Failed to send 'Cancelled' email to ${to}`, error);
     }
   }
 
   private escapeHtml(value: string): string {
     return value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
   private escapeHtmlAttribute(value: string): string {
-    return this.escapeHtml(value).replace(/`/g, '&#096;');
+    return this.escapeHtml(value).replace(/`/g, "&#096;");
   }
 }

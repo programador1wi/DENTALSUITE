@@ -42,7 +42,7 @@ export function RoleDetailPage() {
   const allPermissions = usePermissionsQuery(undefined, undefined, "true");
   const updateRole = useUpdateRole();
   const { can } = usePermissions();
-  const canManageAll = can("system.manage_all");
+  const canManageAll = can("organization.manage_all");
   const canUpdateRole = canManageAll || can("roles.update");
 
   const [loadedRoleId, setLoadedRoleId] = useState<string | null>(null);

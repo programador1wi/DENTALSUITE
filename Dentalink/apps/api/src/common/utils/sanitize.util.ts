@@ -1,9 +1,7 @@
-const TAG_REGEX = /<\/?[^>]+(>|$)/g;
-// eslint-disable-next-line no-control-regex -- User input sanitization intentionally strips ASCII control characters.
-const CONTROL_CHARS_REGEX = /[\u0000-\u001F\u007F]/g;
+import { sanitizePlainText } from "./sanitize-rich-text.util";
 
 export function sanitizeString(value: string) {
-  return value.replace(TAG_REGEX, "").replace(CONTROL_CHARS_REGEX, "").trim();
+  return sanitizePlainText(value);
 }
 
 export function sanitizeUnknown<T>(value: T): T {

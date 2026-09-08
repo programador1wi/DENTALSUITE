@@ -6,6 +6,8 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel = "Confirmar",
+  variant = "danger",
+  isLoading = false,
   onCancel,
   onConfirm
 }: {
@@ -13,6 +15,8 @@ export function ConfirmDialog({
   title: string;
   description: string;
   confirmLabel?: string;
+  variant?: "danger" | "warning";
+  isLoading?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -20,10 +24,10 @@ export function ConfirmDialog({
     <Modal open={open} title={title} onClose={onCancel}>
       <p className="mb-4 text-sm text-slate-600">{description}</p>
       <div className="flex justify-end gap-2">
-        <Button variant="secondary" onClick={onCancel}>
+        <Button variant="secondary" disabled={isLoading} onClick={onCancel}>
           Cancelar
         </Button>
-        <Button variant="danger" onClick={onConfirm}>
+        <Button variant={variant === "warning" ? "secondary" : "danger"} disabled={isLoading} onClick={onConfirm}>
           {confirmLabel}
         </Button>
       </div>

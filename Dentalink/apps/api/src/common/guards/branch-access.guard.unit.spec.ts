@@ -25,7 +25,7 @@ describe("BranchAccessGuard", () => {
 
   it("allows super admin regardless of branch assignment", () => {
     const context = createMockContext(
-      { permissions: ["system.manage_all"], branchIds: ["branch-1"] },
+      { permissions: ["organization.manage_all"], branchIds: ["branch-1"] },
       { branchId: "branch-99" }
     );
     expect(guard.canActivate(context)).toBe(true);

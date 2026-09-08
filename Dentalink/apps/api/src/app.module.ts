@@ -48,6 +48,11 @@ import { EmailMarketingModule } from "./modules/email-marketing/email-marketing.
 import { CrmSurveysModule } from "./modules/crm-surveys/crm-surveys.module";
 import { CrmTasksModule } from "./modules/crm-tasks/crm-tasks.module";
 import { CollaboratorsModule } from "./modules/collaborators/collaborators.module";
+import { ApiKeysModule } from "./modules/api-keys/api-keys.module";
+import { DeveloperApiModule } from "./modules/developer-api/developer-api.module";
+import { RateLimitMiddleware } from "./common/middleware/rate-limit.middleware";
+import { MetricsModule } from "./modules/metrics/metrics.module";
+import { StorageModule } from "./modules/storage/storage.module";
 
 @Module({
   imports: [
@@ -58,6 +63,8 @@ import { CollaboratorsModule } from "./modules/collaborators/collaborators.modul
     }),
     PrismaModule,
     RedisModule,
+    MetricsModule,
+    StorageModule,
     NotificationsModule,
     AppointmentsModule,
     AppointmentReprogrammingModule,
@@ -101,9 +108,11 @@ import { CollaboratorsModule } from "./modules/collaborators/collaborators.modul
     EmailMarketingModule,
     CrmSurveysModule,
     CrmTasksModule,
-    CollaboratorsModule
+    CollaboratorsModule,
+    ApiKeysModule,
+    DeveloperApiModule
   ],
-  providers: [AppLogger],
+  providers: [AppLogger, RateLimitMiddleware],
   exports: [AppLogger]
 })
 export class AppModule {}

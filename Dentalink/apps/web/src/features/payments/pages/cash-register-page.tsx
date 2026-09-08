@@ -132,8 +132,8 @@ export function CashRegisterPage() {
   });
   const previousSessions = useCashRegisters({ branchId: activeBranchId || undefined, status: "CLOSED" });
   const mutations = usePaymentsMutations();
-  const canOpen = hasPermission("cash_register.open") || hasPermission("system.manage_all");
-  const canClose = hasPermission("cash_register.close") || hasPermission("system.manage_all");
+  const canOpen = hasPermission("cash_register.open") || hasPermission("organization.manage_all");
+  const canClose = hasPermission("cash_register.close") || hasPermission("organization.manage_all");
 
   const rows = useMemo(() => {
     const source = cashRegisters.data ?? [];

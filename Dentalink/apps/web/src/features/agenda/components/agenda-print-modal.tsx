@@ -115,8 +115,7 @@ export function AgendaPrintModal({
         className="mx-auto w-full max-w-6xl rounded-2xl bg-white p-10 md:p-14 shadow-2xl text-zinc-800 text-xs leading-normal font-sans"
       >
         {/* Printable CSS override */}
-        <style dangerouslySetInnerHTML={{
-          __html: `
+        <style>{`
             @media print {
               body * {
                 visibility: hidden !important;
@@ -139,8 +138,7 @@ export function AgendaPrintModal({
                 display: none !important;
               }
             }
-          `
-        }} />
+          `}</style>
 
         {/* Header section with Dental+ Logo and Branch Info */}
         <div className="flex items-start justify-between pb-6 border-b border-zinc-200">

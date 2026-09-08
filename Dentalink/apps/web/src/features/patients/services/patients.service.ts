@@ -55,6 +55,7 @@ export type PatientMedicalAlertInput = {
 };
 
 export type PatientPayload = {
+  expectedVersion?: number;
   branchId: string;
   agreementId?: string | null;
   firstName: string;
@@ -214,6 +215,7 @@ export type SendPatientEmailPayload = {
 
 export type PatientDetail = {
   id: string;
+  version: number;
   patientNumber?: number | null;
   organizationId: string;
   branchId: string;

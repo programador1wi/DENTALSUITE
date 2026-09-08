@@ -87,10 +87,10 @@ export function PatientPaymentsPage() {
   const [showFinancialSummary, setShowFinancialSummary] = useState(false);
   const [selectedCashDiscountId, setSelectedCashDiscountId] = useState("");
 
-  const canCreatePayment = hasPermission("payments.create") || hasPermission("system.manage_all");
-  const canOpenCashRegister = hasPermission("cash_register.open") || hasPermission("system.manage_all");
+  const canCreatePayment = hasPermission("payments.create") || hasPermission("organization.manage_all");
+  const canOpenCashRegister = hasPermission("cash_register.open") || hasPermission("organization.manage_all");
   const canApplyCashDiscount =
-    hasPermission("system.manage_all") ||
+    hasPermission("organization.manage_all") ||
     (hasPermission("payments.cash_discounts.apply") && hasPermission("treatment_discount.apply"));
   const hasOpenRegister = Boolean(currentRegister.data);
 

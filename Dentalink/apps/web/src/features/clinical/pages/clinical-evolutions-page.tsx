@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { SafeHtml } from "@/components/ui/safe-html";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
@@ -238,9 +239,9 @@ export function ClinicalEvolutionsPage() {
                   <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
                     Evolución Clínica
                   </h4>
-                  <div
+                  <SafeHtml
+                    html={evolution.notes}
                     className="whitespace-pre-wrap font-sans text-slate-800 prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5"
-                    dangerouslySetInnerHTML={{ __html: evolution.notes }}
                   />
                 </div>
               )}

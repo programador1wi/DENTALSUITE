@@ -2,7 +2,7 @@ import { Injectable, NestMiddleware } from "@nestjs/common";
 import { randomUUID } from "crypto";
 import type { NextFunction, Request, Response } from "express";
 
-type RequestWithId = Request & { requestId?: string };
+type RequestWithId = Request & { requestId?: string; requestStartedAt?: number };
 
 @Injectable()
 export class RequestIdMiddleware implements NestMiddleware {
@@ -10,6 +10,7 @@ export class RequestIdMiddleware implements NestMiddleware {
     const incoming = req.headers["x-request-id"];
     const requestId = typeof incoming === "string" && incoming.trim().length > 0 ? incoming.trim() : randomUUID();
     req.requestId = requestId;
+    req.requestStartedAt = Date.now();
     res.setHeader("X-Request-Id", requestId);
     next();
   }

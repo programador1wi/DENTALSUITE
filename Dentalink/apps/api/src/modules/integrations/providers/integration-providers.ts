@@ -25,15 +25,25 @@ export class ManualNotificationProvider implements NotificationProvider {
   }
 }
 
+import { timingSafeEqual } from "node:crypto";
+
 export interface PaymentProvider {
+  readonly automationMode: "MANUAL" | "AUTOMATIC";
   validateWebhookSecret(expectedSecret: string | undefined, providedSecret: string | undefined): boolean;
 }
 
+export const PAYMENT_PROVIDER = Symbol("PAYMENT_PROVIDER");
+
 @Injectable()
 export class ManualPaymentProvider implements PaymentProvider {
-  validateWebhookSecret(expectedSecret: string | undefined, providedSecret: string | undefined) {
-    if (!expectedSecret) return true;
-    return Boolean(providedSecret) && providedSecret === expectedSecret;
+  readonly automationMode = "MANUAL" as const;
+
+  validateWebhookSecret(expectedSecret: string | undefined, providedSecret: string | undefined): boolean {
+    if (!expectedSecret || !providedSecret) return false;
+    const expectedBuf = Buffer.from(expectedSecret, "utf8");
+    const providedBuf = Buffer.from(providedSecret, "utf8");
+    if (expectedBuf.length !== providedBuf.length) return false;
+    return timingSafeEqual(expectedBuf, providedBuf);
   }
 }
 

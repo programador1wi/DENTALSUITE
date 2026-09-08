@@ -87,7 +87,7 @@ export class PhotographicTemplatesService {
     if (
       includeVoided &&
       !actor.permissions.includes("photographic_templates.view_voided") &&
-      !actor.permissions.includes("system.manage_all")
+      !actor.permissions.includes("organization.manage_all")
     ) {
       throw new ForbiddenException("Viewing voided photographic sessions requires an additional permission");
     }
@@ -500,7 +500,7 @@ export class PhotographicTemplatesService {
           if (
             active &&
             !actor.permissions.includes("photographic_photos.replace") &&
-            !actor.permissions.includes("system.manage_all")
+            !actor.permissions.includes("organization.manage_all")
           ) {
             throw new ForbiddenException("Replacing a photographic image requires an additional permission");
           }

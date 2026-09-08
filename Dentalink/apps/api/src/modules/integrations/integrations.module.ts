@@ -5,6 +5,7 @@ import { IntegrationsService } from "./integrations.service";
 import {
   ManualAiProvider,
   ManualNotificationProvider,
+  PAYMENT_PROVIDER,
   ManualPaymentProvider,
   ManualPdfProvider
 } from "./providers/integration-providers";
@@ -12,7 +13,13 @@ import {
 @Module({
   imports: [PrismaModule],
   controllers: [IntegrationsController, PublicIntegrationsController],
-  providers: [IntegrationsService, ManualNotificationProvider, ManualPaymentProvider, ManualAiProvider, ManualPdfProvider],
+  providers: [
+    IntegrationsService,
+    ManualNotificationProvider,
+    { provide: PAYMENT_PROVIDER, useClass: ManualPaymentProvider },
+    ManualAiProvider,
+    ManualPdfProvider
+  ],
   exports: [IntegrationsService]
 })
 export class IntegrationsModule {}

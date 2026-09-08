@@ -25,6 +25,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { SafeHtml } from "@/components/ui/safe-html";
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
@@ -330,7 +331,28 @@ function QuestionEditorModal({ context, surveyType, onClose, onSave }: { context
 }
 
 function SurveyFullPreview({ name, subject, header, footer, sections }: { name: string; subject: string; header: string; footer: string; sections: SurveySection[] }) {
-  return <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]"><div><p className="mb-2 text-[var(--text-xs)] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Correo</p><div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-default)]"><div className="border-b border-[var(--border-default)] bg-[var(--bg-subtle)] p-3 text-[var(--text-sm)]"><strong>Asunto:</strong> {subject}</div><div className="space-y-5 p-5"><div className="prose prose-sm max-w-none" dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(header) }} /><div className="text-center"><span className="inline-flex rounded-[var(--radius-md)] bg-[var(--action-brand)] px-5 py-3 font-semibold text-white">Responder encuesta</span></div><div className="prose prose-sm max-w-none text-[var(--text-secondary)]" dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(footer) }} /></div></div></div><div><p className="mb-2 text-[var(--text-xs)] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Formulario público</p><div className="rounded-[var(--radius-lg)] border border-[var(--border-default)] p-5"><h3 className="text-[var(--text-xl)] font-semibold text-[var(--text-primary)]">{name}</h3><div className="mt-4 space-y-4">{sections.map((section) => <section key={section.id}><p className="font-semibold text-[var(--text-brand-strong)]">{section.name}</p>{section.questions.map((question) => <div key={question.id} className="mt-3 rounded-[var(--radius-md)] bg-[var(--bg-subtle)] p-3"><p className="text-[var(--text-sm)] font-medium text-[var(--text-primary)]">{question.text}{question.isRequired ? " *" : ""}</p><QuestionScale question={question} /></div>)}</section>)}</div></div></div></div>;
+  return (
+    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div>
+        <p className="mb-2 text-[var(--text-xs)] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Correo</p>
+        <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border-default)]">
+          <div className="border-b border-[var(--border-default)] bg-[var(--bg-subtle)] p-3 text-[var(--text-sm)]"><strong>Asunto:</strong> {subject}</div>
+          <div className="space-y-5 p-5">
+            <SafeHtml html={header} className="prose prose-sm max-w-none" />
+            <div className="text-center"><span className="inline-flex rounded-[var(--radius-md)] bg-[var(--action-brand)] px-5 py-3 font-semibold text-white">Responder encuesta</span></div>
+            <SafeHtml html={footer} className="prose prose-sm max-w-none text-[var(--text-secondary)]" />
+          </div>
+        </div>
+      </div>
+      <div>
+        <p className="mb-2 text-[var(--text-xs)] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Formulario público</p>
+        <div className="rounded-[var(--radius-lg)] border border-[var(--border-default)] p-5">
+          <h3 className="text-[var(--text-xl)] font-semibold text-[var(--text-primary)]">{name}</h3>
+          <div className="mt-4 space-y-4">{sections.map((section) => <section key={section.id}><p className="font-semibold text-[var(--text-brand-strong)]">{section.name}</p>{section.questions.map((question) => <div key={question.id} className="mt-3 rounded-[var(--radius-md)] bg-[var(--bg-subtle)] p-3"><p className="text-[var(--text-sm)] font-medium text-[var(--text-primary)]">{question.text}{question.isRequired ? " *" : ""}</p><QuestionScale question={question} /></div>)}</section>)}</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Labeled({ label, children }: { label: string; children: React.ReactNode }) {
@@ -358,8 +380,4 @@ function defaultOptionDraft(type: SurveyQuestionType) {
   if (type === "STAR_RATING") return Array.from({ length: 5 }, (_, index) => ({ label: `${index + 1} estrella${index ? "s" : ""}`, value: String(index + 1) }));
   if (type === "SINGLE_CHOICE" || type === "MULTIPLE_CHOICE") return [{ label: "Opción 1", value: "1" }, { label: "Opción 2", value: "2" }];
   return [];
-}
-
-function sanitizePreviewHtml(value: string) {
-  return value.replace(/<\s*(script|iframe|object|embed|form|input|button|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "").replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "").replace(/javascript\s*:/gi, "");
 }

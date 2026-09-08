@@ -29,7 +29,7 @@ export class PermissionsGuard implements CanActivate {
       throw new ForbiddenException("Authenticated user is required");
     }
 
-    if (user.permissions.includes("system.manage_all")) {
+    if (user.permissions.includes("organization.manage_all")) {
       return true;
     }
 

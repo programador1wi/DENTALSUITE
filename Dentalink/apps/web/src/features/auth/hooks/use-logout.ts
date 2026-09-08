@@ -1,32 +1,32 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/auth.store";
 import { useBranchStore } from "@/stores/branch.store";
 import { logout } from "../services/auth.service";
+import { clearPrivateQueryState } from "@/app/providers/query-client";
+import { broadcastSessionCleared } from "@/lib/api/http-client";
 
 export function useLogout() {
   const navigate = useNavigate();
-  const refreshToken = useAuthStore((state) => state.refreshToken);
   const clearSession = useAuthStore((state) => state.clearSession);
   const setActiveBranchId = useBranchStore((state) => state.setActiveBranchId);
-  const queryClient = useQueryClient();
 
   return useMutation<{ success: boolean }, Error>({
-    mutationFn: () => logout(refreshToken ?? undefined),
-    onSuccess: () => {
+    mutationFn: logout,
+    onSuccess: async () => {
       clearSession();
+      broadcastSessionCleared();
       setActiveBranchId("");
-      queryClient.removeQueries({ queryKey: ["auth", "me"] });
-      queryClient.removeQueries({ queryKey: ["settings", "branches"] });
+      await clearPrivateQueryState();
       toast.success("Sesión finalizada");
       navigate("/login", { replace: true });
     },
-    onError: (error) => {
+    onError: async (error) => {
       clearSession();
+      broadcastSessionCleared();
       setActiveBranchId("");
-      queryClient.removeQueries({ queryKey: ["auth", "me"] });
-      queryClient.removeQueries({ queryKey: ["settings", "branches"] });
+      await clearPrivateQueryState();
       toast.error(error.message || "Sesión finalizada con advertencias");
       navigate("/login", { replace: true });
     }

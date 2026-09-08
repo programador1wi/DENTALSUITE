@@ -215,7 +215,7 @@ export function ReportRequestModal({ reportId, reports, open, onClose, onRequest
 
   function validate() {
     if (!report) return "Reporte no encontrado";
-    if (!report.enabled) return "El generador del reporte no esta implementado.";
+    if (!report.enabled) return report.unavailableReason ?? "El generador del reporte no está disponible.";
     if (needsPriceList && priceLists.isError) return "No fue posible cargar los aranceles vigentes.";
     for (const parameter of report.parameters) {
       const value = values[parameter.key];
@@ -407,7 +407,7 @@ export function ReportRequestModal({ reportId, reports, open, onClose, onRequest
                   <p className="text-[14px] leading-6 text-[var(--text-secondary)]">{report.description}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <Badge value={report.category} tone="brand" />
-                    <Badge value={report.enabled ? "Disponible" : "Sin generador"} tone={report.enabled ? "success" : "warning"} />
+                    <Badge value={report.enabled ? "Disponible" : "No disponible"} tone={report.enabled ? "success" : "warning"} />
                     <Badge value={`Solicitado ${requestCount} veces`} tone="default" />
                   </div>
                 </div>
@@ -454,7 +454,7 @@ export function ReportRequestModal({ reportId, reports, open, onClose, onRequest
             {!report.enabled ? (
               <div className="flex items-center gap-2 rounded-[var(--radius-md)] border border-[rgba(251,191,36,0.34)] p-3 text-[13px] text-[var(--text-warning)]">
                 <AlertTriangle className="h-4 w-4" />
-                Este reporte esta en catalogo, pero no tiene generador real asociado.
+                {report.unavailableReason ?? "Este reporte permanece deshabilitado hasta validar su fuente y contenido."}
               </div>
             ) : null}
 

@@ -90,8 +90,8 @@ describe("PermissionsGuard Negative HTTP Tests", () => {
       .expect(201);
   });
 
-  it("allows any action when user has system.manage_all super-permission", async () => {
-    activeActor.permissions = ["system.manage_all"];
+  it("allows any action when user has organization.manage_all super-permission", async () => {
+    activeActor.permissions = ["organization.manage_all"];
     await request(app.getHttpServer())
       .get("/api/v1/patients")
       .expect(200);

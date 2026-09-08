@@ -32,6 +32,9 @@ export type AuthUser = {
   permissions: string[];
   branchIds: string[];
   branches?: AuthUserBranch[];
+  authorizationVersion?: number;
+  branchScopeVersion?: number;
+  sessionId?: string;
   status?: string;
   lastLoginAt?: Date | string | null;
   createdAt?: Date | string | null;

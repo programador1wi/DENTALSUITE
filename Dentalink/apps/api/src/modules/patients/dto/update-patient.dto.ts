@@ -5,10 +5,12 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
   Matches,
   MaxLength,
+  Min,
   MinLength,
   ValidateNested
 } from "class-validator";
@@ -90,6 +92,11 @@ export class UpdatePatientMedicalAlertInputDto {
 }
 
 export class UpdatePatientDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
+
   @IsOptional()
   @IsString()
   branchId?: string;

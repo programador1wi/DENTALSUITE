@@ -7,11 +7,11 @@ describe("PermissionsService", () => {
         findMany: jest.fn().mockResolvedValue([
           {
             id: "permission-system",
-            key: "system.manage_all",
+            key: "organization.manage_all",
             name: "Manage all",
             description: null,
             module: "system",
-            code: "system.manage_all",
+            code: "organization.manage_all",
             action: "manage_all",
             resource: "system",
             isActive: true,
@@ -37,7 +37,7 @@ describe("PermissionsService", () => {
     const service = new PermissionsService(prisma as never);
 
     const result = await service.findAll(
-      { id: "actor", organizationId: "org", permissions: ["system.manage_all", "custom_module.read"] } as never,
+      { id: "actor", organizationId: "org", permissions: ["organization.manage_all", "custom_module.read"] } as never,
       {}
     );
 

@@ -118,6 +118,7 @@ export type ExcelReportDefinition = {
   handler: string | null;
   estimatedComplexity?: "LOW" | "MEDIUM" | "HIGH";
   enabled: boolean;
+  unavailableReason?: string;
   country?: string;
   plan?: string;
   keywords?: string[];

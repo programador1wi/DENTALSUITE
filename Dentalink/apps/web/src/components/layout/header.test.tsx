@@ -46,7 +46,7 @@ describe("Header permission visibility", () => {
     localStorage.clear();
     branchMocks.useBranches.mockReset();
     branchMocks.useBranches.mockReturnValue({ data: undefined });
-    authStoreApi.setState({ user: null, accessToken: null, refreshToken: null });
+    authStoreApi.setState({ user: null, accessToken: null, isSessionInitialized: true });
     useBranchStore.setState({ activeBranchId: undefined });
   });
 
@@ -85,7 +85,7 @@ describe("Header Branch & Zone Selector", () => {
   beforeEach(() => {
     localStorage.clear();
     branchMocks.useBranches.mockReset();
-    authStoreApi.setState({ user: null, accessToken: null, refreshToken: null });
+    authStoreApi.setState({ user: null, accessToken: null, isSessionInitialized: true });
     useBranchStore.setState({ activeBranchId: undefined });
   });
 

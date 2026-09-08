@@ -114,7 +114,7 @@ export function VersionedPriceListsPage() {
   };
 
   const can = (permission: string) =>
-    hasPermission(permission) || hasPermission(legacyPermission[permission] ?? "__none__") || hasPermission("system.manage_all");
+    hasPermission(permission) || hasPermission(legacyPermission[permission] ?? "__none__") || hasPermission("organization.manage_all");
 
   const [search, setSearch] = useState("");
   const [includeInactive, setIncludeInactive] = useState(urlSearchParams.get("includeInactive") === "true");

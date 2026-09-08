@@ -13,6 +13,7 @@ import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { SafeHtml } from "@/components/ui/safe-html";
 import { Tabs } from "@/components/ui/tabs";
 import { TableActionGroup, TableToolbar } from "@/components/ui/table-toolbar";
 import { Textarea } from "@/components/ui/textarea";
@@ -470,9 +471,9 @@ export function SpecialtiesSettingsPage() {
                           </>
                         )}
                       </div>
-                      <div 
+                      <SafeHtml
+                        html={template.content}
                         className="mt-1 line-clamp-2 text-xs text-slate-500 prose prose-sm max-w-none prose-p:my-0 prose-headings:my-0 prose-ul:my-0 prose-ol:my-0"
-                        dangerouslySetInnerHTML={{ __html: template.content }}
                       />
                     </div>
                     <Badge

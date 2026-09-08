@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, HttpException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { Prisma, RadiographyAnalysisProvider, RadiographyAnalysisStatus } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import { createReadStream, type ReadStream } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { extname, isAbsolute, relative, resolve } from "node:path";
+import { Readable } from "node:stream";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { coerceClinicalDocumentContent, normalizeClinicalDocumentContent } from "../../common/utils/clinical-document-content.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
@@ -18,6 +19,8 @@ import {
   UpdateClinicalDocumentTemplateSettingsDto,
   UploadFileAttachmentDto
 } from "./dto/documents.dto";
+import { validateUploadedFile } from "./file-type-validation";
+import { ClinicalFileStorageService } from "../storage/clinical-file-storage.service";
 
 type UploadedPatientFile = {
   originalname: string;
@@ -35,27 +38,14 @@ type NormalizedRadiographyFinding = {
   source: "MANUAL";
 };
 
-const PATIENT_FILE_STORAGE_ROOT = resolve(process.cwd(), "storage", "patient-files");
-const USER_FILE_STORAGE_ROOT = resolve(process.cwd(), "storage", "user-files");
-const CLINICAL_DOCUMENT_TEMPLATE_ASSET_STORAGE_ROOT = resolve(process.cwd(), "storage", "clinical-document-assets");
-const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".dcm", ".dicom"]);
-const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/plain",
-  "application/dicom"
-]);
+const DEFAULT_LEGACY_STORAGE_ROOT = resolve(__dirname, "../../../storage");
 
 @Injectable()
 export class DocumentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly clinicalStorage?: ClinicalFileStorageService
+  ) {}
 
   async listPatientFiles(actor: AuthUser, patientId: string, query: PatientFilesQueryDto) {
     const { skip, take } = resolvePagination(query);
@@ -109,20 +99,17 @@ export class DocumentsService {
   async uploadPatientBinaryFile(actor: AuthUser, patientId: string, dto: UploadBinaryFileAttachmentDto, file?: UploadedPatientFile) {
     await this.ensurePatient(actor, patientId);
     if (dto.treatmentPlanId) await this.ensurePatientTreatmentPlan(actor, patientId, dto.treatmentPlanId);
-    if (!file?.buffer || !file.originalname?.trim()) throw new BadRequestException("File is required");
-    if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) throw new BadRequestException("File size is not allowed");
-
-    const extension = extname(file.originalname).toLowerCase();
-    const mimeType = file.mimetype?.trim() || "application/octet-stream";
-    if (!this.isAllowedFile(extension, mimeType)) {
-      throw new BadRequestException("Unsupported file type");
-    }
+    const validatedFile = await this.validateFileOrReject(actor, "Patient", patientId, file);
+    const { buffer, extension, mimeType, originalName, size } = validatedFile;
 
     const id = randomUUID();
     const storedFileName = `${Date.now()}-${id}${extension || ".bin"}`;
-    const targetDirectory = this.getPatientFileDirectory(actor.organizationId, patientId);
-    await mkdir(targetDirectory, { recursive: true });
-    await writeFile(join(targetDirectory, storedFileName), file.buffer);
+    const storage = this.requireClinicalStorage();
+    const stored = await this.storeClinicalFileOrReject(actor, "Patient", patientId, {
+      key: `${actor.organizationId}/patients/${patientId}/${id}.enc`,
+      buffer,
+      mimeType
+    });
 
     const category = dto.category?.trim() || this.inferCategory(mimeType, extension);
     const created = await this.prisma.fileAttachment.create({
@@ -133,12 +120,17 @@ export class DocumentsService {
         treatmentPlanId: dto.treatmentPlanId,
         uploadedById: actor.id,
         fileName: storedFileName,
-        originalName: file.originalname.trim(),
+        originalName,
         mimeType,
-        size: file.size,
+        size,
         url: `/patients/${patientId}/files/${id}/content`,
-        category
+        category,
+        ...stored,
+        detectedMimeType: mimeType
       }
+    }).catch(async (error) => {
+      await storage.discard(stored.storageKey).catch(() => undefined);
+      throw error;
     });
 
     await this.audit(actor, {
@@ -157,7 +149,7 @@ export class DocumentsService {
     return created;
   }
 
-  async getPatientFileContent(actor: AuthUser, patientId: string, fileId: string): Promise<{ stream: ReadStream; mimeType: string; downloadName: string }> {
+  async getPatientFileContent(actor: AuthUser, patientId: string, fileId: string): Promise<{ stream: Readable; mimeType: string; downloadName: string }> {
     const file = await this.prisma.fileAttachment.findFirst({
       where: {
         id: fileId,
@@ -167,6 +159,22 @@ export class DocumentsService {
       }
     });
     if (!file) throw new NotFoundException("File not found");
+
+    if (file.storageKey) {
+      if (!file.checksumSha256 || !file.encryptionVersion) {
+        throw new Error("Clinical file storage metadata is incomplete");
+      }
+      const buffer = await this.requireClinicalStorage().read({
+        storageKey: file.storageKey,
+        checksumSha256: file.checksumSha256,
+        encryptionVersion: file.encryptionVersion
+      });
+      return {
+        stream: Readable.from([buffer]),
+        mimeType: file.detectedMimeType ?? file.mimeType,
+        downloadName: this.safeDownloadName(file.originalName)
+      };
+    }
 
     const directory = this.getPatientFileDirectory(actor.organizationId, patientId);
     const filePath = resolve(directory, file.fileName);
@@ -250,20 +258,17 @@ export class DocumentsService {
   async uploadUserBinaryFile(actor: AuthUser, userId: string, dto: UploadBinaryFileAttachmentDto, file?: UploadedPatientFile) {
     await this.ensureUser(actor, userId);
     const professionalId = dto.professionalId ? await this.ensureUserProfessional(actor, userId, dto.professionalId) : undefined;
-    if (!file?.buffer || !file.originalname?.trim()) throw new BadRequestException("File is required");
-    if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) throw new BadRequestException("File size is not allowed");
-
-    const extension = extname(file.originalname).toLowerCase();
-    const mimeType = file.mimetype?.trim() || "application/octet-stream";
-    if (!this.isAllowedFile(extension, mimeType)) {
-      throw new BadRequestException("Unsupported file type");
-    }
+    const validatedFile = await this.validateFileOrReject(actor, "User", userId, file);
+    const { buffer, extension, mimeType, originalName, size } = validatedFile;
 
     const id = randomUUID();
     const storedFileName = `${Date.now()}-${id}${extension || ".bin"}`;
-    const targetDirectory = this.getUserFileDirectory(actor.organizationId, userId);
-    await mkdir(targetDirectory, { recursive: true });
-    await writeFile(join(targetDirectory, storedFileName), file.buffer);
+    const storage = this.requireClinicalStorage();
+    const stored = await this.storeClinicalFileOrReject(actor, "User", userId, {
+      key: `${actor.organizationId}/users/${userId}/${id}.enc`,
+      buffer,
+      mimeType
+    });
 
     const category = dto.category?.trim() || this.inferCategory(mimeType, extension);
     const created = await this.prisma.fileAttachment.create({
@@ -274,12 +279,17 @@ export class DocumentsService {
         professionalId,
         uploadedById: actor.id,
         fileName: storedFileName,
-        originalName: file.originalname.trim(),
+        originalName,
         mimeType,
-        size: file.size,
+        size,
         url: `/users/${userId}/files/${id}/content`,
-        category
+        category,
+        ...stored,
+        detectedMimeType: mimeType
       }
+    }).catch(async (error) => {
+      await storage.discard(stored.storageKey).catch(() => undefined);
+      throw error;
     });
 
     await this.audit(actor, {
@@ -298,7 +308,7 @@ export class DocumentsService {
     return created;
   }
 
-  async getUserFileContent(actor: AuthUser, userId: string, fileId: string): Promise<{ stream: ReadStream; mimeType: string; downloadName: string }> {
+  async getUserFileContent(actor: AuthUser, userId: string, fileId: string): Promise<{ stream: Readable; mimeType: string; downloadName: string }> {
     await this.ensureUser(actor, userId);
     const file = await this.prisma.fileAttachment.findFirst({
       where: {
@@ -308,6 +318,22 @@ export class DocumentsService {
       }
     });
     if (!file) throw new NotFoundException("File not found");
+
+    if (file.storageKey) {
+      if (!file.checksumSha256 || !file.encryptionVersion) {
+        throw new Error("Clinical file storage metadata is incomplete");
+      }
+      const buffer = await this.requireClinicalStorage().read({
+        storageKey: file.storageKey,
+        checksumSha256: file.checksumSha256,
+        encryptionVersion: file.encryptionVersion
+      });
+      return {
+        stream: Readable.from([buffer]),
+        mimeType: file.detectedMimeType ?? file.mimeType,
+        downloadName: this.safeDownloadName(file.originalName)
+      };
+    }
 
     const directory = this.getUserFileDirectory(actor.organizationId, userId);
     const filePath = resolve(directory, file.fileName);
@@ -431,24 +457,27 @@ export class DocumentsService {
   }
 
   async uploadClinicalDocumentTemplateAsset(actor: AuthUser, file?: UploadedPatientFile) {
-    if (!file?.buffer || !file.originalname?.trim()) throw new BadRequestException("File is required");
-    if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) throw new BadRequestException("File size is not allowed");
-
-    const extension = extname(file.originalname).toLowerCase();
-    const mimeType = file.mimetype?.trim() || "application/octet-stream";
-    if (!this.isAllowedFile(extension, mimeType)) throw new BadRequestException("Unsupported file type");
+    const validatedFile = await this.validateFileOrReject(
+      actor,
+      "ClinicalDocumentTemplateAsset",
+      actor.organizationId,
+      file
+    );
+    const { buffer, extension, mimeType, originalName, size } = validatedFile;
 
     const id = randomUUID();
     const storedFileName = `${id}${extension}`;
-    const directory = this.getClinicalDocumentTemplateAssetDirectory(actor.organizationId);
-    await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, storedFileName), file.buffer);
+    await this.storeClinicalFileOrReject(actor, "ClinicalDocumentTemplateAsset", actor.organizationId, {
+      key: `${actor.organizationId}/clinical-document-assets/${storedFileName}.enc`,
+      buffer,
+      mimeType
+    });
 
     const uploaded = {
       fileName: storedFileName,
-      originalName: file.originalname.trim(),
+      originalName,
       mimeType,
-      size: file.size,
+      size,
       url: `/settings/clinical-document-templates/assets/${storedFileName}`
     };
 
@@ -461,8 +490,22 @@ export class DocumentsService {
     return uploaded;
   }
 
-  async getClinicalDocumentTemplateAsset(actor: AuthUser, fileName: string): Promise<{ stream: ReadStream; mimeType: string; downloadName: string }> {
+  async getClinicalDocumentTemplateAsset(actor: AuthUser, fileName: string): Promise<{ stream: Readable; mimeType: string; downloadName: string }> {
     const safeFileName = this.safeStoredFileName(fileName);
+    if (this.clinicalStorage) {
+      const storageKey = `${actor.organizationId}/clinical-document-assets/${safeFileName}.enc`;
+      if (await this.clinicalStorage.exists(storageKey)) {
+        const buffer = await this.clinicalStorage.read({
+          storageKey,
+          encryptionVersion: 1
+        });
+        return {
+          stream: Readable.from([buffer]),
+          mimeType: this.mimeTypeFromExtension(extname(safeFileName).toLowerCase()),
+          downloadName: this.safeDownloadName(safeFileName)
+        };
+      }
+    }
     const directory = this.getClinicalDocumentTemplateAssetDirectory(actor.organizationId);
     const filePath = resolve(directory, safeFileName);
     if (!this.isPathInside(directory, filePath)) throw new BadRequestException("Invalid file path");
@@ -635,15 +678,19 @@ export class DocumentsService {
   }
 
   private getPatientFileDirectory(organizationId: string, patientId: string) {
-    return resolve(PATIENT_FILE_STORAGE_ROOT, organizationId, patientId);
+    return resolve(this.legacyStorageRoot(), "patient-files", organizationId, patientId);
   }
 
   private getUserFileDirectory(organizationId: string, userId: string) {
-    return resolve(USER_FILE_STORAGE_ROOT, organizationId, userId);
+    return resolve(this.legacyStorageRoot(), "user-files", organizationId, userId);
   }
 
   private getClinicalDocumentTemplateAssetDirectory(organizationId: string) {
-    return resolve(CLINICAL_DOCUMENT_TEMPLATE_ASSET_STORAGE_ROOT, organizationId);
+    return resolve(this.legacyStorageRoot(), "clinical-document-assets", organizationId);
+  }
+
+  private legacyStorageRoot() {
+    return resolve(process.env.LEGACY_STORAGE_ROOT?.trim() || DEFAULT_LEGACY_STORAGE_ROOT);
   }
 
   private isPathInside(parentPath: string, childPath: string) {
@@ -651,8 +698,62 @@ export class DocumentsService {
     return Boolean(segment) && !segment.startsWith("..") && !isAbsolute(segment);
   }
 
-  private isAllowedFile(extension: string, mimeType: string) {
-    return ALLOWED_MIME_TYPES.has(mimeType) || ALLOWED_EXTENSIONS.has(extension);
+  private async validateFileOrReject(
+    actor: AuthUser,
+    targetEntity: string,
+    targetId: string,
+    file?: UploadedPatientFile
+  ) {
+    const validation = validateUploadedFile(file);
+    if (validation.ok) return validation;
+
+    await this.audit(actor, {
+      entity: targetEntity,
+      entityId: targetId,
+      action: "upload_rejected",
+      after: {
+        reasonCode: validation.code,
+        extension: validation.extension,
+        declaredMimeType: validation.mimeType,
+        size: file?.size ?? null
+      }
+    });
+    throw new BadRequestException({
+      code: "UNSUPPORTED_FILE_CONTENT",
+      message: "La extensión, el tipo MIME y el contenido del archivo deben coincidir."
+    });
+  }
+
+  private requireClinicalStorage() {
+    if (!this.clinicalStorage) throw new Error("Clinical file storage is not configured");
+    return this.clinicalStorage;
+  }
+
+  private async storeClinicalFileOrReject(
+    actor: AuthUser,
+    targetEntity: string,
+    targetId: string,
+    input: { key: string; buffer: Buffer; mimeType: string }
+  ) {
+    try {
+      return await this.requireClinicalStorage().store(input);
+    } catch (error) {
+      const response = error instanceof HttpException
+        ? error.getResponse()
+        : error instanceof Error
+          ? { code: "CLINICAL_STORAGE_UNAVAILABLE", message: error.message }
+          : { code: "CLINICAL_STORAGE_UNAVAILABLE" };
+      const reasonCode = typeof response === "object" && response && "code" in response
+        ? String(response.code)
+        : "CLINICAL_STORAGE_UNAVAILABLE";
+      await this.audit(actor, {
+        entity: targetEntity,
+        entityId: targetId,
+        action: "upload_rejected",
+        after: { reasonCode }
+      });
+      throw error;
+    }
   }
 
   private inferCategory(mimeType: string, extension: string) {
@@ -707,29 +808,60 @@ export class DocumentsService {
   }
 
   async deletePatientFile(actor: AuthUser, patientId: string, fileId: string, reason: string) {
-    const file = await this.prisma.fileAttachment.findFirst({
-      where: { id: fileId, patientId, organizationId: actor.organizationId, deletedAt: null }
-    });
+    const patient = await this.ensurePatient(actor, patientId);
 
-    if (!file) throw new NotFoundException("File not found or already deleted");
+    return this.prisma.$transaction(async (tx) => {
+      const file = await tx.fileAttachment.findFirst({
+        where: {
+          id: fileId,
+          patientId: patient.id,
+          organizationId: actor.organizationId,
+          patient: { branchId: branchScope(actor) },
+          deletedAt: null
+        }
+      });
 
-    const updated = await this.prisma.fileAttachment.update({
-      where: { id: fileId },
-      data: {
-        deletedAt: new Date(),
-        deletedById: actor.id,
-        deleteReason: reason
+      if (!file) {
+        throw new NotFoundException("File not found or already deleted");
       }
-    });
 
-    await this.audit(actor, {
-      entity: "FileAttachment",
-      entityId: fileId,
-      action: "DELETE",
-      before: file,
-      after: updated
-    });
+      const updateResult = await tx.fileAttachment.updateMany({
+        where: {
+          id: fileId,
+          patientId: patient.id,
+          organizationId: actor.organizationId,
+          patient: { branchId: branchScope(actor) },
+          deletedAt: null
+        },
+        data: {
+          deletedAt: new Date(),
+          deletedById: actor.id,
+          deleteReason: reason
+        }
+      });
 
-    return updated;
+      if (updateResult.count !== 1) {
+        throw new NotFoundException("File not found or already deleted");
+      }
+
+      const updated = await tx.fileAttachment.findUniqueOrThrow({
+        where: { id: fileId }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: actor.organizationId,
+          userId: actor.id,
+          actorUserId: actor.id,
+          entity: "FileAttachment",
+          entityId: fileId,
+          action: "DELETE",
+          before: file as unknown as Prisma.InputJsonValue,
+          after: updated as unknown as Prisma.InputJsonValue
+        }
+      });
+
+      return updated;
+    });
   }
 }

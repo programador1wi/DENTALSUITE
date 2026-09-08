@@ -13,10 +13,18 @@ import { UpdateUserPermissionsDto } from "./dto/update-user-permissions.dto";
 import { ApplyProfileDto } from "./dto/apply-profile.dto";
 import { CopyPermissionsDto } from "./dto/copy-permissions.dto";
 import { UpdateUserBranchesDto } from "./dto/update-user-branches.dto";
+import { RedisService } from "../redis/redis.service";
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService
+  ) {}
+
+  private async invalidateUserCache(userId: string) {
+    await this.redis.del(`auth:user:${userId}`);
+  }
 
   async findAll(actor: AuthUser, query: ListUsersQueryDto) {
     const { search, status, branchId } = query;
@@ -108,6 +116,7 @@ export class UsersService {
   }
 
   async update(actor: AuthUser, id: string, dto: UpdateUserDto) {
+    await this.assertCanManageTarget(actor, id);
     const current = await this.prisma.user.findFirst({
       where: { id, deletedAt: null, ...this.organizationScope(actor) },
       include: { branches: true }
@@ -135,11 +144,12 @@ export class UsersService {
           status: dto.status,
           isActive: nextIsActive,
           permissionsOverride: false,
+          authorizationVersion: { increment: 1 },
           updatedById: actor.id
         }
       });
 
-      if (dto.status && dto.status !== "ACTIVE") {
+      if (dto.password || (dto.status && dto.status !== "ACTIVE")) {
         await tx.session.updateMany({
           where: { userId: id, revokedAt: null },
           data: { revokedAt: new Date() }
@@ -178,6 +188,8 @@ export class UsersService {
         }
       });
     });
+
+    await this.invalidateUserCache(id);
 
     return this.findOne(actor, id);
   }
@@ -231,6 +243,8 @@ export class UsersService {
       return result.count;
     });
 
+    await this.redis.delPattern("auth:user:*");
+
     return { updated };
   }
 
@@ -249,6 +263,7 @@ export class UsersService {
   }
 
   async updateUserPermissions(actor: AuthUser, id: string, dto: UpdateUserPermissionsDto) {
+    await this.assertCanManageTarget(actor, id);
     const current = await this.prisma.user.findFirst({
       where: { id, deletedAt: null, ...this.organizationScope(actor) }
     });
@@ -281,7 +296,7 @@ export class UsersService {
 
       await tx.user.update({
         where: { id },
-        data: { permissionsOverride, updatedById: actor.id }
+        data: { permissionsOverride, updatedById: actor.id, authorizationVersion: { increment: 1 } }
       });
 
       await tx.auditLog.create({
@@ -296,10 +311,13 @@ export class UsersService {
       });
     });
 
+    await this.invalidateUserCache(id);
+
     return this.findOne(actor, id);
   }
 
   async applyProfile(actor: AuthUser, id: string, dto: ApplyProfileDto) {
+    await this.assertCanManageTarget(actor, id);
     const current = await this.prisma.user.findFirst({
       where: { id, deletedAt: null, ...this.organizationScope(actor) }
     });
@@ -337,7 +355,7 @@ export class UsersService {
 
       await tx.user.update({
         where: { id },
-        data: { permissionsOverride: true, updatedById: actor.id }
+        data: { permissionsOverride: true, updatedById: actor.id, authorizationVersion: { increment: 1 } }
       });
 
       await tx.auditLog.create({
@@ -352,10 +370,13 @@ export class UsersService {
       });
     });
 
+    await this.invalidateUserCache(id);
+
     return this.findOne(actor, id);
   }
 
   async copyPermissions(actor: AuthUser, id: string, dto: CopyPermissionsDto) {
+    await this.assertCanManageTarget(actor, id);
     const current = await this.prisma.user.findFirst({
       where: { id, deletedAt: null, ...this.organizationScope(actor) }
     });
@@ -395,7 +416,7 @@ export class UsersService {
 
       await tx.user.update({
         where: { id },
-        data: { permissionsOverride: true, updatedById: actor.id }
+        data: { permissionsOverride: true, updatedById: actor.id, authorizationVersion: { increment: 1 } }
       });
 
       await tx.auditLog.create({
@@ -410,10 +431,13 @@ export class UsersService {
       });
     });
 
+    await this.invalidateUserCache(id);
+
     return this.findOne(actor, id);
   }
 
   async updateBranches(actor: AuthUser, id: string, dto: UpdateUserBranchesDto) {
+    await this.assertCanManageTarget(actor, id);
     const current = await this.prisma.user.findFirst({
       where: { id, deletedAt: null, ...this.organizationScope(actor) }
     });
@@ -433,6 +457,11 @@ export class UsersService {
         skipDuplicates: true
       });
 
+      await tx.user.update({
+        where: { id },
+        data: { authorizationVersion: { increment: 1 }, updatedById: actor.id }
+      });
+
       await tx.auditLog.create({
         data: {
           organizationId: actor.organizationId,
@@ -445,11 +474,13 @@ export class UsersService {
       });
     });
 
+    await this.invalidateUserCache(id);
+
     return this.findOne(actor, id);
   }
 
   private organizationScope(actor: AuthUser): Prisma.UserWhereInput {
-    return actor.permissions.includes("system.manage_all") ? {} : { organizationId: actor.organizationId };
+    return { organizationId: actor.organizationId };
   }
 
   private async validateRole(actor: AuthUser, roleId: string) {
@@ -463,7 +494,9 @@ export class UsersService {
       include: { permissions: { include: { permission: true } } }
     });
     if (!role) throw new BadRequestException("Invalid role");
-    if (actor.permissions.includes("system.manage_all")) return;
+    if (actor.permissions.includes("organization.manage_all")) {
+      return;
+    }
 
     const exceedsActor = role.permissions.some(
       ({ permission }) =>
@@ -479,6 +512,12 @@ export class UsersService {
     if (primaryBranchId && !branchIds.includes(primaryBranchId)) {
       throw new BadRequestException("Primary branch must be included in branchIds");
     }
+    if (
+      !actor.permissions.includes("organization.manage_all") &&
+      branchIds.some((branchId) => !actor.branchIds.includes(branchId))
+    ) {
+      throw new ForbiddenException("BRANCH_ASSIGNMENT_EXCEEDS_ACTOR");
+    }
 
     const count = await this.prisma.branch.count({
       where: {
@@ -492,6 +531,21 @@ export class UsersService {
     if (count !== new Set(branchIds).size) {
       throw new BadRequestException("One or more branches are invalid");
     }
+  }
+
+  private async assertCanManageTarget(actor: AuthUser, userId: string) {
+    if (actor.permissions.includes("organization.manage_all")) return;
+    const protectedRoleAssignment = await this.prisma.user.count({
+      where: {
+        id: userId,
+        organizationId: actor.organizationId,
+        OR: [
+          { role: { is: { code: { in: ["super_admin", "super_administrador"] } } } },
+          { roles: { some: { role: { code: { in: ["super_admin", "super_administrador"] } } } } }
+        ]
+      }
+    });
+    if (protectedRoleAssignment > 0) throw new ForbiddenException("PROTECTED_USER");
   }
 
   private includeRelations() {

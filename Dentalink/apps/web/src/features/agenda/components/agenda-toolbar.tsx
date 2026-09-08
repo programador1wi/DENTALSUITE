@@ -1,23 +1,24 @@
 import { useMemo, useRef, useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { 
-  List, 
-  LayoutTemplate, 
-  Users, 
-  AlertTriangle, 
-  ChevronDown, 
+import {
+  List,
+  LayoutTemplate,
+  Users,
+  AlertTriangle,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Calendar as CalendarIcon, 
-  Printer, 
+  Calendar as CalendarIcon,
+  Printer,
   Mail,
-  Search
+  Search,
+  BellRing
 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { APP_ROUTES } from "@/lib/routes";
 
 interface AgendaToolbarProps {
-  view: "day" | "week" | "month" | "list" | "reprogramming";
+  view: "day" | "week" | "month" | "list" | "reprogramming" | "reminders";
   date: string;
   totalAppointments: number;
   onDateChange: (date: string) => void;
@@ -70,7 +71,9 @@ export function AgendaToolbar({
     if (!printSearch.trim()) return professionals;
     const q = printSearch.toLowerCase();
     return professionals.filter(
-      (p) => `${p.lastName} ${p.firstName}`.toLowerCase().includes(q) || `${p.firstName} ${p.lastName}`.toLowerCase().includes(q)
+      (p) =>
+        `${p.lastName} ${p.firstName}`.toLowerCase().includes(q) ||
+        `${p.firstName} ${p.lastName}`.toLowerCase().includes(q)
     );
   }, [professionals, printSearch]);
 
@@ -93,14 +96,14 @@ export function AgendaToolbar({
         </div>
 
         {/* Navigation Tabs (Segmented Control Style) */}
-        <div className="grid min-w-0 grid-cols-4 items-center gap-0.5 rounded-xl border border-zinc-200/60 bg-zinc-100/90 p-0.5 sm:flex sm:w-auto">
-          <Link 
+        <div className="grid min-w-0 grid-cols-5 items-center gap-0.5 rounded-xl border border-zinc-200/60 bg-zinc-100/90 p-0.5 sm:flex sm:w-auto">
+          <Link
             to={APP_ROUTES.agenda.list}
             aria-label="Vista diaria"
             className={cn(
               "flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold transition-all duration-200 whitespace-nowrap sm:px-2.5",
-              view === "list" 
-                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200/50" 
+              view === "list"
+                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200/50"
                 : "text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50"
             )}
           >
@@ -109,13 +112,13 @@ export function AgendaToolbar({
           </Link>
 
           <div className="group relative min-w-0">
-            <Link 
+            <Link
               to={APP_ROUTES.agenda.week}
               aria-label="Vista semanal"
               className={cn(
                 "flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold transition-all duration-200 whitespace-nowrap sm:px-2.5",
                 view === "week" || view === "month"
-                  ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200/50" 
+                  ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200/50"
                   : "text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50"
               )}
             >
@@ -125,13 +128,13 @@ export function AgendaToolbar({
             </Link>
           </div>
 
-          <Link 
+          <Link
             to={APP_ROUTES.agenda.day}
             aria-label="Vista diaria global"
             className={cn(
               "flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold transition-all duration-200 whitespace-nowrap sm:px-2.5",
-              view === "day" 
-                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200/50" 
+              view === "day"
+                ? "bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200/50"
                 : "text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50"
             )}
           >
@@ -139,7 +142,7 @@ export function AgendaToolbar({
             <span className="hidden sm:inline">Diaria global</span>
           </Link>
 
-          <Link 
+          <Link
             to={APP_ROUTES.agenda.reprogramming}
             aria-label="Reprogramación"
             className={cn(
@@ -151,6 +154,20 @@ export function AgendaToolbar({
           >
             <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden sm:inline">Reprogramación</span>
+          </Link>
+
+          <Link
+            to={APP_ROUTES.agenda.reminders}
+            aria-label="Recordatorios automáticos"
+            className={cn(
+              "flex min-w-0 items-center justify-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold transition-all duration-200 whitespace-nowrap sm:px-2.5",
+              view === "reminders"
+                ? "bg-white text-cyan-700 shadow-sm ring-1 ring-cyan-200/80"
+                : "text-zinc-500 hover:bg-zinc-200/50 hover:text-zinc-700"
+            )}
+          >
+            <BellRing className="h-3.5 w-3.5 shrink-0" />
+            <span className="hidden sm:inline">Recordatorios</span>
           </Link>
         </div>
       </div>
@@ -183,7 +200,9 @@ export function AgendaToolbar({
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
             <div className="flex h-8 min-w-0 flex-1 items-center justify-center border-x border-zinc-200/80 px-2 text-xs font-bold text-zinc-700 whitespace-nowrap sm:min-w-[170px]">
-              <span className="truncate" title={formatAgendaDate(date)}>{formatAgendaDate(date)}</span>
+              <span className="truncate" title={formatAgendaDate(date)}>
+                {formatAgendaDate(date)}
+              </span>
             </div>
             <button
               type="button"
@@ -208,144 +227,152 @@ export function AgendaToolbar({
               Fecha
             </button>
 
-          {datePickerOpen ? (
-            <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-zinc-200 bg-white p-3 shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
-              <div className="mb-3 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setVisibleMonth(addMonths(visibleMonth, -1))}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800"
-                  aria-label="Mes anterior"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <span className="text-sm font-semibold text-zinc-900">{formatMonthYear(visibleMonth)}</span>
-                <button
-                  type="button"
-                  onClick={() => setVisibleMonth(addMonths(visibleMonth, 1))}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800"
-                  aria-label="Mes siguiente"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-zinc-400">
-                {["Lu", "Ma", "Mi", "Ju", "Vi", "Sa", "Do"].map((dayLabel) => (
-                  <span key={dayLabel} className="py-1">{dayLabel}</span>
-                ))}
-              </div>
-              <div className="mt-1 grid grid-cols-7 gap-1">
-                {calendarDays.map((calendarDay) => (
+            {datePickerOpen ? (
+              <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-zinc-200 bg-white p-3 shadow-[0_18px_45px_rgba(15,23,42,0.16)]">
+                <div className="mb-3 flex items-center justify-between">
                   <button
                     type="button"
-                    key={calendarDay.value}
-                    onClick={() => selectDate(calendarDay.value)}
-                    className={cn(
-                      "flex h-8 items-center justify-center rounded-lg text-sm font-medium transition-colors",
-                      calendarDay.isCurrentMonth ? "text-zinc-700 hover:bg-cyan-50 hover:text-cyan-700" : "text-zinc-300 hover:bg-zinc-50",
-                      calendarDay.value === date && "bg-brand-500 text-white hover:bg-brand-600 hover:text-white"
-                    )}
+                    onClick={() => setVisibleMonth(addMonths(visibleMonth, -1))}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800"
+                    aria-label="Mes anterior"
                   >
-                    {calendarDay.day}
+                    <ChevronLeft className="h-4 w-4" />
                   </button>
-                ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        <button
-          type="button"
-          onClick={onGoToday}
-          className="flex items-center gap-2 bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200/80 px-3 py-2 text-sm font-medium rounded-xl transition-all shadow-sm focus:ring-2 focus:ring-zinc-200 outline-none hover:border-zinc-300 shrink-0 whitespace-nowrap"
-        >
-          Hoy
-        </button>
-
-        {/* Print Button Dropdown */}
-        <div className="relative shrink-0" ref={printDropdownRef}>
-          <button
-            type="button"
-            onClick={() => setPrintDropdownOpen((prev) => !prev)}
-            aria-label="Opciones de impresión"
-            className="flex items-center gap-2 bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200/80 px-3 py-2 text-sm font-medium rounded-xl transition-all shadow-sm focus:ring-2 focus:ring-zinc-200 outline-none hover:border-zinc-300 whitespace-nowrap"
-          >
-            <Printer className="w-4 h-4 text-zinc-500" />
-            <span className="hidden sm:inline">Imprimir</span>
-            <ChevronDown className={`w-3.5 h-3.5 ml-0.5 text-zinc-400 transition-transform ${printDropdownOpen ? "rotate-180" : ""}`} />
-          </button>
-
-          {printDropdownOpen && (
-            <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-zinc-200 bg-white p-2 shadow-xl animate-in fade-in zoom-in-95 duration-100">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-100 transition"
-                onClick={() => {
-                  if (onSelectPrintProfessional) {
-                    onSelectPrintProfessional("ALL");
-                  } else if (onPrint) {
-                    onPrint();
-                  }
-                  setPrintDropdownOpen(false);
-                }}
-              >
-                <span>Todos los profesionales</span>
-              </button>
-
-              <div className="my-1 border-t border-zinc-100 px-1 py-1">
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-400" />
-                  <input
-                    type="text"
-                    value={printSearch}
-                    onChange={(e) => setPrintSearch(e.target.value)}
-                    placeholder=""
-                    className="w-full rounded-md border border-zinc-200 bg-zinc-50 pl-8 pr-3 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 focus:border-cyan-500 focus:bg-white focus:outline-none"
-                    onClick={(e) => e.stopPropagation()}
-                  />
+                  <span className="text-sm font-semibold text-zinc-900">{formatMonthYear(visibleMonth)}</span>
+                  <button
+                    type="button"
+                    onClick={() => setVisibleMonth(addMonths(visibleMonth, 1))}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800"
+                    aria-label="Mes siguiente"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-7 gap-1 text-center text-[11px] font-semibold text-zinc-400">
+                  {["Lu", "Ma", "Mi", "Ju", "Vi", "Sa", "Do"].map((dayLabel) => (
+                    <span key={dayLabel} className="py-1">
+                      {dayLabel}
+                    </span>
+                  ))}
+                </div>
+                <div className="mt-1 grid grid-cols-7 gap-1">
+                  {calendarDays.map((calendarDay) => (
+                    <button
+                      type="button"
+                      key={calendarDay.value}
+                      onClick={() => selectDate(calendarDay.value)}
+                      className={cn(
+                        "flex h-8 items-center justify-center rounded-lg text-sm font-medium transition-colors",
+                        calendarDay.isCurrentMonth
+                          ? "text-zinc-700 hover:bg-cyan-50 hover:text-cyan-700"
+                          : "text-zinc-300 hover:bg-zinc-50",
+                        calendarDay.value === date &&
+                          "bg-brand-500 text-white hover:bg-brand-600 hover:text-white"
+                      )}
+                    >
+                      {calendarDay.day}
+                    </button>
+                  ))}
                 </div>
               </div>
+            ) : null}
+          </div>
 
-              <div className="max-h-56 overflow-y-auto space-y-0.5">
-                {filteredPrintProfessionals.map((prof) => (
-                  <button
-                    key={prof.id}
-                    type="button"
-                    className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs text-zinc-700 hover:bg-cyan-50 hover:text-cyan-800 transition"
-                    onClick={() => {
-                      if (onSelectPrintProfessional) {
-                        onSelectPrintProfessional(prof.id);
-                      } else if (onPrint) {
-                        onPrint();
-                      }
-                      setPrintDropdownOpen(false);
-                    }}
-                  >
-                    <span className="truncate font-medium">
-                      Dr(a). {prof.lastName}, {prof.firstName}
-                    </span>
-                  </button>
-                ))}
+          <button
+            type="button"
+            onClick={onGoToday}
+            className="flex items-center gap-2 bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200/80 px-3 py-2 text-sm font-medium rounded-xl transition-all shadow-sm focus:ring-2 focus:ring-zinc-200 outline-none hover:border-zinc-300 shrink-0 whitespace-nowrap"
+          >
+            Hoy
+          </button>
 
-                {filteredPrintProfessionals.length === 0 && (
-                  <div className="py-3 text-center text-xs text-zinc-400 italic">
-                    Sin doctores encontrados
+          {/* Print Button Dropdown */}
+          <div className="relative shrink-0" ref={printDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setPrintDropdownOpen((prev) => !prev)}
+              aria-label="Opciones de impresión"
+              className="flex items-center gap-2 bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200/80 px-3 py-2 text-sm font-medium rounded-xl transition-all shadow-sm focus:ring-2 focus:ring-zinc-200 outline-none hover:border-zinc-300 whitespace-nowrap"
+            >
+              <Printer className="w-4 h-4 text-zinc-500" />
+              <span className="hidden sm:inline">Imprimir</span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 ml-0.5 text-zinc-400 transition-transform ${printDropdownOpen ? "rotate-180" : ""}`}
+              />
+            </button>
+
+            {printDropdownOpen && (
+              <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-zinc-200 bg-white p-2 shadow-xl animate-in fade-in zoom-in-95 duration-100">
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs font-semibold text-zinc-800 hover:bg-zinc-100 transition"
+                  onClick={() => {
+                    if (onSelectPrintProfessional) {
+                      onSelectPrintProfessional("ALL");
+                    } else if (onPrint) {
+                      onPrint();
+                    }
+                    setPrintDropdownOpen(false);
+                  }}
+                >
+                  <span>Todos los profesionales</span>
+                </button>
+
+                <div className="my-1 border-t border-zinc-100 px-1 py-1">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-zinc-400" />
+                    <input
+                      type="text"
+                      value={printSearch}
+                      onChange={(e) => setPrintSearch(e.target.value)}
+                      placeholder=""
+                      className="w-full rounded-md border border-zinc-200 bg-zinc-50 pl-8 pr-3 py-1.5 text-xs text-zinc-700 placeholder:text-zinc-400 focus:border-cyan-500 focus:bg-white focus:outline-none"
+                      onClick={(e) => e.stopPropagation()}
+                    />
                   </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
+                </div>
 
-        {/* Mail Button */}
-        <button
-          type="button"
-          onClick={onEmail}
-          className="flex items-center justify-center bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200/80 px-3 py-2 text-sm rounded-xl transition-all shadow-sm focus:ring-2 focus:ring-zinc-200 outline-none hover:border-zinc-300 shrink-0"
-        >
-          <Mail className="w-4 h-4 text-zinc-500" />
-        </button>
-      </div>) : null}
+                <div className="max-h-56 overflow-y-auto space-y-0.5">
+                  {filteredPrintProfessionals.map((prof) => (
+                    <button
+                      key={prof.id}
+                      type="button"
+                      className="flex w-full items-center rounded-lg px-3 py-2 text-left text-xs text-zinc-700 hover:bg-cyan-50 hover:text-cyan-800 transition"
+                      onClick={() => {
+                        if (onSelectPrintProfessional) {
+                          onSelectPrintProfessional(prof.id);
+                        } else if (onPrint) {
+                          onPrint();
+                        }
+                        setPrintDropdownOpen(false);
+                      }}
+                    >
+                      <span className="truncate font-medium">
+                        Dr(a). {prof.lastName}, {prof.firstName}
+                      </span>
+                    </button>
+                  ))}
+
+                  {filteredPrintProfessionals.length === 0 && (
+                    <div className="py-3 text-center text-xs text-zinc-400 italic">
+                      Sin doctores encontrados
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Mail Button */}
+          <button
+            type="button"
+            onClick={onEmail}
+            className="flex items-center justify-center bg-white hover:bg-zinc-50 text-zinc-700 border border-zinc-200/80 px-3 py-2 text-sm rounded-xl transition-all shadow-sm focus:ring-2 focus:ring-zinc-200 outline-none hover:border-zinc-300 shrink-0"
+          >
+            <Mail className="w-4 h-4 text-zinc-500" />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

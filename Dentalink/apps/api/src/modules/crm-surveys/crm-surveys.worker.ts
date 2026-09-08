@@ -9,6 +9,7 @@ import { CrmSurveysService } from "./crm-surveys.service";
 @Injectable()
 export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(CrmSurveysWorker.name);
+  private readonly ownerId = randomUUID();
   private timer?: NodeJS.Timeout;
   private running = false;
 
@@ -20,6 +21,10 @@ export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
+    if (this.config.get<string>("SURVEY_WORKER_ENABLED") !== "true") {
+      this.logger.log("Survey worker disabled");
+      return;
+    }
     const interval = Number(this.config.get<string>("SURVEY_WORKER_INTERVAL_MS") || 10_000);
     this.timer = setInterval(() => void this.tick(), Math.max(2_000, interval));
     this.timer.unref();
@@ -34,20 +39,13 @@ export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     try {
       await this.expireTokens();
-      const invitation = await this.prisma.surveyInvitation.findFirst({
-        where: {
-          scheduledAt: { lte: new Date() },
-          tokenExpiresAt: { gt: new Date() },
-          status: { in: [SurveyInvitationStatus.CREATED, SurveyInvitationStatus.FAILED] },
-          survey: { sendConfiguration: { isActive: true } }
-        },
-        orderBy: { scheduledAt: "asc" },
-        include: {
-          survey: { include: { sendConfiguration: true } },
-          surveyVersion: true
-        }
-      });
-      if (invitation) await this.process(invitation);
+      await this.reconcileExpiredLeases();
+      const batchSize = Math.min(50, Math.max(1, Number(this.config.get<string>("SURVEY_WORKER_BATCH_SIZE")) || 10));
+      for (let processed = 0; processed < batchSize; processed += 1) {
+        const claimed = await this.claimNextInvitation();
+        if (!claimed) break;
+        await this.process(claimed.id);
+      }
     } catch (error) {
       this.logger.error("Survey worker tick failed", error);
     } finally {
@@ -55,9 +53,99 @@ export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async process(invitation: Awaited<ReturnType<CrmSurveysWorker["nextInvitationShape"]>>) {
+  private async claimNextInvitation(): Promise<{ id: string } | null> {
+    const now = new Date();
+    const candidates = await this.prisma.surveyInvitation.findMany({
+      where: {
+        scheduledAt: { lte: now },
+        tokenExpiresAt: { gt: now },
+        terminalAt: null,
+        status: { in: [SurveyInvitationStatus.CREATED, SurveyInvitationStatus.FAILED] },
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+        survey: { sendConfiguration: { isActive: true } }
+      },
+      orderBy: [{ scheduledAt: "asc" }, { createdAt: "asc" }],
+      take: 25,
+      include: { survey: { include: { sendConfiguration: true } } }
+    });
+    if (!candidates.length) return null;
+    const branches = await this.prisma.branch.findMany({
+      where: {
+        id: { in: [...new Set(candidates.map((candidate) => candidate.branchId))] },
+        organizationId: { in: [...new Set(candidates.map((candidate) => candidate.organizationId))] }
+      },
+      select: { id: true, organizationId: true, timezone: true }
+    });
+    const branchByScope = new Map(
+      branches.map((branch) => [`${branch.organizationId}:${branch.id}`, branch])
+    );
+
+    for (const candidate of candidates) {
+      const sendConfiguration = candidate.survey.sendConfiguration;
+      if (!sendConfiguration) continue;
+      if (candidate.attempts >= sendConfiguration.maxRetries) {
+        await this.prisma.surveyInvitation.updateMany({
+          where: { id: candidate.id, status: candidate.status, terminalAt: null },
+          data: {
+            status: SurveyInvitationStatus.FAILED,
+            terminalAt: now,
+            nextAttemptAt: null,
+            lastError: candidate.lastError ?? "Se agotaron los intentos de envío"
+          }
+        });
+        continue;
+      }
+      const branch = branchByScope.get(`${candidate.organizationId}:${candidate.branchId}`);
+      if (
+        !branch ||
+        !this.insideSendWindow(
+          sendConfiguration.sendWindowStart,
+          sendConfiguration.sendWindowEnd,
+          branch.timezone || "America/Mexico_City"
+        )
+      ) {
+        await this.prisma.surveyInvitation.updateMany({
+          where: { id: candidate.id, status: candidate.status, terminalAt: null },
+          data: { nextAttemptAt: new Date(Date.now() + 5 * 60_000) }
+        });
+        continue;
+      }
+      const leaseExpiresAt = new Date(Date.now() + this.leaseMs());
+      const claimed = await this.prisma.surveyInvitation.updateMany({
+        where: { id: candidate.id, status: candidate.status, terminalAt: null },
+        data: {
+          status: SurveyInvitationStatus.PROCESSING,
+          attempts: { increment: 1 },
+          leaseOwner: this.ownerId,
+          leaseExpiresAt,
+          heartbeatAt: now,
+          nextAttemptAt: null,
+          lastError: null
+        }
+      });
+      if (claimed.count === 1) return { id: candidate.id };
+    }
+    return null;
+  }
+
+  private async process(id: string) {
+    const invitation = await this.prisma.surveyInvitation.findFirst({
+      where: { id, status: SurveyInvitationStatus.PROCESSING, leaseOwner: this.ownerId },
+      include: {
+        survey: { include: { sendConfiguration: true } },
+        surveyVersion: true
+      }
+    });
+    if (!invitation) return;
+    const heartbeat = this.startHeartbeat(invitation.id);
+    let providerAccepted = false;
     const sendConfiguration = invitation.survey.sendConfiguration;
-    if (!sendConfiguration || !sendConfiguration.isActive || invitation.attempts >= sendConfiguration.maxRetries) return;
+    if (!sendConfiguration || !sendConfiguration.isActive) {
+      heartbeat.stop();
+      await this.finishFailure(invitation, "La configuración de envío está desactivada", false);
+      return;
+    }
+    try {
     const [patient, appointment, professional, branch, organization] = await Promise.all([
       this.prisma.patient.findFirst({ where: { id: invitation.patientId, organizationId: invitation.organizationId } }),
       this.prisma.appointment.findFirst({ where: { id: invitation.appointmentId, organizationId: invitation.organizationId } }),
@@ -66,10 +154,13 @@ export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
       this.prisma.organization.findUnique({ where: { id: invitation.organizationId } })
     ]);
     if (!patient || !appointment || !professional || !branch || !organization) {
-      await this.fail(invitation.id, invitation.attempts + 1, "La referencia clínica de la invitación ya no está disponible");
+      await this.finishFailure(invitation, "La referencia clínica de la invitación ya no está disponible", false);
       return;
     }
-    if (!this.insideSendWindow(sendConfiguration.sendWindowStart, sendConfiguration.sendWindowEnd, branch.timezone || "America/Mexico_City")) return;
+    if (!this.insideSendWindow(sendConfiguration.sendWindowStart, sendConfiguration.sendWindowEnd, branch.timezone || "America/Mexico_City")) {
+      await this.releaseForRetry(invitation.id, new Date(Date.now() + 5 * 60_000), "Fuera de la ventana de envío");
+      return;
+    }
 
     const rawToken = randomBytes(32).toString("base64url");
     const tokenHash = this.surveys.hashToken(rawToken);
@@ -101,19 +192,17 @@ export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
       footer,
       responseUrl
     });
-    const attempt = invitation.attempts + 1;
+    const attempt = invitation.attempts;
     const now = new Date();
-    const claimed = await this.prisma.surveyInvitation.updateMany({
-      where: { id: invitation.id, status: invitation.status },
+    const queued = await this.prisma.surveyInvitation.updateMany({
+      where: { id: invitation.id, status: SurveyInvitationStatus.PROCESSING, leaseOwner: this.ownerId },
       data: {
         tokenHash,
-        status: SurveyInvitationStatus.QUEUED,
         queuedAt: now,
-        attempts: attempt,
         lastError: null
       }
     });
-    if (!claimed.count) return;
+    if (!queued.count) return;
     await this.prisma.$transaction([
       this.prisma.surveyDeliveryEvent.create({
         data: { invitationId: invitation.id, type: SurveyDeliveryEventType.QUEUED, provider: "smtp" }
@@ -137,21 +226,29 @@ export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
         replyTo: branch.replyToEmail ?? branch.email ?? undefined,
         subject: this.toPlainText(subject),
         html,
-        text: this.toPlainText(`${header}\n\nResponder encuesta: ${responseUrl}\n\n${footer}`)
+        text: this.toPlainText(`${header}\n\nResponder encuesta: ${responseUrl}\n\n${footer}`),
+        idempotencyKey: `survey-invitation:${invitation.id}`
       });
+      providerAccepted = true;
       const sentAt = new Date();
-      await this.prisma.$transaction([
-        this.prisma.surveyInvitation.update({
-          where: { id: invitation.id },
+      await this.prisma.$transaction(async (tx) => {
+        const completed = await tx.surveyInvitation.updateMany({
+          where: { id: invitation.id, status: SurveyInvitationStatus.PROCESSING, leaseOwner: this.ownerId },
           data: {
             status: SurveyInvitationStatus.SENT,
             sentAt,
             provider: "smtp",
             providerMessageId: sent.providerMessageId,
-            lastError: null
+            lastError: null,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            heartbeatAt: sentAt,
+            nextAttemptAt: null,
+            terminalAt: sentAt
           }
-        }),
-        this.prisma.surveyDeliveryEvent.create({
+        });
+        if (completed.count !== 1) throw new Error("SURVEY_LEASE_LOST_AFTER_PROVIDER_ACCEPTED");
+        await tx.surveyDeliveryEvent.create({
           data: {
             invitationId: invitation.id,
             type: SurveyDeliveryEventType.ACCEPTED,
@@ -159,8 +256,8 @@ export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
             providerMessageId: sent.providerMessageId,
             payloadJson: { source: "SMTP_ACCEPTED" }
           }
-        }),
-        this.prisma.auditLog.create({
+        });
+        await tx.auditLog.create({
           data: {
             organizationId: invitation.organizationId,
             branchId: invitation.branchId,
@@ -170,10 +267,18 @@ export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
             after: { provider: "smtp", providerMessageId: sent.providerMessageId },
             correlationId: randomUUID()
           }
-        })
-      ]);
+        });
+      });
     } catch (error) {
-      await this.fail(invitation.id, attempt, error instanceof Error ? error.message : "No fue posible enviar el correo");
+      const message = error instanceof Error ? error.message : "No fue posible enviar el correo";
+      if (providerAccepted || this.isDeliveryUncertain(error)) {
+        await this.finishUncertain(invitation, message);
+      } else {
+        await this.finishFailure(invitation, message, invitation.attempts < sendConfiguration.maxRetries);
+      }
+    }
+    } finally {
+      heartbeat.stop();
     }
   }
 
@@ -183,15 +288,31 @@ export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  private async fail(id: string, attempt: number, error: string) {
+  private async finishFailure(
+    source: Awaited<ReturnType<CrmSurveysWorker["nextInvitationShape"]>>,
+    error: string,
+    retry: boolean
+  ) {
+    const nextAttemptAt = retry
+      ? new Date(Date.now() + Math.min(360, 5 * 2 ** Math.max(0, source.attempts - 1)) * 60_000)
+      : null;
     await this.prisma.$transaction(async (tx) => {
-      const invitation = await tx.surveyInvitation.update({
-        where: { id },
-        data: { status: SurveyInvitationStatus.FAILED, attempts: attempt, lastError: error.slice(0, 500) }
+      const updated = await tx.surveyInvitation.updateMany({
+        where: { id: source.id, status: SurveyInvitationStatus.PROCESSING, leaseOwner: this.ownerId },
+        data: {
+          status: SurveyInvitationStatus.FAILED,
+          lastError: error.slice(0, 500),
+          nextAttemptAt,
+          terminalAt: retry ? null : new Date(),
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          heartbeatAt: new Date()
+        }
       });
+      if (updated.count !== 1) return;
       await tx.surveyDeliveryEvent.create({
         data: {
-          invitationId: id,
+          invitationId: source.id,
           type: SurveyDeliveryEventType.FAILED,
           provider: "smtp",
           payloadJson: { message: error.slice(0, 500) }
@@ -199,16 +320,156 @@ export class CrmSurveysWorker implements OnModuleInit, OnModuleDestroy {
       });
       await tx.auditLog.create({
         data: {
-          organizationId: invitation.organizationId,
-          branchId: invitation.branchId,
+          organizationId: source.organizationId,
+          branchId: source.branchId,
           action: "survey.email_failed",
           entity: "SurveyInvitation",
-          entityId: id,
-          after: { attempt, error: error.slice(0, 500) },
+          entityId: source.id,
+          after: { attempt: source.attempts, retry, nextAttemptAt, error: error.slice(0, 500) },
           correlationId: randomUUID()
         }
       });
     });
+  }
+
+  private async finishUncertain(
+    source: Awaited<ReturnType<CrmSurveysWorker["nextInvitationShape"]>>,
+    error: string
+  ) {
+    await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const updated = await tx.surveyInvitation.updateMany({
+        where: { id: source.id, status: SurveyInvitationStatus.PROCESSING, leaseOwner: this.ownerId },
+        data: {
+          status: SurveyInvitationStatus.UNCERTAIN,
+          lastError: error.slice(0, 500),
+          terminalAt: now,
+          nextAttemptAt: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          heartbeatAt: now
+        }
+      });
+      if (updated.count !== 1) return;
+      await tx.surveyDeliveryEvent.create({
+        data: {
+          invitationId: source.id,
+          type: SurveyDeliveryEventType.UNCERTAIN,
+          provider: "smtp",
+          payloadJson: { message: error.slice(0, 500), retry: false }
+        }
+      });
+      await tx.auditLog.create({
+        data: {
+          organizationId: source.organizationId,
+          branchId: source.branchId,
+          action: "survey.email_uncertain",
+          entity: "SurveyInvitation",
+          entityId: source.id,
+          after: { attempt: source.attempts, error: error.slice(0, 500), retry: false },
+          correlationId: randomUUID()
+        }
+      });
+    });
+  }
+
+  private releaseForRetry(id: string, nextAttemptAt: Date, error: string) {
+    return this.prisma.surveyInvitation.updateMany({
+      where: { id, status: SurveyInvitationStatus.PROCESSING, leaseOwner: this.ownerId },
+      data: {
+        status: SurveyInvitationStatus.FAILED,
+        nextAttemptAt,
+        lastError: error,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: new Date()
+      }
+    });
+  }
+
+  private async reconcileExpiredLeases() {
+    const now = new Date();
+    const rows = await this.prisma.surveyInvitation.findMany({
+      where: {
+        status: SurveyInvitationStatus.PROCESSING,
+        leaseExpiresAt: { lte: now },
+        terminalAt: null
+      },
+      orderBy: { leaseExpiresAt: "asc" },
+      take: 25
+    });
+    for (const row of rows) {
+      await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.surveyInvitation.updateMany({
+          where: {
+            id: row.id,
+            status: SurveyInvitationStatus.PROCESSING,
+            leaseExpiresAt: { lte: now },
+            terminalAt: null
+          },
+          data: {
+            status: SurveyInvitationStatus.UNCERTAIN,
+            terminalAt: now,
+            nextAttemptAt: null,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            heartbeatAt: now,
+            lastError: "El propietario perdió el lease durante el envío; requiere conciliación"
+          }
+        });
+        if (updated.count !== 1) return;
+        await tx.surveyDeliveryEvent.create({
+          data: {
+            invitationId: row.id,
+            type: SurveyDeliveryEventType.UNCERTAIN,
+            provider: "smtp",
+            payloadJson: { reason: "LEASE_EXPIRED", retry: false }
+          }
+        });
+        await tx.auditLog.create({
+          data: {
+            organizationId: row.organizationId,
+            branchId: row.branchId,
+            action: "survey.email_uncertain",
+            entity: "SurveyInvitation",
+            entityId: row.id,
+            after: { reason: "LEASE_EXPIRED", retry: false },
+            correlationId: randomUUID()
+          }
+        });
+      });
+    }
+  }
+
+  private startHeartbeat(id: string) {
+    const interval = Math.max(5_000, Math.floor(this.leaseMs() / 3));
+    const timer = setInterval(() => {
+      const now = new Date();
+      void this.prisma.surveyInvitation.updateMany({
+        where: { id, status: SurveyInvitationStatus.PROCESSING, leaseOwner: this.ownerId },
+        data: { heartbeatAt: now, leaseExpiresAt: new Date(now.getTime() + this.leaseMs()) }
+      }).catch(() => undefined);
+    }, interval);
+    timer.unref();
+    return { stop: () => clearInterval(timer) };
+  }
+
+  private leaseMs() {
+    return Math.max(15_000, Number(this.config.get<string>("SURVEY_WORKER_LEASE_MS")) || 120_000);
+  }
+
+  private isDeliveryUncertain(error: unknown) {
+    let current: unknown = error;
+    for (let depth = 0; current && depth < 5; depth += 1) {
+      const value = current as { code?: string; responseCode?: number; cause?: unknown };
+      if (typeof value.responseCode === "number") return false;
+      if (["EAUTH", "EENVELOPE", "EMESSAGE"].includes(String(value.code ?? ""))) return false;
+      if (["ETIMEDOUT", "ECONNRESET", "ESOCKET"].includes(String(value.code ?? ""))) return true;
+      current = value.cause;
+    }
+    const message = error instanceof Error ? error.message : String(error ?? "");
+    if (/deshabilitado|no esta configurado|remitente.*no es valido/i.test(message)) return false;
+    return true;
   }
 
   private expireTokens() {

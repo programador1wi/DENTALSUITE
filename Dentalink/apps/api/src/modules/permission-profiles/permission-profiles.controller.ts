@@ -30,19 +30,19 @@ export class PermissionProfilesController {
   }
 
   @Post()
-  @RequirePermissions("admin.roles.manage")
+  @RequirePermissions("organization.manage_all", "admin.roles.manage")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateProfileDto) {
     return this.permissionProfilesService.create(user, dto);
   }
 
   @Patch(":id")
-  @RequirePermissions("admin.roles.manage")
+  @RequirePermissions("organization.manage_all", "admin.roles.manage")
   update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateProfileDto) {
     return this.permissionProfilesService.update(user, id, dto);
   }
 
   @Patch(":id/deactivate")
-  @RequirePermissions("admin.roles.manage")
+  @RequirePermissions("organization.manage_all", "admin.roles.manage")
   deactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.permissionProfilesService.deactivate(user, id);
   }

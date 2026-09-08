@@ -490,7 +490,7 @@ export class PublicBookingService {
   }
 
   async getAppointmentDetailsForConfirmation(id: string, token: string) {
-    this.verifyEmailToken(id, token);
+    const payload = this.verifyEmailToken(id, token, "APPOINTMENT_CONFIRMATION");
 
     const appointment = await this.prisma.appointment.findUnique({
       where: { id },
@@ -502,6 +502,9 @@ export class PublicBookingService {
     });
 
     if (!appointment) throw new NotFoundException("Appointment not found");
+    if (payload.appointmentStartAt !== appointment.startAt.toISOString()) {
+      throw new GoneException("Appointment was rescheduled");
+    }
 
     const tz = appointment.branch.timezone || "America/Mexico_City";
 
@@ -526,10 +529,23 @@ export class PublicBookingService {
   }
 
   async confirmEmail(id: string, token: string) {
-    this.verifyEmailToken(id, token);
+    const payload = this.verifyEmailToken(id, token, "APPOINTMENT_CONFIRMATION");
 
     const appointment = await this.prisma.appointment.findUnique({ where: { id } });
     if (!appointment) throw new NotFoundException("Appointment not found");
+    if (payload.appointmentStartAt !== appointment.startAt.toISOString()) {
+      throw new GoneException("Appointment was rescheduled");
+    }
+    if (
+      [
+        AppointmentStatus.CONFIRMED,
+        AppointmentStatus.CONFIRMED_BY_EMAIL,
+        AppointmentStatus.CONFIRMED_BY_PHONE,
+        AppointmentStatus.CONFIRMED_BY_WHATSAPP
+      ].some((status) => status === appointment.status)
+    ) {
+      return { success: true, alreadyResolved: true };
+    }
 
     const actor = await this.getSystemActor(appointment.organizationId, appointment.branchId);
     await this.appointmentsService.confirmByEmail(actor, id);
@@ -538,10 +554,23 @@ export class PublicBookingService {
   }
 
   async cancelEmail(id: string, token: string) {
-    this.verifyEmailToken(id, token);
+    const payload = this.verifyEmailToken(id, token, "APPOINTMENT_CONFIRMATION");
 
     const appointment = await this.prisma.appointment.findUnique({ where: { id } });
     if (!appointment) throw new NotFoundException("Appointment not found");
+    if (payload.appointmentStartAt !== appointment.startAt.toISOString()) {
+      throw new GoneException("Appointment was rescheduled");
+    }
+    if (
+      [
+        AppointmentStatus.CANCELLED_BY_CLINIC,
+        AppointmentStatus.CANCELLED_BY_PATIENT,
+        AppointmentStatus.CANCELLED_CONFLICT,
+        AppointmentStatus.CANCELLED_RESCHEDULED
+      ].some((status) => status === appointment.status)
+    ) {
+      return { success: true, alreadyResolved: true };
+    }
 
     const actor = await this.getSystemActor(appointment.organizationId, appointment.branchId);
     await this.appointmentsService.cancel(actor, id, {

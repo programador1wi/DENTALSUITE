@@ -11,7 +11,7 @@ describe("PaymentMethodsService", () => {
     roleIds: [],
     roleNames: [],
     branchIds: ["branch-1"],
-    permissions: ["system.manage_all"]
+    permissions: ["organization.manage_all"]
   };
 
   function prismaMock(row: Record<string, unknown>) {

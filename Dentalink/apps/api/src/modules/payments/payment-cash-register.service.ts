@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   NotFoundException
 } from "@nestjs/common";
@@ -17,7 +16,6 @@ import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
-  CloseCashRegisterDto,
   ListCashRegistersQueryDto,
   OpenCashRegisterDto
 } from "./dto/payments.dto";

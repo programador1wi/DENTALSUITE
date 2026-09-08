@@ -49,7 +49,7 @@ export class DiscountAuthorizationService {
     }
 
     const active = user.isActive && user.status === UserStatus.ACTIVE;
-    const hasPermission = keys.has("system.manage_all") || keys.has("treatment_discount.apply");
+    const hasPermission = keys.has("organization.manage_all") || keys.has("treatment_discount.apply");
     const configuredMaximumPercent = user.discountPolicy?.maximumDiscountPercent ?? new Prisma.Decimal(0);
     const effectiveMaximumPercent =
       active && hasPermission && user.discountPolicy?.active ? configuredMaximumPercent : new Prisma.Decimal(0);

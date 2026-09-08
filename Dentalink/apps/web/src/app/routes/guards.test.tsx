@@ -48,7 +48,7 @@ describe("route permission guards", () => {
     localStorage.clear();
     authMocks.me.mockReset();
     toastMocks.warning.mockReset();
-    authStoreApi.setState({ user: null, accessToken: null, refreshToken: null });
+    authStoreApi.setState({ user: null, accessToken: null, isSessionInitialized: true });
   });
 
   it("renders PermissionDeniedState when accessing a route without required permissions", async () => {
@@ -106,8 +106,7 @@ describe("route permission guards", () => {
     );
     authStoreApi.setState({
       user: userWith(["settings.read"]),
-      accessToken: "access-token",
-      refreshToken: "refresh-token"
+      accessToken: "access-token"
     });
 
     const router = createMemoryRouter(

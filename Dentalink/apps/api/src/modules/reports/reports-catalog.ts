@@ -67,7 +67,8 @@ function disabled(
   name: string,
   description: string,
   category: string,
-  keywords: string[] = []
+  keywords: string[] = [],
+  unavailableReason = "Este reporte permanece deshabilitado hasta validar su fuente, alcance y contenido."
 ): ExcelReportDefinition {
   return {
     id: code.toLowerCase().replace(/_/g, "-"),
@@ -81,6 +82,7 @@ function disabled(
     handler: null,
     estimatedComplexity: "MEDIUM",
     enabled: false,
+    unavailableReason,
     country: "MX",
     keywords
   };
@@ -562,7 +564,14 @@ const rawExcelReportDefinitions: ExcelReportDefinition[] = [
     "TRATAMIENTOS",
     "graphical-captured-budgets"
   ),
-  disabled("BUDGET_UNEXPIRATIONS", "Des-expiraciones", "Des-expiraciones de presupuestos.", "TRATAMIENTOS"),
+  disabled(
+    "BUDGET_UNEXPIRATIONS",
+    "Des-expiraciones",
+    "Des-expiraciones de presupuestos.",
+    "TRATAMIENTOS",
+    [],
+    "No existe un proceso persistente de des-expiración de presupuestos."
+  ),
   enabled(
     "DENTIST_CONTRACTS",
     "Contratos dentistas",
@@ -633,7 +642,9 @@ const rawExcelReportDefinitions: ExcelReportDefinition[] = [
     "WARRANTIES_APPLIED",
     "Garantias aplicadas",
     "Reposiciones clinicas generadas por garantia.",
-    "TRATAMIENTOS"
+    "TRATAMIENTOS",
+    [],
+    "No existe un proceso persistente de garantías aplicadas."
   )
 ];
 
@@ -730,8 +741,8 @@ function decorateDefinition(definition: ExcelReportDefinition): ExcelReportDefin
   return {
     ...definition,
     category,
-    enabled: legacyOnly ? definition.enabled : true,
-    handler: legacyOnly ? definition.handler : definition.handler ?? "period-generic",
+    enabled: definition.enabled,
+    handler: definition.handler,
     supportedFormats: definition.supportedFormats,
     surfaces: legacyOnly ? ["REQUEST"] : ["REQUEST", "PERIOD"],
     temporalMode,

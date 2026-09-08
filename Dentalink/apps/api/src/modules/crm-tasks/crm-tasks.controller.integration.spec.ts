@@ -15,7 +15,7 @@ describe("CRM tasks API integration", () => {
     lastName: "CRM",
     roleIds: [],
     roleNames: [],
-    permissions: ["system.manage_all"],
+    permissions: ["organization.manage_all"],
     branchIds: ["branch-1"]
   };
   const service = {
@@ -52,7 +52,7 @@ describe("CRM tasks API integration", () => {
   });
 
   beforeEach(() => {
-    actor.permissions = ["system.manage_all"];
+    actor.permissions = ["organization.manage_all"];
     jest.clearAllMocks();
   });
 

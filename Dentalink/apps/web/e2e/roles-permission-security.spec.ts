@@ -41,8 +41,8 @@ const permissions = [
   },
   {
     id: "manage-all",
-    key: "system.manage_all",
-    code: "system.manage_all",
+    key: "organization.manage_all",
+    code: "organization.manage_all",
     name: "Manage all",
     module: "system",
     isActive: true,

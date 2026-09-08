@@ -24,7 +24,12 @@ export class ReportRequestsService {
     if (!definition || !definition.surfaces?.includes(dto.surface ?? "REQUEST")) {
       throw new NotFoundException("Reporte no encontrado");
     }
-    if (!definition.enabled || !definition.handler) throw new BadRequestException("El generador no esta disponible");
+    if (!definition.enabled || !definition.handler) {
+      throw new BadRequestException({
+        code: "REPORT_UNAVAILABLE",
+        message: definition.unavailableReason ?? "El generador no está disponible."
+      });
+    }
     this.assertPermissions(actor, definition.requiredPermissions ?? [definition.permission, "reports.export"]);
     if ((dto.surface ?? "REQUEST") === "PERIOD" && dto.format && dto.format !== "xlsx") {
       throw new BadRequestException("Descargas por periodo admite exclusivamente XLSX");

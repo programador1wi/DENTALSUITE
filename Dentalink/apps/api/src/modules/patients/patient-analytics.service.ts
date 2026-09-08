@@ -28,18 +28,18 @@ const FINANCIAL_PERMISSIONS = new Set([
   "patient_analytics.read_financial",
   "payments.read",
   "accounts_receivable.read",
-  "system.manage_all"
+  "organization.manage_all"
 ]);
 const ALL_BRANCH_PERMISSIONS = new Set([
   "patient_analytics.view_all_branches",
   "branches.view_all",
   "reports.read",
-  "system.manage_all"
+  "organization.manage_all"
 ]);
 const DETAIL_PERMISSIONS = new Set([
   "patient_analytics.view_patient_details",
   "patients.read",
-  "system.manage_all"
+  "organization.manage_all"
 ]);
 
 type Granularity = "day" | "month" | "year";
@@ -336,10 +336,10 @@ export class PatientAnalyticsService {
         canReadFinancial,
         canViewAllBranches: this.hasAnyPermission(actor, ALL_BRANCH_PERMISSIONS),
         canExport: actor.permissions.some((permission) =>
-          ["patient_analytics.export", "reports.export", "system.manage_all"].includes(permission)
+          ["patient_analytics.export", "reports.export", "organization.manage_all"].includes(permission)
         ),
         canRefresh: actor.permissions.some((permission) =>
-          ["patient_analytics.refresh", "reports.read", "system.manage_all"].includes(permission)
+          ["patient_analytics.refresh", "reports.read", "organization.manage_all"].includes(permission)
         ),
         canViewPatientDetails: this.hasAnyPermission(actor, DETAIL_PERMISSIONS)
       },
@@ -383,7 +383,7 @@ export class PatientAnalyticsService {
   async refresh(actor: AuthUser, query: PatientAnalysisQueryDto) {
     if (
       !actor.permissions.some((permission) =>
-        ["patient_analytics.refresh", "reports.read", "system.manage_all"].includes(permission)
+        ["patient_analytics.refresh", "reports.read", "organization.manage_all"].includes(permission)
       )
     ) {
       throw new ForbiddenException("Insufficient permissions");
@@ -591,7 +591,7 @@ export class PatientAnalyticsService {
   async exportCsv(actor: AuthUser, metric: string, query: PatientAnalysisDetailQueryDto) {
     if (
       !actor.permissions.some((permission) =>
-        ["patient_analytics.export", "reports.export", "system.manage_all"].includes(permission)
+        ["patient_analytics.export", "reports.export", "organization.manage_all"].includes(permission)
       )
     ) {
       throw new ForbiddenException("Analytics export permission is required");
@@ -1217,7 +1217,7 @@ export class PatientAnalyticsService {
   private assertBasePermission(actor: AuthUser) {
     if (
       !actor.permissions.some((permission) =>
-        ["patient_analytics.read", "patients.read", "reports.read", "system.manage_all"].includes(permission)
+        ["patient_analytics.read", "patients.read", "reports.read", "organization.manage_all"].includes(permission)
       )
     ) {
       throw new ForbiddenException("Patient analytics permission is required");

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./error";
-import { assertApiResponseContract, resolveApiBaseUrl, tokenExpiresSoon } from "./http-client";
+import { assertApiResponseContract, http, resolveApiBaseUrl, tokenExpiresSoon } from "./http-client";
+
+describe("http credentials", () => {
+  it("sends the HttpOnly refresh cookie on cross-origin API calls", () => {
+    expect(http.defaults.withCredentials).toBe(true);
+  });
+});
 
 function tokenWithExpiry(exp: number) {
   const encode = (value: object) => btoa(JSON.stringify(value)).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");

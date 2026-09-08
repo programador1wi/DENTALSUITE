@@ -43,7 +43,7 @@ export class PermissionsService {
     return permissions.map((permission) => ({
       ...permission,
       ...getPermissionMetadata(permission),
-      delegable: canDelegatePermission(actor.permissions, permission.key)
+      delegable: canDelegatePermission(actor.permissions, permission.key, permission.isSystem)
     }));
   }
 

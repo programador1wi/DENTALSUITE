@@ -8,7 +8,7 @@
  *    - @RequireAnyPermission(...)
  *    - @Public() or @UseGuards(JwtAuthGuard / ApiKeyGuard)
  * 2. All referenced permission keys must exist in CANONICAL_PERMISSION_KEYS or PERMISSION_ALIASES or PERMISSION_LABELS.
- * 3. Prevents delegation of system.manage_all.
+ * 3. Prevents delegation of organization.manage_all.
  */
 
 const fs = require("node:fs");
@@ -52,7 +52,7 @@ if (bundleMatch) {
 }
 
 // Valid permissions set
-const validPermissions = new Set([...canonicalKeys, ...aliasKeys, "system.manage_all"]);
+const validPermissions = new Set([...canonicalKeys, ...aliasKeys, "organization.manage_all"]);
 
 // Add PERMISSION_LABELS keys
 const labelMatch = accessControlSource.match(/export const PERMISSION_LABELS[^{]*\{([\s\S]*?)\};/);

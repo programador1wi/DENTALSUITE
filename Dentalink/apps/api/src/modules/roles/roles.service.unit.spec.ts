@@ -4,17 +4,17 @@ describe("RolesService permission delegation", () => {
   const actor = (permissions: string[]) =>
     ({ id: "actor", organizationId: "org", permissions }) as never;
 
-  it("never allows system.manage_all in an ordinary profile", async () => {
+  it("never allows organization.manage_all in an ordinary profile", async () => {
     const prisma = {
       permission: {
-        findMany: jest.fn().mockResolvedValue([{ id: "manage-all", key: "system.manage_all" }])
+        findMany: jest.fn().mockResolvedValue([{ id: "manage-all", key: "organization.manage_all" }])
       }
     };
     const service = new RolesService(prisma as never);
 
     await expect(
       (service as unknown as { validatePermissions: (actor: unknown, ids: string[]) => Promise<void> })
-        .validatePermissions(actor(["system.manage_all"]), ["manage-all"])
+        .validatePermissions(actor(["organization.manage_all"]), ["manage-all"])
     ).rejects.toMatchObject({ response: { message: "PROTECTED_PERMISSION" } });
   });
 

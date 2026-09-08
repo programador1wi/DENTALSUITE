@@ -61,7 +61,7 @@ vi.mock("@/hooks/use-permissions", () => ({
 }));
 
 vi.mock("@/stores/auth.store", () => ({
-  useAuthStore: (selector: any) => selector({ user: { id: "user-test", permissions: ["system.manage_all"] } })
+  useAuthStore: (selector: any) => selector({ user: { id: "user-test", permissions: ["organization.manage_all"] } })
 }));
 
 vi.mock("@/stores/branch.store", () => ({

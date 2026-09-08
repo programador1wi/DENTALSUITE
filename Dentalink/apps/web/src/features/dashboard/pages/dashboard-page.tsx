@@ -5,7 +5,7 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useActiveBranchFilter } from "@/features/settings/branches/hooks/use-active-branch-filter";
-import { useDashboardReport } from "@/features/reports/hooks/use-reports";
+import { useDashboardReport, usePerformanceReport } from "@/features/reports/hooks/use-reports";
 import { ReportsFilters } from "@/features/reports/components/reports-filters";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, LineChart, Line, Legend } from "recharts";
 import { AlertTriangle, CalendarDays, ClipboardCheck, DollarSign, FlaskConical, Package, UserPlus } from "lucide-react";
@@ -46,8 +46,32 @@ export function DashboardPage() {
 
   const branches = useBranches(undefined, "ACTIVE");
   const report = useDashboardReport({ dateFrom, dateTo, branchId: branchId || undefined });
+  const performanceReport = usePerformanceReport({ dateFrom, dateTo, branchId: branchId || undefined });
 
   const data = useMemo(() => (report.data?.data as any) ?? null, [report.data]);
+
+  const monthlyFinanceData = useMemo(() => {
+    const monthly = performanceReport.data?.finance?.monthly;
+    if (!monthly || !Array.isArray(monthly) || monthly.length === 0) {
+      return [];
+    }
+    return monthly.map((row) => ({
+      name: row.month,
+      ingresos: Number(row.collections ?? 0),
+      pendientes: Math.max(0, Number(row.sales ?? 0) - Number(row.collections ?? 0))
+    }));
+  }, [performanceReport.data]);
+
+  const monthlyAppointmentsData = useMemo(() => {
+    const monthly = performanceReport.data?.agenda?.monthlyAttention;
+    if (!monthly || !Array.isArray(monthly) || monthly.length === 0) {
+      return [];
+    }
+    return monthly.map((row) => ({
+      name: row.month,
+      citas: Number(row.attended ?? 0)
+    }));
+  }, [performanceReport.data]);
 
   if (report.isLoading) return <LoadingState message="Cargando dashboard..." />;
   if (report.isError) return <ErrorState message={report.error.message} />;
@@ -115,52 +139,50 @@ export function DashboardPage() {
         <Card>
           <h3 className="mb-[var(--space-6)] text-[var(--text-lg)] font-semibold text-[var(--text-brand-strong)]">Ingresos vs Pendientes (Mensual)</h3>
           <div className="h-72 min-w-0">
-            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-              <BarChart
-                data={[
-                  { name: "Ene", ingresos: 4000, pendientes: 2400 },
-                  { name: "Feb", ingresos: 3000, pendientes: 1398 },
-                  { name: "Mar", ingresos: 2000, pendientes: 9800 },
-                  { name: "Abr", ingresos: 2780, pendientes: 3908 },
-                  { name: "May", ingresos: 1890, pendientes: 4800 },
-                  { name: "Jun", ingresos: 2390, pendientes: 3800 },
-                ]}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-default)" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 12 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 12 }} dx={-10} />
-                <RechartsTooltip cursor={{ fill: "var(--bg-subtle)" }} contentStyle={{ borderRadius: "var(--radius-md)", border: "1px solid var(--border-default)", boxShadow: "var(--shadow-card-hover)" }} />
-                <Legend iconType="circle" wrapperStyle={{ paddingTop: "var(--space-5)" }} />
-                <Bar dataKey="ingresos" name="Ingresos" fill="var(--action-primary)" radius={[4, 4, 0, 0]} barSize={20} />
-                <Bar dataKey="pendientes" name="Pendientes" fill="var(--text-danger)" radius={[4, 4, 0, 0]} barSize={20} />
-              </BarChart>
-            </ResponsiveContainer>
+            {monthlyFinanceData.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-[13px] text-[var(--text-secondary)]">
+                {performanceReport.isLoading ? "Cargando métricas..." : "Sin registros financieros en el período"}
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                <BarChart
+                  data={monthlyFinanceData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-default)" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 12 }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 12 }} dx={-10} />
+                  <RechartsTooltip cursor={{ fill: "var(--bg-subtle)" }} contentStyle={{ borderRadius: "var(--radius-md)", border: "1px solid var(--border-default)", boxShadow: "var(--shadow-card-hover)" }} />
+                  <Legend iconType="circle" wrapperStyle={{ paddingTop: "var(--space-5)" }} />
+                  <Bar dataKey="ingresos" name="Ingresos" fill="var(--action-primary)" radius={[4, 4, 0, 0]} barSize={20} />
+                  <Bar dataKey="pendientes" name="Pendientes" fill="var(--text-danger)" radius={[4, 4, 0, 0]} barSize={20} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </Card>
 
         <Card>
           <h3 className="mb-[var(--space-6)] text-[var(--text-lg)] font-semibold text-[var(--text-brand-strong)]">Citas Mensuales</h3>
           <div className="h-72 min-w-0">
-            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-              <LineChart
-                data={[
-                  { name: "Ene", citas: 120 },
-                  { name: "Feb", citas: 150 },
-                  { name: "Mar", citas: 180 },
-                  { name: "Abr", citas: 140 },
-                  { name: "May", citas: 190 },
-                  { name: "Jun", citas: 210 },
-                ]}
-                margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-default)" />
-                <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 12 }} dy={10} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 12 }} dx={-10} />
-                <RechartsTooltip contentStyle={{ borderRadius: "var(--radius-md)", border: "1px solid var(--border-default)", boxShadow: "var(--shadow-card-hover)" }} />
-                <Line type="monotone" dataKey="citas" name="Total de Citas" stroke="var(--text-brand)" strokeWidth={3} dot={{ r: 4, fill: "var(--text-brand)", strokeWidth: 2, stroke: "var(--bg-surface)" }} activeDot={{ r: 6 }} />
-              </LineChart>
-            </ResponsiveContainer>
+            {monthlyAppointmentsData.length === 0 ? (
+              <div className="flex h-full items-center justify-center text-[13px] text-[var(--text-secondary)]">
+                {performanceReport.isLoading ? "Cargando métricas..." : "Sin registros de citas en el período"}
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
+                <LineChart
+                  data={monthlyAppointmentsData}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border-default)" />
+                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 12 }} dy={10} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: "var(--text-secondary)", fontSize: 12 }} dx={-10} />
+                  <RechartsTooltip contentStyle={{ borderRadius: "var(--radius-md)", border: "1px solid var(--border-default)", boxShadow: "var(--shadow-card-hover)" }} />
+                  <Line type="monotone" dataKey="citas" name="Total de Citas" stroke="var(--text-brand)" strokeWidth={3} dot={{ r: 4, fill: "var(--text-brand)", strokeWidth: 2, stroke: "var(--bg-surface)" }} activeDot={{ r: 6 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </Card>
       </div>

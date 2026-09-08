@@ -30,19 +30,19 @@ export class RolesController {
   }
 
   @Post()
-  @RequirePermissions("roles.create")
+  @RequirePermissions("organization.manage_all", "roles.create")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateRoleDto) {
     return this.rolesService.create(user, dto);
   }
 
   @Patch(":id")
-  @RequirePermissions("roles.update")
+  @RequirePermissions("organization.manage_all", "roles.update")
   update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateRoleDto) {
     return this.rolesService.update(user, id, dto);
   }
 
   @Patch(":id/deactivate")
-  @RequirePermissions("roles.deactivate")
+  @RequirePermissions("organization.manage_all", "roles.deactivate")
   deactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.rolesService.deactivate(user, id);
   }

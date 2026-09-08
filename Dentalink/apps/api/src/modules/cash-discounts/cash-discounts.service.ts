@@ -164,7 +164,7 @@ export class CashDiscountsService {
           )
         ];
         return (
-          (keys.includes("system.manage_all") ||
+          (keys.includes("organization.manage_all") ||
             (keys.includes("payments.cash_discounts.apply") && keys.includes("treatment_discount.apply"))) &&
           user.discountPolicy?.active &&
           user.discountPolicy.maximumDiscountPercent.gt(0)
@@ -826,7 +826,7 @@ export class CashDiscountsService {
 
   private assertApplyPermissions(keys: string[]) {
     const permissions = new Set(keys);
-    if (permissions.has("system.manage_all")) return;
+    if (permissions.has("organization.manage_all")) return;
     if (!permissions.has("payments.cash_discounts.apply") || !permissions.has("treatment_discount.apply"))
       throw new ForbiddenException({
         code: "CASH_DISCOUNT_PERMISSION_REQUIRED",

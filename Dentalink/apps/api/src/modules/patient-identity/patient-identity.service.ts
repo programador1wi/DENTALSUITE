@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 import { Prisma, type Patient } from "@prisma/client";
 import { AuthUser } from "../../common/types/auth-user";
+import { DomainActorContext, domainActorAuditFields } from "../../common/types/domain-actor-context";
 import { PrismaService } from "../../database/prisma.service";
 import { generateUniquePatientNumber } from "../../common/utils/patient-number.util";
 import { AppointmentsService } from "../appointments/appointments.service";
@@ -137,7 +138,7 @@ export class PatientIdentityService {
     return { contactPoint, normalized };
   }
 
-  async linkPatientPhone(actor: AuthUser, dto: LinkPatientPhoneDto) {
+  async linkPatientPhone(actor: DomainActorContext, dto: LinkPatientPhoneDto) {
     await this.ensurePatient(actor.organizationId, dto.patientId, actor.branchIds);
     const { contactPoint, normalized } = await this.upsertContactPoint(
       actor.organizationId,
@@ -254,7 +255,7 @@ export class PatientIdentityService {
       await tx.auditLog.create({
         data: {
           organizationId: actor.organizationId,
-          actorUserId: actor.id,
+          ...domainActorAuditFields(actor),
           entity: "PatientContactLink",
           entityId: row.id,
           action: "link_phone",
@@ -459,7 +460,7 @@ export class PatientIdentityService {
   }
 
   async syncPatientPhones(
-    actor: AuthUser,
+    actor: DomainActorContext,
     patientId: string,
     phone?: string | null,
     alternatePhone?: string | null

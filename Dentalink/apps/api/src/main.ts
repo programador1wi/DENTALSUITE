@@ -16,6 +16,7 @@ import { AppLogger } from "./common/utils/app-logger.util";
 import { setupSwagger } from "./docs/swagger";
 import { AppModule } from "./app.module";
 import { PrismaService } from "./database/prisma.service";
+import { AppMetricsService } from "./modules/metrics/app-metrics.service";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -24,6 +25,7 @@ async function bootstrap() {
   });
   const config = app.get(ConfigService);
   const logger = app.get(AppLogger);
+  const metrics = app.get(AppMetricsService);
   const conf = appConfig(config);
 
   app.useLogger(logger);
@@ -32,7 +34,7 @@ async function bootstrap() {
   app.use(urlencoded({ limit: "2mb", extended: true }));
 
   const requestIdMiddleware = new RequestIdMiddleware();
-  const rateLimitMiddleware = new RateLimitMiddleware();
+  const rateLimitMiddleware = app.get(RateLimitMiddleware);
 
   app.use(compression());
   app.use(helmet());
@@ -40,15 +42,27 @@ async function bootstrap() {
   app.use((req: Request, res: Response, next: NextFunction) => rateLimitMiddleware.use(req, res, next));
 
   app.setGlobalPrefix("api/v1");
+  const trustedProxyIps = new Set(
+    (config.get<string>("TRUSTED_PROXY_IPS") ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean)
+  );
+  app.getHttpAdapter()
+    .getInstance()
+    .set("trust proxy", (address: string) => {
+      const normalized = address.startsWith("::ffff:") ? address.slice(7) : address;
+      return trustedProxyIps.has(address) || trustedProxyIps.has(normalized);
+    });
   app.enableCors({
     origin: conf.allowedOrigins,
     credentials: true
   });
   app.useGlobalPipes(new SanitizationPipe());
   app.useGlobalPipes(new AppValidationPipe());
-  app.useGlobalFilters(new GlobalExceptionFilter(logger));
+  app.useGlobalFilters(new GlobalExceptionFilter(logger, metrics));
   app.useGlobalInterceptors(new PatientIdentifierInterceptor(app.get(PrismaService)));
-  app.useGlobalInterceptors(new ResponseInterceptor(logger));
+  app.useGlobalInterceptors(new ResponseInterceptor(logger, metrics));
   app.useGlobalInterceptors(new AuditTrailInterceptor(app.get(PrismaService)));
 
   setupSwagger(app, config);

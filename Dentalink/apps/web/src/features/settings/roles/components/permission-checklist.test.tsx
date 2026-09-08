@@ -29,7 +29,7 @@ const permissions: PermissionListItem[] = [
   },
   {
     id: "internal",
-    key: "system.manage_all",
+    key: "organization.manage_all",
     name: "Manage all",
     module: "system",
     isActive: true,

@@ -5,8 +5,7 @@ const emailLike = (message = "Correo invalido") =>
 
 export const loginSchema = z.object({
   email: emailLike(),
-  password: z.string().min(8, "Minimo 8 caracteres"),
-  rememberMe: z.boolean().optional()
+  password: z.string().min(8, "Minimo 8 caracteres")
 });
 
 export type LoginSchema = z.infer<typeof loginSchema>;

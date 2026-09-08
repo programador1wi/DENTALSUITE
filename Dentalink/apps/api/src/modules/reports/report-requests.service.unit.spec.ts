@@ -12,7 +12,7 @@ describe("ReportRequestsService", () => {
     lastName: "Admin",
     roleIds: [],
     roleNames: ["System Admin"],
-    permissions: ["system.manage_all"],
+    permissions: ["organization.manage_all"],
     branchIds: ["branch-1"]
   };
 
@@ -100,5 +100,23 @@ describe("ReportRequestsService", () => {
     const service = new ReportRequestsService({} as never, {} as never, {} as never);
 
     await expect(service.list(actor, { status: "CANCELLED" })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("rejects nonexistent warranty data with a stable unavailable code and reason", async () => {
+    const service = new ReportRequestsService({} as never, {} as never, {} as never);
+
+    await expect(
+      service.create(actor, {
+        reportCode: "WARRANTIES_APPLIED",
+        format: "xlsx" as never,
+        parameters: {},
+        surface: "REQUEST"
+      })
+    ).rejects.toMatchObject({
+      response: {
+        code: "REPORT_UNAVAILABLE",
+        message: "No existe un proceso persistente de garantías aplicadas."
+      }
+    });
   });
 });

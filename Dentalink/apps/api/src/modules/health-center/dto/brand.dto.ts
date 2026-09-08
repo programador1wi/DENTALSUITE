@@ -41,10 +41,6 @@ export class CreateBrandDto {
   logoUrl?: string;
 
   @IsOptional()
-  @IsString()
-  logoStorageKey?: string;
-
-  @IsOptional()
   @IsHexColor()
   primaryColor?: string;
 

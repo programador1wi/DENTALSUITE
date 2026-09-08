@@ -35,9 +35,16 @@ function buildService({
     id: "appt-1",
     organizationId: "org-1",
     branchId: "branch-1",
-    status: "NOTIFIED_BY_EMAIL"
+    status: "NOTIFIED_BY_EMAIL",
+    startAt: new Date("2026-08-30T16:00:00.000Z")
   },
-  jwtVerify = jest.fn().mockReturnValue({ sub: "appt-1" })
+  jwtVerify = jest
+    .fn()
+    .mockReturnValue({
+      sub: "appt-1",
+      purpose: "APPOINTMENT_CONFIRMATION",
+      appointmentStartAt: "2026-08-30T16:00:00.000Z"
+    })
 }: {
   user?: unknown;
   appointment?: unknown;
@@ -125,9 +132,16 @@ describe("PublicBookingService - email confirmation actor", () => {
         id: "appt-2",
         organizationId: "org-2",
         branchId: "branch-2",
-        status: "NOTIFIED_BY_EMAIL"
+        status: "NOTIFIED_BY_EMAIL",
+        startAt: new Date("2026-08-31T16:00:00.000Z")
       },
-      jwtVerify: jest.fn().mockReturnValue({ sub: "appt-2" })
+      jwtVerify: jest
+        .fn()
+        .mockReturnValue({
+          sub: "appt-2",
+          purpose: "APPOINTMENT_CONFIRMATION",
+          appointmentStartAt: "2026-08-31T16:00:00.000Z"
+        })
     });
 
     await service.confirmEmail("appt-2", "valid-token");
@@ -223,22 +237,51 @@ describe("PublicBookingService - email confirmation actor", () => {
     expect(prisma.user.findFirst).not.toHaveBeenCalled();
   });
 
-  it("does not convert an already confirmed appointment error into a token error", async () => {
-    const { service, appointmentsService } = buildService();
-    appointmentsService.confirmByEmail.mockRejectedValueOnce(
-      new BadRequestException("Invalid status transition")
-    );
-
-    await expect(service.confirmEmail("appt-1", "valid-token")).rejects.toThrow(BadRequestException);
+  it("treats an already confirmed appointment as an idempotent success", async () => {
+    const { service, appointmentsService } = buildService({
+      appointment: {
+        id: "appt-1",
+        organizationId: "org-1",
+        branchId: "branch-1",
+        status: "CONFIRMED_BY_PHONE",
+        startAt: new Date("2026-08-30T16:00:00.000Z")
+      }
+    });
+    await expect(service.confirmEmail("appt-1", "valid-token")).resolves.toEqual({
+      success: true,
+      alreadyResolved: true
+    });
+    expect(appointmentsService.confirmByEmail).not.toHaveBeenCalled();
   });
 
-  it("does not convert an already cancelled appointment error into a token error", async () => {
-    const { service, appointmentsService } = buildService();
-    appointmentsService.cancel.mockRejectedValueOnce(
-      new BadRequestException("Appointment already cancelled")
-    );
+  it("treats an already cancelled appointment as an idempotent success", async () => {
+    const { service, appointmentsService } = buildService({
+      appointment: {
+        id: "appt-1",
+        organizationId: "org-1",
+        branchId: "branch-1",
+        status: "CANCELLED_BY_PATIENT",
+        startAt: new Date("2026-08-30T16:00:00.000Z")
+      }
+    });
+    await expect(service.cancelEmail("appt-1", "valid-token")).resolves.toEqual({
+      success: true,
+      alreadyResolved: true
+    });
+    expect(appointmentsService.cancel).not.toHaveBeenCalled();
+  });
 
-    await expect(service.cancelEmail("appt-1", "valid-token")).rejects.toThrow(BadRequestException);
+  it("expires a confirmation link after the appointment is rescheduled", async () => {
+    const { service } = buildService({
+      jwtVerify: jest
+        .fn()
+        .mockReturnValue({
+          sub: "appt-1",
+          purpose: "APPOINTMENT_CONFIRMATION",
+          appointmentStartAt: "2026-08-29T16:00:00.000Z"
+        })
+    });
+    await expect(service.confirmEmail("appt-1", "valid-token")).rejects.toThrow(GoneException);
   });
 
   describe("Patient Profile Public Updating", () => {

@@ -21,6 +21,7 @@ import { randomUUID, timingSafeEqual } from "crypto";
 import { resolveTxt } from "node:dns/promises";
 import { AuthUser } from "../../common/types/auth-user";
 import { assertBranchAccess } from "../../common/utils/branch-scope.util";
+import { sanitizeRichTextHtml } from "../../common/utils/sanitize-rich-text.util";
 import { createXlsxWorkbook } from "../../common/utils/xlsx.util";
 import { PrismaService } from "../../database/prisma.service";
 import { EmailService } from "../notifications/email.service";
@@ -1127,13 +1128,7 @@ export class EmailMarketingService {
 
   private sanitizeHtml(value: string) {
     if (value.length > 500_000) throw new BadRequestException("El contenido HTML supera el tamaño permitido");
-    return value
-      .replace(/<!--[\s\S]*?-->/g, "")
-      .replace(/<\s*(script|iframe|object|embed|form|input|button)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
-      .replace(/<\s*(script|iframe|object|embed|form|input|button)[^>]*\/?>/gi, "")
-      .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/javascript\s*:/gi, "")
-      .trim();
+    return sanitizeRichTextHtml(value);
   }
 
   private ensureUnsubscribeLink(html: string) {

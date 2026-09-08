@@ -15,7 +15,7 @@ export class BranchAccessGuard implements CanActivate {
       return false;
     }
 
-    if (user.permissions?.includes('system.manage_all')) {
+    if (user.permissions?.includes('organization.manage_all')) {
       return true;
     }
 

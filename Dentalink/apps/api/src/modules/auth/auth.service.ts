@@ -4,12 +4,14 @@ import { JwtService, type JwtSignOptions } from "@nestjs/jwt";
 import { Prisma } from "@prisma/client";
 import { permissionDefinitions, roleDefinitions } from "@dentalwarner/shared";
 import bcrypt from "bcryptjs";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { PrismaService } from "../../database/prisma.service";
+import { RedisService } from "../redis/redis.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterOrganizationDto } from "./dto/register-organization.dto";
 import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { ChangePasswordDto } from "./dto/change-password.dto";
+import { authUserInclude, isActiveAuthUser, serializeAuthUser } from "./auth-user.resolver";
 
 type TokenPair = {
   accessToken: string;
@@ -27,8 +29,13 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    private readonly redis: RedisService
   ) {}
+
+  async invalidateUserCache(userId: string) {
+    await this.redis.del(`auth:user:${userId}`);
+  }
 
   async registerOrganization(dto: RegisterOrganizationDto, meta: RequestMeta) {
     const adminEmail = dto.adminEmail.toLowerCase().trim();
@@ -121,21 +128,21 @@ export class AuthService {
 
       return tx.user.findUniqueOrThrow({
         where: { id: createdUser.id },
-        include: this.authUserInclude()
+        include: authUserInclude
       });
     });
 
-    const tokens = await this.issueTokens(user.id, user.email, user.organizationId, meta);
-    return { user: this.serializeUser(user), ...tokens };
+    const tokens = await this.createSessionTokens(user.id, user.email, user.organizationId, meta);
+    return { user: serializeAuthUser(user), ...tokens };
   }
 
   async login(dto: LoginDto, meta: RequestMeta) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase().trim() },
-      include: this.authUserInclude()
+      include: authUserInclude
     });
 
-    if (!user || !user.isActive || user.status !== "ACTIVE" || user.deletedAt) {
+    if (!isActiveAuthUser(user)) {
       throw new UnauthorizedException("Invalid credentials");
     }
 
@@ -146,116 +153,172 @@ export class AuthService {
 
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
-    const tokens = await this.issueTokens(user.id, user.email, user.organizationId, meta);
+    // Invalidate stale user cache on fresh login
+    await this.invalidateUserCache(user.id);
+
+    const tokens = await this.createSessionTokens(user.id, user.email, user.organizationId, meta);
     return {
-      user: this.serializeUser(user),
+      user: serializeAuthUser(user),
       ...tokens
     };
   }
 
   async refresh(refreshToken: string, meta: RequestMeta) {
-    const activeSessions = await this.prisma.session.findMany({
+    let payload: { sub?: string; sid?: string; refreshVersion?: number };
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.config.getOrThrow<string>("JWT_REFRESH_SECRET")
+      });
+    } catch {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    if (!payload?.sub || !payload.sid || !Number.isInteger(payload.refreshVersion)) {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    const session = await this.prisma.session.findFirst({
       where: {
+        id: payload.sid,
+        userId: payload.sub,
         revokedAt: null,
         expiresAt: { gt: new Date() }
       },
       include: {
         user: {
-          include: this.authUserInclude()
+          include: authUserInclude
         }
       }
     });
 
-    const matched = await this.findMatchingSession(activeSessions, refreshToken);
-    if (!matched || !matched.user.isActive || matched.user.status !== "ACTIVE" || matched.user.deletedAt) {
+    if (!session || !isActiveAuthUser(session.user)) {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
-    await this.prisma.session.update({
-      where: { id: matched.id },
-      data: { revokedAt: new Date() }
-    });
+    if (
+      session.refreshVersion !== payload.refreshVersion ||
+      this.digestRefreshToken(refreshToken) !== session.refreshTokenHash
+    ) {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
 
-    const tokens = await this.issueTokens(
-      matched.userId,
-      matched.user.email,
-      matched.user.organizationId,
-      meta
+    const nextVersion = session.refreshVersion + 1;
+    const newTokens = await this.signTokenPair(
+      session.userId,
+      session.user.email,
+      session.user.organizationId,
+      session.id,
+      nextVersion
     );
-    return { user: this.serializeUser(matched.user), ...tokens };
+    const refreshExpiresIn = this.config.get<string>("JWT_REFRESH_EXPIRES_IN") ?? "7d";
+    const claim = await this.prisma.session.updateMany({
+        where: {
+          id: session.id,
+          userId: session.userId,
+          refreshVersion: session.refreshVersion,
+          refreshTokenHash: session.refreshTokenHash,
+          revokedAt: null,
+          expiresAt: { gt: new Date() }
+        },
+        data: {
+          refreshVersion: nextVersion,
+          refreshTokenHash: this.digestRefreshToken(newTokens.refreshToken),
+          userAgent: meta.userAgent,
+          ipAddress: meta.ipAddress,
+          expiresAt: new Date(Date.now() + this.durationToMs(refreshExpiresIn))
+        }
+      });
+    if (claim.count !== 1) throw new UnauthorizedException("Invalid refresh token");
+
+    return { user: serializeAuthUser(session.user), ...newTokens };
   }
 
-  async logout(userId: string, refreshToken?: string) {
-    if (!refreshToken) {
+  async logout(userId: string, refreshToken?: string, sessionId?: string) {
+    await this.invalidateUserCache(userId);
+
+    if (!refreshToken && sessionId) {
       await this.prisma.session.updateMany({
-        where: { userId, revokedAt: null },
+        where: { id: sessionId, userId, revokedAt: null },
         data: { revokedAt: new Date() }
       });
       return { success: true };
     }
 
-    const sessions = await this.prisma.session.findMany({ where: { userId, revokedAt: null } });
-    const matched = await this.findMatchingSession(sessions, refreshToken);
-    if (matched) {
-      await this.prisma.session.update({
-        where: { id: matched.id },
-        data: { revokedAt: new Date() }
+    if (!refreshToken) return { success: true };
+
+    try {
+      const payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.config.getOrThrow<string>("JWT_REFRESH_SECRET")
       });
+      if (payload?.sid && payload?.sub === userId) {
+        await this.prisma.session.updateMany({
+          where: { id: payload.sid, userId, revokedAt: null },
+          data: { revokedAt: new Date() }
+        });
+      }
+    } catch {
+      // Logout remains idempotent and does not scan session hashes for invalid tokens.
     }
 
     return { success: true };
   }
 
-  private async issueTokens(
+  private async createSessionTokens(
     userId: string,
     email: string,
     organizationId: string,
-    meta: RequestMeta
+    meta: RequestMeta,
+    prismaClient: PrismaService | Prisma.TransactionClient = this.prisma
   ): Promise<TokenPair> {
-    const accessExpiresIn = this.config.get<string>("JWT_ACCESS_EXPIRES_IN") ?? "15m";
     const refreshExpiresIn = this.config.get<string>("JWT_REFRESH_EXPIRES_IN") ?? "7d";
-    const refreshTokenId = randomUUID();
+    const sessionId = randomUUID();
+    const tokens = await this.signTokenPair(userId, email, organizationId, sessionId, 0);
 
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(
-        { sub: userId, email, organizationId },
-        {
-          secret: this.config.getOrThrow<string>("JWT_ACCESS_SECRET"),
-          expiresIn: accessExpiresIn as JwtSignOptions["expiresIn"]
-        }
-      ),
-      this.jwtService.signAsync(
-        { sub: userId, email, organizationId, tokenId: refreshTokenId },
-        {
-          secret: this.config.getOrThrow<string>("JWT_REFRESH_SECRET"),
-          expiresIn: refreshExpiresIn as JwtSignOptions["expiresIn"]
-        }
-      )
-    ]);
-
-    await this.prisma.session.create({
+    await (prismaClient as PrismaService).session.create({
       data: {
+        id: sessionId,
         userId,
-        refreshTokenHash: await bcrypt.hash(refreshToken, 12),
+        refreshTokenHash: this.digestRefreshToken(tokens.refreshToken),
+        refreshVersion: 0,
         userAgent: meta.userAgent,
         ipAddress: meta.ipAddress,
         expiresAt: new Date(Date.now() + this.durationToMs(refreshExpiresIn))
       }
     });
 
+    return tokens;
+  }
+
+  private async signTokenPair(
+    userId: string,
+    email: string,
+    organizationId: string,
+    sessionId: string,
+    refreshVersion: number
+  ): Promise<TokenPair> {
+    const accessExpiresIn = this.config.get<string>("JWT_ACCESS_EXPIRES_IN") ?? "15m";
+    const refreshExpiresIn = this.config.get<string>("JWT_REFRESH_EXPIRES_IN") ?? "7d";
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(
+        { sub: userId, email, organizationId, sid: sessionId },
+        {
+          secret: this.config.getOrThrow<string>("JWT_ACCESS_SECRET"),
+          expiresIn: accessExpiresIn as JwtSignOptions["expiresIn"]
+        }
+      ),
+      this.jwtService.signAsync(
+        { sub: userId, email, organizationId, sid: sessionId, refreshVersion },
+        {
+          secret: this.config.getOrThrow<string>("JWT_REFRESH_SECRET"),
+          expiresIn: refreshExpiresIn as JwtSignOptions["expiresIn"]
+        }
+      )
+    ]);
     return { accessToken, refreshToken, expiresIn: accessExpiresIn };
   }
 
-  private async findMatchingSession<T extends { refreshTokenHash: string }>(
-    records: T[],
-    plainToken: string
-  ): Promise<T | null> {
-    for (const record of records) {
-      if (await bcrypt.compare(plainToken, record.refreshTokenHash)) {
-        return record;
-      }
-    }
-    return null;
+  private digestRefreshToken(token: string) {
+    return createHash("sha256").update(token, "utf8").digest("hex");
   }
 
   private durationToMs(value: string): number {
@@ -287,10 +350,12 @@ export class AuthService {
         ...(dto.phone !== undefined ? { phone: dto.phone?.trim() || null } : {}),
         ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl?.trim() || null } : {})
       },
-      include: this.authUserInclude()
+      include: authUserInclude
     });
 
-    return this.serializeUser(updated);
+    await this.invalidateUserCache(userId);
+
+    return serializeAuthUser(updated);
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {
@@ -309,107 +374,21 @@ export class AuthService {
 
     const passwordHash = await bcrypt.hash(dto.newPassword, 12);
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { passwordHash }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { passwordHash }
+      });
+
+      await tx.session.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() }
+      });
     });
 
+    await this.invalidateUserCache(userId);
+
     return { success: true, message: "Contraseña actualizada con éxito" };
-  }
-
-  private authUserInclude() {
-    return {
-      organization: {
-        select: {
-          id: true,
-          name: true,
-          legalName: true,
-          taxId: true,
-          logoUrl: true,
-          slug: true,
-          phone: true,
-          email: true,
-          address: true
-        }
-      },
-      role: {
-        include: {
-          permissions: { include: { permission: true } }
-        }
-      },
-      roles: {
-        include: {
-          role: {
-            include: {
-              permissions: { include: { permission: true } }
-            }
-          }
-        }
-      },
-      permissions: { include: { permission: true } },
-      branches: {
-        include: {
-          branch: {
-            select: {
-              id: true,
-              name: true,
-              code: true
-            }
-          }
-        }
-      }
-    } as const;
-  }
-
-  private serializeUser(
-    user: Prisma.UserGetPayload<{ include: ReturnType<AuthService["authUserInclude"]> }>
-  ) {
-    const roleNames = user.roles.map((entry) => entry.role.name);
-    const roleIds = user.roles.map((entry) => entry.role.id);
-
-    if (user.role && !roleIds.includes(user.role.id)) {
-      roleIds.push(user.role.id);
-      roleNames.push(user.role.name);
-    }
-
-    const permissions = new Set<string>();
-    const permissionEntries = [
-      ...user.permissions,
-      ...(user.role?.permissions ?? []),
-      ...user.roles.flatMap((roleEntry) => roleEntry.role.permissions)
-    ];
-
-    for (const permissionEntry of permissionEntries) {
-      const permission = permissionEntry.permission;
-      if (permission.isActive && !permission.deletedAt) {
-        permissions.add(permission.key ?? permission.code ?? "");
-      }
-    }
-
-    return {
-      id: user.id,
-      organizationId: user.organizationId,
-      organizationName: user.organization?.name,
-      organization: user.organization ?? undefined,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      phone: user.phone,
-      avatarUrl: user.avatarUrl,
-      roleIds,
-      roleNames,
-      permissions: [...permissions].filter(Boolean),
-      branchIds: user.branches.map((branch) => branch.branchId),
-      branches: user.branches.map((b) => ({
-        id: b.branch.id,
-        name: b.branch.name,
-        code: b.branch.code,
-        isPrimary: b.isPrimary
-      })),
-      status: user.status,
-      lastLoginAt: user.lastLoginAt,
-      createdAt: user.createdAt
-    };
   }
 
   private generateSlug(name: string) {

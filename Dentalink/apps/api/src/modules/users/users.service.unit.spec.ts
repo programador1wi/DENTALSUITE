@@ -10,7 +10,8 @@ describe("UsersService role delegation", () => {
 
   it("rejects assigning a role above the actor authority", async () => {
     const prisma = { role: { findFirst: jest.fn().mockResolvedValue(role(["payments.void"])) } };
-    const service = new UsersService(prisma as never);
+    const redis = { del: jest.fn(), delPattern: jest.fn() };
+    const service = new UsersService(prisma as never, redis as never);
     const validate = (service as unknown as { validateRole: (actor: unknown, roleId: string) => Promise<void> })
       .validateRole.bind(service);
 
@@ -20,13 +21,14 @@ describe("UsersService role delegation", () => {
   });
 
   it("allows a super administrator to assign the protected profile", async () => {
-    const prisma = { role: { findFirst: jest.fn().mockResolvedValue(role(["system.manage_all"])) } };
-    const service = new UsersService(prisma as never);
+    const prisma = { role: { findFirst: jest.fn().mockResolvedValue(role(["organization.manage_all"])) } };
+    const redis = { del: jest.fn(), delPattern: jest.fn() };
+    const service = new UsersService(prisma as never, redis as never);
     const validate = (service as unknown as { validateRole: (actor: unknown, roleId: string) => Promise<void> })
       .validateRole.bind(service);
 
     await expect(
-      validate({ id: "actor", organizationId: "org", permissions: ["system.manage_all"] }, "role")
+      validate({ id: "actor", organizationId: "org", permissions: ["organization.manage_all"] }, "role")
     ).resolves.toBeUndefined();
   });
 });

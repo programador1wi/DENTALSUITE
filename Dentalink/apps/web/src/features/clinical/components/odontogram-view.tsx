@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
 import { CheckCircle2, Info, Plus, Printer, Stethoscope, X } from "lucide-react";
 import { DataTable } from "@/components/ui/data-table";
+import { SafeSvg } from "@/components/ui/safe-html";
 import { cn } from "@/lib/utils/cn";
 import { useOdontogramStore, type OdontogramContextMenu, type OdontogramTool } from "@/stores/odontogram.store";
 import type { OdontogramRecord, ToothCondition, ToothProcedure } from "../services/clinical.service";
@@ -338,9 +339,9 @@ function ClinicalSvg({
     <div className="relative mx-auto h-auto w-full max-w-[1120px]">
       {activationCss ? <style>{activationCss}</style> : null}
       {svgMarkup ? (
-        <div
+        <SafeSvg
+          markup={activatedSvgMarkup}
           className="pointer-events-none block h-auto w-full select-none [&_svg]:block [&_svg]:h-auto [&_svg]:w-full"
-          dangerouslySetInnerHTML={{ __html: activatedSvgMarkup }}
         />
       ) : (
         <img

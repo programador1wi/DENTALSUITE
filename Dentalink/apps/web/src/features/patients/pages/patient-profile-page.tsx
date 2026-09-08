@@ -31,6 +31,7 @@ import { ErrorState } from "@/components/feedback/error-state";
 import { Input } from "@/components/ui/input";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { Modal } from "@/components/ui/modal";
+import { SafeHtml } from "@/components/ui/safe-html";
 import { PatientAppointmentsTab } from "../components/patient-appointments-tab";
 import { PatientBenefitsCoverageView } from "./patient-benefits-coverage-view";
 import { PatientSecondaryNav } from "../components/patient-secondary-nav";
@@ -219,6 +220,7 @@ export function PatientProfilePage() {
 
   const onSubmit = form.handleSubmit(async (values) => {
     const payload: Partial<PatientPayload> = {
+      expectedVersion: patient.version,
       branchId: values.branchId,
       firstName: values.firstName,
       lastName: values.lastName,
@@ -1252,9 +1254,9 @@ function EmailsTab({
                   {/* Email Content Body */}
                   <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm min-h-[200px] max-h-[50vh] overflow-y-auto">
                     {emailDetails.isHtml ? (
-                      <div
+                      <SafeHtml
+                        html={emailDetails.body}
                         className="prose prose-sm max-w-none text-slate-700 break-words prose-p:leading-relaxed"
-                        dangerouslySetInnerHTML={{ __html: emailDetails.body }}
                       />
                     ) : emailDetails.body ? (
                       <div className="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed font-sans">
@@ -1387,13 +1389,13 @@ function NoteCard({
       <div className="min-w-0 flex-1">
         {renderHeader()}
         {isHtml ? (
-          <div
+          <SafeHtml
+            html={displayNote}
             className="prose prose-sm max-w-none text-slate-700 break-words 
               prose-p:my-1 prose-ul:my-1 prose-ol:my-1 
               [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6 [&_li]:list-item [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5
               [&_strong]:font-semibold [&_strong]:text-slate-800
               [&_p]:leading-relaxed"
-            dangerouslySetInnerHTML={{ __html: displayNote }}
           />
         ) : (
           <div className="space-y-1.5 text-slate-700 text-sm leading-relaxed">

@@ -1,25 +1,28 @@
-import { Injectable, NotFoundException, ConflictException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../database/prisma.service";
 import { AuthUser } from "../../common/types/auth-user";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { OrthodonticProgressService } from "./orthodontic-progress.service";
 import { Readable } from "stream";
-import * as fs from "fs";
+import { AppointmentsService } from "../appointments/appointments.service";
+import { OrthodonticsReportQueryDto, ScheduleOrthodonticControlDto } from "./dto/orthodontics.dto";
 
 @Injectable()
 export class OrthodonticsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly progressService: OrthodonticProgressService
+    private readonly progressService: OrthodonticProgressService,
+    private readonly appointmentsService: AppointmentsService
   ) {}
 
-  async getPatientsReport(user: AuthUser, query: any) {
-    try {
+  async getPatientsReport(user: AuthUser, query: OrthodonticsReportQueryDto) {
       const { page = 1, limit = 20, branchId, status, professionalId, search, delayStatus } = query;
-      const pagination = resolvePagination({ page: Number(page), pageSize: Number(limit) });
+      const pagination = resolvePagination({ page, pageSize: limit });
 
-      const where: any = {
+      const where: Prisma.TreatmentPlanWhereInput = {
+        organizationId: user.organizationId,
         kind: "ORTHODONTICS",
         branchId: branchScope(user, branchId),
         orthodonticProfile: { isNot: null }
@@ -67,15 +70,16 @@ export class OrthodonticsService {
         this.prisma.treatmentPlan.count({ where })
       ]);
 
-      const data = await Promise.all(items.map(async item => {
-        const progress = await this.progressService.getProgressSummary(item.id);
-        
+      const progressByTreatment = await this.progressService.getProgressSummaries(items.map((item) => item.id));
+      const data = items.map((item) => {
+        const progress = progressByTreatment.get(item.id);
+        if (!progress) throw new NotFoundException("Treatment plan not found");
         return {
           id: item.id,
           branchName: item.branch?.name || null,
           ...progress
         };
-      }));
+      });
 
       return {
         data,
@@ -85,21 +89,17 @@ export class OrthodonticsService {
           lastPage: Math.ceil(total / pagination.pageSize) || 1
         }
       };
-    } catch (e: any) {
-      fs.writeFileSync('ortho-error.log', e.stack || e.message);
-      throw e;
-    }
   }
 
-  async getPatientsReportSummary(user: AuthUser, query: any) {
-    try {
-      const where: any = {
+  async getPatientsReportSummary(user: AuthUser, query: OrthodonticsReportQueryDto) {
+      const where: Prisma.TreatmentPlanWhereInput = {
+        organizationId: user.organizationId,
         kind: "ORTHODONTICS",
         branchId: branchScope(user, query.branchId),
         orthodonticProfile: { isNot: null }
       };
 
-      const activeWhere = {
+      const activeWhere: Prisma.TreatmentPlanWhereInput = {
         ...where,
         status: { in: ["ACCEPTED", "IN_PROGRESS"] }
       };
@@ -162,21 +162,19 @@ export class OrthodonticsService {
         ageOver12,
         missingBirthDate
       };
-    } catch (e: any) {
-      fs.writeFileSync('ortho-error-summary.log', e.stack || e.message);
-      throw e;
-    }
   }
 
-  async exportPatientsReportStream(user: AuthUser, query: any) {
+  async exportPatientsReportStream(user: AuthUser, query: OrthodonticsReportQueryDto) {
     const items = await this.prisma.treatmentPlan.findMany({
       where: {
+        organizationId: user.organizationId,
         kind: "ORTHODONTICS",
         branchId: branchScope(user, query.branchId),
         orthodonticProfile: { isNot: null }
       },
       include: {
         patient: true,
+        professional: true,
         orthodonticProfile: true
       }
     });
@@ -192,11 +190,15 @@ export class OrthodonticsService {
       const patientName = `${item.patient?.firstName || ''} ${item.patient?.lastName || ''}`.trim();
       const age = item.patient?.birthDate ? new Date().getFullYear() - item.patient.birthDate.getFullYear() : '';
       const mobile = item.patient?.phone || '';
-      const prof = "ID: " + item.professionalId; // Professional details would normally be joined
+      const prof = item.professional
+        ? `${item.professional.firstName} ${item.professional.lastName}`.trim()
+        : '';
       const start = item.orthodonticProfile?.startDate ? item.orthodonticProfile.startDate.toISOString().split('T')[0] : '';
       const controls = item.orthodonticProfile?.plannedControls || '';
       
-      const row = `"${patientName}","${age}","${mobile}","${prof}","${start}","${controls}","${item.status}"\n`;
+      const row = [patientName, age, mobile, prof, start, controls, item.status]
+        .map((value) => this.csvCell(value))
+        .join(",") + "\n";
       stream.push(row);
     }
     
@@ -204,76 +206,56 @@ export class OrthodonticsService {
     return stream;
   }
 
-  async createAppointmentDraft(user: AuthUser, treatmentId: string, dto: any) {
-    const treatment = await this.prisma.treatmentPlan.findUnique({
-      where: { id: treatmentId },
-      include: { orthodonticProfile: true }
+  async createAppointmentDraft(user: AuthUser, treatmentId: string, dto: ScheduleOrthodonticControlDto) {
+    const treatment = await this.prisma.treatmentPlan.findFirst({
+      where: {
+        id: treatmentId,
+        organizationId: user.organizationId,
+        branchId: branchScope(user)
+      },
+      select: { id: true, branchId: true, patientId: true }
     });
 
     if (!treatment) {
       throw new NotFoundException("Treatment plan not found");
     }
 
-    const durationMinutes = dto.durationMinutes || 15;
-    const startAt = new Date(dto.startAt);
-    const endAt = new Date(startAt.getTime() + durationMinutes * 60000);
-
-    // 1. Validar disponibilidad real (Idempotencia en lógica de negocio para no solapar)
-    const overlapping = await this.prisma.appointment.findFirst({
-      where: {
-        professionalId: dto.professionalId,
-        status: { in: ["SCHEDULED", "CONFIRMED", "ARRIVED", "WAITING_ROOM", "IN_PROGRESS", "PENDING_CONFIRMATION"] },
-        OR: [
-          { startAt: { lt: endAt }, endAt: { gt: startAt } }
-        ]
-      }
-    });
-
-    if (overlapping) {
-      throw new ConflictException("El profesional no tiene disponibilidad en el horario seleccionado (solapamiento).");
+    if (dto.branchId && dto.branchId !== treatment.branchId) {
+      throw new BadRequestException("La sucursal debe coincidir con la del tratamiento");
     }
 
-    // 2. Crear cita
-    const appointment = await this.prisma.appointment.create({
-      data: {
-        organizationId: treatment.organizationId,
-        branchId: dto.branchId || treatment.branchId,
-        patientId: treatment.patientId,
-        professionalId: dto.professionalId,
-        startAt,
-        endAt,
-        durationMinutes,
-        status: "SCHEDULED",
-        treatmentPlanId: treatment.id,
-        title: "Control de Ortodoncia",
-        createdById: user.id
-      }
+    const durationMinutes = dto.durationMinutes ?? 15;
+    const startAt = new Date(dto.startAt);
+    const endAt = new Date(startAt.getTime() + durationMinutes * 60000);
+    return this.appointmentsService.create(user, {
+      branchId: treatment.branchId,
+      patientId: treatment.patientId,
+      professionalId: dto.professionalId,
+      chairId: dto.chairId,
+      treatmentPlanId: treatment.id,
+      title: "Control de Ortodoncia",
+      startAt: startAt.toISOString(),
+      endAt: endAt.toISOString(),
+      durationMinutes
     });
-
-    // 3. Registrar auditoría (Phase 21)
-    await this.prisma.auditLog.create({
-      data: {
-        organizationId: treatment.organizationId,
-        branchId: appointment.branchId,
-        userId: user.id,
-        action: "CREATE_ORTHODONTIC_APPOINTMENT",
-        entity: "Appointment",
-        entityId: appointment.id,
-        after: {
-          startAt: appointment.startAt,
-          endAt: appointment.endAt,
-          professionalId: appointment.professionalId
-        }
-      }
-    });
-
-    // 4. Actualizar el progreso para que el snapshot refleje la nueva cita agendada
-    await this.progressService.recalculateTreatmentProgress(treatmentId);
-
-    return appointment;
   }
 
   async recalculateProgress(user: AuthUser, treatmentId: string) {
+    const treatment = await this.prisma.treatmentPlan.findFirst({
+      where: {
+        id: treatmentId,
+        organizationId: user.organizationId,
+        branchId: branchScope(user)
+      },
+      select: { id: true }
+    });
+    if (!treatment) throw new NotFoundException("Treatment plan not found");
     return this.progressService.recalculateTreatmentProgress(treatmentId);
+  }
+
+  private csvCell(value: string | number) {
+    let text = String(value ?? "");
+    if (/^[=+\-@]/.test(text)) text = `'${text}`;
+    return `"${text.replace(/"/g, '""')}"`;
   }
 }

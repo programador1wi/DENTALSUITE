@@ -868,6 +868,66 @@ describe("PaymentsService refund listing", () => {
     expect(result.unallocatedAmount).toBe(100);
   });
 
+  it("returns the original payment for an idempotent replay without creating another effect", async () => {
+    const prisma = {
+      paymentIdempotency: {
+        findUnique: jest.fn().mockResolvedValue({ requestHash: "request-hash", paymentId: "payment-1" })
+      }
+    };
+    const service = new PaymentsService(prisma as never);
+    const payment = { id: "payment-1", amount: 100 };
+    const getPayment = jest.fn().mockResolvedValue(payment);
+    const internalService = service as unknown as {
+      getPayment: typeof getPayment;
+      resolveExistingPaymentRequest: (
+        currentActor: AuthUser,
+        idempotencyKey: string,
+        requestHash: string
+      ) => Promise<typeof payment | null>;
+    };
+    internalService.getPayment = getPayment;
+
+    const result = await internalService.resolveExistingPaymentRequest(
+      actor,
+      "idempotency-key",
+      "request-hash"
+    );
+
+    expect(result).toBe(payment);
+    expect(getPayment).toHaveBeenCalledTimes(1);
+    expect(getPayment).toHaveBeenCalledWith(actor, "payment-1");
+  });
+
+  it("allows only one concurrent cash-register close transition", async () => {
+    const tx = {
+      cashRegister: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 })
+      }
+    };
+    const prisma = {
+      cashRegister: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: "register-1",
+          organizationId: "org-1",
+          branchId: "branch-1",
+          responsibleUserId: "user-1",
+          status: "OPEN",
+          version: 3
+        })
+      },
+      $transaction: jest.fn((callback) => callback(tx))
+    };
+    const service = new PaymentsService(prisma as never);
+
+    await expect(
+      service.closeCashRegister(actor, "register-1", {
+        closingAmount: 0,
+        expectedVersion: 3
+      } as never)
+    ).rejects.toThrow("Los movimientos de la caja cambiaron");
+    expect(tx.cashRegister.updateMany).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects stale treatment item versions before creating allocations", async () => {
     const tx = {
       payment: {

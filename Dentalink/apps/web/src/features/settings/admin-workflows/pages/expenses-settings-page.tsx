@@ -138,13 +138,13 @@ export function ExpensesSettingsPage() {
   const canCreate =
     hasPermission("expenses.create") ||
     hasPermission("settings.update") ||
-    hasPermission("system.manage_all");
+    hasPermission("organization.manage_all");
   const canUpdate =
     hasPermission("expenses.update") ||
     hasPermission("settings.update") ||
-    hasPermission("system.manage_all");
+    hasPermission("organization.manage_all");
   const canVoid =
-    hasPermission("expenses.void") || hasPermission("settings.update") || hasPermission("system.manage_all");
+    hasPermission("expenses.void") || hasPermission("settings.update") || hasPermission("organization.manage_all");
 
   const rows = expenses.data ?? [];
   const activeRows = rows.filter((expense: Expense) => expense.status !== "VOIDED");

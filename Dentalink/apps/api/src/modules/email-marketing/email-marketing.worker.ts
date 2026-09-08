@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { EmailCampaignStatus, EmailEventType, EmailRecipientStatus } from "@prisma/client";
+import { randomUUID } from "node:crypto";
+import { hostname } from "node:os";
 import { PrismaService } from "../../database/prisma.service";
 import { EmailService } from "../notifications/email.service";
 import { EmailMarketingService } from "./email-marketing.service";
@@ -9,6 +11,7 @@ import { MarketingRecipientEligibilityService } from "./marketing-recipient-elig
 @Injectable()
 export class EmailMarketingWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(EmailMarketingWorker.name);
+  private readonly ownerId = `${hostname()}:${process.pid}:${randomUUID()}`;
   private timer?: NodeJS.Timeout;
   private running = false;
 
@@ -34,6 +37,7 @@ export class EmailMarketingWorker implements OnModuleInit, OnModuleDestroy {
     if (this.running) return;
     this.running = true;
     try {
+      await this.recoverExpiredRecipientLeases();
       await this.prisma.emailCampaign.updateMany({
         where: { status: EmailCampaignStatus.SCHEDULED, scheduledAt: { lte: new Date() } },
         data: { status: EmailCampaignStatus.QUEUED }
@@ -71,66 +75,49 @@ export class EmailMarketingWorker implements OnModuleInit, OnModuleDestroy {
     });
     const remainingToday = Math.max(0, (settings?.maxDailyEmails ?? 2000) - dailySent);
     if (!remainingToday) return;
-    const recipients = await this.prisma.emailCampaignRecipient.findMany({
-      where: {
-        campaignId: campaign.id,
-        OR: [
-          { deliveryStatus: EmailRecipientStatus.PENDING },
-          { deliveryStatus: EmailRecipientStatus.FAILED, attempts: { lt: 3 } }
-        ]
-      },
-      orderBy: { selectedAt: "asc" },
-      take: Math.min(50, remainingToday),
-      include: { patient: { include: { branch: true, organization: true } } }
-    });
-
-    for (const recipient of recipients) {
+    const limit = Math.min(50, remainingToday);
+    for (let index = 0; index < limit; index += 1) {
+      const recipient = await this.claimRecipient(campaign.id);
+      if (!recipient) break;
+      const heartbeat = this.startRecipientHeartbeat(recipient.id);
       const patient = recipient.patient;
-      if (!patient) {
-        await this.skip(recipient.id, "INACTIVE_PATIENT");
-        continue;
-      }
-      const actor = {
-        id: campaign.createdById,
-        organizationId: campaign.organizationId,
-        email: "worker@local",
-        firstName: "Worker",
-        lastName: "Marketing",
-        roleIds: [],
-        roleNames: [],
-        permissions: ["system.manage_all"],
-        branchIds: [patient.branchId]
-      };
-      const [check] = await this.eligibility.evaluateMany(
-        actor,
-        [patient],
-        campaign.id,
-        this.marketing.eligibilityPolicy(campaign.reportCodeSnapshot ?? undefined)
-      );
-      if (!check?.eligible) {
-        await this.skip(recipient.id, check?.reasons.map((reason) => reason.code).join(",") || "SUPPRESSED");
-        continue;
-      }
-
-      await this.prisma.emailCampaignRecipient.update({
-        where: { id: recipient.id },
-        data: {
-          deliveryStatus: EmailRecipientStatus.QUEUED,
-          queuedAt: new Date(),
-          attempts: { increment: 1 }
-        }
-      });
-      const unsubscribeUrl = `${this.apiBaseUrl()}/public/crm/email-marketing/unsubscribe/${encodeURIComponent(recipient.idempotencyKey)}`;
-      const variables = {
-        firstName: patient.firstName,
-        lastName: patient.lastName,
-        branchName: patient.branch.name,
-        branchPhone: patient.branch.phone ?? "",
-        branchAddress: patient.branch.address ?? "",
-        organizationName: patient.organization.name,
-        unsubscribeUrl
-      };
+      let providerAccepted = false;
       try {
+        if (!patient) {
+          await this.skip(recipient.id, "INACTIVE_PATIENT");
+          continue;
+        }
+        const actor = {
+          id: campaign.createdById,
+          organizationId: campaign.organizationId,
+          email: "worker@local",
+          firstName: "Worker",
+          lastName: "Marketing",
+          roleIds: [],
+          roleNames: [],
+          permissions: ["organization.manage_all"],
+          branchIds: [patient.branchId]
+        };
+        const [check] = await this.eligibility.evaluateMany(
+          actor,
+          [patient],
+          campaign.id,
+          this.marketing.eligibilityPolicy(campaign.reportCodeSnapshot ?? undefined)
+        );
+        if (!check?.eligible) {
+          await this.skip(recipient.id, check?.reasons.map((reason) => reason.code).join(",") || "SUPPRESSED");
+          continue;
+        }
+        const unsubscribeUrl = `${this.apiBaseUrl()}/public/crm/email-marketing/unsubscribe/${encodeURIComponent(recipient.idempotencyKey)}`;
+        const variables = {
+          firstName: patient.firstName,
+          lastName: patient.lastName,
+          branchName: patient.branch.name,
+          branchPhone: patient.branch.phone ?? "",
+          branchAddress: patient.branch.address ?? "",
+          organizationName: patient.organization.name,
+          unsubscribeUrl
+        };
         const result = await this.email.sendPatientEmail({
           to: recipient.emailSnapshot,
           replyTo: campaign.replyTo ?? undefined,
@@ -138,20 +125,28 @@ export class EmailMarketingWorker implements OnModuleInit, OnModuleDestroy {
           fromName: campaign.fromName,
           subject: campaign.subject,
           html: this.marketing.renderContent(campaign.contentHtmlSnapshot, variables),
-          text: this.marketing.renderContent(campaign.contentTextSnapshot, variables)
+          text: this.marketing.renderContent(campaign.contentTextSnapshot, variables),
+          idempotencyKey: recipient.idempotencyKey
         });
+        providerAccepted = true;
         const sentAt = new Date();
-        await this.prisma.$transaction([
-          this.prisma.emailCampaignRecipient.update({
-            where: { id: recipient.id },
+        await this.prisma.$transaction(async (tx) => {
+          const completed = await tx.emailCampaignRecipient.updateMany({
+            where: { id: recipient.id, deliveryStatus: EmailRecipientStatus.QUEUED, leaseOwner: this.ownerId },
             data: {
               deliveryStatus: EmailRecipientStatus.SENT,
               providerMessageId: result.providerMessageId,
               sentAt,
-              failureReason: null
+              failureReason: null,
+              failureCode: null,
+              leaseOwner: null,
+              leaseExpiresAt: null,
+              heartbeatAt: sentAt,
+              nextAttemptAt: null
             }
-          }),
-          this.prisma.emailEvent.create({
+          });
+          if (completed.count !== 1) throw new Error("RECIPIENT_LEASE_LOST");
+          await tx.emailEvent.create({
             data: {
               organizationId: campaign.organizationId,
               campaignId: campaign.id,
@@ -162,16 +157,24 @@ export class EmailMarketingWorker implements OnModuleInit, OnModuleDestroy {
               signatureValid: true,
               payloadJson: { source: "SMTP_ACCEPTED" }
             }
-          })
-        ]);
+          });
+        });
       } catch (error) {
-        await this.prisma.emailCampaignRecipient.update({
-          where: { id: recipient.id },
+        const uncertain = providerAccepted;
+        await this.prisma.emailCampaignRecipient.updateMany({
+          where: { id: recipient.id, deliveryStatus: EmailRecipientStatus.QUEUED, leaseOwner: this.ownerId },
           data: {
-            deliveryStatus: EmailRecipientStatus.FAILED,
-            failureReason: error instanceof Error ? error.message.slice(0, 500) : "Error de proveedor"
+            deliveryStatus: uncertain ? EmailRecipientStatus.UNCERTAIN : EmailRecipientStatus.FAILED,
+            failureCode: uncertain ? "PROVIDER_ACCEPTED_PERSISTENCE_FAILED" : "PROVIDER_SEND_FAILED",
+            failureReason: error instanceof Error ? error.message.slice(0, 500) : "Error de proveedor",
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            heartbeatAt: new Date(),
+            nextAttemptAt: uncertain ? null : new Date(Date.now() + this.retryDelayMs(recipient.attempts))
           }
         });
+      } finally {
+        heartbeat.stop();
       }
     }
     await this.finishIfComplete(campaign.id, campaign.organizationId, campaign.branchId);
@@ -188,6 +191,7 @@ export class EmailMarketingWorker implements OnModuleInit, OnModuleDestroy {
         OR: [
           { deliveryStatus: EmailRecipientStatus.PENDING },
           { deliveryStatus: EmailRecipientStatus.QUEUED },
+          { deliveryStatus: EmailRecipientStatus.UNCERTAIN },
           { deliveryStatus: EmailRecipientStatus.FAILED, attempts: { lt: 3 } }
         ]
       }
@@ -236,10 +240,94 @@ export class EmailMarketingWorker implements OnModuleInit, OnModuleDestroy {
   }
 
   private skip(id: string, reason: string) {
-    return this.prisma.emailCampaignRecipient.update({
-      where: { id },
-      data: { deliveryStatus: EmailRecipientStatus.SKIPPED, failureReason: reason }
+    return this.prisma.emailCampaignRecipient.updateMany({
+      where: { id, deliveryStatus: EmailRecipientStatus.QUEUED, leaseOwner: this.ownerId },
+      data: {
+        deliveryStatus: EmailRecipientStatus.SKIPPED,
+        failureReason: reason,
+        failureCode: "ELIGIBILITY_REJECTED",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: new Date(),
+        nextAttemptAt: null
+      }
     });
+  }
+
+  private async claimRecipient(campaignId: string) {
+    const owner = this.ownerId;
+    const lease = new Date(Date.now() + this.recipientLeaseMs());
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      UPDATE "EmailCampaignRecipient"
+      SET "deliveryStatus" = 'QUEUED'::"EmailRecipientStatus",
+          "queuedAt" = NOW(),
+          "attempts" = "attempts" + 1,
+          "leaseOwner" = ${owner},
+          "leaseExpiresAt" = ${lease},
+          "heartbeatAt" = NOW(),
+          "nextAttemptAt" = NULL,
+          "failureCode" = NULL,
+          "updatedAt" = NOW()
+      WHERE "id" = (
+        SELECT "id" FROM "EmailCampaignRecipient"
+        WHERE "campaignId" = ${campaignId}
+          AND (
+            "deliveryStatus" = 'PENDING'::"EmailRecipientStatus"
+            OR (
+              "deliveryStatus" = 'FAILED'::"EmailRecipientStatus"
+              AND "attempts" < 3
+              AND ("nextAttemptAt" IS NULL OR "nextAttemptAt" <= NOW())
+            )
+          )
+        ORDER BY "selectedAt" ASC
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      )
+      RETURNING "id"
+    `;
+    const id = rows[0]?.id;
+    if (!id) return null;
+    return this.prisma.emailCampaignRecipient.findFirst({
+      where: { id, deliveryStatus: EmailRecipientStatus.QUEUED, leaseOwner: owner },
+      include: { patient: { include: { branch: true, organization: true } } }
+    });
+  }
+
+  private async recoverExpiredRecipientLeases() {
+    const now = new Date();
+    await this.prisma.emailCampaignRecipient.updateMany({
+      where: { deliveryStatus: EmailRecipientStatus.QUEUED, leaseExpiresAt: { lt: now } },
+      data: {
+        deliveryStatus: EmailRecipientStatus.UNCERTAIN,
+        failureCode: "LEASE_EXPIRED_DELIVERY_UNKNOWN",
+        failureReason: "El lease vencio durante el envio; requiere resolucion manual antes de reintentar",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        heartbeatAt: now,
+        nextAttemptAt: null
+      }
+    });
+  }
+
+  private startRecipientHeartbeat(id: string) {
+    const timer = setInterval(() => {
+      void this.prisma.emailCampaignRecipient.updateMany({
+        where: { id, deliveryStatus: EmailRecipientStatus.QUEUED, leaseOwner: this.ownerId },
+        data: { heartbeatAt: new Date(), leaseExpiresAt: new Date(Date.now() + this.recipientLeaseMs()) }
+      }).then(({ count }) => {
+        if (count !== 1) clearInterval(timer);
+      }).catch((error) => this.logger.error(`Email recipient ${id} heartbeat failed`, error));
+    }, Math.max(1_000, Math.min(this.recipientLeaseMs() / 3, 30_000)));
+    timer.unref();
+    return { stop: () => clearInterval(timer) };
+  }
+
+  private recipientLeaseMs() {
+    return Math.max(15_000, Number(this.config.get<string>("MARKETING_RECIPIENT_LEASE_MS") || 120_000));
+  }
+
+  private retryDelayMs(attempts: number) {
+    return Math.min(15 * 60_000, 30_000 * 2 ** Math.max(0, attempts - 1));
   }
 
   private insideSendWindow(start: string, end: string) {

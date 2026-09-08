@@ -4,6 +4,7 @@ import { Alert } from "@/components/ui/alert";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/select";
+import { SafeHtml } from "@/components/ui/safe-html";
 import { useSpecialtyClinicalTemplates } from "@/features/settings/specialties/hooks/use-specialties";
 
 interface ClinicalTemplateModalProps {
@@ -95,9 +96,9 @@ export function ClinicalTemplateModal({ open, onClose, onSelectTemplate, special
 
         {selectedTemplate && (
           <div className="rounded-md border border-slate-200 bg-white p-4 max-h-[300px] overflow-y-auto">
-            <div 
+            <SafeHtml
+              html={selectedTemplate.content}
               className="prose prose-sm max-w-none text-slate-700 prose-p:my-1 prose-headings:my-1 prose-ul:my-1 prose-ol:my-1 [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6"
-              dangerouslySetInnerHTML={{ __html: selectedTemplate.content }}
             />
           </div>
         )}

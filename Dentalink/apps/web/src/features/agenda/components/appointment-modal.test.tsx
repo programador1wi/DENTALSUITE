@@ -11,7 +11,7 @@ const patientDayAppointmentsByPatient = vi.hoisted(() => new Map<string, unknown
 const allowedPermissions = vi.hoisted(
   () =>
     new Set([
-      "system.manage_all",
+      "organization.manage_all",
       "treatment_plans.read",
       "treatment_plans.create"
     ])
@@ -248,7 +248,7 @@ describe("AppointmentModal multiple booking", () => {
     treatmentPlansByPatient.clear();
     patientDayAppointmentsByPatient.clear();
     allowedPermissions.clear();
-    allowedPermissions.add("system.manage_all");
+    allowedPermissions.add("organization.manage_all");
     allowedPermissions.add("treatment_plans.read");
     allowedPermissions.add("treatment_plans.create");
   });

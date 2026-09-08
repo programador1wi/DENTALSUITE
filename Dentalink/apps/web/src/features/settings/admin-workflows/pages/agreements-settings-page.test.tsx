@@ -68,7 +68,7 @@ function userWith(permissions: string[]): AuthUser {
 describe("AgreementsSettingsPage permissions", () => {
   beforeEach(() => {
     localStorage.clear();
-    authStoreApi.setState({ user: userWith(["settings.read"]), accessToken: null, refreshToken: null });
+    authStoreApi.setState({ user: userWith(["settings.read"]), accessToken: null, isSessionInitialized: true });
     agreementMocks.useAgreements.mockReset();
     agreementMocks.useAgreements.mockReturnValue({ data: [], isLoading: false, isError: false });
     for (const mock of Object.values(auxiliaryMocks)) {

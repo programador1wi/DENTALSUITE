@@ -28,6 +28,33 @@ enum BranchBrandStatus {
   ARCHIVED
 }
 
+enum ApiKeyStatus {
+  ACTIVE
+  REVOKED
+}
+
+enum DeveloperApiPlan {
+  STANDARD
+  PRO
+  ENTERPRISE
+}
+
+enum ApiKeyBranchScope {
+  ALL
+  SELECTED
+}
+
+enum ApiKeyNetworkScope {
+  ANY
+  ALLOWLIST
+}
+
+enum ApiIdempotencyStatus {
+  PROCESSING
+  COMPLETED
+  UNCERTAIN
+}
+
 enum BranchPriceListType {
   BASE
   POLIZA
@@ -686,6 +713,7 @@ enum EmailRecipientStatus {
   COMPLAINED
   UNSUBSCRIBED
   FAILED
+  UNCERTAIN
   SKIPPED
 }
 
@@ -754,6 +782,7 @@ enum SurveyQuestionType {
 
 enum SurveyInvitationStatus {
   CREATED
+  PROCESSING
   QUEUED
   SENT
   DELIVERED
@@ -763,6 +792,7 @@ enum SurveyInvitationStatus {
   EXPIRED
   BOUNCED
   FAILED
+  UNCERTAIN
 }
 
 enum SurveyResponseStatus {
@@ -777,6 +807,7 @@ enum SurveyDeliveryEventType {
   OPENED
   BOUNCED
   FAILED
+  UNCERTAIN
 }
 
 enum TelemedicineSessionStatus {
@@ -885,9 +916,11 @@ model Organization {
   email                       String?
   address                     String?
   logoUrl                     String?
+  developerApiPlan            DeveloperApiPlan                 @default(STANDARD)
   isActive                    Boolean                          @default(true)
   slug                        String?                          @unique
   status                      OrganizationStatus               @default(ACTIVE)
+  branchScopeVersion          Int                              @default(0)
   branches                    Branch[]
   users                       User[]
   userDiscountPolicies        UserDiscountPolicy[]
@@ -897,6 +930,8 @@ model Organization {
   professionalBranchTransfers ProfessionalBranchTransfer[]
   patients                    Patient[]
   appointments                Appointment[]
+  appointmentReminderPolicy   AppointmentReminderPolicy?
+  appointmentReminderBranches AppointmentReminderBranchPolicy[]
   branchBrands                BranchBrand[]
   branchZones                 BranchZone[]
   branchPriceLists            BranchPriceList[]
@@ -1032,6 +1067,8 @@ model Organization {
   appointmentReprogrammingCases     AppointmentReprogrammingCase[]
   holidays                          Holiday[]
   permissionProfiles PermissionProfile[]
+  apiKeys                    ApiKey[]
+  apiIdempotencyRecords      ApiIdempotencyRecord[]
 
   @@index([isActive])
   @@index([status])
@@ -1106,6 +1143,7 @@ model Branch {
   patientTasks                    PatientTask[]
   crmTaskConfigurations           CrmTaskConfiguration[]
   appointments                    Appointment[]
+  appointmentReminderPolicy       AppointmentReminderBranchPolicy?
   appointmentReprogrammingBatches AppointmentReprogrammingBatch[]
   appointmentReprogrammingCases   AppointmentReprogrammingCase[]
   auditLogs                       AuditLog[]
@@ -1221,6 +1259,7 @@ model User {
   isActive                      Boolean                      @default(true)
   lastLoginAt                   DateTime?
   status                        UserStatus                   @default(ACTIVE)
+  authorizationVersion          Int                          @default(0)
   roleId                        String?
   role                          Role?                        @relation("PrimaryUserRole", fields: [roleId], references: [id])
   roles                         UserRole[]
@@ -1304,6 +1343,8 @@ model User {
   documentRequirementsCreated    DocumentRequirement[]           @relation("DocumentRequirementCreatedBy")
   documentRequirementsWaived     DocumentRequirement[]           @relation("DocumentRequirementWaivedBy")
   aiRequestsRequested            AiRequest[]                     @relation("AiRequestRequestedBy")
+  createdApiKeys                 ApiKey[]                         @relation("CreatedApiKeys")
+  revokedApiKeys                 ApiKey[]                         @relation("RevokedApiKeys")
 
   @@index([organizationId, isActive])
   @@index([organizationId, status])
@@ -2775,6 +2816,7 @@ model Patient {
   radiographyAnalyses     RadiographyAnalysis[]
   consents                Consent[]
   labOrders               LabOrder[]
+  version                 Int                            @default(1)
   createdAt               DateTime                       @default(now())
   updatedAt               DateTime                       @updatedAt
 
@@ -3636,8 +3678,10 @@ model Appointment {
   durationMinutes             Int
   notes                       String?
   cancellationReason          String?
-  createdById                 String
-  createdBy                   User                                @relation("AppointmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdById                 String?
+  createdBy                   User?                               @relation("AppointmentCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  createdByApiKeyId           String?
+  createdByApiKey             ApiKey?                             @relation("AppointmentCreatedByApiKey", fields: [createdByApiKeyId], references: [id], onDelete: Restrict)
   updatedById                 String?
   updatedBy                   User?                               @relation("AppointmentUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
   statusHistory               AppointmentStatusHistory[]
@@ -5228,6 +5272,12 @@ model FileAttachment {
   size                       Int
   url                        String
   category                   String
+  storageKey                 String?
+  storageProvider            String?
+  checksumSha256             String?
+  detectedMimeType           String?
+  scanStatus                 String?
+  encryptionVersion          Int?
   noteAttachments            PatientNoteAttachment[]
   radiographyAnalysis        RadiographyAnalysis?
   photographicOriginalImage  PhotographicSessionImage?        @relation("PhotographicOriginalFile")
@@ -5249,6 +5299,7 @@ model FileAttachment {
   @@index([patientId, createdAt])
   @@index([userId, createdAt])
   @@index([professionalId, createdAt])
+  @@index([organizationId, storageProvider, createdAt])
 }
 
 model RadiographyAnalysis {
@@ -5434,13 +5485,16 @@ model AppointmentStatusHistory {
   appointment    Appointment        @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   previousStatus AppointmentStatus?
   newStatus      AppointmentStatus
-  changedById    String
-  changedBy      User               @relation("AppointmentStatusChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+  changedById    String?
+  changedBy      User?              @relation("AppointmentStatusChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+  changedByApiKeyId String?
+  changedByApiKey ApiKey?           @relation("AppointmentStatusChangedByApiKey", fields: [changedByApiKeyId], references: [id], onDelete: Restrict)
   reason         String?
   createdAt      DateTime           @default(now())
 
   @@index([appointmentId, createdAt])
   @@index([changedById, createdAt])
+  @@index([changedByApiKeyId, createdAt])
 }
 
 model AppointmentNote {
@@ -5457,19 +5511,67 @@ model AppointmentNote {
 }
 
 model AppointmentReminder {
-  id            String      @id @default(cuid())
-  appointmentId String
-  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  channel       String
-  scheduledAt   DateTime
-  sentAt        DateTime?
-  status        String      @default("PENDING")
-  errorMessage  String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id                 String                    @id @default(cuid())
+  appointmentId      String
+  appointment        Appointment               @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  channel            String
+  automationStage    AppointmentReminderStage?
+  appointmentStartAt DateTime?
+  scheduledAt        DateTime
+  sentAt             DateTime?
+  status             String                    @default("PENDING")
+  attempts           Int                       @default(0)
+  nextAttemptAt      DateTime?
+  errorMessage       String?
+  failureCode        String?
+  providerMessageId  String?
+  leaseOwner         String?
+  leaseExpiresAt     DateTime?
+  heartbeatAt        DateTime?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
 
+  @@unique([appointmentId, automationStage, appointmentStartAt])
   @@index([appointmentId, scheduledAt])
   @@index([status, scheduledAt])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
+}
+
+enum AppointmentReminderStage {
+  FIRST_48H
+  FINAL_24H
+}
+
+model AppointmentReminderPolicy {
+  id                     String       @id @default(cuid())
+  organizationId         String       @unique
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  enabled                Boolean      @default(false)
+  firstOffsetHours       Int          @default(48)
+  finalOffsetHours       Int          @default(24)
+  sendWindowStartMinutes Int          @default(480)
+  sendWindowEndMinutes   Int          @default(1200)
+  retryDelaysMinutes     Int[]        @default([15, 60, 240])
+  maxAttempts            Int          @default(3)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+}
+
+model AppointmentReminderBranchPolicy {
+  id                     String       @id @default(cuid())
+  organizationId         String
+  organization           Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  branchId               String       @unique
+  branch                 Branch       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  enabled                Boolean?
+  firstOffsetHours       Int?
+  finalOffsetHours       Int?
+  sendWindowStartMinutes Int?
+  sendWindowEndMinutes   Int?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+
+  @@index([organizationId])
 }
 
 model CommunicationJob {
@@ -5590,6 +5692,22 @@ model EmailTemplate {
   @@index([organizationId, status, category])
 }
 
+model RichTextSanitizationBackup {
+  id                String   @id @default(cuid())
+  organizationId    String
+  entityType        String
+  entityId          String
+  fieldName         String
+  originalContent   String
+  originalChecksum  String
+  sanitizedChecksum String
+  sanitizedAt       DateTime @default(now())
+
+  @@unique([entityType, entityId, fieldName, originalChecksum])
+  @@index([organizationId, sanitizedAt])
+  @@index([entityType, entityId])
+}
+
 model EmailCampaign {
   id                   String                   @id @default(cuid())
   organizationId       String
@@ -5657,13 +5775,20 @@ model EmailCampaignRecipient {
   bouncedAt         DateTime?
   unsubscribedAt    DateTime?
   failureReason     String?
+  failureCode       String?
   attempts          Int                             @default(0)
+  leaseOwner        String?
+  leaseExpiresAt    DateTime?
+  heartbeatAt       DateTime?
+  nextAttemptAt     DateTime?
   events            EmailEvent[]
   createdAt         DateTime                        @default(now())
   updatedAt         DateTime                        @updatedAt
 
   @@unique([campaignId, normalizedEmail])
   @@index([campaignId, deliveryStatus])
+  @@index([campaignId, deliveryStatus, nextAttemptAt, selectedAt])
+  @@index([deliveryStatus, leaseExpiresAt])
   @@index([patientId])
   @@index([normalizedEmail])
 }
@@ -5926,6 +6051,11 @@ model SurveyInvitation {
   provider          String?
   providerMessageId String?
   attempts          Int                    @default(0)
+  nextAttemptAt     DateTime?
+  terminalAt        DateTime?
+  leaseOwner        String?
+  leaseExpiresAt    DateTime?
+  heartbeatAt       DateTime?
   lastError         String?
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
@@ -5935,6 +6065,7 @@ model SurveyInvitation {
 
   @@unique([appointmentId, surveyVersionId, channel])
   @@index([organizationId, status, scheduledAt])
+  @@index([status, nextAttemptAt, leaseExpiresAt])
   @@index([organizationId, patientId, createdAt])
   @@index([surveyId, createdAt])
   @@index([branchId, professionalId, createdAt])
@@ -6175,6 +6306,7 @@ model Session {
   userId           String
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokenHash String
+  refreshVersion   Int       @default(0)
   userAgent        String?
   ipAddress        String?
   expiresAt        DateTime
@@ -6201,6 +6333,8 @@ model AuditLog {
   ipAddress      String?
   userAgent      String?
   actorUserId    String?
+  actorApiKeyId  String?
+  actorApiKey    ApiKey?       @relation("AuditLogApiKey", fields: [actorApiKeyId], references: [id], onDelete: SetNull)
   before         Json?
   after          Json?
   createdAt      DateTime      @default(now())
@@ -6210,6 +6344,7 @@ model AuditLog {
 
   @@index([organizationId, entity])
   @@index([userId])
+  @@index([actorApiKeyId])
   @@index([createdAt])
 }
 
@@ -6231,6 +6366,11 @@ model ReportRequest {
   idempotencyKey      String
   attempts            Int                 @default(0)
   leaseExpiresAt      DateTime?
+  leaseOwner          String?
+  heartbeatAt         DateTime?
+  nextAttemptAt       DateTime?
+  progressRows        Int                 @default(0)
+  progressPercent     Int?
   startedAt           DateTime?
   completedAt         DateTime?
   expiresAt           DateTime?
@@ -6240,6 +6380,7 @@ model ReportRequest {
   fileSize            Int?
   storageKey          String?
   checksum            String?
+  errorCode           String?
   errorMessage        String?
   createdAt           DateTime            @default(now())
   updatedAt           DateTime            @updatedAt
@@ -6248,7 +6389,75 @@ model ReportRequest {
   @@index([organizationId, requestedById, createdAt])
   @@index([organizationId, status, createdAt])
   @@index([status, leaseExpiresAt])
+  @@index([status, nextAttemptAt, createdAt])
   @@index([expiresAt])
+}
+
+model ApiKey {
+  id                       String                     @id @default(cuid())
+  organizationId           String
+  organization             Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name                     String
+  scopes                   String[]                   @default([])
+  status                   ApiKeyStatus               @default(ACTIVE)
+  branchScope              ApiKeyBranchScope          @default(ALL)
+  branchIds                String[]                   @default([])
+  networkScope             ApiKeyNetworkScope         @default(ANY)
+  allowedIps               String[]                   @default([])
+  lastUsedAt               DateTime?
+  lastUsedIp               String?
+  revokedAt                DateTime?
+  revokedById              String?
+  revokedBy                User?                      @relation("RevokedApiKeys", fields: [revokedById], references: [id], onDelete: SetNull)
+  createdById              String?
+  createdBy                User?                      @relation("CreatedApiKeys", fields: [createdById], references: [id], onDelete: SetNull)
+  secrets                  ApiKeySecret[]
+  idempotencyRecords       ApiIdempotencyRecord[]
+  appointmentsCreated      Appointment[]              @relation("AppointmentCreatedByApiKey")
+  appointmentStatusChanges AppointmentStatusHistory[] @relation("AppointmentStatusChangedByApiKey")
+  auditLogs                AuditLog[]                 @relation("AuditLogApiKey")
+  createdAt                DateTime                   @default(now())
+  updatedAt                DateTime                   @updatedAt
+
+  @@index([organizationId, status])
+  @@index([revokedById])
+}
+
+model ApiKeySecret {
+  id         String   @id @default(cuid())
+  apiKeyId   String
+  apiKey     ApiKey   @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  keyPrefix  String
+  keyHash    String   @unique
+  activeFrom DateTime @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([apiKeyId, activeFrom, expiresAt])
+  @@index([keyPrefix])
+}
+
+model ApiIdempotencyRecord {
+  id             String               @id @default(cuid())
+  organizationId String
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  apiKeyId       String
+  apiKey         ApiKey               @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  operation      String
+  idempotencyKey String
+  payloadHash    String
+  status         ApiIdempotencyStatus @default(PROCESSING)
+  responseStatus Int?
+  responseBody   Json?
+  lockedUntil    DateTime
+  expiresAt      DateTime
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([apiKeyId, operation, idempotencyKey])
+  @@index([organizationId, expiresAt])
+  @@index([status, lockedUntil])
 }
 
 model OnlineSchedulingConfig {

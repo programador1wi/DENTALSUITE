@@ -352,6 +352,8 @@ export class CrmTasksService {
       }
     });
     if (futureCount > 0) return null;
+    const createdById = appointment.updatedById ?? appointment.createdById;
+    if (!createdById) return null;
     return this.createAutomatic({
       organizationId: appointment.organizationId,
       branchId: appointment.branchId,
@@ -362,7 +364,7 @@ export class CrmTasksService {
       sourceType: "APPOINTMENT",
       sourceId: appointment.id,
       trigger: status,
-      createdById: appointment.updatedById ?? appointment.createdById,
+      createdById,
       eventAt: appointment.startAt
     });
   }

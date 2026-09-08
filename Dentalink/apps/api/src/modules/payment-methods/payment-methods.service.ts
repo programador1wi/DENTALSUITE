@@ -258,7 +258,7 @@ export class PaymentMethodsService {
   }
 
   private hasPermission(actor: AuthUser, permission: string) {
-    return actor.permissions.includes("system.manage_all") || actor.permissions.includes(permission);
+    return actor.permissions.includes("organization.manage_all") || actor.permissions.includes(permission);
   }
 
   private snapshot(row: Record<string, any>): Prisma.InputJsonObject {

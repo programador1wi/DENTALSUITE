@@ -23,6 +23,7 @@ import { LoadingState } from "@/components/feedback/loading-state";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { SafeHtml } from "@/components/ui/safe-html";
 import { TableActionGroup } from "@/components/ui/table-toolbar";
 import { Tabs } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
@@ -108,7 +109,7 @@ export function ConsentTemplatesSettingsPage() {
   const { hasPermission } = usePermissions();
 
   const can = (exact: string, legacy: string) =>
-    hasPermission("system.manage_all") || hasPermission(exact) || hasPermission(legacy);
+    hasPermission("organization.manage_all") || hasPermission(exact) || hasPermission(legacy);
   const isEditorOpen = editing !== null;
   const isDirty = isEditorOpen && JSON.stringify(form) !== initialForm;
   const templatesList = templates.data?.items ?? [];
@@ -636,9 +637,9 @@ export function ConsentTemplatesSettingsPage() {
           </div>
           {previewValidation ? <ValidationPanel validation={previewValidation} /> : null}
           <div className="overflow-auto rounded-[var(--radius-lg)] bg-[var(--bg-subtle)] p-[var(--space-4)]">
-            <div
+            <SafeHtml
+              html={previewHtml}
               className={`mx-auto transition-[max-width] ${previewViewport === "desktop" ? "max-w-[820px]" : previewViewport === "tablet" ? "max-w-[640px]" : "max-w-[390px]"}`}
-              dangerouslySetInnerHTML={{ __html: previewHtml }}
             />
           </div>
         </div>

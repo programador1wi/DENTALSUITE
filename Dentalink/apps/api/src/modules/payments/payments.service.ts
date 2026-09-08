@@ -25,7 +25,6 @@ import {
 } from "@prisma/client";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { resolvePagination } from "../../common/utils/pagination.util";
-import { createXlsxWorkbook } from "../../common/utils/xlsx.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
@@ -545,20 +544,14 @@ export class PaymentsService {
     const requestHash = idempotencyKey ? this.hashPaymentRequest(dto, amount, splits) : null;
 
     if (idempotencyKey && requestHash) {
-      const existing = await this.prisma.paymentIdempotency.findUnique({
-        where: { organizationId_idempotencyKey: { organizationId: actor.organizationId, idempotencyKey } }
-      });
-      if (existing) {
-        if (existing.requestHash !== requestHash) {
-          throw new ConflictException("Idempotency key was already used with a different payment request");
-        }
-        if (existing.paymentId) return this.getPayment(actor, existing.paymentId);
-        throw new ConflictException("Payment request is already being processed");
-      }
+      const existing = await this.resolveExistingPaymentRequest(actor, idempotencyKey, requestHash);
+      if (existing) return existing;
     }
 
-    const created = await this.createPaymentWithPublicNumberRetry(async (paymentNumber) =>
-      this.prisma.$transaction(async (tx) => {
+    let created: string;
+    try {
+      created = await this.createPaymentWithPublicNumberRetry(async (paymentNumber) =>
+        this.prisma.$transaction(async (tx) => {
         const currentMethods = await tx.paymentMethod.findMany({
           where: {
             organizationId: actor.organizationId,
@@ -797,8 +790,15 @@ export class PaymentsService {
         });
 
         return payment.id;
-      })
-    );
+        })
+      );
+    } catch (error) {
+      if (idempotencyKey && requestHash && this.isUniqueCollision(error, "idempotencyKey")) {
+        const existing = await this.resolveExistingPaymentRequest(actor, idempotencyKey, requestHash);
+        if (existing) return existing;
+      }
+      throw error;
+    }
 
     return this.getPayment(actor, created);
   }
@@ -2020,7 +2020,7 @@ export class PaymentsService {
 
     if (
       register.responsibleUserId !== actor.id &&
-      !this.hasAnyPermission(actor, ["cash_register.close_any", "system.manage_all"])
+      !this.hasAnyPermission(actor, ["cash_register.close_any", "organization.manage_all"])
     ) {
       throw new BadRequestException("Only the register owner can close this cash register");
     }
@@ -2201,141 +2201,7 @@ export class PaymentsService {
   }
 
   async getCashRegisterDetail(actor: AuthUser, registerId: string) {
-    const publicNumber = this.parseCashRegisterNumber(registerId);
-    const register = await this.prisma.cashRegister.findFirst({
-      where: {
-        organizationId: actor.organizationId,
-        branchId: branchScope(actor),
-        OR: [{ id: registerId }, ...(publicNumber !== null ? [{ publicNumber }] : [])]
-      },
-      include: {
-        branch: { select: { id: true, name: true } },
-        openedBy: { select: { id: true, firstName: true, lastName: true } },
-        responsibleUser: { select: { id: true, firstName: true, lastName: true } },
-        closedBy: { select: { id: true, firstName: true, lastName: true } },
-        movements: {
-          orderBy: { createdAt: "asc" },
-          include: {
-            createdBy: { select: { id: true, firstName: true, lastName: true } },
-            paymentMethod: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-                includeInPhysicalCashBalance: true,
-                includeInClosingSummary: true
-              }
-            },
-            expense: {
-              select: {
-                id: true,
-                publicNumber: true,
-                description: true,
-                total: true,
-                paidAt: true,
-                status: true,
-                category: { select: { id: true, name: true } }
-              }
-            },
-            refund: { select: { id: true, amount: true, reason: true, status: true, processedAt: true } },
-            payment: {
-              select: {
-                id: true,
-                paymentNumber: true,
-                amount: true,
-                reference: true,
-                paidAt: true,
-                status: true,
-                voidReason: true,
-                voidedAt: true,
-                voidedBy: { select: { id: true, firstName: true, lastName: true } },
-                patient: {
-                  select: {
-                    id: true,
-                    firstName: true,
-                    lastName: true,
-                    documentNumber: true,
-                    agreement: { select: { id: true, name: true } }
-                  }
-                },
-                paymentMethod: {
-                  select: {
-                    id: true,
-                    name: true,
-                    type: true,
-                    includeInPhysicalCashBalance: true,
-                    includeInClosingSummary: true
-                  }
-                },
-                financialInstitution: { select: { id: true, name: true } },
-                allocations: {
-                  select: {
-                    amount: true,
-                    treatmentPlanItem: {
-                      select: {
-                        agreement: { select: { id: true, name: true } },
-                        treatmentPlan: { select: { id: true, name: true } }
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    });
-
-    if (!register) throw new NotFoundException("Cash register not found");
-    const relatedEntityIds = register.movements.flatMap((movement) =>
-      [movement.payment?.id, movement.expense?.id, movement.refund?.id].filter((value): value is string =>
-        Boolean(value)
-      )
-    );
-    const auditRows = await this.prisma.auditLog.findMany({
-      where: {
-        organizationId: actor.organizationId,
-        OR: [
-          { entity: "CashRegister", entityId: register.id },
-          ...(relatedEntityIds.length
-            ? [{ entity: { in: ["Payment", "Expense", "Refund"] }, entityId: { in: relatedEntityIds } }]
-            : [])
-        ]
-      },
-      select: {
-        id: true,
-        action: true,
-        entity: true,
-        entityId: true,
-        reason: true,
-        before: true,
-        after: true,
-        actorUserId: true,
-        createdAt: true
-      },
-      orderBy: { createdAt: "asc" },
-      take: 300
-    });
-    const actorIds = [
-      ...new Set(auditRows.map((row) => row.actorUserId).filter((id): id is string => Boolean(id)))
-    ];
-    const auditActors = actorIds.length
-      ? await this.prisma.user.findMany({
-          where: { id: { in: actorIds }, organizationId: actor.organizationId },
-          select: { id: true, firstName: true, lastName: true }
-        })
-      : [];
-    const actorNames = new Map(
-      auditActors.map((auditActor) => [auditActor.id, this.displayName(auditActor)] as const)
-    );
-    const enriched = await this.enrichCashRegister(actor, register);
-    return {
-      ...enriched,
-      audit: auditRows.map((row) => ({
-        ...row,
-        actorName: row.actorUserId ? (actorNames.get(row.actorUserId) ?? "Usuario del sistema") : "Sistema"
-      }))
-    };
+    return this.getCashRegisterModuleService().getCashRegisterDetail(actor, registerId);
   }
 
   async getCashRegisterReportPdf(actor: AuthUser, registerId: string) {
@@ -3910,6 +3776,18 @@ export class PaymentsService {
     if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
     const target = (error.meta?.target as string[] | string | undefined) ?? "";
     return Array.isArray(target) ? target.includes(field) : String(target).includes(field);
+  }
+
+  private async resolveExistingPaymentRequest(actor: AuthUser, idempotencyKey: string, requestHash: string) {
+    const existing = await this.prisma.paymentIdempotency.findUnique({
+      where: { organizationId_idempotencyKey: { organizationId: actor.organizationId, idempotencyKey } }
+    });
+    if (!existing) return null;
+    if (existing.requestHash !== requestHash) {
+      throw new ConflictException("Idempotency key was already used with a different payment request");
+    }
+    if (existing.paymentId) return this.getPayment(actor, existing.paymentId);
+    throw new ConflictException("Payment request is already being processed");
   }
 
   private cashRegisterDisplayName(

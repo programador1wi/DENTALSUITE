@@ -169,7 +169,7 @@ export function PhotographicTemplatesPanel(props: PanelProps) {
   const query = usePhotographicTemplates(props.treatmentPlanId, true, mobileOpen);
   const mutations = usePhotographicTemplateMutations(props.treatmentPlanId);
   const { hasPermission } = usePermissions();
-  const can = (permission: string) => hasPermission(permission) || hasPermission("system.manage_all");
+  const can = (permission: string) => hasPermission(permission) || hasPermission("organization.manage_all");
   const sessions = query.data?.sessions ?? [];
   const slots = query.data?.slots ?? [];
   const selectedSession = sessions.find((session) => session.id === selectedId) ?? sessions[0] ?? null;

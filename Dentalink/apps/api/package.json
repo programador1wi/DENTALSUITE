@@ -11,19 +11,24 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "jest --config ./jest.config.ts --runInBand",
     "test:unit": "jest --config ./jest.config.ts --runInBand --testPathPatterns=unit\\.spec\\.ts$",
-    "test:integration": "jest --config ./jest.config.ts --runInBand --testPathPatterns=integration\\.spec\\.ts$"
+    "test:integration": "jest --config ./jest.config.ts --runInBand --testPathPatterns=integration\\.spec\\.ts$",
+    "clinical-files:backfill": "tsx src/scripts/backfill-clinical-files.ts",
+    "rich-text:backfill": "tsx src/scripts/backfill-rich-text.ts",
+    "organization:provision": "tsx src/scripts/provision-organization.ts",
+    "security:fixtures": "tsx src/scripts/seed-security-fixtures.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1119.0",
     "@dentalwarner/shared": "file:../../packages/shared",
     "@nestjs/common": "^11.1.21",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.1.21",
     "@nestjs/jwt": "^11.0.2",
     "@nestjs/passport": "^11.0.5",
-    "@nestjs/platform-express": "^11.1.21",
-    "@nestjs/swagger": "^11.4.3",
-    "@prisma/adapter-pg": "^7.8.0",
-    "@prisma/client": "^7.8.0",
+    "@nestjs/platform-express": "^11.2.3",
+    "@nestjs/swagger": "^11.4.7",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
     "@types/compression": "^1.8.1",
     "@types/jest": "^30.0.0",
     "@types/supertest": "^7.2.0",
@@ -44,6 +49,7 @@
     "pg": "^8.21.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
+    "sanitize-html": "^2.17.5",
     "sharp": "^0.35.3",
     "supertest": "^7.2.2",
     "swagger-ui-express": "^5.0.1",
@@ -59,6 +65,8 @@
     "@types/node": "^25.9.0",
     "@types/nodemailer": "^8.0.1",
     "@types/passport-jwt": "^4.0.1",
+    "@types/sanitize-html": "^2.16.1",
+    "tsx": "^4.22.3",
     "typescript": "^6.0.3"
   }
 }

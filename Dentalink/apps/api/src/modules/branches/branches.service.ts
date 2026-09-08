@@ -101,6 +101,11 @@ export class BranchesService {
         update: {}
       });
 
+      await tx.organization.update({
+        where: { id: actor.organizationId },
+        data: { branchScopeVersion: { increment: 1 } }
+      });
+
       await this.ensureMinimumBranchStaffing(tx, actor.organizationId, created.id, created.code ?? created.id, created.name);
 
       await tx.auditLog.create({
@@ -211,7 +216,7 @@ export class BranchesService {
   }
 
   private branchAccessScope(actor: AuthUser): Prisma.BranchWhereInput {
-    return actor.permissions.includes("system.manage_all") ||
+    return actor.permissions.includes("organization.manage_all") ||
       actor.permissions.includes("branches.view_all") ||
       actor.permissions.includes("health_center.manage")
       ? {}
@@ -220,7 +225,7 @@ export class BranchesService {
 
   private canAssignBrand(actor: AuthUser) {
     return (
-      actor.permissions.includes("system.manage_all") ||
+      actor.permissions.includes("organization.manage_all") ||
       actor.permissions.includes("health_center.manage") ||
       actor.permissions.includes("branches.assign_brand")
     );

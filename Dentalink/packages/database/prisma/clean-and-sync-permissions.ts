@@ -121,9 +121,9 @@ async function main() {
     });
 
     if (adminRole) {
-      // El administrador tiene todos los permisos canónicos excepto system.manage_all
+      // El administrador tiene todos los permisos canónicos excepto organization.manage_all
       const adminPermIds = permissionDefinitions
-        .filter(([k]) => k !== "system.manage_all")
+        .filter(([k]) => k !== "organization.manage_all")
         .map(([k]) => permKeyToId.get(k))
         .filter((id): id is string => Boolean(id));
 

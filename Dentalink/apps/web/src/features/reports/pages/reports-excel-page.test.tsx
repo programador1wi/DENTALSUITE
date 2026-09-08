@@ -337,7 +337,7 @@ describe("ReportsExcelPage", () => {
         requestedBy: "System Admin",
         requestedAt: "2026-08-21T09:15:35.000Z",
         completedAt: "2026-08-21T09:15:40.000Z",
-        expiresAt: "2026-08-28T00:00:00.000Z",
+        expiresAt: "2026-12-31T00:00:00.000Z",
         rowCount: 42,
         fileSize: 20480,
         parameters: {

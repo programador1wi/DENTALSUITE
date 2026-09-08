@@ -320,3 +320,98 @@ describe("PatientsService shared phone boundary", () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });
+
+describe("PatientsService optimistic concurrency", () => {
+  const actor: AuthUser = {
+    id: "user-1",
+    organizationId: "org-1",
+    email: "user@example.com",
+    firstName: "User",
+    lastName: "One",
+    roleIds: [],
+    roleNames: [],
+    branchIds: ["branch-1"],
+    permissions: ["patients.update"]
+  };
+  const currentPatient = {
+    id: "patient-1",
+    version: 7,
+    firstName: "Current",
+    lastName: "Patient",
+    status: "ACTIVE",
+    branchId: "branch-1",
+    agreementId: null,
+    internalNumber: null,
+    birthDate: null,
+    gender: null,
+    documentType: null,
+    documentNumber: null,
+    email: null,
+    phone: null,
+    alternatePhone: null,
+    contacts: [],
+    address: null,
+    medicalAlerts: []
+  };
+
+  function createConcurrencyService(claimCount: number) {
+    const tx = {
+      patient: {
+        updateMany: jest.fn().mockResolvedValue({ count: claimCount })
+      },
+      patientAddress: { update: jest.fn(), create: jest.fn() },
+      patientContact: { deleteMany: jest.fn(), createMany: jest.fn() },
+      patientMedicalAlert: { deleteMany: jest.fn(), createMany: jest.fn() },
+      auditLog: { create: jest.fn().mockResolvedValue({ id: "audit-1" }) }
+    };
+    const prisma = {
+      patient: {
+        findFirst: jest.fn().mockResolvedValue(currentPatient),
+        findMany: jest.fn().mockResolvedValue([])
+      },
+      $transaction: jest.fn((callback: (transaction: typeof tx) => unknown) => callback(tx))
+    };
+    const service = new PatientsService(prisma as never);
+    jest.spyOn(service, "findOne").mockResolvedValue({ id: "patient-1", version: 8 } as never);
+    return { service, tx };
+  }
+
+  it("claims the expected version and increments it in the same transaction", async () => {
+    const { service, tx } = createConcurrencyService(1);
+
+    await expect(
+      service.update(actor, "patient-1", { firstName: "Updated", expectedVersion: 7 })
+    ).resolves.toEqual(expect.objectContaining({ patient: expect.objectContaining({ version: 8 }) }));
+
+    expect(tx.patient.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: "patient-1",
+        organizationId: "org-1",
+        branchId: { in: ["branch-1"] },
+        deletedAt: null,
+        version: 7
+      },
+      data: expect.objectContaining({
+        firstName: "Updated",
+        version: { increment: 1 }
+      })
+    });
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns conflict without touching child records when another writer already claimed the version", async () => {
+    const { service, tx } = createConcurrencyService(0);
+
+    await expect(
+      service.update(actor, "patient-1", {
+        firstName: "Stale",
+        expectedVersion: 7,
+        contacts: [{ name: "Should not persist" }]
+      })
+    ).rejects.toThrow("El paciente fue modificado por otro usuario");
+
+    expect(tx.patientContact.deleteMany).not.toHaveBeenCalled();
+    expect(tx.patientContact.createMany).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+});

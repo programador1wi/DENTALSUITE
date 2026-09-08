@@ -97,7 +97,7 @@ describe("ProfilePage", () => {
         "patients.read",
         "clinical.read",
         "payments.read",
-        "system.manage_all"
+        "organization.manage_all"
       ],
       branchIds: ["branch_1", "branch_2"],
       branches: [

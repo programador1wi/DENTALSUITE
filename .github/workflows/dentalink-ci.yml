@@ -1,0 +1,161 @@
+name: Dentalink CI
+
+on:
+  pull_request:
+    paths:
+      - "Dentalink/**"
+      - ".github/workflows/dentalink-ci.yml"
+  push:
+    paths:
+      - "Dentalink/**"
+      - ".github/workflows/dentalink-ci.yml"
+
+concurrency:
+  group: dentalink-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Dentalink
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: dentalwarner_ci
+          POSTGRES_USER: dentalwarner
+          POSTGRES_PASSWORD: dentalwarner
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dentalwarner -d dentalwarner_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://dentalwarner:dentalwarner@127.0.0.1:5432/dentalwarner_ci?schema=public
+      REDIS_URL: redis://127.0.0.1:6379
+      JWT_ACCESS_SECRET: ci-access-secret-not-for-production
+      JWT_REFRESH_SECRET: ci-refresh-secret-not-for-production
+      AUTH_INCLUDE_REFRESH_TOKEN_IN_RESPONSE: "false"
+      LINT_WARNING_LIMIT: "641"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Dentalink/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build shared contracts
+        run: npm run build --workspace=@dentalwarner/shared
+
+      - name: Generate Prisma client
+        run: npm run db:generate
+
+      - name: Apply migrations from zero
+        run: npm run db:migrate:deploy
+
+      - name: Seed deterministic RBAC baseline
+        run: npm run db:seed:ci
+
+      - name: Reconcile canonical permissions
+        run: npm run permissions:reconcile --workspace=@dentalwarner/database -- --apply --confirm=RECONCILE_PERMISSIONS
+
+      - name: Verify migration status
+        run: npm run db:migrate:status
+
+      - name: Verify route contracts
+        run: npm run contracts:routes
+
+      - name: Audit route authorization
+        run: npm run permissions:audit
+
+      - name: Audit effective permission catalog
+        run: npm run permissions:audit --workspace=@dentalwarner/database
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint regression gate
+        run: npm run lint:regression
+
+      - name: API tests
+        run: npm test --workspace=@dentalwarner/api -- --json --outputFile=../../artifacts/api-tests.json
+
+      - name: Web tests
+        run: npm test --workspace=@dentalwarner/web -- --reporter=json --outputFile=../../artifacts/web-tests.json
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload quality reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dentalink-quality-reports
+          path: |
+            Dentalink/artifacts/
+            Dentalink/apps/web/playwright-report/
+          if-no-files-found: ignore
+
+  architecture-ui-informational:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: Dentalink
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Dentalink/package-lock.json
+      - run: npm ci
+      - name: Architecture audit
+        run: npm run architecture:audit
+      - name: UI audit
+        run: npm run ui:audit --workspace=@dentalwarner/web
+
+  e2e-informational:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    defaults:
+      run:
+        working-directory: Dentalink
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: Dentalink/package-lock.json
+      - run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run available E2E contracts
+        run: npm run test:e2e --workspace=@dentalwarner/web
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dentalink-playwright-report
+          path: Dentalink/apps/web/playwright-report/
+          if-no-files-found: ignore

@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { Info, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { SafeHtml } from "@/components/ui/safe-html";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { usePatient } from "@/features/patients/hooks/use-patients";
@@ -452,9 +453,9 @@ export function ClinicalPrescriptionsPage() {
                     </div>
 
                     {prescription.notes && (
-                      <div 
+                      <SafeHtml
+                        html={prescription.notes}
                         className="mt-3 text-sm text-slate-700 border-t border-slate-100 pt-3 [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5 [&_li]:list-item [&_ul]:my-1 [&_ol]:my-1 [&_li]:my-0.5 leading-relaxed"
-                        dangerouslySetInnerHTML={{ __html: prescription.notes }}
                       />
                     )}
                   </Card>

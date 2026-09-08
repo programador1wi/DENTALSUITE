@@ -49,7 +49,7 @@ export function RolesPage() {
   const createRole = useCreateRole();
   const deactivateRole = useDeactivateRole();
   const { can } = usePermissions();
-  const canManageAll = can("system.manage_all");
+  const canManageAll = can("organization.manage_all");
   const canCreateRole = canManageAll || can("roles.create");
   const canDeactivateRole = canManageAll || can("roles.deactivate");
   const delegablePermissionIds = new Set(

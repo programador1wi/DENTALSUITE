@@ -12,7 +12,6 @@ import {
   CashRegisterStatus,
   CompanyPaymentStatus,
   CurrencyCode,
-  InstallmentFrequency,
   Prisma
 } from "@prisma/client";
 import { randomUUID } from "node:crypto";
@@ -987,7 +986,7 @@ export class AgreementDebtsService {
   }
 
   private has(actor: AuthUser, permission: string) {
-    return actor.permissions.includes("system.manage_all") || actor.permissions.includes(permission);
+    return actor.permissions.includes("organization.manage_all") || actor.permissions.includes(permission);
   }
 
   private decimal(value: number) {

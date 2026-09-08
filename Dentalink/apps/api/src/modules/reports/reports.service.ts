@@ -139,7 +139,7 @@ export class ReportsService {
       const rows = await this.periodProvider.rows(definition, actor, {
         ...(dto.parameters ?? {}),
         ...parameters
-      });
+      }, format);
       response = await this.withExport(
         this.wrapResponse(await this.resolveFilters(actor, query), { rows }),
         definition.id,
@@ -1097,7 +1097,12 @@ export class ReportsService {
   }
 
   private assertCanRequestReport(actor: AuthUser, definition: ExcelReportDefinition) {
-    if (!definition.enabled) throw new BadRequestException("El generador del reporte no esta implementado");
+    if (!definition.enabled) {
+      throw new BadRequestException({
+        code: "REPORT_UNAVAILABLE",
+        message: definition.unavailableReason ?? "El generador del reporte no está disponible."
+      });
+    }
     const permissions = definition.requiredPermissions ?? [definition.permission, "reports.export"];
     if (permissions.some((permission) => !this.hasPermission(actor, permission))) {
       throw new ForbiddenException("No tienes permiso para solicitar este reporte");

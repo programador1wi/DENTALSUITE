@@ -12,7 +12,7 @@ export function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const form = useForm<LoginSchema>({
     resolver: zodResolver(loginSchema),
-    defaultValues: { email: "", password: "", rememberMe: true }
+    defaultValues: { email: "", password: "" }
   });
 
   return (
@@ -62,16 +62,6 @@ export function LoginForm() {
           <span className="block pl-0.5 text-xs font-medium text-red-600">{form.formState.errors.password?.message}</span>
         )}
       </div>
-
-      <label className="flex cursor-pointer select-none items-center gap-[var(--space-2)] pt-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-secondary)]">
-        <input
-          id="remember-me"
-          type="checkbox"
-          className="h-4 w-4 rounded-[var(--radius-sm)] border-[var(--border-strong)] accent-[var(--action-brand)]"
-          {...form.register("rememberMe")}
-        />
-        Mantener sesión iniciada
-      </label>
 
       <Button
         type="submit"

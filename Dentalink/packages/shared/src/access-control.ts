@@ -524,6 +524,12 @@ export const permissionDefinitions = [
     "agenda"
   ],
   [
+    "appointments.reminders.manage",
+    "Administrar recordatorios automáticos",
+    "Permite configurar políticas, probar correo y resolver entregas inciertas de citas.",
+    "agenda"
+  ],
+  [
     "agenda.appointments.create",
     "Agendar citas a los pacientes",
     "Permite reservar y asignar nuevas citas médicas.",
@@ -590,28 +596,42 @@ export const permissionDefinitions = [
     "crm"
   ],
   [
-    "system.manage_all",
-    "Administrar todo el sistema",
-    "Permite administrar toda la plataforma sin restricciones de permisos.",
-    "system"
+    "developer_api.credentials.read",
+    "Ver credenciales de API",
+    "Permite consultar credenciales e información de consumo sin revelar secretos.",
+    "developer_api"
   ],
   [
-    "dashboard.read",
-    "Ver panel principal",
-    "Permite visualizar el panel principal del sistema.",
-    "system"
-  ]
+    "developer_api.credentials.manage",
+    "Administrar credenciales de API",
+    "Permite crear, editar, rotar y revocar credenciales de integraciones externas.",
+    "developer_api"
+  ],
+  [
+    "organization.manage_all",
+    "Administrar toda la organización",
+    "Permite administrar todas las sucursales y configuraciones de la organización actual.",
+    "organization"
+  ],
+  ["dashboard.read", "Ver panel principal", "Permite visualizar el panel principal del sistema.", "system"]
 ] as const;
 
 export const CANONICAL_PERMISSION_KEYS = new Set<string>(permissionDefinitions.map(([key]) => key));
 
-export const roleDefinitions = [
+export type RoleDefinition = {
+  name: string;
+  code: string;
+  description: string;
+  permissionKeys: readonly string[];
+};
+
+export const roleDefinitions: RoleDefinition[] = [
   {
-    "name": "Super Administrador",
-    "code": "super_admin",
-    "description": "Acceso total a la plataforma",
-    "permissionKeys": [
-      "system.manage_all",
+    name: "Super Administrador",
+    code: "super_admin",
+    description: "Acceso total a la organización y todas sus sucursales",
+    permissionKeys: [
+      "organization.manage_all",
       "patient_financing.view",
       "payroll_financing.view",
       "patient_financing.create",
@@ -697,8 +717,8 @@ export const roleDefinitions = [
       "patients.images.delete",
       "patients.clinical_docs.delete",
       "patients.create",
-      "agenda.edit",
       "agenda.view",
+      "agenda.edit",
       "agenda.appointments.create",
       "agenda.overbooking.allow",
       "agenda.online_booking.validate",
@@ -713,10 +733,43 @@ export const roleDefinitions = [
     ]
   },
   {
-    "name": "Administrador de Sucursal",
-    "code": "branch_admin",
-    "description": "Gestion operativa y clinica de sucursal",
-    "permissionKeys": [
+    name: "Administrador",
+    code: "admin",
+    description: "Acceso administrativo global",
+    permissionKeys: [
+      "patient_financing.view",
+      "payroll_financing.view",
+      "patient_financing.create",
+      "payroll_financing.create",
+      "collections.manage",
+      "treatment_items.price_override",
+      "payments.void",
+      "payroll_discount.remove",
+      "patient_financing.delete",
+      "agreement_payments.void",
+      "payments.refund_and_reentry",
+      "payments.receipt_date.update",
+      "payments.metadata.update",
+      "treatment_plans.detail.manage",
+      "budgets.evolve",
+      "treatment_plans.commercial_discounts",
+      "treatment_plans.deactivate_finished",
+      "treatment_plans.unlock",
+      "clinical_actions.undo",
+      "treatment_plans.transfer_branch",
+      "lab_orders.price_override",
+      "payments.reallocate_credits",
+      "treatment_plans.delete",
+      "clinical_actions.warranty_undo",
+      "treatment_plans.comments.update",
+      "treatment_plans.comment_templates.manage",
+      "treatment_plans.reactivate_expired",
+      "payments.cash_discount.release_credit",
+      "treatment_plans.duplicate",
+      "clinical.print_signature.view",
+      "payments.unallocate",
+      "reports.management.read",
+      "dashboard.performance.view",
       "admin.users.manage",
       "admin.payment_methods_banks.manage",
       "admin.expenses.manage",
@@ -734,51 +787,166 @@ export const roleDefinitions = [
       "admin.templates_only.manage",
       "admin.lab_requests.manage",
       "admin.clinical_docs.manage",
+      "admin.ges_notifications.view_print",
+      "admin.settlement_payment.update",
+      "admin.consent_templates.manage",
       "admin.specialties.manage",
       "admin.roles.manage",
       "admin.user_permissions.manage",
+      "admin.lab_payments.manage",
+      "admin.ges_config.manage",
+      "admin.online_tpv_dashboard.view",
+      "admin.user_security.manage",
+      "admin.price_lists.bulk_import",
+      "admin.file_sync.configure",
+      "admin.file_sync.export_attach",
       "admin.health_center.view",
-      "reports.management.read",
-      "dashboard.performance.view",
-      "agenda.view",
-      "agenda.edit",
-      "agenda.appointments.create",
-      "agenda.overbooking.allow",
-      "agenda.online_booking.validate",
-      "agenda.reprogramming.manage",
       "patients.records.manage",
       "patients.invoices.view",
       "patients.images.upload",
       "patients.family_groups.manage",
       "patients.personal_data.update",
       "patients.alerts.manage",
+      "patients.records.read_only",
+      "patients.alerts.view",
+      "patients.document_number.update",
       "patients.personal_data.view",
       "patients.prescriptions.manage",
+      "patients.deactivate",
+      "patients.medical_history.edit",
+      "patients.medical_history_history.view",
       "patients.consents.manage",
+      "patients.consents.read_only",
+      "patients.merge",
       "patients.clinical_history.download",
+      "patients.images.delete",
+      "patients.clinical_docs.delete",
       "patients.create",
+      "agenda.view",
+      "agenda.edit",
+      "agenda.appointments.create",
+      "agenda.overbooking.allow",
+      "agenda.online_booking.validate",
+      "agenda.reprogramming.manage",
       "cash_register.shifts.manage",
       "cash_register.summaries.view",
       "dentist_payouts.manage",
-      "collections.manage",
+      "crm.marketing_campaigns.manage",
+      "crm.tasks.manage",
+      "crm.surveys.manage",
+      "crm.surveys.edit"
+    ]
+  },
+  {
+    name: "Administrador de Sucursal",
+    code: "branch_admin",
+    description: "Gestion operativa y administrativa de la sucursal",
+    permissionKeys: [
       "patient_financing.view",
+      "payroll_financing.view",
       "patient_financing.create",
+      "payroll_financing.create",
+      "collections.manage",
+      "treatment_items.price_override",
+      "payments.void",
+      "payroll_discount.remove",
+      "patient_financing.delete",
+      "agreement_payments.void",
       "payments.refund_and_reentry",
       "payments.receipt_date.update",
       "payments.metadata.update",
       "treatment_plans.detail.manage",
       "budgets.evolve",
       "treatment_plans.commercial_discounts",
+      "treatment_plans.deactivate_finished",
       "treatment_plans.unlock",
+      "clinical_actions.undo",
+      "treatment_plans.transfer_branch",
+      "lab_orders.price_override",
       "payments.reallocate_credits",
-      "crm.tasks.manage"
+      "treatment_plans.delete",
+      "clinical_actions.warranty_undo",
+      "treatment_plans.comments.update",
+      "treatment_plans.comment_templates.manage",
+      "treatment_plans.reactivate_expired",
+      "payments.cash_discount.release_credit",
+      "treatment_plans.duplicate",
+      "clinical.print_signature.view",
+      "payments.unallocate",
+      "reports.management.read",
+      "dashboard.performance.view",
+      "admin.inventory.manage",
+      "admin.dentists.manage",
+      "admin.reports_excel.export",
+      "admin.patient_field_config.manage",
+      "admin.patient_admin_notes.view",
+      "admin.templates_only.manage",
+      "admin.lab_requests.manage",
+      "admin.clinical_docs.manage",
+      "admin.ges_notifications.view_print",
+      "admin.settlement_payment.update",
+      "admin.consent_templates.manage",
+      "admin.specialties.manage",
+      "admin.lab_payments.manage",
+      "admin.ges_config.manage",
+      "admin.online_tpv_dashboard.view",
+      "admin.health_center.view",
+      "patients.records.manage",
+      "patients.invoices.view",
+      "patients.images.upload",
+      "patients.family_groups.manage",
+      "patients.personal_data.update",
+      "patients.alerts.manage",
+      "patients.records.read_only",
+      "patients.alerts.view",
+      "patients.document_number.update",
+      "patients.personal_data.view",
+      "patients.prescriptions.manage",
+      "patients.deactivate",
+      "patients.medical_history.edit",
+      "patients.medical_history_history.view",
+      "patients.consents.manage",
+      "patients.consents.read_only",
+      "patients.merge",
+      "patients.clinical_history.download",
+      "patients.images.delete",
+      "patients.clinical_docs.delete",
+      "patients.create",
+      "agenda.view",
+      "agenda.edit",
+      "agenda.appointments.create",
+      "agenda.overbooking.allow",
+      "agenda.online_booking.validate",
+      "agenda.reprogramming.manage",
+      "cash_register.shifts.manage",
+      "cash_register.summaries.view",
+      "dentist_payouts.manage",
+      "crm.marketing_campaigns.manage",
+      "crm.tasks.manage",
+      "crm.surveys.manage",
+      "crm.surveys.edit"
     ]
   },
   {
-    "name": "Caja",
-    "code": "cashier",
-    "description": "Cobranza, control de caja y visualizacion de citas",
-    "permissionKeys": [
+    name: "Gerente de Sucursal",
+    code: "branch_manager",
+    description: "Supervisión gerencial de operaciones y reportes",
+    permissionKeys: [
+      "agenda.view",
+      "agenda.edit",
+      "patients.personal_data.view",
+      "patients.invoices.view",
+      "reports.management.read",
+      "dashboard.performance.view",
+      "cash_register.summaries.view",
+      "dentist_payouts.manage"
+    ]
+  },
+  {
+    name: "Caja",
+    code: "cashier",
+    description: "Cobranzas, recepcion de pagos y control de caja",
+    permissionKeys: [
       "agenda.view",
       "agenda.appointments.create",
       "cash_register.shifts.manage",
@@ -798,10 +966,10 @@ export const roleDefinitions = [
     ]
   },
   {
-    "name": "Recepcionista",
-    "code": "receptionist",
-    "description": "Atencion a pacientes y gestion de agenda",
-    "permissionKeys": [
+    name: "Recepcionista",
+    code: "receptionist",
+    description: "Atencion a pacientes y gestion de agenda",
+    permissionKeys: [
       "agenda.view",
       "agenda.edit",
       "agenda.appointments.create",
@@ -818,10 +986,30 @@ export const roleDefinitions = [
     ]
   },
   {
-    "name": "Dentista",
-    "code": "dentist",
-    "description": "Atencion clinica y evolucion de tratamientos",
-    "permissionKeys": [
+    name: "Recepción",
+    code: "reception",
+    description: "Operaciones de recepción y atención general",
+    permissionKeys: [
+      "agenda.view",
+      "agenda.edit",
+      "agenda.appointments.create",
+      "agenda.overbooking.allow",
+      "agenda.online_booking.validate",
+      "agenda.reprogramming.manage",
+      "patients.create",
+      "patients.personal_data.view",
+      "patients.personal_data.update",
+      "patients.alerts.view",
+      "patients.family_groups.manage",
+      "cash_register.shifts.manage",
+      "crm.tasks.manage"
+    ]
+  },
+  {
+    name: "Dentista",
+    code: "dentist",
+    description: "Atencion clinica y evolucion de tratamientos",
+    permissionKeys: [
       "agenda.view",
       "patients.records.manage",
       "patients.personal_data.view",
@@ -836,8 +1024,14 @@ export const roleDefinitions = [
       "treatment_plans.comments.update",
       "clinical.print_signature.view"
     ]
+  },
+  {
+    name: "CEYE",
+    code: "ceye",
+    description: "Central de esterilización y equipos clínicos",
+    permissionKeys: ["agenda.view", "admin.inventory.manage"]
   }
-] as const;
+];
 
 export const PERMISSION_LABELS: Record<string, string> = {
   "agreement.apply_to_plan": "Aplicar convenios a planes",
@@ -871,20 +1065,20 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "procedure.deactivate": "Desactivar prestaciones cl�nicas",
   "laboratory_price.view": "Ver aranceles de laboratorio",
   "laboratory_price.edit": "Editar aranceles de laboratorio",
-  "view_generated_documents": "Ver documentos generados",
-  "void_generated_document": "Anular documentos generados",
-  "print_complete_budget": "Imprimir presupuesto completo",
-  "print_total_only_budget": "Imprimir presupuesto solo total",
-  "print_budget_without_values": "Imprimir presupuesto sin valores",
-  "print_care_plan": "Imprimir plan de cuidado",
-  "print_treatment_sections": "Imprimir secciones de tratamiento",
-  "print_laboratory_order": "Imprimir orden de laboratorio",
-  "print_odontogram": "Imprimir odontograma",
-  "print_clinical_history": "Imprimir historia cl�nica",
-  "select_print_logo": "Seleccionar logotipo de impresi�n",
-  "manage_logos": "Administrar logotipos institucionales",
-  "assign_logos_to_branches": "Asignar logotipos a sucursales",
-  "system.manage_all": "Administrar todo",
+  view_generated_documents: "Ver documentos generados",
+  void_generated_document: "Anular documentos generados",
+  print_complete_budget: "Imprimir presupuesto completo",
+  print_total_only_budget: "Imprimir presupuesto solo total",
+  print_budget_without_values: "Imprimir presupuesto sin valores",
+  print_care_plan: "Imprimir plan de cuidado",
+  print_treatment_sections: "Imprimir secciones de tratamiento",
+  print_laboratory_order: "Imprimir orden de laboratorio",
+  print_odontogram: "Imprimir odontograma",
+  print_clinical_history: "Imprimir historia cl�nica",
+  select_print_logo: "Seleccionar logotipo de impresi�n",
+  manage_logos: "Administrar logotipos institucionales",
+  assign_logos_to_branches: "Asignar logotipos a sucursales",
+  "organization.manage_all": "Administrar toda la organización",
   "family_policies.read": "Ver pólizas familiares",
   "family_policies.create": "Crear pólizas familiares",
   "family_policies.manage": "Administrar pólizas familiares",
@@ -925,6 +1119,8 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "users.manage_branch_access": "Administrar acceso a sucursales",
   "settings.read": "Ver configuracion",
   "settings.update": "Editar configuracion",
+  "developer_api.credentials.read": "Ver credenciales de API",
+  "developer_api.credentials.manage": "Administrar credenciales de API",
   "specialties.read": "Ver especialidades",
   "specialties.create": "Crear especialidades",
   "specialties.update": "Editar especialidades",
@@ -1027,6 +1223,7 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "appointments.update": "Editar citas",
   "appointments.cancel": "Cancelar citas",
   "appointments.status.update": "Actualizar estado de citas",
+  "appointments.reminders.manage": "Administrar recordatorios automáticos",
   "appointments.overbook": "Agendar fuera de disponibilidad",
   "appointments.block": "Bloquear espacios de agenda",
   "agenda.reprogramming.view": "Ver reprogramación de citas",
@@ -1227,13 +1424,16 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "clinical_actions.undo": "Desrealizar acciones clínicas y laboratorios",
   "treatment_plans.transfer_branch": "Cambiar plan de tratamiento de sucursal",
   "lab_orders.price_override": "Modificar precio de los laboratorios en un tratamiento",
-  "payments.reallocate_credits": "Reasignar abonos libres entre tratamientos de un mismo paciente (y sus cargas)",
+  "payments.reallocate_credits":
+    "Reasignar abonos libres entre tratamientos de un mismo paciente (y sus cargas)",
   "treatment_plans.delete": "Eliminar tratamientos de los pacientes",
   "clinical_actions.warranty_undo": "Permite desrealizar (por garantía) una prestación ya liquidada",
   "treatment_plans.comments.update": "Modificar comentarios en un Plan de Tratamiento",
-  "treatment_plans.comment_templates.manage": "Crear, modificar y eliminar plantillas de comentarios para un Plan de Tratamiento",
+  "treatment_plans.comment_templates.manage":
+    "Crear, modificar y eliminar plantillas de comentarios para un Plan de Tratamiento",
   "treatment_plans.reactivate_expired": "Reactivar tratamientos expirados",
-  "payments.cash_discount.release_credit": "Permite liberar a abono libre, pagos que tengan descuento por caja",
+  "payments.cash_discount.release_credit":
+    "Permite liberar a abono libre, pagos que tengan descuento por caja",
   "clinical.print_signature.view": "Visualizar firma del profesional en imprimibles",
   "payments.unallocate": "Desasociar pagos de prestaciones",
   "reports.management.read": "Reportes generales y específicos de gestión",
@@ -1250,14 +1450,16 @@ export const PERMISSION_LABELS: Record<string, string> = {
   "admin.pending_void_payments.manage": "Gestión de pagos pendientes y anulados",
   "admin.reports_excel.export": "Reportes Excel",
   "admin.logo.manage": "Agregar o cambiar logo clínica",
-  "admin.patient_field_config.manage": "Edición de datos personales mostrados y requeridos al ingresar un paciente en la plataforma",
+  "admin.patient_field_config.manage":
+    "Edición de datos personales mostrados y requeridos al ingresar un paciente en la plataforma",
   "admin.patient_admin_notes.view": "Permite ver los comentarios administrativos en datos del paciente",
   "admin.templates_only.manage": "Configuración sólo de plantillas",
   "admin.lab_requests.manage": "Gestión de solicitudes de laboratorios",
   "admin.clinical_docs.manage": "Gestión de documentos clínicos",
   "admin.ges_notifications.view_print": "Permite ver e imprimir notificaciones GES",
   "admin.settlement_payment.update": "Editar pago de liquidación",
-  "admin.consent_templates.manage": "Permite crear, modificar y eliminar plantillas de consentimientos informados",
+  "admin.consent_templates.manage":
+    "Permite crear, modificar y eliminar plantillas de consentimientos informados",
   "admin.specialties.manage": "Permite poder gestionar especialidades",
   "admin.roles.manage": "Permiso para administrar permisos para perfiles",
   "admin.user_permissions.manage": "Permiso para administrar permisos para usuarios",
@@ -1303,7 +1505,7 @@ export const PERMISSION_LABELS: Record<string, string> = {
 };
 
 export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
-  "system.manage_all": "Permite administrar toda la plataforma sin restricciones de permisos.",
+  "organization.manage_all": "Permite administrar todas las sucursales y funciones dentro de la organización.",
   "dashboard.read": "Permite visualizar el panel principal.",
   "users.read": "Permite consultar usuarios y colaboradores.",
   "users.create": "Permite crear nuevos usuarios y colaboradores.",
@@ -1337,6 +1539,10 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "users.manage_branch_access": "Permite asignar o retirar acceso de usuarios a sucursales.",
   "settings.read": "Permite consultar configuraciones administrativas.",
   "settings.update": "Permite modificar configuraciones administrativas.",
+  "developer_api.credentials.read":
+    "Permite consultar credenciales e informacion de consumo sin revelar secretos.",
+  "developer_api.credentials.manage":
+    "Permite crear, editar, rotar y revocar credenciales de integraciones externas.",
   "specialties.read": "Permite consultar especialidades.",
   "specialties.create": "Permite crear especialidades.",
   "specialties.update": "Permite editar especialidades y sus reglas.",
@@ -1360,7 +1566,8 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "payment_methods.reactivate": "Permite reactivar medios deshabilitados sin perder historial.",
   "payment_methods.configure_retention": "Permite configurar el porcentaje retenido por cada medio.",
   "payment_methods.configure_refunds": "Permite decidir si un medio puede usarse en devoluciones.",
-  "payment_methods.configure_multiple_settlements": "Permite programar varias recepciones bancarias de un mismo cobro.",
+  "payment_methods.configure_multiple_settlements":
+    "Permite programar varias recepciones bancarias de un mismo cobro.",
   "payment_methods.configure_cash_impact": "Permite cambiar cómo el medio afecta caja, cierres y reportes.",
   "payment_methods.view_audit": "Permite consultar cambios históricos de medios de pago.",
   "payment_settlements.read": "Permite consultar vencimientos y recepciones programadas.",
@@ -1373,7 +1580,8 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "payment_options.cash_discounts.reactivate": "Permite reactivar promociones deshabilitadas.",
   "payments.cash_discounts.apply": "Permite aplicar una promocion autorizada al liquidar prestaciones.",
   "payments.cash_discounts.override": "Permiso reservado para excepciones; no se asigna por defecto.",
-  "payments.cash_discounts.view_audit": "Permite consultar aplicaciones, rechazos, anulaciones y devoluciones.",
+  "payments.cash_discounts.view_audit":
+    "Permite consultar aplicaciones, rechazos, anulaciones y devoluciones.",
   "procedure_categories.read": "Permite consultar categorias de procedimientos.",
   "procedure_categories.create": "Permite crear categorias de procedimientos.",
   "procedure_categories.update": "Permite editar categorias de procedimientos.",
@@ -1385,25 +1593,31 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "price_lists.read": "Permite consultar listas de precios.",
   "price_lists.create": "Permite crear listas de precios.",
   "price_lists.update": "Permite editar listas de precios y asignaciones por sucursal.",
-  "price_lists.configure_discount_limits": "Permite configurar si una prestación admite descuento y su porcentaje máximo.",
+  "price_lists.configure_discount_limits":
+    "Permite configurar si una prestación admite descuento y su porcentaje máximo.",
   "price_lists.override_manual": "Permite registrar precios manuales distintos al arancel resuelto.",
   "price_lists.deactivate": "Permite desactivar listas de precios.",
   "treatment_discount.apply": "Permite aplicar descuentos solo sobre prestaciones elegibles.",
-  "treatment_discount.configure_user_limits": "Permite configurar el porcentaje máximo de descuento autorizado para cada usuario.",
+  "treatment_discount.configure_user_limits":
+    "Permite configurar el porcentaje máximo de descuento autorizado para cada usuario.",
   "treatment_discount.override": "Permite autorizar descuentos que superan umbrales definidos.",
   "treatment_discount.view": "Permite ver detalle de descuentos aplicados.",
   "treatment_discount.audit": "Permite revisar auditoria de descuentos.",
   "patients.read": "Permite consultar pacientes.",
   "patient_analytics.read": "Permite consultar indicadores agregados del modulo Pacientes.",
-  "patient_analytics.read_financial": "Permite recibir deuda, pagos e importes de presupuestos en el analisis.",
-  "patient_analytics.view_all_branches": "Permite consolidar en una consulta todas las sucursales autorizadas.",
+  "patient_analytics.read_financial":
+    "Permite recibir deuda, pagos e importes de presupuestos en el analisis.",
+  "patient_analytics.view_all_branches":
+    "Permite consolidar en una consulta todas las sucursales autorizadas.",
   "patient_analytics.export": "Permite exportar detalles autorizados del analisis.",
   "patient_analytics.refresh": "Permite solicitar un calculo actualizado de indicadores.",
-  "patient_analytics.view_patient_details": "Permite identificar pacientes y abrir su ficha desde el detalle analitico.",
+  "patient_analytics.view_patient_details":
+    "Permite identificar pacientes y abrir su ficha desde el detalle analitico.",
   "patients.create": "Permite dar de alta nuevos pacientes en el sistema.",
   "patients.update": "Permite editar datos del paciente.",
   "patient_identity.config.read": "Permite consultar las reglas y banderas de identidad.",
-  "patient_identity.config.manage": "Permite activar gradualmente resolución de identidad y grupos familiares.",
+  "patient_identity.config.manage":
+    "Permite activar gradualmente resolución de identidad y grupos familiares.",
   "contact_points.read": "Permite consultar teléfonos normalizados y sus relaciones.",
   "contact_points.link": "Permite vincular un teléfono personal o compartido.",
   "contact_points.verify": "Permite registrar verificación de control del canal.",
@@ -1413,7 +1627,8 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "family_groups.create": "Permite crear grupos familiares.",
   "family_groups.manage_members": "Permite gestionar integrantes, roles y consentimientos.",
   "family_groups.manage_contacts": "Permite administrar teléfonos compartidos del grupo.",
-  "family_groups.manage_permissions": "Permite administrar permisos granulares de agenda, recordatorios y acceso sensible por integrante.",
+  "family_groups.manage_permissions":
+    "Permite administrar permisos granulares de agenda, recordatorios y acceso sensible por integrante.",
   "patient_duplicates.review": "Permite revisar candidatos antes de crear o fusionar fichas.",
   "patients.merge": "Permite unificar registros duplicados de pacientes.",
   "booking_identity.review": "Permite revisar sesiones ambiguas del bot o Agenda Online.",
@@ -1430,15 +1645,18 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "appointments.update": "Permite editar citas y notas asociadas.",
   "appointments.cancel": "Permite cancelar citas.",
   "appointments.status.update": "Permite cambiar el estado de citas.",
+  "appointments.reminders.manage": "Permite configurar, reintentar y resolver recordatorios automáticos.",
   "appointments.overbook": "Permite crear citas aunque no haya disponibilidad normal.",
   "appointments.block": "Permite bloquear espacios de agenda.",
   "agenda.reprogramming.view": "Permite consultar la cola de citas pendientes de reprogramación.",
-  "agenda.reprogramming.mass_cancel": "Permite anular citas por rango y crear casos pendientes con vista previa.",
+  "agenda.reprogramming.mass_cancel":
+    "Permite anular citas por rango y crear casos pendientes con vista previa.",
   "agenda.reprogramming.reschedule": "Permite crear una nueva cita vinculada a la cita original.",
   "agenda.reprogramming.change_professional": "Permite seleccionar otro profesional al crear la nueva cita.",
   "agenda.reprogramming.change_branch": "Permite seleccionar otra sucursal dentro del acceso del usuario.",
   "agenda.reprogramming.definitive_cancel": "Permite cerrar un caso sin crear una cita nueva.",
-  "agenda.reprogramming.view_financial_status": "Permite ver información financiera de solo lectura en la cola.",
+  "agenda.reprogramming.view_financial_status":
+    "Permite ver información financiera de solo lectura en la cola.",
   "agenda.reprogramming.view_audit": "Permite consultar trazabilidad de lotes y casos de reprogramación.",
   "clinical.read": "Permite consultar el expediente clinico.",
   "clinical.history.update": "Permite editar historia clinica y antecedentes.",
@@ -1456,13 +1674,15 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "treatment_plans.update": "Permite editar planes de tratamiento.",
   "treatment_plans.status.update": "Permite actualizar estados de tratamientos o prestaciones.",
   "treatment_plans.alternatives.manage": "Permite administrar alternativas de tratamiento.",
-  "orthodontic_catalogs.manage": "Permite crear, desactivar, reactivar y ordenar opciones tecnicas de ortodoncia.",
+  "orthodontic_catalogs.manage":
+    "Permite crear, desactivar, reactivar y ordenar opciones tecnicas de ortodoncia.",
   "orthodontic_diagnosis.read": "Permite consultar diagnosticos de ortodoncia.",
   "orthodontic_diagnosis.create": "Permite guardar diagnosticos activos de ortodoncia.",
   "orthodontic_diagnosis.draft": "Permite guardar borradores de diagnostico de ortodoncia.",
   "orthodontic_diagnosis.update": "Permite crear nuevas versiones de diagnosticos activos.",
   "orthodontic_diagnosis.history.read": "Permite consultar versiones anteriores del diagnostico.",
-  "orthodontic_diagnosis.catalogs.manage": "Permite crear, desactivar, reactivar y ordenar opciones del catalogo de diagnostico.",
+  "orthodontic_diagnosis.catalogs.manage":
+    "Permite crear, desactivar, reactivar y ordenar opciones del catalogo de diagnostico.",
   "budgets.read": "Permite consultar presupuestos.",
   "budgets.create": "Permite generar presupuestos.",
   "budgets.update": "Permite editar presupuestos.",
@@ -1509,7 +1729,8 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "consents.pdf": "Permite descargar el PDF del consentimiento firmado.",
   "reports.read": "Permite consultar dashboards y reportes.",
   "reports.export": "Permite exportar reportes en archivos.",
-  "integrations.communications.read": "Permite consultar trabajos de comunicacion por email, WhatsApp y canales internos.",
+  "integrations.communications.read":
+    "Permite consultar trabajos de comunicacion por email, WhatsApp y canales internos.",
   "integrations.communications.send": "Permite crear y encolar comunicaciones para pacientes.",
   "integrations.surveys.read": "Permite consultar encuestas y respuestas NPS.",
   "integrations.surveys.manage": "Permite crear, enviar y administrar encuestas.",
@@ -1608,7 +1829,8 @@ export const PERMISSION_DESCRIPTIONS: Record<string, string> = {
   "reports.management.read": "Permite consultar y exportar reportes operacionales y financieros.",
   "dashboard.performance.view": "Permite acceder al panel ejecutivo y métricas de desempeño.",
   "admin.users.manage": "Permite crear, editar y desactivar usuarios y colaboradores.",
-  "admin.payment_methods_banks.manage": "Permite configurar medios de pago, retenciones y entidades bancarias.",
+  "admin.payment_methods_banks.manage":
+    "Permite configurar medios de pago, retenciones y entidades bancarias.",
   "admin.expenses.manage": "Permite registrar, clasificar y anular gastos de la clínica.",
   "admin.inventory.manage": "Permite administrar catálogo de insumos, bodegas y movimientos de stock.",
   "admin.price_lists_templates.manage": "Permite administrar aranceles, listas de precios y categorías.",
@@ -1695,12 +1917,7 @@ export const PERMISSION_ALIASES: Readonly<Record<string, readonly string[]>> = {
     "admin.dentists.manage",
     "appointments.read"
   ],
-  "chairs.read": [
-    "agenda.view",
-    "agenda.edit",
-    "agenda.appointments.create",
-    "appointments.read"
-  ],
+  "chairs.read": ["agenda.view", "agenda.edit", "agenda.appointments.create", "appointments.read"],
   "branches.read": [
     "agenda.view",
     "agenda.edit",
@@ -1709,209 +1926,72 @@ export const PERMISSION_ALIASES: Readonly<Record<string, readonly string[]>> = {
     "cash_register.shifts.manage",
     "appointments.read"
   ],
-  "appointments.read": [
-    "agenda.view",
-    "agenda.edit",
-    "agenda.appointments.create"
-  ],
-  "price_list.view": [
-    "price_lists.read"
-  ],
-  "price_list.create": [
-    "price_lists.create"
-  ],
-  "price_list.edit_draft": [
-    "price_lists.update"
-  ],
-  "price_list.publish": [
-    "price_lists.update"
-  ],
-  "price_list.schedule": [
-    "price_lists.update"
-  ],
-  "price_list.deactivate": [
-    "price_lists.deactivate"
-  ],
-  "price_list.compare_versions": [
-    "price_lists.read"
-  ],
-  "price_list.import": [
-    "price_lists.update"
-  ],
-  "price_list.export": [
-    "price_lists.read"
-  ],
-  "procedure.view": [
-    "procedures.read"
-  ],
-  "procedure.create": [
-    "procedures.create"
-  ],
-  "procedure.edit": [
-    "procedures.update"
-  ],
-  "procedure.deactivate": [
-    "procedures.deactivate"
-  ],
-  "price_template.view": [
-    "price_lists.read"
-  ],
-  "price_template.manage": [
-    "price_lists.update"
-  ],
-  "price_override.apply": [
-    "price_lists.override_manual"
-  ],
-  "laboratory_price.view": [
-    "price_lists.read"
-  ],
-  "laboratory_price.edit": [
-    "price_lists.update"
-  ],
-  "price_audit.view": [
-    "price_lists.read"
-  ],
-  "treatment_discount.apply": [
-    "treatment_plans.update"
-  ],
-  "treatment_discount.view": [
-    "treatment_plans.read"
-  ],
-  "expenses.read": [
-    "settings.read"
-  ],
-  "expenses.create": [
-    "settings.update"
-  ],
-  "expenses.update": [
-    "settings.update"
-  ],
-  "expenses.void": [
-    "settings.update"
-  ],
-  "agreements.debt_report.read": [
-    "settings.read",
-    "agreements.read"
-  ],
-  "agreements.debt_report.all_branches": [
-    "branches.view_all"
-  ],
-  "agreements.payments.create": [
-    "settings.update",
-    "payments.create"
-  ],
-  "agreements.payments.approve": [
-    "settings.update",
-    "payments.allocate"
-  ],
-  "agreements.payments.void": [
-    "settings.update",
-    "payments.void"
-  ],
-  "agreements.reports.export": [
-    "settings.read",
-    "reports.export"
-  ],
-  "consents.templates.read": [
-    "consent_templates.read"
-  ],
-  "consents.templates.create": [
-    "consent_templates.create"
-  ],
-  "consents.templates.update_draft": [
-    "consent_templates.update"
-  ],
-  "consents.templates.publish": [
-    "consent_templates.update"
-  ],
-  "consents.templates.deactivate": [
-    "consent_templates.deactivate"
-  ],
-  "consents.templates.view_versions": [
-    "consent_templates.read"
-  ],
-  "consents.templates.view_audit": [
-    "consent_templates.read"
-  ],
-  "consents.instances.read": [
-    "consents.read"
-  ],
-  "consents.instances.create": [
-    "consents.create"
-  ],
-  "consents.instances.complete_fields": [
-    "consents.create",
-    "consents.sign"
-  ],
+  "appointments.read": ["agenda.view", "agenda.edit", "agenda.appointments.create"],
+  "price_list.view": ["price_lists.read"],
+  "price_list.create": ["price_lists.create"],
+  "price_list.edit_draft": ["price_lists.update"],
+  "price_list.publish": ["price_lists.update"],
+  "price_list.schedule": ["price_lists.update"],
+  "price_list.deactivate": ["price_lists.deactivate"],
+  "price_list.compare_versions": ["price_lists.read"],
+  "price_list.import": ["price_lists.update"],
+  "price_list.export": ["price_lists.read"],
+  "procedure.view": ["procedures.read"],
+  "procedure.create": ["procedures.create"],
+  "procedure.edit": ["procedures.update"],
+  "procedure.deactivate": ["procedures.deactivate"],
+  "price_template.view": ["price_lists.read"],
+  "price_template.manage": ["price_lists.update"],
+  "price_override.apply": ["price_lists.override_manual"],
+  "laboratory_price.view": ["price_lists.read"],
+  "laboratory_price.edit": ["price_lists.update"],
+  "price_audit.view": ["price_lists.read"],
+  "treatment_discount.apply": ["treatment_plans.update"],
+  "treatment_discount.view": ["treatment_plans.read"],
+  "expenses.read": ["settings.read"],
+  "expenses.create": ["settings.update"],
+  "expenses.update": ["settings.update"],
+  "expenses.void": ["settings.update"],
+  "agreements.debt_report.read": ["settings.read", "agreements.read"],
+  "agreements.debt_report.all_branches": ["branches.view_all"],
+  "agreements.payments.create": ["settings.update", "payments.create"],
+  "agreements.payments.approve": ["settings.update", "payments.allocate"],
+  "agreements.payments.void": ["settings.update", "payments.void"],
+  "agreements.reports.export": ["settings.read", "reports.export"],
+  "consents.templates.read": ["consent_templates.read"],
+  "consents.templates.create": ["consent_templates.create"],
+  "consents.templates.update_draft": ["consent_templates.update"],
+  "consents.templates.publish": ["consent_templates.update"],
+  "consents.templates.deactivate": ["consent_templates.deactivate"],
+  "consents.templates.view_versions": ["consent_templates.read"],
+  "consents.templates.view_audit": ["consent_templates.read"],
+  "consents.instances.read": ["consents.read"],
+  "consents.instances.create": ["consents.create"],
+  "consents.instances.complete_fields": ["consents.create", "consents.sign"],
   "consents.instances.sign_patient": [
     "consents.sign",
     "consents.instances.sign_professional",
     "consents.instances.sign_representative"
   ],
-  "consents.instances.finalize": [
-    "consents.sign"
-  ],
-  "consents.instances.void": [
-    "consents.sign"
-  ],
-  "consents.instances.download": [
-    "consents.pdf"
-  ],
-  "consents.instances.view_evidence": [
-    "consents.pdf",
-    "consents.read"
-  ],
-  "patient_analytics.read": [
-    "patients.read",
-    "reports.read"
-  ],
-  "patient_analytics.read_financial": [
-    "payments.read",
-    "accounts_receivable.read"
-  ],
-  "patient_analytics.view_all_branches": [
-    "branches.view_all",
-    "reports.read"
-  ],
-  "patient_analytics.export": [
-    "reports.export"
-  ],
-  "patient_analytics.refresh": [
-    "reports.read"
-  ],
-  "patient_analytics.view_patient_details": [
-    "patients.read"
-  ],
-  "crm.tasks.read": [
-    "patients.tasks.read"
-  ],
-  "crm.tasks.create": [
-    "patients.tasks.create"
-  ],
-  "crm.tasks.update": [
-    "patients.tasks.update"
-  ],
-  "crm.tasks.complete": [
-    "patients.tasks.complete"
-  ],
-  "crm.tasks.reopen": [
-    "patients.tasks.update",
-    "patients.tasks.complete"
-  ],
-  "crm.tasks.cancel": [
-    "patients.tasks.update"
-  ],
-  "crm.tasks.statistics.read": [
-    "patients.tasks.read",
-    "reports.read"
-  ],
-  "crm.tasks.configuration.read": [
-    "patients.tasks.read",
-    "settings.read"
-  ],
-  "crm.tasks.configuration.update": [
-    "settings.update"
-  ]
+  "consents.instances.finalize": ["consents.sign"],
+  "consents.instances.void": ["consents.sign"],
+  "consents.instances.download": ["consents.pdf"],
+  "consents.instances.view_evidence": ["consents.pdf", "consents.read"],
+  "patient_analytics.read": ["patients.read", "reports.read"],
+  "patient_analytics.read_financial": ["payments.read", "accounts_receivable.read"],
+  "patient_analytics.view_all_branches": ["branches.view_all", "reports.read"],
+  "patient_analytics.export": ["reports.export"],
+  "patient_analytics.refresh": ["reports.read"],
+  "patient_analytics.view_patient_details": ["patients.read"],
+  "crm.tasks.read": ["patients.tasks.read"],
+  "crm.tasks.create": ["patients.tasks.create"],
+  "crm.tasks.update": ["patients.tasks.update"],
+  "crm.tasks.complete": ["patients.tasks.complete"],
+  "crm.tasks.reopen": ["patients.tasks.update", "patients.tasks.complete"],
+  "crm.tasks.cancel": ["patients.tasks.update"],
+  "crm.tasks.statistics.read": ["patients.tasks.read", "reports.read"],
+  "crm.tasks.configuration.read": ["patients.tasks.read", "settings.read"],
+  "crm.tasks.configuration.update": ["settings.update"]
 };
 
 export const BUSINESS_GROUPS = [
@@ -2006,22 +2086,10 @@ const MODULE_BUSINESS_GROUP: Record<string, PermissionBusinessGroup> = {
 
 export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly string[]>> = {
   // 1. Gestión económica
-  "patient_financing.view": [
-    "installments.read",
-    "agreements.read"
-  ],
-  "payroll_financing.view": [
-    "agreements.debt_report.read",
-    "installments.read"
-  ],
-  "patient_financing.create": [
-    "installments.create",
-    "installments.pay",
-    "payment_settlements.read"
-  ],
-  "payroll_financing.create": [
-    "collections.payroll_discounts.manage"
-  ],
+  "patient_financing.view": ["installments.read", "agreements.read"],
+  "payroll_financing.view": ["agreements.debt_report.read", "installments.read"],
+  "patient_financing.create": ["installments.create", "installments.pay", "payment_settlements.read"],
+  "payroll_financing.create": ["collections.payroll_discounts.manage"],
   "collections.manage": [
     "collections.read",
     "collections.create",
@@ -2035,33 +2103,13 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "treatment_discount.override",
     "price_override.apply"
   ],
-  "payments.void": [
-    "payments.refund",
-    "payments.update"
-  ],
-  "payroll_discount.remove": [
-    "treatment_discount.apply",
-    "agreements.payments.void"
-  ],
-  "patient_financing.delete": [
-    "installments.create",
-    "payment_settlements.cancel"
-  ],
-  "agreement_payments.void": [
-    "agreements.payments.void"
-  ],
-  "payments.refund_and_reentry": [
-    "payments.refund",
-    "cash_register.move"
-  ],
-  "payments.receipt_date.update": [
-    "payments.update",
-    "payment_settlements.receive"
-  ],
-  "payments.metadata.update": [
-    "payments.update",
-    "payments.allocate"
-  ],
+  "payments.void": ["payments.refund", "payments.update"],
+  "payroll_discount.remove": ["treatment_discount.apply", "agreements.payments.void"],
+  "patient_financing.delete": ["installments.create", "payment_settlements.cancel"],
+  "agreement_payments.void": ["agreements.payments.void"],
+  "payments.refund_and_reentry": ["payments.refund", "cash_register.move"],
+  "payments.receipt_date.update": ["payments.update", "payment_settlements.receive"],
+  "payments.metadata.update": ["payments.update", "payments.allocate"],
 
   // 2. Tratamientos
   "treatment_plans.detail.manage": [
@@ -2094,62 +2142,21 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "payment_options.cash_discounts.view",
     "payments.cash_discounts.apply"
   ],
-  "treatment_plans.deactivate_finished": [
-    "treatment_plans.status.update",
-    "treatment_plans.reactivate"
-  ],
-  "treatment_plans.unlock": [
-    "treatment_plans.update",
-    "price_override.apply"
-  ],
-  "clinical_actions.undo": [
-    "treatment_plans.status.update",
-    "lab_orders.update"
-  ],
-  "treatment_plans.transfer_branch": [
-    "treatment_plans.update",
-    "branches.read"
-  ],
-  "lab_orders.price_override": [
-    "lab_orders.cost.update",
-    "laboratory_price.edit"
-  ],
-  "payments.reallocate_credits": [
-    "payments.allocate",
-    "family_groups.read"
-  ],
-  "treatment_plans.delete": [
-    "treatment_plans.update"
-  ],
-  "clinical_actions.warranty_undo": [
-    "treatment_plans.status.update",
-    "payments.refund"
-  ],
-  "treatment_plans.comments.update": [
-    "treatment_plans.update"
-  ],
-  "treatment_plans.comment_templates.manage": [
-    "clinical.templates.manage"
-  ],
-  "treatment_plans.reactivate_expired": [
-    "treatment_plans.reactivate"
-  ],
-  "payments.cash_discount.release_credit": [
-    "payments.cash_discounts.apply",
-    "payments.allocate"
-  ],
-  "treatment_plans.duplicate": [
-    "treatment_plans.create",
-    "treatment_plans.duplicate"
-  ],
-  "clinical.print_signature.view": [
-    "clinical.evolutions.sign",
-    "documents.read"
-  ],
-  "payments.unallocate": [
-    "payments.allocate",
-    "payments.update"
-  ],
+  "treatment_plans.deactivate_finished": ["treatment_plans.status.update", "treatment_plans.reactivate"],
+  "treatment_plans.unlock": ["treatment_plans.update", "price_override.apply"],
+  "clinical_actions.undo": ["treatment_plans.status.update", "lab_orders.update"],
+  "treatment_plans.transfer_branch": ["treatment_plans.update", "branches.read"],
+  "lab_orders.price_override": ["lab_orders.cost.update", "laboratory_price.edit"],
+  "payments.reallocate_credits": ["payments.allocate", "family_groups.read"],
+  "treatment_plans.delete": ["treatment_plans.update"],
+  "clinical_actions.warranty_undo": ["treatment_plans.status.update", "payments.refund"],
+  "treatment_plans.comments.update": ["treatment_plans.update"],
+  "treatment_plans.comment_templates.manage": ["clinical.templates.manage"],
+  "treatment_plans.reactivate_expired": ["treatment_plans.reactivate"],
+  "payments.cash_discount.release_credit": ["payments.cash_discounts.apply", "payments.allocate"],
+  "treatment_plans.duplicate": ["treatment_plans.create"],
+  "clinical.print_signature.view": ["clinical.evolutions.sign", "documents.read"],
+  "payments.unallocate": ["payments.allocate", "payments.update"],
 
   // 3. Reportes de gestión
   "reports.management.read": [
@@ -2159,19 +2166,10 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "patient_analytics.read_financial",
     "patient_analytics.refresh"
   ],
-  "dashboard.performance.view": [
-    "dashboard.read",
-    "reports.read"
-  ],
+  "dashboard.performance.view": ["dashboard.read", "reports.read"],
 
   // 4. Administración
-  "admin.users.manage": [
-    "users.read",
-    "users.create",
-    "users.update",
-    "users.deactivate",
-    "roles.read"
-  ],
+  "admin.users.manage": ["users.read", "users.create", "users.update", "users.deactivate", "roles.read"],
   "admin.payment_methods_banks.manage": [
     "payment_methods.read",
     "payment_methods.create",
@@ -2188,12 +2186,7 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "settings.read",
     "settings.update"
   ],
-  "admin.expenses.manage": [
-    "expenses.read",
-    "expenses.create",
-    "expenses.update",
-    "expenses.void"
-  ],
+  "admin.expenses.manage": ["expenses.read", "expenses.create", "expenses.update", "expenses.void"],
   "admin.inventory.manage": [
     "inventory.read",
     "inventory.create",
@@ -2278,15 +2271,8 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "agreements.payments.approve",
     "agreements.reports.export"
   ],
-  "admin.pending_void_payments.manage": [
-    "payments.read",
-    "payments.update",
-    "payment_settlements.read"
-  ],
-  "admin.reports_excel.export": [
-    "reports.export",
-    "reports.read"
-  ],
+  "admin.pending_void_payments.manage": ["payments.read", "payments.update", "payment_settlements.read"],
+  "admin.reports_excel.export": ["reports.export", "reports.read"],
   "admin.logo.manage": [
     "brands.manage_identity",
     "brands.view",
@@ -2299,31 +2285,16 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "patient_identity.config.manage",
     "settings.update"
   ],
-  "admin.patient_admin_notes.view": [
-    "patients.read"
-  ],
+  "admin.patient_admin_notes.view": ["patients.read"],
   "admin.templates_only.manage": [
     "clinical.templates.manage",
     "consent_templates.read",
     "consent_templates.update"
   ],
-  "admin.lab_requests.manage": [
-    "lab_orders.read",
-    "lab_orders.create",
-    "lab_orders.update"
-  ],
-  "admin.clinical_docs.manage": [
-    "clinical.documents.create",
-    "clinical.templates.manage"
-  ],
-  "admin.ges_notifications.view_print": [
-    "documents.read",
-    "print_care_plan"
-  ],
-  "admin.settlement_payment.update": [
-    "payment_settlements.receive",
-    "payments.update"
-  ],
+  "admin.lab_requests.manage": ["lab_orders.read", "lab_orders.create", "lab_orders.update"],
+  "admin.clinical_docs.manage": ["clinical.documents.create", "clinical.templates.manage"],
+  "admin.ges_notifications.view_print": ["documents.read", "print_care_plan"],
+  "admin.settlement_payment.update": ["payment_settlements.receive", "payments.update"],
   "admin.consent_templates.manage": [
     "consent_templates.read",
     "consent_templates.create",
@@ -2351,38 +2322,14 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "permissions.create",
     "permissions.deactivate"
   ],
-  "admin.user_permissions.manage": [
-    "permissions.read",
-    "permissions.update",
-    "users.manage_branch_access"
-  ],
-  "admin.lab_payments.manage": [
-    "lab_orders.cost.update",
-    "expenses.create"
-  ],
-  "admin.ges_config.manage": [
-    "settings.update"
-  ],
-  "admin.online_tpv_dashboard.view": [
-    "payment_webhooks.read",
-    "payments.read"
-  ],
-  "admin.user_security.manage": [
-    "users.update",
-    "users.deactivate"
-  ],
-  "admin.price_lists.bulk_import": [
-    "price_list.import",
-    "price_lists.create",
-    "price_lists.update"
-  ],
-  "admin.file_sync.configure": [
-    "integrations.imports.manage"
-  ],
-  "admin.file_sync.export_attach": [
-    "files.upload",
-    "integrations.imports.read"
-  ],
+  "admin.user_permissions.manage": ["permissions.read", "permissions.update", "users.manage_branch_access"],
+  "admin.lab_payments.manage": ["lab_orders.cost.update", "expenses.create"],
+  "admin.ges_config.manage": ["settings.update"],
+  "admin.online_tpv_dashboard.view": ["payment_webhooks.read", "payments.read"],
+  "admin.user_security.manage": ["users.update", "users.deactivate"],
+  "admin.price_lists.bulk_import": ["price_list.import", "price_lists.create", "price_lists.update"],
+  "admin.file_sync.configure": ["integrations.imports.manage"],
+  "admin.file_sync.export_attach": ["files.upload", "integrations.imports.read"],
   "admin.health_center.view": [
     "health_center.view",
     "health_center.manage",
@@ -2418,11 +2365,7 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "document_requirements.satisfy",
     "document_requirements.waive"
   ],
-  "patients.invoices.view": [
-    "payments.read",
-    "accounts_receivable.read",
-    "installments.read"
-  ],
+  "patients.invoices.view": ["payments.read", "accounts_receivable.read", "installments.read"],
   "patients.images.upload": [
     "files.read",
     "files.upload",
@@ -2459,39 +2402,20 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "contact_points.backfill",
     "contact_points.transfer"
   ],
-  "patients.alerts.manage": [
-    "patients.alerts.create",
-    "patients.read"
-  ],
+  "patients.alerts.manage": ["patients.alerts.create", "patients.read"],
   "patients.records.read_only": [
     "patients.read",
     "clinical.read",
     "clinical.odontogram.read",
     "clinical.periodontogram.read"
   ],
-  "patients.alerts.view": [
-    "patients.read"
-  ],
-  "patients.document_number.update": [
-    "patients.update"
-  ],
-  "patients.personal_data.view": [
-    "patients.read",
-    "contact_points.read"
-  ],
-  "patients.prescriptions.manage": [
-    "clinical.prescriptions.create",
-    "clinical.read"
-  ],
-  "patients.deactivate": [
-    "patients.deactivate"
-  ],
-  "patients.medical_history.edit": [
-    "clinical.history.update"
-  ],
-  "patients.medical_history_history.view": [
-    "clinical.read"
-  ],
+  "patients.alerts.view": ["patients.read"],
+  "patients.document_number.update": ["patients.update"],
+  "patients.personal_data.view": ["patients.read", "contact_points.read"],
+  "patients.prescriptions.manage": ["clinical.prescriptions.create", "clinical.read"],
+  "patients.deactivate": [],
+  "patients.medical_history.edit": ["clinical.history.update"],
+  "patients.medical_history_history.view": ["clinical.read"],
   "patients.consents.manage": [
     "consents.read",
     "consents.create",
@@ -2512,26 +2436,15 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "consents.instances.read",
     "consents.instances.download"
   ],
-  "patients.merge": [
-    "patients.merge",
-    "patient_duplicates.review"
-  ],
-  "patients.clinical_history.download": [
-    "print_clinical_history",
-    "clinical.read"
-  ],
+  "patients.merge": ["patient_duplicates.review"],
+  "patients.clinical_history.download": ["print_clinical_history", "clinical.read"],
   "patients.images.delete": [
     "clinical.files.delete",
     "photographic_photos.void",
     "photographic_templates.void"
   ],
-  "patients.clinical_docs.delete": [
-    "clinical.documents.delete"
-  ],
-  "patients.create": [
-    "patients.create",
-    "contact_points.link"
-  ],
+  "patients.clinical_docs.delete": ["clinical.documents.delete"],
+  "patients.create": ["contact_points.link"],
 
   // 6. Agenda
   "agenda.view": [
@@ -2585,15 +2498,8 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "cash_register.move",
     "branches.read"
   ],
-  "cash_register.summaries.view": [
-    "cash_register.read",
-    "cash_register.reports.read"
-  ],
-  "dentist_payouts.manage": [
-    "payment_settlements.read",
-    "payment_settlements.receive",
-    "professionals.read"
-  ],
+  "cash_register.summaries.view": ["cash_register.read", "cash_register.reports.read"],
+  "dentist_payouts.manage": ["payment_settlements.read", "payment_settlements.receive", "professionals.read"],
 
   // 8. CRM
   "crm.marketing_campaigns.manage": [
@@ -2622,13 +2528,8 @@ export const CANONICAL_PERMISSION_BUNDLES: Readonly<Record<string, readonly stri
     "patients.tasks.update",
     "patients.tasks.complete"
   ],
-  "crm.surveys.manage": [
-    "integrations.surveys.read",
-    "integrations.surveys.manage"
-  ],
-  "crm.surveys.edit": [
-    "integrations.surveys.manage"
-  ]
+  "crm.surveys.manage": ["integrations.surveys.read", "integrations.surveys.manage"],
+  "crm.surveys.edit": ["integrations.surveys.manage"]
 };
 
 const INTERNAL_PERMISSION_PREFIXES = [
@@ -2638,11 +2539,7 @@ const INTERNAL_PERMISSION_PREFIXES = [
   "laboratory_price."
 ] as const;
 
-const INTERNAL_PERMISSION_KEYS = new Set([
-  "system.manage_all",
-  "price_override.apply",
-  "price_audit.view"
-]);
+const INTERNAL_PERMISSION_KEYS = new Set(["organization.manage_all", "price_override.apply", "price_audit.view"]);
 
 const ADVANCED_ACTION_TOKENS = new Set([
   "all_branches",
@@ -2677,7 +2574,10 @@ export type PermissionMetadataInput = {
 };
 
 export function getPermissionPresentationTier(key: string): PermissionPresentationTier {
-  if (INTERNAL_PERMISSION_KEYS.has(key) || INTERNAL_PERMISSION_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+  if (
+    INTERNAL_PERMISSION_KEYS.has(key) ||
+    INTERNAL_PERMISSION_PREFIXES.some((prefix) => key.startsWith(prefix))
+  ) {
     return "INTERNAL";
   }
   // All 98 canonical Dentalink permissions are primary and visible
@@ -2703,8 +2603,11 @@ export function getPermissionMetadata(permission: PermissionMetadataInput) {
   } as const;
 }
 
-export function hasEffectivePermission(grantedPermissions: readonly string[], requiredPermission: string): boolean {
-  if (grantedPermissions.includes("system.manage_all")) return true;
+export function hasEffectivePermission(
+  grantedPermissions: readonly string[],
+  requiredPermission: string
+): boolean {
+  if (grantedPermissions.includes("organization.manage_all")) return true;
   if (grantedPermissions.includes(requiredPermission)) return true;
 
   // Direct alias resolution (e.g. requiredPermission is satisfied by an alias)
@@ -2725,9 +2628,56 @@ export function hasEffectivePermission(grantedPermissions: readonly string[], re
   return false;
 }
 
-export function canDelegatePermission(grantedPermissions: readonly string[], permissionKey: string) {
-  if (permissionKey === "system.manage_all") return false;
+export function canDelegatePermission(
+  grantedPermissions: readonly string[],
+  permissionKey: string,
+  isSystem?: boolean
+) {
+  if (permissionKey === "organization.manage_all") return false;
   return hasEffectivePermission(grantedPermissions, permissionKey);
 }
 
 export type PermissionKey = (typeof permissionDefinitions)[number][0];
+
+export type PermissionClassification = "BUNDLE" | "INTERNAL" | "OBSOLETE" | "CUSTOM" | "CANONICAL";
+
+export function getPermissionClassification(permission: {
+  key: string;
+  isSystem?: boolean;
+}): PermissionClassification {
+  if (permission.isSystem === false) return "CUSTOM";
+  if (permission.key in CANONICAL_PERMISSION_BUNDLES) return "BUNDLE";
+  if (
+    INTERNAL_PERMISSION_KEYS.has(permission.key) ||
+    INTERNAL_PERMISSION_PREFIXES.some((prefix) => permission.key.startsWith(prefix)) ||
+    permission.key === "organization.manage_all" ||
+    permission.key.startsWith("users.") ||
+    permission.key.startsWith("roles.") ||
+    permission.key.startsWith("permissions.") ||
+    permission.key.startsWith("branches.") ||
+    permission.key.startsWith("settings.") ||
+    permission.key.startsWith("dashboard.")
+  ) {
+    return "INTERNAL";
+  }
+  if (CANONICAL_PERMISSION_KEYS.has(permission.key)) return "CANONICAL";
+  return "OBSOLETE";
+}
+
+export function isAssignablePermissionKey(key: string): boolean {
+  if (key in CANONICAL_PERMISSION_BUNDLES) return true;
+  if (
+    INTERNAL_PERMISSION_KEYS.has(key) ||
+    INTERNAL_PERMISSION_PREFIXES.some((prefix) => key.startsWith(prefix)) ||
+    key === "organization.manage_all" ||
+    key.startsWith("users.") ||
+    key.startsWith("roles.") ||
+    key.startsWith("permissions.") ||
+    key.startsWith("branches.") ||
+    key.startsWith("settings.") ||
+    key.startsWith("dashboard.")
+  ) {
+    return false;
+  }
+  return CANONICAL_PERMISSION_KEYS.has(key);
+}

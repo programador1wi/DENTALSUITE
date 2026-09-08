@@ -24,7 +24,9 @@ import {
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { generateUniquePatientNumber } from "../../common/utils/patient-number.util";
+import { sanitizeRichTextHtml } from "../../common/utils/sanitize-rich-text.util";
 import { AuthUser } from "../../common/types/auth-user";
+import { DomainActorContext, domainActorAuditFields } from "../../common/types/domain-actor-context";
 import { PrismaService } from "../../database/prisma.service";
 import { DocumentsService } from "../documents/documents.service";
 import { EmailService } from "../notifications/email.service";
@@ -76,6 +78,27 @@ const PATIENT_EMAIL_ALLOWED_MIME_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 ]);
 const EMAIL_REGEX = /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/;
+
+type PotentialPatientDuplicate = Prisma.PatientGetPayload<{
+  select: {
+    id: true;
+    firstName: true;
+    lastName: true;
+    phone: true;
+    email: true;
+    documentNumber: true;
+    createdAt: true;
+    status: true;
+  };
+}>;
+
+export type PreparedPatientCreate = {
+  normalizedPhone?: string;
+  normalizedAlternatePhone?: string;
+  phoneForStorage?: string;
+  alternatePhoneForStorage?: string;
+  potentialDuplicates: PotentialPatientDuplicate[];
+};
 
 @Injectable()
 export class PatientsService {
@@ -914,7 +937,23 @@ export class PatientsService {
     }
   }
 
-  async create(actor: AuthUser, dto: CreatePatientDto) {
+  async create(actor: DomainActorContext, dto: CreatePatientDto) {
+    const prepared = await this.preparePatientForCreate(actor, dto);
+    const patient = await this.prisma.$transaction((tx) =>
+      this.createPreparedPatientInTransaction(tx, actor, dto, prepared)
+    );
+    await this.finalizePatientCreation(actor, patient.id, prepared);
+
+    return {
+      patient: await this.findOne(actor, patient.id),
+      potentialDuplicates: prepared.potentialDuplicates
+    };
+  }
+
+  async preparePatientForCreate(
+    actor: DomainActorContext,
+    dto: CreatePatientDto
+  ): Promise<PreparedPatientCreate> {
     await this.validateBranch(actor, dto.branchId);
     if (dto.agreementId) await this.validateAgreement(actor, dto.agreementId);
     this.validateBirthDate(dto.birthDate);
@@ -951,9 +990,23 @@ export class PatientsService {
       documentNumber: dto.documentNumber
     });
 
-    const patient = await this.prisma.$transaction(async (tx) => {
-      const patientNumber = await generateUniquePatientNumber(tx);
-      const created = await tx.patient.create({
+    return {
+      normalizedPhone: normalizedPhone?.normalizedValue,
+      normalizedAlternatePhone: normalizedAlternatePhone?.normalizedValue,
+      phoneForStorage,
+      alternatePhoneForStorage,
+      potentialDuplicates
+    };
+  }
+
+  async createPreparedPatientInTransaction(
+    tx: Prisma.TransactionClient,
+    actor: DomainActorContext,
+    dto: CreatePatientDto,
+    prepared: PreparedPatientCreate
+  ) {
+    const patientNumber = await generateUniquePatientNumber(tx);
+    const created = await tx.patient.create({
         data: {
           patientNumber,
           organizationId: actor.organizationId,
@@ -969,8 +1022,8 @@ export class PatientsService {
           documentType: dto.documentType?.trim(),
           documentNumber: dto.documentNumber?.trim(),
           email: this.normalizeEmail(dto.email) || undefined,
-          phone: phoneForStorage || undefined,
-          alternatePhone: alternatePhoneForStorage || undefined,
+          phone: prepared.phoneForStorage || undefined,
+          alternatePhone: prepared.alternatePhoneForStorage || undefined,
           occupation: dto.occupation?.trim(),
           employer: dto.employer?.trim(),
           observations: dto.observations?.trim(),
@@ -978,10 +1031,10 @@ export class PatientsService {
           source: dto.source?.trim(),
           status: (dto.status as PatientStatus | undefined) ?? "ACTIVE"
         }
-      });
+    });
 
-      if (dto.contacts?.length) {
-        await tx.patientContact.createMany({
+    if (dto.contacts?.length) {
+      await tx.patientContact.createMany({
           data: dto.contacts.map((contact) => ({
             patientId: created.id,
             name: contact.name.trim(),
@@ -993,11 +1046,11 @@ export class PatientsService {
             email: contact.email?.toLowerCase().trim(),
             isEmergencyContact: contact.isEmergencyContact ?? false
           }))
-        });
-      }
+      });
+    }
 
-      if (dto.address) {
-        await tx.patientAddress.create({
+    if (dto.address) {
+      await tx.patientAddress.create({
           data: {
             patientId: created.id,
             street: dto.address.street?.trim(),
@@ -1006,11 +1059,11 @@ export class PatientsService {
             country: dto.address.country?.trim(),
             zipCode: dto.address.zipCode?.trim()
           }
-        });
-      }
+      });
+    }
 
-      if (dto.medicalAlerts?.length) {
-        await tx.patientMedicalAlert.createMany({
+    if (dto.medicalAlerts?.length) {
+      await tx.patientMedicalAlert.createMany({
           data: dto.medicalAlerts.map((alert) => ({
             patientId: created.id,
             type: alert.type.trim(),
@@ -1018,13 +1071,13 @@ export class PatientsService {
             severity: alert.severity.trim(),
             isActive: alert.isActive ?? true
           }))
-        });
-      }
+      });
+    }
 
-      await tx.auditLog.create({
+    await tx.auditLog.create({
         data: {
           organizationId: actor.organizationId,
-          actorUserId: actor.id,
+          ...domainActorAuditFields(actor),
           entity: "Patient",
           entityId: created.id,
           action: "create",
@@ -1036,26 +1089,26 @@ export class PatientsService {
             documentNumber: created.documentNumber
           }
         }
-      });
-
-      return created;
     });
 
-    if (this.patientIdentityService && (dto.phone || dto.alternatePhone)) {
+    return created;
+  }
+
+  async finalizePatientCreation(
+    actor: DomainActorContext,
+    patientId: string,
+    prepared: PreparedPatientCreate
+  ) {
+    if (this.patientIdentityService && (prepared.normalizedPhone || prepared.normalizedAlternatePhone)) {
       await this.patientIdentityService.syncPatientPhones(
         actor,
-        patient.id,
-        normalizedPhone?.normalizedValue,
-        normalizedAlternatePhone?.normalizedValue
+        patientId,
+        prepared.normalizedPhone,
+        prepared.normalizedAlternatePhone
       );
     }
     if (this.patientIdentityService)
-      await this.patientIdentityService.recordDuplicateCandidates(actor, patient.id);
-
-    return {
-      patient: await this.findOne(actor, patient.id),
-      potentialDuplicates
-    };
+      await this.patientIdentityService.recordDuplicateCandidates(actor, patientId);
   }
 
   async update(actor: AuthUser, id: string, dto: UpdatePatientDto) {
@@ -1111,12 +1164,10 @@ export class PatientsService {
       current.id
     );
 
-    const dataToUpdate: Prisma.PatientUpdateInput = {
-      ...(dto.branchId ? { branch: { connect: { id: dto.branchId } } } : {}),
+    const dataToUpdate: Prisma.PatientUpdateManyMutationInput = {
+      ...(dto.branchId ? { branchId: dto.branchId } : {}),
       ...(dto.agreementId !== undefined
-        ? dto.agreementId
-          ? { agreement: { connect: { id: dto.agreementId.trim() } } }
-          : { agreement: { disconnect: true } }
+        ? { agreementId: dto.agreementId ? dto.agreementId.trim() : null }
         : {}),
       ...(dto.firstName !== undefined ? { firstName: this.normalizeDisplayName(dto.firstName) } : {}),
       ...(dto.socialName !== undefined ? { socialName: dto.socialName?.trim() || null } : {}),
@@ -1135,14 +1186,23 @@ export class PatientsService {
       ...(dto.observations !== undefined ? { observations: dto.observations?.trim() || null } : {}),
       ...(dto.referredBy !== undefined ? { referredBy: dto.referredBy?.trim() || null } : {}),
       ...(dto.source !== undefined ? { source: dto.source?.trim() || null } : {}),
-      ...(dto.status !== undefined ? { status: dto.status as PatientStatus } : {})
+      ...(dto.status !== undefined ? { status: dto.status as PatientStatus } : {}),
+      version: { increment: 1 }
     };
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.patient.update({
-        where: { id: current.id },
+      const claimed = await tx.patient.updateMany({
+        where: {
+          ...this.buildPatientWhere(actor, current.id),
+          ...(dto.expectedVersion !== undefined ? { version: dto.expectedVersion } : {})
+        },
         data: dataToUpdate
       });
+      if (claimed.count !== 1) {
+        throw new ConflictException(
+          "El paciente fue modificado por otro usuario. Recarga la ficha antes de guardar."
+        );
+      }
 
       if (dto.address !== undefined) {
         if (current.address) {
@@ -1239,7 +1299,8 @@ export class PatientsService {
             documentNumber: dto.documentNumber ?? current.documentNumber,
             email: dto.email ?? current.email,
             phone: dto.phone ?? current.phone,
-            alternatePhone: dto.alternatePhone ?? current.alternatePhone
+            alternatePhone: dto.alternatePhone ?? current.alternatePhone,
+            version: current.version + 1
           }
         }
       });
@@ -1897,43 +1958,7 @@ export class PatientsService {
   }
 
   private sanitizeEmailHtml(value: string) {
-    let html = value
-      .replace(/<!--[\s\S]*?-->/g, "")
-      .replace(/<\s*(script|iframe|object|embed|form)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "")
-      .replace(/<\s*(script|iframe|object|embed|form)[^>]*\/?>/gi, "")
-      .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/\s+style\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-      .replace(/javascript\s*:/gi, "");
-
-    html = html.replace(/<a\b([^>]*)>/gi, (_match, attrs: string) => {
-      const hrefMatch = /\s+href\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(attrs);
-      const href = (hrefMatch?.[2] ?? hrefMatch?.[3] ?? hrefMatch?.[4] ?? "").trim();
-      if (!/^(https?:\/\/|mailto:|tel:)/i.test(href)) return "<a>";
-      return `<a href="${this.escapeHtmlAttribute(href)}" target="_blank" rel="noopener noreferrer">`;
-    });
-
-    return html.replace(/<\/?([a-z0-9]+)(?:\s[^>]*)?>/gi, (tag, tagName: string) => {
-      const normalized = tagName.toLowerCase();
-      const allowed = new Set([
-        "p",
-        "br",
-        "strong",
-        "b",
-        "em",
-        "i",
-        "u",
-        "ul",
-        "ol",
-        "li",
-        "h1",
-        "h2",
-        "h3",
-        "a"
-      ]);
-      if (!allowed.has(normalized)) return "";
-      if (normalized === "a" && /^<a\b/i.test(tag)) return tag;
-      return tag.startsWith("</") ? `</${normalized}>` : `<${normalized}>`;
-    });
+    return sanitizeRichTextHtml(value);
   }
 
   private htmlToText(value: string) {

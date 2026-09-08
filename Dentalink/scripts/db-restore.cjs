@@ -74,12 +74,12 @@ function restoreToDb(dumpPath, targetDb) {
       "--no-privileges",
       "--clean",
       "--if-exists",
+      "--exit-on-error",
     ],
     { input: dumpData, stdio: ["pipe", "inherit", "inherit"] }
   );
 
-  if (result.status !== 0 && result.status !== 1) {
-    // pg_restore exit code 1 = warnings (common with --clean --if-exists)
+  if (result.status !== 0) {
     console.error(`pg_restore exited with code ${result.status}`);
     return false;
   }
@@ -111,6 +111,7 @@ function runIntegrityChecks(db) {
 
   const tableCount = (tableCountResult.stdout || "").toString().trim();
   console.log(`  Tables found: ${tableCount}`);
+  let valid = tableCountResult.status === 0 && Number(tableCount) > 0;
 
   // Check critical tables exist and have rows
   const criticalTables = [
@@ -146,6 +147,10 @@ function runIntegrityChecks(db) {
     const err = (result.stderr || "").toString().trim();
     if (err && err.includes("does not exist")) {
       console.log(`  ${table}: TABLE MISSING`);
+      valid = false;
+    } else if (result.status !== 0) {
+      console.log(`  ${table}: CHECK FAILED`);
+      valid = false;
     } else {
       console.log(`  ${table}: ${count} rows`);
     }
@@ -172,9 +177,11 @@ function runIntegrityChecks(db) {
 
   const migCount = (migResult.stdout || "").toString().trim();
   console.log(`  Prisma migrations recorded: ${migCount}`);
+  if (migResult.status !== 0 || Number(migCount) <= 0) valid = false;
+  return valid;
 }
 
-// --- Main ---
+const crypto = require("node:crypto");
 
 const dump = dumpArg
   ? { name: path.basename(dumpArg), path: path.resolve(dumpArg) }
@@ -191,23 +198,66 @@ if (stats.size === 0) {
   process.exit(1);
 }
 
+// Check for manifest and verify checksum if manifest exists
+const manifestPath = dump.path.replace(/\.dump$/, ".manifest.json");
+if (fs.existsSync(manifestPath)) {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    if (manifest.dumpFile && manifest.dumpFile !== dump.name) {
+      throw new Error(`Manifest references ${manifest.dumpFile}, not ${dump.name}`);
+    }
+    if (manifest.sizeBytes && manifest.sizeBytes !== stats.size) {
+      throw new Error(`Manifest size ${manifest.sizeBytes} does not match dump size ${stats.size}`);
+    }
+    const fileBuffer = fs.readFileSync(dump.path);
+    const calculatedHash = crypto.createHash("sha256").update(fileBuffer).digest("hex");
+    if (manifest.sha256 && manifest.sha256 !== calculatedHash) {
+      console.error(`FATAL: SHA-256 mismatch for ${dump.name}!`);
+      console.error(`  Expected: ${manifest.sha256}`);
+      console.error(`  Actual:   ${calculatedHash}`);
+      process.exit(1);
+    }
+    console.log(`Verified SHA-256 checksum matches manifest (${calculatedHash.slice(0, 16)}...)`);
+  } catch (err) {
+    console.error(`FATAL: Invalid manifest ${manifestPath}:`, err.message);
+    process.exit(1);
+  }
+} else {
+  console.warn(`Warning: no checksum manifest found for ${dump.name}; legacy backup verification only.`);
+}
+
 console.log(`Selected dump: ${dump.name} (${(stats.size / 1024).toFixed(1)} KB)`);
 
 if (verifyMode) {
   // Create temporary database, restore, check, drop
   console.log("\n--- VERIFY MODE: using temporary database ---");
 
-  dockerExec(["psql", "-U", PG_USER, "-d", "postgres", "-c", `DROP DATABASE IF EXISTS "${VERIFY_DB}";`]);
-  dockerExec(["psql", "-U", PG_USER, "-d", "postgres", "-c", `CREATE DATABASE "${VERIFY_DB}";`]);
-
-  const ok = restoreToDb(dump.path, VERIFY_DB);
-  if (ok) {
-    runIntegrityChecks(VERIFY_DB);
+  const initialDrop = dockerExec(["psql", "-U", PG_USER, "-d", "postgres", "-c", `DROP DATABASE IF EXISTS "${VERIFY_DB}";`]);
+  if (initialDrop.status !== 0) {
+    console.error("Unable to prepare the temporary verification database.");
+    process.exit(1);
+  }
+  const create = dockerExec(["psql", "-U", PG_USER, "-d", "postgres", "-c", `CREATE DATABASE "${VERIFY_DB}";`]);
+  if (create.status !== 0) {
+    console.error("Unable to create the temporary verification database.");
+    process.exit(1);
   }
 
+  const ok = restoreToDb(dump.path, VERIFY_DB);
+  const integrityOk = ok && runIntegrityChecks(VERIFY_DB);
+
   console.log("\nDropping temporary database...");
-  dockerExec(["psql", "-U", PG_USER, "-d", "postgres", "-c", `DROP DATABASE IF EXISTS "${VERIFY_DB}";`]);
-  console.log("Verify complete.");
+  const finalDrop = dockerExec(["psql", "-U", PG_USER, "-d", "postgres", "-c", `DROP DATABASE IF EXISTS "${VERIFY_DB}";`]);
+  if (finalDrop.status !== 0) {
+    console.error("Verify database cleanup failed.");
+    process.exitCode = 1;
+  }
+  if (!integrityOk) {
+    console.error("Verify failed.");
+    process.exitCode = 1;
+  } else {
+    console.log("Verify complete.");
+  }
 } else {
   console.log(`\n*** WARNING: This will OVERWRITE the "${MAIN_DB}" database. ***`);
   console.log("Press Ctrl+C to cancel, or wait 5 seconds to proceed...\n");
@@ -218,6 +268,7 @@ if (verifyMode) {
     // busy wait for safety pause
   }
 
-  restoreToDb(dump.path, MAIN_DB);
-  runIntegrityChecks(MAIN_DB);
+  const restored = restoreToDb(dump.path, MAIN_DB);
+  const integrityOk = restored && runIntegrityChecks(MAIN_DB);
+  if (!integrityOk) process.exitCode = 1;
 }

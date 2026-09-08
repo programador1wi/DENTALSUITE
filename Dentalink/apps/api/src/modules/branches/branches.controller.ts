@@ -35,7 +35,7 @@ export class BranchesController {
   }
 
   @Post()
-  @RequirePermissions("branches.create")
+  @RequirePermissions("organization.manage_all", "branches.create")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateBranchDto) {
     return this.branchesService.create(user, dto);
   }

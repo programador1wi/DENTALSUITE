@@ -1,5 +1,5 @@
 import { BadRequestException } from "@nestjs/common";
-import { AppointmentStatus } from "@prisma/client";
+import { AppointmentStatus, AttendanceMode } from "@prisma/client";
 import type { AuthUser } from "../../common/types/auth-user";
 import { AppointmentsService } from "./appointments.service";
 import type { CreateAppointmentDto } from "./dto/create-appointment.dto";
@@ -46,15 +46,20 @@ describe("AppointmentsService - Cancellation rules", () => {
       appointment: {
         findFirst: jest.fn().mockResolvedValue({ id: "appt-1", status: AppointmentStatus.SCHEDULED, branchId: "branch-1" })
       },
+      appointmentReminder: {
+        create: jest.fn().mockResolvedValue({})
+      },
       $transaction: jest.fn((callback) => callback(tx))
     };
 
     const service = new AppointmentsService(prisma as never, {} as never, {} as never, {} as never);
     service.findOne = jest.fn().mockResolvedValue({ id: "appt-1", status: AppointmentStatus.SCHEDULED });
+    const dispatchSpy = jest.spyOn(service, "dispatchEmailNotification").mockResolvedValue(undefined);
 
     await service.cancel(actor, "appt-1", { reason: " Motivo valido ", cancelledBy: "clinic" });
 
     expect(service.findOne).toHaveBeenCalledWith(actor, "appt-1");
+    expect(dispatchSpy).toHaveBeenCalledWith("appt-1", "CANCELLATION", { cancellationReason: "Motivo valido" });
     expect(tx.appointment.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: "appt-1" },
@@ -236,6 +241,85 @@ describe("AppointmentsService - Cancellation rules", () => {
       "ana@example.com",
       expect.objectContaining({
         confirmUrl: "http://localhost:3000/confirm-appointment?id=appt-1&token=signed-token"
+      }),
+      { idempotencyKey: undefined, stage: undefined }
+    );
+  });
+
+  it("dispatches stage-specific 24H confirmation email", async () => {
+    const startAt = new Date(Date.now() + 20 * 60 * 60 * 1000);
+    const prisma = {
+      appointment: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "appt-1",
+          startAt,
+          patient: { firstName: "Ana", lastName: "Lopez", email: "ana@example.com" },
+          professional: { firstName: "Dra.", lastName: "Ruiz" },
+          branch: { timezone: "America/Mexico_City", address: "", city: "", state: "", phone: "" }
+        })
+      }
+    };
+    const emailService = {
+      sendAppointmentConfirmationRequired: jest.fn().mockResolvedValue(undefined)
+    };
+    const jwtService = {
+      sign: jest.fn().mockReturnValue("signed-token-24h")
+    };
+    const configService = {
+      get: jest.fn((key: string) => {
+        if (key === "JWT_ACCESS_SECRET") return "secret";
+        if (key === "FRONTEND_URL") return "http://localhost:3000";
+        return undefined;
+      })
+    };
+    const service = new AppointmentsService(
+      prisma as never,
+      emailService as never,
+      jwtService as never,
+      configService as never
+    );
+
+    await service.dispatchEmailNotification("appt-1", "CONFIRMATION", { stage: "24H" });
+
+    expect(emailService.sendAppointmentConfirmationRequired).toHaveBeenCalledWith(
+      "ana@example.com",
+      expect.objectContaining({
+        confirmUrl: "http://localhost:3000/confirm-appointment?id=appt-1&token=signed-token-24h"
+      }),
+      { idempotencyKey: undefined, stage: "24H" }
+    );
+  });
+
+  it("dispatches cancellation email on CANCELLATION type", async () => {
+    const prisma = {
+      appointment: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "appt-1",
+          startAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+          patient: { firstName: "Ana", lastName: "Lopez", email: "ana@example.com" },
+          professional: { firstName: "Dra.", lastName: "Ruiz" },
+          branch: { timezone: "America/Mexico_City", address: "", city: "", state: "", phone: "" }
+        })
+      }
+    };
+    const emailService = {
+      sendAppointmentCancelled: jest.fn().mockResolvedValue(undefined)
+    };
+    const service = new AppointmentsService(
+      prisma as never,
+      emailService as never,
+      {} as never,
+      {} as never
+    );
+
+    await service.dispatchEmailNotification("appt-1", "CANCELLATION", {
+      cancellationReason: "Paciente solicitó cancelar por viaje"
+    });
+
+    expect(emailService.sendAppointmentCancelled).toHaveBeenCalledWith(
+      "ana@example.com",
+      expect.objectContaining({
+        cancellationReason: "Paciente solicitó cancelar por viaje"
       })
     );
   });
@@ -319,6 +403,80 @@ describe("AppointmentsService - Cancellation rules", () => {
       })
     );
     expect(dispatch).not.toHaveBeenCalled();
+  });
+});
+
+describe("AppointmentsService - transactional slot locking", () => {
+  const actor: AuthUser = {
+    id: "user-1",
+    organizationId: "org-1",
+    email: "user@example.com",
+    firstName: "User",
+    lastName: "One",
+    roleIds: [],
+    roleNames: [],
+    branchIds: ["branch-1"],
+    permissions: []
+  };
+  const candidate = {
+    professionalId: "professional-1",
+    patientId: "patient-1",
+    chairId: "chair-1",
+    chairIndex: 1,
+    isOverbooking: false,
+    attendanceMode: AttendanceMode.PRESENTIAL,
+    status: AppointmentStatus.SCHEDULED,
+    startAt: new Date("2026-08-27T16:00:00.000Z"),
+    endAt: new Date("2026-08-27T16:30:00.000Z")
+  };
+
+  it("locks appointment, professional, chair and patient-day in deterministic order", async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      appointment: { findFirst: jest.fn().mockResolvedValue(null) }
+    };
+    const service = new AppointmentsService({} as never, {} as never, {} as never, {} as never);
+
+    await (
+      service as unknown as {
+        lockAndRevalidateAppointmentSlot: (
+          tx: unknown,
+          actor: AuthUser,
+          candidate: unknown,
+          excludeId?: string
+        ) => Promise<void>;
+      }
+    ).lockAndRevalidateAppointmentSlot(tx, actor, candidate, "appointment-1");
+
+    const lockValues = tx.$queryRaw.mock.calls.map(([query]) => (query as { values: unknown[] }).values[0]);
+    expect(lockValues).toEqual([...lockValues].sort());
+    expect(lockValues).toEqual(expect.arrayContaining([
+      "appointment:id:org-1:appointment-1",
+      "appointment:professional:org-1:professional-1:1",
+      "appointment:chair:org-1:chair-1",
+      "appointment:patient-day:org-1:patient-1:2026-08-27"
+    ]));
+    expect(tx.appointment.findFirst).toHaveBeenCalledTimes(3);
+  });
+
+  it("returns conflict when a slot becomes occupied after the precheck", async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      appointment: { findFirst: jest.fn().mockResolvedValueOnce({ id: "winner" }) }
+    };
+    const service = new AppointmentsService({} as never, {} as never, {} as never, {} as never);
+
+    await expect((
+      service as unknown as {
+        lockAndRevalidateAppointmentSlot: (
+          tx: unknown,
+          actor: AuthUser,
+          candidate: unknown,
+          excludeId?: string
+        ) => Promise<void>;
+      }
+    ).lockAndRevalidateAppointmentSlot(tx, actor, candidate, "appointment-1"))
+      .rejects.toThrow("El horario acaba de ser ocupado por otra cita");
   });
 });
 
@@ -800,7 +958,7 @@ describe("AppointmentsService - Explicit overbooking intent", () => {
     branchIds: ["branch-1"],
     permissions: []
   };
-  const systemActor = { ...actor, permissions: ["system.manage_all"] };
+  const systemActor = { ...actor, permissions: ["organization.manage_all"] };
   const overbookingActor = { ...actor, permissions: ["appointments.overbook"] };
 
   function callEnforceSchedulingRules(
@@ -892,7 +1050,7 @@ describe("AppointmentsService - Explicit overbooking intent", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("does not let system.manage_all overbook unless allowOverbooking is explicit", async () => {
+  it("does not let organization.manage_all overbook unless allowOverbooking is explicit", async () => {
     const prisma = buildPrisma({ id: "appt-next" });
     const service = new AppointmentsService(prisma as never, {} as never, {} as never, {} as never);
     jest.spyOn(

@@ -433,9 +433,12 @@ export function ReportsExcelPage() {
                           <div className="flex flex-wrap items-center gap-2">
                             <h2 className="text-[14px] font-semibold text-[var(--text-primary)]">{item.name}</h2>
                             <Badge value={displayCategory(item.category)} tone="brand" />
-                            {!item.enabled ? <Badge value="Sin generador" tone="warning" /> : null}
+                            {!item.enabled ? <Badge value="No disponible" tone="warning" /> : null}
                           </div>
                           <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-[var(--text-secondary)]">{item.description}</p>
+                          {!item.enabled && item.unavailableReason ? (
+                            <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-[var(--text-warning)]">{item.unavailableReason}</p>
+                          ) : null}
                         </div>
                         <div className="hidden min-w-[210px] justify-end md:flex">
                           {completed ? (

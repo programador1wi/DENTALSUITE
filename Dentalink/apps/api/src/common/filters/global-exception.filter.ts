@@ -1,13 +1,18 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Injectable } from "@nestjs/common";
 import type { Request, Response } from "express";
 import { AppLogger } from "../utils/app-logger.util";
+import { AppMetricsService } from "../../modules/metrics/app-metrics.service";
+import { requestRouteTemplate } from "../utils/request-route.util";
 
-type RequestWithMeta = Request & { requestId?: string };
+type RequestWithMeta = Request & { requestId?: string; requestStartedAt?: number };
 
 @Catch()
 @Injectable()
 export class GlobalExceptionFilter implements ExceptionFilter {
-  constructor(private readonly logger: AppLogger) {}
+  constructor(
+    private readonly logger: AppLogger,
+    private readonly metrics: AppMetricsService
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -22,12 +27,44 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     const exposedMessage =
       status >= 500 ? "Internal server error" : Array.isArray(message) ? message.join(", ") : String(message);
-
-    this.logger.error(
-      `${request.method} ${request.url} -> ${status} ${exposedMessage} requestId=${request.requestId ?? "n/a"}`,
-      exception instanceof Error ? exception.stack : undefined,
-      "GlobalExceptionFilter"
+    const endpoint = requestRouteTemplate(request);
+    this.metrics.recordHttpRequest(
+      request.method,
+      endpoint,
+      status,
+      request.requestStartedAt ? Date.now() - request.requestStartedAt : 0
     );
+
+    const authenticatedRequest = request as RequestWithMeta & {
+      user?: { id?: string; organizationId?: string };
+    };
+
+    const logMetadata = {
+      requestId: request.requestId ?? "n/a",
+      userId: authenticatedRequest.user?.id,
+      organizationId: authenticatedRequest.user?.organizationId,
+      branchId: request.headers["x-branch-id"],
+      method: request.method,
+      endpoint,
+      statusCode: status,
+      errorMessage: exposedMessage
+    };
+
+    if (status >= 500) {
+      this.logger.errorEvent(
+        "HTTP server error",
+        "GlobalExceptionFilter",
+        logMetadata,
+        exception instanceof Error ? exception.stack : undefined
+      );
+    } else {
+      // 4xx status codes (401, 403, 404, 400, etc.) are standard client lifecycle events, not server crashes
+      this.logger.logEvent(
+        "HTTP client error",
+        "GlobalExceptionFilter",
+        logMetadata
+      );
+    }
 
     response.status(status).json({
       statusCode: status,
@@ -38,7 +75,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       ...(status < 500 && isSafeDetails(structuredPayload?.details)
         ? { details: structuredPayload.details }
         : {}),
-      path: request.url,
+      path: request.path,
       requestId: request.requestId,
       timestamp: new Date().toISOString()
     });

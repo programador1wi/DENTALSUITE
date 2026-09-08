@@ -54,7 +54,7 @@ export class PricingService {
   }
 
   private assertBranch(actor: AuthUser, branchId: string) {
-    if (!actor.branchIds.includes(branchId) && !actor.permissions.includes("system.manage_all")) {
+    if (!actor.branchIds.includes(branchId) && !actor.permissions.includes("organization.manage_all")) {
       throw new ForbiddenException("Branch is outside the authenticated scope");
     }
   }
@@ -536,7 +536,7 @@ export class PricingService {
     }
     if (dto.manualPrice !== undefined) {
       const canOverride = actor.permissions.some((permission) =>
-        ["system.manage_all", "price_override.apply", "price_lists.override_manual"].includes(permission)
+        ["organization.manage_all", "price_override.apply", "price_lists.override_manual"].includes(permission)
       );
       if (!canOverride) throw new ForbiddenException("Manual price override permission is required");
       if (!dto.manualReason?.trim()) throw new BadRequestException("manualReason is required for manual price overrides");
@@ -788,7 +788,7 @@ export class PricingService {
 
   async createTemplate(actor: AuthUser, dto: CreatePriceTemplateDto) {
     this.assertEnabled();
-    if (dto.branchIds?.some((id) => !actor.branchIds.includes(id)) && !actor.permissions.includes("system.manage_all"))
+    if (dto.branchIds?.some((id) => !actor.branchIds.includes(id)) && !actor.permissions.includes("organization.manage_all"))
       throw new ForbiddenException("One or more template branches are outside the authenticated scope");
     return this.prisma.$transaction(async (tx) => {
       const template = await tx.priceTemplate.create({
@@ -1106,7 +1106,7 @@ export class PricingService {
 
   private ensureCanConfigureDiscountLimits(actor: AuthUser) {
     if (
-      actor.permissions.includes("system.manage_all") ||
+      actor.permissions.includes("organization.manage_all") ||
       actor.permissions.includes("price_lists.configure_discount_limits")
     ) {
       return;
@@ -1130,7 +1130,7 @@ export class PricingService {
   private async validateScopes(actor: AuthUser, scopes: Array<{ scopeType: PriceListScopeType; scopeKey: string }>) {
     if (!scopes.length) throw new BadRequestException("At least one scope is required");
     const branchIds = scopes.filter((scope) => scope.scopeType === PriceListScopeType.BRANCH).map((scope) => scope.scopeKey);
-    if (branchIds.some((id) => !actor.branchIds.includes(id)) && !actor.permissions.includes("system.manage_all"))
+    if (branchIds.some((id) => !actor.branchIds.includes(id)) && !actor.permissions.includes("organization.manage_all"))
       throw new ForbiddenException("One or more branch scopes are not allowed");
     if (scopes.some((scope) => scope.scopeType === PriceListScopeType.ORGANIZATION && scope.scopeKey !== actor.organizationId))
       throw new ForbiddenException("Organization scope does not match the authenticated tenant");

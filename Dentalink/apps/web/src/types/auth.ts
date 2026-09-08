@@ -32,6 +32,8 @@ export type AuthUser = {
   permissions: string[];
   branchIds: string[];
   branches?: AuthUserBranch[];
+  authorizationVersion?: number;
+  branchScopeVersion?: number;
   status?: string;
   lastLoginAt?: string | null;
   createdAt?: string | null;
@@ -39,7 +41,6 @@ export type AuthUser = {
 
 export type AuthTokens = {
   accessToken: string;
-  refreshToken: string;
   expiresIn: string;
 };
 
@@ -63,6 +64,5 @@ export type ChangePasswordPayload = {
 export type AuthResponse = {
   user: AuthUser;
   accessToken: string;
-  refreshToken: string;
   expiresIn: string;
 };

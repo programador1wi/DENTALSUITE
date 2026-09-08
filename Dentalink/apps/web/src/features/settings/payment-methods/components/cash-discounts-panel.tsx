@@ -105,13 +105,13 @@ export function CashDiscountsPanel() {
   const audit = useCashDiscountAudit(auditTarget?.id);
   const mutations = useCashDiscountMutations();
   const canCreate =
-    hasPermission("payment_options.cash_discounts.create") || hasPermission("system.manage_all");
+    hasPermission("payment_options.cash_discounts.create") || hasPermission("organization.manage_all");
   const canUpdate =
-    hasPermission("payment_options.cash_discounts.update") || hasPermission("system.manage_all");
+    hasPermission("payment_options.cash_discounts.update") || hasPermission("organization.manage_all");
   const canDisable =
-    hasPermission("payment_options.cash_discounts.disable") || hasPermission("system.manage_all");
+    hasPermission("payment_options.cash_discounts.disable") || hasPermission("organization.manage_all");
   const canReactivate =
-    hasPermission("payment_options.cash_discounts.reactivate") || hasPermission("system.manage_all");
+    hasPermission("payment_options.cash_discounts.reactivate") || hasPermission("organization.manage_all");
   const visibleRules = useMemo(
     () =>
       (rules.data ?? []).filter((rule) =>

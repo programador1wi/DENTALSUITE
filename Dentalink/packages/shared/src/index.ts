@@ -12,7 +12,7 @@ export const ROLE_CODES = {
 } as const;
 
 export const PERMISSIONS = {
-  SYSTEM_MANAGE_ALL: "system.manage_all",
+  ORGANIZATION_MANAGE_ALL: "organization.manage_all",
   DASHBOARD_READ: "dashboard.read",
   USERS_READ: "users.read",
   USERS_CREATE: "users.create",
@@ -38,3 +38,5 @@ export type RoleCode = (typeof ROLE_CODES)[keyof typeof ROLE_CODES];
 export type PermissionCode = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
 
 export * from "./access-control";
+export * from "./developer-api";
+export * from "./html-policy";

@@ -45,6 +45,40 @@ export class OrthodonticProgressService {
       throw new Error('Treatment or OrthodonticProfile not found');
     }
 
+    return this.buildProgressSummary(treatment, cutoffDate);
+  }
+
+  public async getProgressSummaries(treatmentIds: string[], cutoffDate: Date = new Date()) {
+    if (treatmentIds.length === 0) return new Map<string, Awaited<ReturnType<typeof this.getProgressSummary>>>();
+
+    const treatments = await this.prisma.treatmentPlan.findMany({
+      where: { id: { in: treatmentIds } },
+      include: {
+        patient: true,
+        professional: true,
+        orthodonticProfile: true,
+        orthodonticControls: { where: { status: 'COMPLETED' } },
+        _count: { select: { clinicalEvolutions: { where: { annulledAt: null } } } },
+        clinicalEvolutions: { orderBy: { createdAt: 'desc' }, take: 1 },
+        appointments: {
+          where: {
+            status: { in: ['SCHEDULED', 'CONFIRMED', 'PENDING_CONFIRMATION', 'ARRIVED', 'WAITING_ROOM'] },
+            startAt: { gt: cutoffDate }
+          },
+          orderBy: { startAt: 'asc' },
+          take: 1
+        },
+        pauses: true
+      }
+    });
+
+    return new Map(treatments.flatMap((treatment) => {
+      if (!treatment.orthodonticProfile) return [];
+      return [[treatment.id, this.buildProgressSummary(treatment, cutoffDate)] as const];
+    }));
+  }
+
+  private buildProgressSummary(treatment: any, cutoffDate: Date) {
     const calendarProgress = this.calculateCalendarProgressSync(treatment, cutoffDate);
     const controlProgress = this.calculateControlProgressSync(treatment);
     const progressDifference = this.calculateProgressDifferenceSync(calendarProgress.percentage, controlProgress.percentage);

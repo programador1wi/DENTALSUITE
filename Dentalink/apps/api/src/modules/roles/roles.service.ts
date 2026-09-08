@@ -119,6 +119,14 @@ export class RolesService {
         });
       }
 
+      await tx.user.updateMany({
+        where: {
+          organizationId: actor.organizationId,
+          OR: [{ roleId: id }, { roles: { some: { roleId: id } } }]
+        },
+        data: { authorizationVersion: { increment: 1 } }
+      });
+
       await tx.auditLog.create({
         data: {
           organizationId: actor.organizationId,
@@ -141,22 +149,26 @@ export class RolesService {
   }
 
   private organizationScope(actor: AuthUser): Prisma.RoleWhereInput {
-    return actor.permissions.includes("system.manage_all") ? {} : { organizationId: actor.organizationId };
+    return { organizationId: actor.organizationId };
   }
 
   private async validatePermissions(actor: AuthUser, permissionIds: string[]) {
     const uniqueIds = [...new Set(permissionIds)];
     const permissions = await this.prisma.permission.findMany({
       where: { id: { in: uniqueIds }, isActive: true, deletedAt: null },
-      select: { id: true, key: true }
+      select: { id: true, key: true, isSystem: true }
     });
     if (permissions.length !== uniqueIds.length) {
       throw new BadRequestException("One or more permissions are invalid");
     }
-    if (permissions.some((permission) => permission.key === "system.manage_all")) {
+    if (permissions.some((permission) => permission.key === "organization.manage_all")) {
       throw new ForbiddenException("PROTECTED_PERMISSION");
     }
-    if (permissions.some((permission) => !canDelegatePermission(actor.permissions, permission.key))) {
+    if (
+      permissions.some(
+        (permission) => !canDelegatePermission(actor.permissions, permission.key, permission.isSystem)
+      )
+    ) {
       throw new ForbiddenException("PERMISSION_DELEGATION_DENIED");
     }
   }

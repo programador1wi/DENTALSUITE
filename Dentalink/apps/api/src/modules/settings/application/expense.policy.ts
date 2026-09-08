@@ -70,9 +70,9 @@ export class ExpensePolicy {
     const canUpdate = hasAnyPermission(permissions, [
       "expenses.update",
       "settings.update",
-      "system.manage_all"
+      "organization.manage_all"
     ]);
-    const canVoid = hasAnyPermission(permissions, ["expenses.void", "settings.update", "system.manage_all"]);
+    const canVoid = hasAnyPermission(permissions, ["expenses.void", "settings.update", "organization.manage_all"]);
     return {
       canView: true,
       canEdit: canUpdate && expense.status !== ExpenseStatus.VOIDED && !policy.locked,
@@ -80,7 +80,7 @@ export class ExpensePolicy {
       canCreateCorrection: false,
       canViewCashSession:
         Boolean(policy.cashSession ?? expense.cashMovements[0]?.cashRegister) &&
-        hasAnyPermission(permissions, ["cash_register.read", "system.manage_all"])
+        hasAnyPermission(permissions, ["cash_register.read", "organization.manage_all"])
     };
   }
 

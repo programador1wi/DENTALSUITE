@@ -70,7 +70,7 @@ export class DiscountPoliciesService {
     return users
       .map((user) => {
         const keys = permissionKeys(user);
-        const hasPermission = keys.has("system.manage_all") || keys.has("treatment_discount.apply");
+        const hasPermission = keys.has("organization.manage_all") || keys.has("treatment_discount.apply");
         return {
           id: user.id,
           name: `${user.firstName} ${user.lastName}`.trim(),
@@ -106,7 +106,7 @@ export class DiscountPoliciesService {
     });
     if (!target) throw new NotFoundException("Usuario no encontrado.");
     const keys = permissionKeys(target);
-    if (!keys.has("system.manage_all") && !keys.has("treatment_discount.apply")) {
+    if (!keys.has("organization.manage_all") && !keys.has("treatment_discount.apply")) {
       throw new ForbiddenException({
         code: "DISCOUNT_PERMISSION_REQUIRED",
         message: "Asigna el permiso Permitir descuento para configurar un límite."

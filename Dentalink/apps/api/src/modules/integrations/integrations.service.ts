@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Inject, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import {
   AiRequestStatus,
@@ -14,7 +14,6 @@ import {
   TelemedicineSessionStatus
 } from "@prisma/client";
 import { randomUUID } from "crypto";
-import { PaginationQueryDto } from "../../common/dto/pagination-query.dto";
 import { AuthUser } from "../../common/types/auth-user";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { resolvePagination } from "../../common/utils/pagination.util";
@@ -44,7 +43,12 @@ import {
   UpdateTelemedicineStatusDto,
   WaiveDocumentRequirementDto
 } from "./dto/integrations.dto";
-import { ManualAiProvider, ManualNotificationProvider, ManualPaymentProvider } from "./providers/integration-providers";
+import {
+  ManualAiProvider,
+  ManualNotificationProvider,
+  PAYMENT_PROVIDER,
+  type PaymentProvider
+} from "./providers/integration-providers";
 import {
   deliveryStatusToJobUpdate,
   isTerminalImportStatus,
@@ -60,7 +64,7 @@ export class IntegrationsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly notificationProvider: ManualNotificationProvider,
-    private readonly paymentProvider: ManualPaymentProvider,
+    @Inject(PAYMENT_PROVIDER) private readonly paymentProvider: PaymentProvider,
     private readonly aiProvider: ManualAiProvider
   ) {}
 
@@ -705,37 +709,48 @@ export class IntegrationsService {
     if (!organizationId) throw new BadRequestException("Webhook must reference a known payment link or payment");
 
     const shouldMarkLinkPaid =
+      this.paymentProvider.automationMode === "AUTOMATIC" &&
       paymentLink &&
       (dto.linkStatus === PaymentLinkStatus.PAID ||
         ["payment.paid", "payment.succeeded", "checkout.session.completed"].includes(dto.eventType.toLowerCase()));
 
-    const result = await this.prisma.$transaction(async (tx) => {
-      if (shouldMarkLinkPaid && paymentLink.status !== PaymentLinkStatus.PAID) {
-        await tx.paymentLink.update({
-          where: { id: paymentLink.id },
-          data: { status: PaymentLinkStatus.PAID, paidAt: new Date() }
+    try {
+      const result = await this.prisma.$transaction(async (tx) => {
+        const event = await tx.paymentWebhookEvent.create({
+          data: {
+            organizationId,
+            paymentLinkId: paymentLink?.id,
+            paymentId: payment?.id,
+            provider: normalizedProvider,
+            eventId: dto.eventId.trim(),
+            eventType: dto.eventType.trim(),
+            idempotencyKey,
+            status: shouldMarkLinkPaid ? PaymentWebhookEventStatus.PROCESSED : PaymentWebhookEventStatus.IGNORED,
+            payload: toJson(dto.payload ?? {}) ?? {},
+            processedAt: new Date()
+          }
         });
-      }
 
-      const event = await tx.paymentWebhookEvent.create({
-        data: {
-          organizationId,
-          paymentLinkId: paymentLink?.id,
-          paymentId: payment?.id,
-          provider: normalizedProvider,
-          eventId: dto.eventId.trim(),
-          eventType: dto.eventType.trim(),
-          idempotencyKey,
-          status: shouldMarkLinkPaid ? PaymentWebhookEventStatus.PROCESSED : PaymentWebhookEventStatus.IGNORED,
-          payload: toJson(dto.payload ?? {}) ?? {},
-          processedAt: new Date()
+        if (shouldMarkLinkPaid && paymentLink && paymentLink.status !== PaymentLinkStatus.PAID) {
+          await tx.paymentLink.update({
+            where: { id: paymentLink.id },
+            data: { status: PaymentLinkStatus.PAID, paidAt: new Date() }
+          });
         }
+
+        return event;
       });
 
-      return event;
-    });
-
-    return { event: result, duplicate: false };
+      return { event: result, duplicate: false };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        const existing = await this.prisma.paymentWebhookEvent.findUnique({
+          where: { provider_idempotencyKey: { provider: normalizedProvider, idempotencyKey } }
+        });
+        if (existing) return { event: existing, duplicate: true };
+      }
+      throw error;
+    }
   }
 
   async listPaymentWebhookEvents(actor: AuthUser, query: ListPaymentWebhookEventsQueryDto) {

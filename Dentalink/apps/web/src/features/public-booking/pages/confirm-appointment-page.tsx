@@ -24,7 +24,7 @@ function getPublicAppointmentErrorCopy(error: unknown): PublicAppointmentErrorCo
   if (!navigator.onLine) {
     return {
       title: "Sin conexion",
-      message: "No hay conexion. Intenta nuevamente.",
+      message: "No hay conexion. Intenta nuevamente."
     };
   }
 
@@ -32,31 +32,31 @@ function getPublicAppointmentErrorCopy(error: unknown): PublicAppointmentErrorCo
   if (statusCode === 401) {
     return {
       title: "Enlace invalido",
-      message: "El enlace es invalido.",
+      message: "El enlace es invalido."
     };
   }
   if (statusCode === 410) {
     return {
       title: "Enlace expirado",
-      message: "El enlace ha expirado. Comunicate con la clinica.",
+      message: "El enlace ha expirado. Comunicate con la clinica."
     };
   }
   if (statusCode === 404) {
     return {
       title: "Cita no disponible",
-      message: "La cita no existe o ya no esta disponible.",
+      message: "La cita no existe o ya no esta disponible."
     };
   }
   if (statusCode && statusCode >= 500) {
     return {
       title: "No fue posible procesar la solicitud",
-      message: "No fue posible procesar tu solicitud. Comunicate con la clinica.",
+      message: "No fue posible procesar tu solicitud. Comunicate con la clinica."
     };
   }
 
   return {
     title: "No fue posible procesar la solicitud",
-    message: "No fue posible procesar tu solicitud. Comunicate con la clinica.",
+    message: "No fue posible procesar tu solicitud. Comunicate con la clinica."
   };
 }
 
@@ -65,7 +65,15 @@ export function ConfirmAppointmentPage() {
   const id = searchParams.get("id");
   const token = searchParams.get("token");
 
-  const [viewState, setViewState] = useState<"fetching" | "idle" | "loading-confirm" | "loading-cancel" | "success-confirm" | "success-cancel" | "error">("fetching");
+  const [viewState, setViewState] = useState<
+    | "fetching"
+    | "idle"
+    | "loading-confirm"
+    | "loading-cancel"
+    | "success-confirm"
+    | "success-cancel"
+    | "error"
+  >("fetching");
   const [details, setDetails] = useState<AppointmentDetails | null>(null);
   const [errorTitle, setErrorTitle] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -78,13 +86,25 @@ export function ConfirmAppointmentPage() {
       return;
     }
 
-    api.get(`/public/booking/appointments/${id}/confirm?token=${token}`)
+    api
+      .get(`/public/booking/appointments/${id}/confirm?token=${token}`)
       .then((res) => {
         const data = res.data;
         setDetails(data);
-        if (["CONFIRMED", "CONFIRMED_BY_EMAIL"].includes(data.status)) {
+        if (
+          ["CONFIRMED", "CONFIRMED_BY_EMAIL", "CONFIRMED_BY_PHONE", "CONFIRMED_BY_WHATSAPP"].includes(
+            data.status
+          )
+        ) {
           setViewState("success-confirm");
-        } else if (["CANCELLED_BY_PATIENT", "CANCELLED_BY_CLINIC", "CANCELLED_CONFLICT", "CANCELLED_RESCHEDULED"].includes(data.status)) {
+        } else if (
+          [
+            "CANCELLED_BY_PATIENT",
+            "CANCELLED_BY_CLINIC",
+            "CANCELLED_CONFLICT",
+            "CANCELLED_RESCHEDULED"
+          ].includes(data.status)
+        ) {
           setViewState("success-cancel");
         } else {
           setViewState("idle");
@@ -157,9 +177,7 @@ export function ConfirmAppointmentPage() {
             <Calendar className="h-8 w-8 text-white" />
           </div>
           <h2 className="text-2xl font-extrabold tracking-tight">Gestión de tu Cita</h2>
-          <p className="text-blue-100 mt-2 text-sm font-medium">
-            Por favor confirma o anula tu asistencia
-          </p>
+          <p className="text-blue-100 mt-2 text-sm font-medium">Por favor confirma o anula tu asistencia</p>
         </div>
 
         <div className="p-8">
@@ -208,24 +226,32 @@ export function ConfirmAppointmentPage() {
               </div>
 
               <div className="space-y-3">
-                <Button 
-                  size="lg" 
-                  className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-lg shadow-green-500/30 transition-all font-bold text-base h-14" 
+                <Button
+                  size="lg"
+                  className="w-full bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white shadow-lg shadow-green-500/30 transition-all font-bold text-base h-14"
                   onClick={handleConfirm}
                   disabled={viewState !== "idle"}
                 >
-                  {viewState === "loading-confirm" ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <CheckCircle2 className="h-5 w-5 mr-2" />}
+                  {viewState === "loading-confirm" ? (
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                  ) : (
+                    <CheckCircle2 className="h-5 w-5 mr-2" />
+                  )}
                   Confirmar mi asistencia
                 </Button>
-                
-                <Button 
+
+                <Button
                   variant="ghost"
-                  size="lg" 
-                  className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 transition-all font-semibold h-14" 
+                  size="lg"
+                  className="w-full border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300 transition-all font-semibold h-14"
                   onClick={handleCancel}
                   disabled={viewState !== "idle"}
                 >
-                  {viewState === "loading-cancel" ? <Loader2 className="h-5 w-5 animate-spin mr-2" /> : <XCircle className="h-5 w-5 mr-2" />}
+                  {viewState === "loading-cancel" ? (
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                  ) : (
+                    <XCircle className="h-5 w-5 mr-2" />
+                  )}
                   No podré asistir (Anular cita)
                 </Button>
               </div>
@@ -256,7 +282,8 @@ export function ConfirmAppointmentPage() {
               <div className="space-y-2 text-center mt-6">
                 <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">Cita Anulada</h3>
                 <p className="text-slate-500 font-medium px-4">
-                  Tu cita ha sido cancelada correctamente. Si deseas reagendar, por favor contacta a la clínica.
+                  Tu cita ha sido cancelada correctamente. Si deseas reagendar, por favor contacta a la
+                  clínica.
                 </p>
               </div>
             </div>
@@ -269,7 +296,9 @@ export function ConfirmAppointmentPage() {
                 <XCircle className="h-24 w-24 text-red-500 relative z-10 drop-shadow-sm" />
               </div>
               <div className="space-y-2 text-center mt-6">
-                <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">{errorTitle || "No fue posible procesar la solicitud"}</h3>
+                <h3 className="text-3xl font-extrabold text-slate-800 tracking-tight">
+                  {errorTitle || "No fue posible procesar la solicitud"}
+                </h3>
                 <p className="text-slate-500 font-medium px-4">{errorMessage}</p>
               </div>
             </div>

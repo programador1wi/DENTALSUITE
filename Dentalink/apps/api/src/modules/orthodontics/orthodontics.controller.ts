@@ -7,6 +7,7 @@ import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import { OrthodonticsService } from "./orthodontics.service";
+import { OrthodonticsReportQueryDto, ScheduleOrthodonticControlDto } from "./dto/orthodontics.dto";
 
 @ApiTags("Orthodontics")
 @ApiBearerAuth()
@@ -17,19 +18,23 @@ export class OrthodonticsController {
 
   @Get("patients-report")
   @RequirePermissions("patients.read")
-  getPatientsReport(@CurrentUser() user: AuthUser, @Query() query: any) {
+  getPatientsReport(@CurrentUser() user: AuthUser, @Query() query: OrthodonticsReportQueryDto) {
     return this.orthodonticsService.getPatientsReport(user, query);
   }
 
   @Get("patients-report/summary")
   @RequirePermissions("patients.read")
-  getPatientsReportSummary(@CurrentUser() user: AuthUser, @Query() query: any) {
+  getPatientsReportSummary(@CurrentUser() user: AuthUser, @Query() query: OrthodonticsReportQueryDto) {
     return this.orthodonticsService.getPatientsReportSummary(user, query);
   }
 
   @Get("patients-report/export")
   @RequirePermissions("patients.read")
-  async exportPatientsReport(@CurrentUser() user: AuthUser, @Query() query: any, @Res({ passthrough: true }) res: Response) {
+  async exportPatientsReport(
+    @CurrentUser() user: AuthUser,
+    @Query() query: OrthodonticsReportQueryDto,
+    @Res({ passthrough: true }) res: Response
+  ) {
     const csvStream = await this.orthodonticsService.exportPatientsReportStream(user, query);
     
     res.set({
@@ -41,11 +46,11 @@ export class OrthodonticsController {
   }
 
   @Post("treatments/:id/appointment-draft")
-  @RequirePermissions("treatment_plans.update")
+  @RequirePermissions("treatment_plans.update", "appointments.create")
   createAppointmentDraft(
     @CurrentUser() user: AuthUser,
     @Param("id") id: string,
-    @Body() dto: any
+    @Body() dto: ScheduleOrthodonticControlDto
   ) {
     return this.orthodonticsService.createAppointmentDraft(user, id, dto);
   }

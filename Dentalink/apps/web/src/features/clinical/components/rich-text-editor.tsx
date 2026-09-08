@@ -14,7 +14,8 @@ import {
   Undo2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useRef, useEffect, useCallback, useState, MouseEvent } from "react";
+import { sanitizeHtml } from "@/components/ui/safe-html";
+import { useRef, useEffect, useCallback, useState, MouseEvent, type ClipboardEvent } from "react";
 
 interface RichTextEditorProps {
   value: string;
@@ -75,18 +76,30 @@ export function RichTextEditor({
 
   // Sync value from props to contentEditable if it changes externally
   useEffect(() => {
-    if (editorRef.current && value !== editorRef.current.innerHTML) {
+    const sanitizedValue = sanitizeHtml(value);
+    if (editorRef.current && sanitizedValue !== editorRef.current.innerHTML) {
       if (document.activeElement !== editorRef.current) {
-        editorRef.current.innerHTML = value;
+        editorRef.current.innerHTML = sanitizedValue;
       }
     }
   }, [value]);
 
   const handleInput = useCallback(() => {
     if (editorRef.current) {
-      onChange(editorRef.current.innerHTML);
+      onChange(sanitizeHtml(editorRef.current.innerHTML));
     }
   }, [onChange]);
+
+  const handlePaste = useCallback((event: ClipboardEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const html = event.clipboardData.getData("text/html");
+    if (html) {
+      document.execCommand("insertHTML", false, sanitizeHtml(html));
+    } else {
+      document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+    }
+    handleInput();
+  }, [handleInput]);
 
   useEffect(() => {
     if (!insertTextRequest || !editorRef.current) return;
@@ -241,6 +254,7 @@ export function RichTextEditor({
           ref={editorRef}
           contentEditable
           onInput={handleInput}
+          onPaste={handlePaste}
           onBlur={handleInput}
           data-placeholder={placeholder}
           className={`min-h-[250px] w-full bg-transparent text-sm text-slate-900 outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400 prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-6 [&_ol]:pl-6 [&_li]:list-item [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5 ${editorClassName || ""}`}

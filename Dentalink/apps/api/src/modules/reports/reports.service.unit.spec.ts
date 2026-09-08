@@ -64,7 +64,7 @@ describe("ReportsService Excel requests", () => {
 
   it("does not empty the catalog for a system administrator", () => {
     const service = new ReportsService({} as never);
-    const systemAdmin = { ...actor, permissions: ["system.manage_all"] };
+    const systemAdmin = { ...actor, permissions: ["organization.manage_all"] };
 
     expect(service.getExcelCatalog(systemAdmin, "REQUEST")).toHaveLength(88);
     expect(service.getExcelCatalog(systemAdmin, "PERIOD")).toHaveLength(83);

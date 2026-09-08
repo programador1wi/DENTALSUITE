@@ -11,7 +11,7 @@ describe("PricingController integration", () => {
   const actor = {
     id: "user-1",
     organizationId: "org-1",
-    permissions: ["system.manage_all"],
+    permissions: ["organization.manage_all"],
     branchIds: ["branch-1"]
   };
   const pricing = {

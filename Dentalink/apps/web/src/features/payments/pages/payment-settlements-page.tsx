@@ -52,8 +52,8 @@ export function PaymentSettlementsPage() {
   const methods = usePaymentMethods(undefined, "true");
   const institutions = useFinancialInstitutions(undefined, "true");
   const mutations = usePaymentSettlementMutations();
-  const canReceive = hasPermission("payment_settlements.receive") || hasPermission("system.manage_all");
-  const canCancel = hasPermission("payment_settlements.cancel") || hasPermission("system.manage_all");
+  const canReceive = hasPermission("payment_settlements.receive") || hasPermission("organization.manage_all");
+  const canCancel = hasPermission("payment_settlements.cancel") || hasPermission("organization.manage_all");
 
   const openReceive = (row: PaymentSettlement) => {
     setReceiving(row);

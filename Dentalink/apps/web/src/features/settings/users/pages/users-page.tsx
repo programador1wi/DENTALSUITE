@@ -264,7 +264,7 @@ export function UsersPage() {
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
   const navigate = useNavigate();
   const { can } = usePermissions();
-  const canManageAll = can("system.manage_all");
+  const canManageAll = can("organization.manage_all");
   const canReadUsers = canManageAll || can("users.read");
   const canReadProfessionals = canManageAll || can("professionals.read");
   const canReadRoles = canManageAll || can("roles.read");

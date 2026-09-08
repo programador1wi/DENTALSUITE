@@ -23,6 +23,7 @@ import { LoadingState } from "@/components/feedback/loading-state";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
+import { SafeHtml } from "@/components/ui/safe-html";
 import { SignaturePad } from "@/components/ui/signature-pad";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -472,7 +473,7 @@ function ConsentDetail({
           <span className="flex items-center gap-1 text-[var(--text-xs)] text-[var(--text-secondary)]"><Fingerprint className="h-3.5 w-3.5" /> SHA-256</span>
         </div>
         <div className="max-h-[640px] overflow-auto rounded-[var(--radius-lg)] bg-[var(--bg-subtle)] p-[var(--space-3)]">
-          <div dangerouslySetInnerHTML={{ __html: consent.renderedHtmlSnapshot }} />
+          <SafeHtml html={consent.renderedHtmlSnapshot} />
         </div>
         <code className="mt-[var(--space-2)] block break-all rounded-[var(--radius-md)] bg-[var(--bg-subtle)] p-[var(--space-2)] text-[var(--text-xs)] text-[var(--text-secondary)]">{consent.documentHash}</code>
       </section>

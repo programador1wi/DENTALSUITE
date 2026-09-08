@@ -3,6 +3,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, ArrowRight, CheckCircle2, Send, ShieldCheck, Star } from "lucide-react";
 import { useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { SafeHtml } from "@/components/ui/safe-html";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import {
@@ -75,7 +76,7 @@ export function PublicSurveyPage() {
           <div className="min-w-0"><p className="truncate text-[var(--text-sm)] font-semibold text-[var(--text-primary)]">{query.data.brand.organizationName}</p><p className="truncate text-[var(--text-xs)] text-[var(--text-secondary)]">{query.data.brand.branchName}</p></div>
         </div>
         <h1 className="mt-[var(--space-5)] text-[var(--text-2xl)] font-semibold text-[var(--text-brand-strong)]">{query.data.survey.name}</h1>
-        {sectionIndex === 0 && <div className="prose prose-sm mt-3 max-w-none text-[var(--text-secondary)]" dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(query.data.survey.welcomeHtml) }} />}
+        {sectionIndex === 0 && <SafeHtml html={query.data.survey.welcomeHtml} className="prose prose-sm mt-3 max-w-none text-[var(--text-secondary)]" />}
       </header>
       <div className="px-[var(--space-5)] pt-[var(--space-5)] sm:px-[var(--space-6)]">
         <div className="flex items-center justify-between text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]"><span>Sección {sectionIndex + 1} de {query.data.survey.sections.length}</span><span>{progress}%</span></div>
@@ -88,7 +89,7 @@ export function PublicSurveyPage() {
       </main>
       <footer className="border-t border-[var(--border-default)] bg-[var(--bg-subtle)] p-[var(--space-5)] sm:px-[var(--space-6)]">
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between"><Button variant="secondary" disabled={sectionIndex === 0 || submit.isPending} onClick={() => setSectionIndex((value) => value - 1)}><ArrowLeft className="h-4 w-4" /> Anterior</Button><Button onClick={continueAction} disabled={submit.isPending} style={color ? { backgroundColor: color, borderColor: color } : undefined}>{submit.isPending ? "Registrando..." : isLast ? "Enviar respuestas" : "Siguiente"}{isLast ? <Send className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}</Button></div>
-        {query.data.survey.footerHtml && <div className="prose prose-sm mt-5 max-w-none text-center text-[var(--text-secondary)]" dangerouslySetInnerHTML={{ __html: sanitizePreviewHtml(query.data.survey.footerHtml) }} />}
+        {query.data.survey.footerHtml && <SafeHtml html={query.data.survey.footerHtml} className="prose prose-sm mt-5 max-w-none text-center text-[var(--text-secondary)]" />}
         <p className="mt-4 flex items-center justify-center gap-1.5 text-[var(--text-xs)] text-[var(--text-secondary)]"><ShieldCheck className="h-3.5 w-3.5" /> Enlace único y respuesta confidencial</p>
       </footer>
     </div>
@@ -120,8 +121,4 @@ function PublicMessage({ title, message, success = false }: { title: string; mes
 
 function hasAnswer(answer?: Answer) {
   return Boolean(answer && (answer.optionId || answer.optionIds?.length || answer.valueText?.trim() || answer.valueNumber !== undefined || answer.valueBoolean !== undefined));
-}
-
-function sanitizePreviewHtml(value: string) {
-  return value.replace(/<\s*(script|iframe|object|embed|form|input|button|style)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, "").replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "").replace(/javascript\s*:/gi, "");
 }

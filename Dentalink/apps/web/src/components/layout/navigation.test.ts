@@ -12,7 +12,7 @@ describe("permission-aware navigation", () => {
   it("supports all, any and system administrator requirements", () => {
     expect(hasRequiredPermissions(["patients.read"], ["patients.read", "patients.update"])).toBe(false);
     expect(hasRequiredPermissions(["patients.read"], ["patients.read", "patients.update"], "any")).toBe(true);
-    expect(hasRequiredPermissions(["system.manage_all"], ["settings.read", "branches.read"])).toBe(true);
+    expect(hasRequiredPermissions(["organization.manage_all"], ["settings.read", "branches.read"])).toBe(true);
   });
 
   it("resolves canonical bundles through hasRequiredPermissions", () => {

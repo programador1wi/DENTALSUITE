@@ -18,7 +18,6 @@ import {
   Handshake,
   Image,
   Landmark,
-  LayoutDashboard,
   Mail,
   Package,
   Receipt,
@@ -28,7 +27,8 @@ import {
   Stethoscope,
   UsersRound,
   WalletCards,
-  Building2
+  Building2,
+  Key
 } from "lucide-react";
 import { hasEffectivePermission } from "@dentalwarner/shared";
 import { APP_ROUTES } from "@/lib/routes";
@@ -208,6 +208,13 @@ export const navItems: MainNavItem[] = [
         icon: FileCheck
       },
       {
+        to: APP_ROUTES.settings.apiKeys,
+        label: "Integraciones API",
+        permission: "developer_api.credentials.read",
+        section: "administration",
+        icon: Key
+      },
+      {
         to: APP_ROUTES.settings.onlineScheduling,
         label: "Agenda Online",
         permission: ["admin.dentists.manage", "admin.ges_config.manage"],
@@ -321,7 +328,7 @@ export function hasRequiredPermissions(
   required: string | string[] | undefined,
   mode: PermissionMode = "all"
 ) {
-  if (permissions.includes("system.manage_all")) return true;
+  if (permissions.includes("organization.manage_all")) return true;
   const requiredPermissions = Array.isArray(required) ? required : required ? [required] : [];
   return (
     requiredPermissions.length === 0 ||
@@ -357,4 +364,3 @@ export function firstAuthorizedPath(permissions: string[]) {
 
   return firstItem.children?.[0]?.to ?? firstItem.to;
 }
-

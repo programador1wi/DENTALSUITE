@@ -1,0 +1,1 @@
+ALTER TYPE "ApiIdempotencyStatus" ADD VALUE IF NOT EXISTS 'UNCERTAIN';

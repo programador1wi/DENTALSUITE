@@ -491,7 +491,7 @@ export class CollaboratorsService {
   }
 
   private can(actor: AuthUser, permission: string) {
-    return actor.permissions.includes("system.manage_all") || actor.permissions.includes(permission);
+    return actor.permissions.includes("organization.manage_all") || actor.permissions.includes(permission);
   }
 
   private ensurePermission(actor: AuthUser, permission: string) {

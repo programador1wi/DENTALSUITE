@@ -15,3 +15,8 @@ export const queryClient = new QueryClient({
     }
   }
 });
+
+export async function clearPrivateQueryState() {
+  await queryClient.cancelQueries();
+  queryClient.clear();
+}

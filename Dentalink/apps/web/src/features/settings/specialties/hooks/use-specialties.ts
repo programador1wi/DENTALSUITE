@@ -1,4 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createSpecialtyAppointmentReason,
   createSpecialtyClinicalTemplate,
@@ -11,15 +12,23 @@ import {
   updateSpecialtyClinicalTemplate,
   updateSpecialty,
   type SpecialtyAppointmentReasonPayload,
+  type SpecialtyClinicalTemplate,
   type SpecialtyClinicalTemplatePayload,
   type SpecialtyClinicalTemplateType,
   type SpecialtyPayload
 } from "../services/specialties.service";
 
-export function useSpecialties(search?: string, active?: string) {
+type SpecialtyReference = { id: string; name: string };
+
+export type SpecialtyClinicalTemplateWithSpecialty = SpecialtyClinicalTemplate & {
+  specialtyName: string;
+};
+
+export function useSpecialties(search?: string, active?: string, enabled = true) {
   return useQuery({
     queryKey: ["settings", "specialties", search, active],
-    queryFn: () => listSpecialties({ search, active })
+    queryFn: () => listSpecialties({ search, active }),
+    enabled
   });
 }
 
@@ -54,6 +63,48 @@ export function useSpecialtyClinicalTemplates(specialtyId?: string, type?: Speci
     queryFn: () => listSpecialtyClinicalTemplates(specialtyId ?? "", { type }),
     enabled: Boolean(specialtyId)
   });
+}
+
+export function useSpecialtyClinicalTemplatesForSpecialties(
+  specialties: SpecialtyReference[],
+  type: SpecialtyClinicalTemplateType
+) {
+  const uniqueSpecialties = useMemo(() => {
+    const seen = new Set<string>();
+    return specialties.filter((specialty) => {
+      if (!specialty.id || seen.has(specialty.id)) return false;
+      seen.add(specialty.id);
+      return true;
+    });
+  }, [specialties]);
+
+  const queries = useQueries({
+    queries: uniqueSpecialties.map((specialty) => ({
+      queryKey: ["settings", "specialties", specialty.id, "clinical-templates", type, "active"],
+      queryFn: () => listSpecialtyClinicalTemplates(specialty.id, { type, active: "true" }),
+      enabled: Boolean(specialty.id)
+    }))
+  });
+
+  const data = useMemo<SpecialtyClinicalTemplateWithSpecialty[]>(() => {
+    return queries.flatMap((query, index) => {
+      const specialty = uniqueSpecialties[index];
+      if (!specialty) return [];
+      return (query.data ?? [])
+        .filter((template) => template.isActive)
+        .map((template) => ({
+          ...template,
+          specialtyName: specialty.name
+        }));
+    });
+  }, [queries, uniqueSpecialties]);
+
+  return {
+    data,
+    isLoading: queries.some((query) => query.isLoading),
+    isError: queries.some((query) => query.isError),
+    error: queries.find((query) => query.error)?.error as Error | null | undefined
+  };
 }
 
 export function useCreateSpecialtyClinicalTemplate() {

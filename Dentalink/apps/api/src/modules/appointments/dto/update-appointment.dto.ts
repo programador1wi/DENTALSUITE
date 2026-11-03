@@ -1,19 +1,5 @@
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Min, MinLength } from "class-validator";
-
-const APPOINTMENT_STATUSES = [
-  "SCHEDULED",
-  "CONFIRMED",
-  "PENDING_CONFIRMATION",
-  "ARRIVED",
-  "WAITING_ROOM",
-  "IN_PROGRESS",
-  "COMPLETED",
-  "CANCELLED_BY_PATIENT",
-  "CANCELLED_BY_CLINIC",
-  "NO_SHOW",
-  "RESCHEDULED",
-  "BLOCKED"
-] as const;
+import { IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, Min, MinLength } from "class-validator";
+import { AppointmentStatus, AttendanceMode } from "@prisma/client";
 
 export class UpdateAppointmentDto {
   @IsOptional()
@@ -33,6 +19,15 @@ export class UpdateAppointmentDto {
   chairId?: string;
 
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  chairIndex?: number;
+
+  @IsOptional()
+  @IsEnum(AttendanceMode)
+  attendanceMode?: AttendanceMode;
+
+  @IsOptional()
   @IsString()
   specialtyId?: string;
 
@@ -50,8 +45,8 @@ export class UpdateAppointmentDto {
   reason?: string;
 
   @IsOptional()
-  @IsEnum(APPOINTMENT_STATUSES)
-  status?: (typeof APPOINTMENT_STATUSES)[number];
+  @IsEnum(AppointmentStatus)
+  status?: AppointmentStatus;
 
   @IsOptional()
   @IsDateString()
@@ -69,4 +64,8 @@ export class UpdateAppointmentDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowOverbooking?: boolean;
 }

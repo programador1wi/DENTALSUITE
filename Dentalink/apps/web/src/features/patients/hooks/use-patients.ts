@@ -3,20 +3,34 @@ import { toast } from "sonner";
 import {
   addPatientAlert,
   addPatientNote,
+  changePatientBenefitCoverageStatus,
   completePatientTask,
+  createPatientBenefitCoverage,
   createPatient,
   createPatientTask,
   deactivatePatient,
+  exportPatientAnalysis,
   getPatient,
+  getPatientAnalysisDetail,
+  getPatientEmail,
   getPatientsAnalysis,
   getPatientTimeline,
+  listPatientBenefitsCoverages,
+  listPatientEmails,
   listPatientTasks,
   listPatients,
   mergePatients,
+  refreshPatientsAnalysis,
   searchPatients,
+  sendPatientEmail,
   updatePatient,
+  updatePatientBenefitCoverage,
   updatePatientTask,
+  validatePatientInsurance,
+  type PatientBenefitCoveragePayload,
   type PatientAnalysisQuery,
+  type PatientAnalysisDetailQuery,
+  type PatientEmailsQuery,
   type PatientMedicalAlertInput,
   type PatientPayload,
   type PatientTaskPayload,
@@ -30,10 +44,49 @@ export function usePatients(params?: PatientsQuery) {
   });
 }
 
-export function usePatientsAnalysis(params?: PatientAnalysisQuery) {
+export function usePatientsAnalysis(params?: PatientAnalysisQuery, enabled = true) {
   return useQuery({
     queryKey: ["patients", "analysis", params],
-    queryFn: () => getPatientsAnalysis(params)
+    queryFn: () => getPatientsAnalysis(params),
+    enabled
+  });
+}
+
+export function usePatientAnalysisDetail(
+  metric?: string,
+  params?: PatientAnalysisDetailQuery,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: ["patients", "analysis", "detail", metric, params],
+    queryFn: () => getPatientAnalysisDetail(metric as string, params),
+    enabled: Boolean(metric) && enabled
+  });
+}
+
+export function useRefreshPatientsAnalysis() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params?: PatientAnalysisQuery) => refreshPatientsAnalysis(params),
+    onSuccess: (data) => {
+      queryClient.setQueryData(["patients", "analysis"], data);
+      queryClient.invalidateQueries({ queryKey: ["patients", "analysis"] });
+      toast.success("Indicadores actualizados");
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useExportPatientAnalysis() {
+  return useMutation({
+    mutationFn: ({
+      metric,
+      params
+    }: {
+      metric: string;
+      params?: PatientAnalysisDetailQuery;
+    }) => exportPatientAnalysis(metric, params),
+    onError: (error: Error) => toast.error(error.message)
   });
 }
 
@@ -66,6 +119,14 @@ export function usePatientTimeline(id?: string) {
   });
 }
 
+export function usePatientBenefitsCoverages(id?: string) {
+  return useQuery({
+    queryKey: ["patients", "benefits-coverages", id],
+    queryFn: () => listPatientBenefitsCoverages(id as string),
+    enabled: Boolean(id)
+  });
+}
+
 export function usePatientTasks(id?: string, includeCompleted = false) {
   return useQuery({
     queryKey: ["patients", "tasks", id, includeCompleted],
@@ -74,10 +135,47 @@ export function usePatientTasks(id?: string, includeCompleted = false) {
   });
 }
 
-export function useCreatePatient() {
+export function usePatientEmails(id?: string, params?: PatientEmailsQuery) {
+  return useQuery({
+    queryKey: ["patients", "emails", id, params],
+    queryFn: () => listPatientEmails(id as string, params),
+    enabled: Boolean(id)
+  });
+}
+
+export function usePatientEmail(id?: string, emailId?: string) {
+  return useQuery({
+    queryKey: ["patients", "emails", id, emailId],
+    queryFn: () => getPatientEmail(id as string, emailId as string),
+    enabled: Boolean(id && emailId)
+  });
+}
+
+export function useSendPatientEmail() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (payload: PatientPayload) => createPatient(payload),
+    mutationFn: ({
+      id,
+      payload,
+      idempotencyKey
+    }: {
+      id: string;
+      payload: Parameters<typeof sendPatientEmail>[1];
+      idempotencyKey: string;
+    }) => sendPatientEmail(id, payload, idempotencyKey),
+    onSuccess: (_, variables) => {
+      toast.success("Correo enviado correctamente");
+      queryClient.invalidateQueries({ queryKey: ["patients", "emails", variables.id] });
+      queryClient.invalidateQueries({ queryKey: ["patients", "detail", variables.id] });
+    },
+    onError: (error: Error) => toast.error(error.message)
+  });
+}
+
+export function useCreatePatient(context: "newPatient" | "appointment" = "newPatient") {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: PatientPayload) => createPatient(payload, context),
     onSuccess: () => {
       toast.success("Paciente creado");
       queryClient.invalidateQueries({ queryKey: ["patients"] });
@@ -98,6 +196,77 @@ export function useUpdatePatient() {
     },
     onError: (error: Error) => toast.error(error.message)
   });
+}
+
+export function usePatientBenefitsCoverageMutations() {
+  const queryClient = useQueryClient();
+  const invalidate = (patientId: string) => {
+    queryClient.invalidateQueries({ queryKey: ["patients", "benefits-coverages", patientId] });
+    queryClient.invalidateQueries({ queryKey: ["patients", "detail", patientId] });
+    queryClient.invalidateQueries({ queryKey: ["patients"] });
+  };
+
+  return {
+    createCoverage: useMutation({
+      mutationFn: ({
+        id,
+        payload,
+        idempotencyKey
+      }: {
+        id: string;
+        payload: PatientBenefitCoveragePayload;
+        idempotencyKey: string;
+      }) => createPatientBenefitCoverage(id, payload, idempotencyKey),
+      onSuccess: (_, variables) => {
+        toast.success("Beneficio registrado");
+        invalidate(variables.id);
+      },
+      onError: (error: Error) => toast.error(error.message)
+    }),
+    updateCoverage: useMutation({
+      mutationFn: ({
+        id,
+        coverageId,
+        payload
+      }: {
+        id: string;
+        coverageId: string;
+        payload: Partial<PatientBenefitCoveragePayload> & { expectedVersion?: number };
+      }) => updatePatientBenefitCoverage(id, coverageId, payload),
+      onSuccess: (_, variables) => {
+        toast.success("Cobertura actualizada");
+        invalidate(variables.id);
+      },
+      onError: (error: Error) => toast.error(error.message)
+    }),
+    changeStatus: useMutation({
+      mutationFn: ({
+        id,
+        coverageId,
+        action,
+        reason
+      }: {
+        id: string;
+        coverageId: string;
+        action: "activate" | "deactivate" | "cancel";
+        reason?: string;
+      }) => changePatientBenefitCoverageStatus(id, coverageId, action, reason),
+      onSuccess: (_, variables) => {
+        toast.success("Estado de cobertura actualizado");
+        invalidate(variables.id);
+      },
+      onError: (error: Error) => toast.error(error.message)
+    }),
+    validateInsurance: useMutation({
+      mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof validatePatientInsurance>[1] }) =>
+        validatePatientInsurance(id, payload),
+      onSuccess: (_, variables) => {
+        toast.success("Validacion registrada");
+        invalidate(variables.id);
+      },
+      onError: (error: Error) => toast.error(error.message)
+    })
+  };
 }
 
 export function useDeactivatePatient() {

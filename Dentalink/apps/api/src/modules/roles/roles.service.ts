@@ -1,5 +1,6 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { canDelegatePermission } from "@dentalwarner/shared";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
@@ -50,7 +51,7 @@ export class RolesService {
   }
 
   async create(actor: AuthUser, dto: CreateRoleDto) {
-    await this.validatePermissions(dto.permissionIds);
+    await this.validatePermissions(actor, dto.permissionIds);
 
     const role = await this.prisma.$transaction(async (tx) => {
       const code = await this.generateRoleCode(actor.organizationId, dto.name);
@@ -94,7 +95,7 @@ export class RolesService {
     if (this.isSuperAdminRole(current)) {
       throw new BadRequestException("Super admin role cannot be edited");
     }
-    if (dto.permissionIds) await this.validatePermissions(dto.permissionIds);
+    if (dto.permissionIds) await this.validatePermissions(actor, dto.permissionIds);
     if (current.isActive && dto.isActive === false) {
       await this.assertRoleNotAssignedToActiveUsers(id);
     }
@@ -118,6 +119,14 @@ export class RolesService {
         });
       }
 
+      await tx.user.updateMany({
+        where: {
+          organizationId: actor.organizationId,
+          OR: [{ roleId: id }, { roles: { some: { roleId: id } } }]
+        },
+        data: { authorizationVersion: { increment: 1 } }
+      });
+
       await tx.auditLog.create({
         data: {
           organizationId: actor.organizationId,
@@ -140,16 +149,27 @@ export class RolesService {
   }
 
   private organizationScope(actor: AuthUser): Prisma.RoleWhereInput {
-    return actor.permissions.includes("system.manage_all") ? {} : { organizationId: actor.organizationId };
+    return { organizationId: actor.organizationId };
   }
 
-  private async validatePermissions(permissionIds: string[]) {
+  private async validatePermissions(actor: AuthUser, permissionIds: string[]) {
     const uniqueIds = [...new Set(permissionIds)];
-    const count = await this.prisma.permission.count({
-      where: { id: { in: uniqueIds }, isActive: true, deletedAt: null }
+    const permissions = await this.prisma.permission.findMany({
+      where: { id: { in: uniqueIds }, isActive: true, deletedAt: null },
+      select: { id: true, key: true, isSystem: true }
     });
-    if (count !== uniqueIds.length) {
+    if (permissions.length !== uniqueIds.length) {
       throw new BadRequestException("One or more permissions are invalid");
+    }
+    if (permissions.some((permission) => permission.key === "organization.manage_all")) {
+      throw new ForbiddenException("PROTECTED_PERMISSION");
+    }
+    if (
+      permissions.some(
+        (permission) => !canDelegatePermission(actor.permissions, permission.key, permission.isSystem)
+      )
+    ) {
+      throw new ForbiddenException("PERMISSION_DELEGATION_DENIED");
     }
   }
 
@@ -171,7 +191,12 @@ export class RolesService {
   }
 
   private isSuperAdminRole(role: { code: string | null; name: string }) {
-    return role.code === "super_admin" || role.name === "SUPER_ADMIN";
+    return (
+      role.code === "super_admin" ||
+      role.code === "super_administrador" ||
+      role.name === "SUPER_ADMIN" ||
+      role.name === "Super Administrador"
+    );
   }
 
   private async generateRoleCode(organizationId: string, name: string) {
@@ -200,7 +225,17 @@ export class RolesService {
   }
 
   private includeRelations() {
-    return { permissions: { include: { permission: true } } } as const;
+    return {
+      permissions: {
+        where: {
+          permission: {
+            isActive: true,
+            deletedAt: null
+          }
+        },
+        include: { permission: true }
+      }
+    } as const;
   }
 
   private serialize(role: Prisma.RoleGetPayload<{ include: ReturnType<RolesService["includeRelations"]> }>) {

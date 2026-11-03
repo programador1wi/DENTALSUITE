@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards
+} from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
@@ -9,18 +21,36 @@ import { AddPatientAlertDto } from "./dto/add-patient-alert.dto";
 import { AddPatientNoteDto } from "./dto/add-patient-note.dto";
 import { CreatePatientDto } from "./dto/create-patient.dto";
 import { MergePatientsDto } from "./dto/merge-patients.dto";
+import {
+  AttachPatientCoverageDocumentDto,
+  CreatePatientBenefitCoverageDto,
+  PatientCoverageStatusReasonDto,
+  PatientEligibleCoveragesQueryDto,
+  UpdatePatientBenefitCoverageDto,
+  ValidatePatientInsuranceDto
+} from "./dto/patient-benefit-coverage.dto";
 import { PatientAnalysisQueryDto } from "./dto/patient-analysis-query.dto";
+import { ListPatientEmailsQueryDto, SendPatientEmailDto } from "./dto/patient-email.dto";
 import { PatientQueryDto } from "./dto/patient-query.dto";
 import { CreatePatientTaskDto, ListPatientTasksQueryDto, UpdatePatientTaskDto } from "./dto/patient-task.dto";
 import { UpdatePatientDto } from "./dto/update-patient.dto";
+import { PatientAnalyticsService } from "./patient-analytics.service";
 import { PatientsService } from "./patients.service";
+import {
+  PatientFieldConfigService,
+  type PatientFieldContext
+} from "../patient-field-config/patient-field-config.service";
 
 @ApiTags("Patients")
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("patients")
 export class PatientsController {
-  constructor(private readonly patientsService: PatientsService) {}
+  constructor(
+    private readonly patientsService: PatientsService,
+    private readonly patientAnalytics: PatientAnalyticsService,
+    private readonly patientFieldConfig: PatientFieldConfigService
+  ) {}
 
   @Get()
   @RequirePermissions("patients.read")
@@ -43,7 +73,7 @@ export class PatientsController {
   @Get("analysis")
   @RequirePermissions("patients.read")
   analysis(@CurrentUser() user: AuthUser, @Query() query: PatientAnalysisQueryDto) {
-    return this.patientsService.analysis(user, query);
+    return this.patientAnalytics.overview(user, query);
   }
 
   @Get(":id/timeline")
@@ -52,9 +82,132 @@ export class PatientsController {
     return this.patientsService.timeline(user, id);
   }
 
+  @Get(":id/benefits-coverages")
+  @RequirePermissions("patients.read")
+  listBenefitCoverages(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.patientsService.listBenefitCoverages(user, id);
+  }
+
+  @Post(":id/benefits-coverages")
+  @RequirePermissions("patients.update")
+  createBenefitCoverage(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: CreatePatientBenefitCoverageDto,
+    @Headers("idempotency-key") idempotencyKey?: string
+  ) {
+    return this.patientsService.createBenefitCoverage(user, id, dto, idempotencyKey);
+  }
+
+  @Patch(":id/benefits-coverages/:coverageId")
+  @RequirePermissions("patients.update")
+  updateBenefitCoverage(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("coverageId") coverageId: string,
+    @Body() dto: UpdatePatientBenefitCoverageDto
+  ) {
+    return this.patientsService.updateBenefitCoverage(user, id, coverageId, dto);
+  }
+
+  @Post(":id/benefits-coverages/:coverageId/activate")
+  @RequirePermissions("patients.update")
+  activateBenefitCoverage(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("coverageId") coverageId: string,
+    @Body() dto: PatientCoverageStatusReasonDto
+  ) {
+    return this.patientsService.changeBenefitCoverageStatus(user, id, coverageId, "ACTIVE", dto.reason);
+  }
+
+  @Post(":id/benefits-coverages/:coverageId/deactivate")
+  @RequirePermissions("patients.update")
+  deactivateBenefitCoverage(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("coverageId") coverageId: string,
+    @Body() dto: PatientCoverageStatusReasonDto
+  ) {
+    return this.patientsService.changeBenefitCoverageStatus(user, id, coverageId, "INACTIVE", dto.reason);
+  }
+
+  @Post(":id/benefits-coverages/:coverageId/cancel")
+  @RequirePermissions("patients.update")
+  cancelBenefitCoverage(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("coverageId") coverageId: string,
+    @Body() dto: PatientCoverageStatusReasonDto
+  ) {
+    return this.patientsService.changeBenefitCoverageStatus(user, id, coverageId, "CANCELLED", dto.reason);
+  }
+
+  @Post(":id/benefits-coverages/:coverageId/documents")
+  @RequirePermissions("files.upload")
+  attachCoverageDocument(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Param("coverageId") coverageId: string,
+    @Body() dto: AttachPatientCoverageDocumentDto
+  ) {
+    return this.patientsService.attachCoverageDocument(user, id, coverageId, dto);
+  }
+
+  @Post(":id/insurance-validations")
+  @RequirePermissions("patients.update")
+  validateInsurance(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: ValidatePatientInsuranceDto
+  ) {
+    return this.patientsService.validateInsurance(user, id, dto);
+  }
+
+  @Get(":id/eligible-coverages")
+  @RequirePermissions("patients.read")
+  eligibleCoverages(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Query() query: PatientEligibleCoveragesQueryDto
+  ) {
+    return this.patientsService.listEligibleCoverages(user, id, query);
+  }
+
   @Post()
   @RequirePermissions("patients.create")
-  create(@CurrentUser() user: AuthUser, @Body() dto: CreatePatientDto) {
+  async create(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: CreatePatientDto,
+    @Headers("x-patient-field-context") requestedContext?: string
+  ) {
+    const context: PatientFieldContext = requestedContext === "appointment" ? "appointment" : "newPatient";
+    await this.patientFieldConfig.assertRequiredFields(user.organizationId, context, {
+      legalName: dto.firstName,
+      socialName: dto.socialName,
+      lastName: dto.lastName,
+      curp: dto.documentNumber,
+      email: dto.email,
+      agreement: dto.agreementId,
+      internalNumber: dto.internalNumber,
+      sex: dto.sex,
+      gender: dto.gender,
+      birthDate: dto.birthDate,
+      city: dto.address?.city,
+      delegation: dto.address?.state,
+      address: dto.address?.street,
+      fixedPhone: dto.alternatePhone,
+      mobilePhone: dto.phone,
+      profession: dto.occupation,
+      employer: dto.employer,
+      observations: dto.observations,
+      guardian: dto.contacts?.[0]?.name,
+      reference: dto.referredBy,
+      type: dto.status,
+      guardianDocument: dto.contacts?.[0]?.documentNumber,
+      guardianSocialName: dto.contacts?.[0]?.socialName,
+      guardianGender: dto.contacts?.[0]?.gender
+    });
     return this.patientsService.create(user, dto);
   }
 
@@ -62,6 +215,33 @@ export class PatientsController {
   @RequirePermissions("patients.read")
   findOne(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.patientsService.findOne(user, id);
+  }
+
+  @Get(":id/emails")
+  @RequirePermissions("integrations.communications.read")
+  listEmails(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Query() query: ListPatientEmailsQueryDto
+  ) {
+    return this.patientsService.listEmails(user, id, query);
+  }
+
+  @Get(":id/emails/:emailId")
+  @RequirePermissions("integrations.communications.read")
+  getEmail(@CurrentUser() user: AuthUser, @Param("id") id: string, @Param("emailId") emailId: string) {
+    return this.patientsService.getEmail(user, id, emailId);
+  }
+
+  @Post(":id/emails")
+  @RequirePermissions("integrations.communications.send")
+  sendEmail(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: SendPatientEmailDto,
+    @Headers("idempotency-key") idempotencyKey?: string
+  ) {
+    return this.patientsService.sendEmail(user, id, dto, idempotencyKey);
   }
 
   @Patch(":id")
@@ -84,7 +264,11 @@ export class PatientsController {
 
   @Get(":id/tasks")
   @RequirePermissions("patients.tasks.read")
-  listTasks(@CurrentUser() user: AuthUser, @Param("id") id: string, @Query() query: ListPatientTasksQueryDto) {
+  listTasks(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Query() query: ListPatientTasksQueryDto
+  ) {
     return this.patientsService.listTasks(user, id, query);
   }
 
@@ -118,8 +302,10 @@ export class PatientsController {
   }
 
   @Post("merge")
-  @RequirePermissions("patients.update")
-  merge(@CurrentUser() user: AuthUser, @Body() dto: MergePatientsDto) {
-    return this.patientsService.merge(user, dto);
+  @RequirePermissions("patients.merge")
+  merge(@CurrentUser() _user: AuthUser, @Body() _dto: MergePatientsDto) {
+    throw new BadRequestException(
+      "Usa el flujo auditado de vista previa en /patient-identity/merges/preview"
+    );
   }
 }

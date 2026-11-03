@@ -10,6 +10,12 @@ export type PermissionListItem = {
   action?: string | null;
   resource?: string | null;
   isActive: boolean;
+  label?: string;
+  businessGroup?: string;
+  presentationTier?: "BASIC" | "ADVANCED" | "INTERNAL";
+  delegable?: boolean;
+  compatibilityAliasOf?: string | null;
+  sensitive?: boolean;
 };
 
 export async function listPermissions(params?: { search?: string; module?: string; active?: string }) {

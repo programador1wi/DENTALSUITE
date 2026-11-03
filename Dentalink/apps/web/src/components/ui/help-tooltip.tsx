@@ -201,7 +201,22 @@ export function HelpTooltip({
     };
   }, [close, open, updatePosition]);
 
-  const describedBy = open ? tooltipId : undefined;
+  let isSuppressed = false;
+  if (typeof document !== "undefined") {
+    const overlays = Array.from(
+      document.querySelectorAll('.backdrop-blur-sm, [role="dialog"], [role="menu"]')
+    );
+    if (overlays.length > 0) {
+      const trigger = triggerRef.current;
+      const isInsideActiveOverlay = trigger ? overlays.some((overlay) => overlay.contains(trigger)) : false;
+      if (!isInsideActiveOverlay) {
+        isSuppressed = true;
+      }
+    }
+  }
+
+  const shouldRenderTooltip = open && !isSuppressed;
+  const describedBy = shouldRenderTooltip ? tooltipId : undefined;
   const child = isValidElement(children)
     ? cloneElement(children as ReactElement<{ "aria-describedby"?: string }>, {
         "aria-describedby": describedBy
@@ -254,7 +269,7 @@ export function HelpTooltip({
         )}
       </span>
 
-      {open && typeof document !== "undefined"
+      {shouldRenderTooltip && typeof document !== "undefined"
         ? createPortal(
             <div
               ref={tooltipRef}

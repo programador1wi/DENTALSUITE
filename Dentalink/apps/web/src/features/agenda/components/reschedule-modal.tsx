@@ -118,7 +118,8 @@ export function RescheduleModal({
             professionalId: form.professionalId,
             chairId: form.chairId || undefined,
             date: day.date,
-            durationMinutes: form.durationMinutes || String(defaultDuration)
+            durationMinutes: form.durationMinutes || String(defaultDuration),
+            excludeAppointmentId: appointment?.id
           });
           return {
             day,

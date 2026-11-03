@@ -1,6 +1,7 @@
 import { http } from "@/lib/api/http-client";
 
 export type PriceListScopeType = "BASE" | "POLIZA" | "ADICIONAL";
+export type ProcedureType = "CLINICAL" | "LAB" | "MIXED";
 
 export type PriceListBrand = {
   id: string;
@@ -41,9 +42,11 @@ export type PriceListItem = {
   id: string;
   procedureId: string;
   priceListCategoryId?: string | null;
+  priceListCategory?: { id: string; name: string; type?: ProcedureType } | null;
   price: string;
   labCost: string;
   allowsDiscount: boolean;
+  maxDiscountPercent?: string;
   currency: "MXN" | "USD" | "EUR";
   procedure: {
     id: string;
@@ -52,10 +55,13 @@ export type PriceListItem = {
     code: string;
     name: string;
     description?: string | null;
+    type: ProcedureType;
     defaultDuration: number;
     requiresTooth: boolean;
     requiresSurface: boolean;
     requiresLab: boolean;
+    requiresOdontogramSymbol: boolean;
+    defaultOdontogramSymbol?: string | null;
     isActive: boolean;
   };
 };
@@ -64,6 +70,7 @@ export type PriceListCategory = {
   id: string;
   priceListId: string;
   procedureCategoryId?: string | null;
+  procedureCategory?: { id: string; name: string; type: ProcedureType } | null;
   name: string;
   description?: string | null;
   sortOrder: number;
@@ -92,6 +99,7 @@ export type PriceListPayload = {
     price: string;
     labCost?: string;
     allowsDiscount?: boolean;
+    maxDiscountPercent?: string;
     currency?: "MXN" | "USD" | "EUR";
   }[];
 };
@@ -99,6 +107,7 @@ export type PriceListPayload = {
 export type PriceListCategoryPayload = {
   name?: string;
   description?: string;
+  type?: ProcedureType;
   sortOrder?: number;
   isActive?: boolean;
 };

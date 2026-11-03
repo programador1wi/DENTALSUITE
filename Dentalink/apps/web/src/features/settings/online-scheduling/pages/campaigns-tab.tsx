@@ -1,12 +1,16 @@
-import { ListTodo } from "lucide-react";
+import { ListTodo, Copy } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { useBranchStore } from "@/stores/branch.store";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { OnlineSchedulingDrawer } from "../components/online-scheduling-drawer";
 import { OnlineSchedulingNav } from "../components/online-scheduling-nav";
+import { getCampaigns, createCampaign, deleteCampaign, type OnlineSchedulingCampaign } from "../services/online-scheduling.service";
+import { http } from "@/lib/api/http-client";
 
 type Campaign = {
   code: string;
@@ -26,17 +30,48 @@ function slug(value: string) {
 
 export function CampaignsTab() {
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const queryClient = useQueryClient();
   const [isCreating, setIsCreating] = useState(false);
-  const [campaigns, setCampaigns] = useState<{name: string, code: string, prof: string}[]>([]);
-  const [formData, setFormData] = useState({name: "", code: "", prof: "Todos los profesionales"});
+  const [formData, setFormData] = useState({name: "", code: "", professionalId: ""});
   const [drawerOpen, setDrawerOpen] = useState(false);
   const professionals = useProfessionals(undefined, "true", { branchId: activeBranchId || undefined, pageSize: 100 });
 
+  const { data: campaigns = [], isLoading } = useQuery({
+    queryKey: ['online-scheduling-campaigns'],
+    queryFn: getCampaigns
+  });
+
+  const { data: config } = useQuery({
+    queryKey: ["online-scheduling-config-online"],
+    queryFn: async () => {
+      const { data } = await http.get("/online-scheduling/config?mode=ONLINE");
+      return data;
+    }
+  });
+
+  const baseUrl = window.location.origin;
+
+  const createMutation = useMutation({
+    mutationFn: createCampaign,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['online-scheduling-campaigns'] });
+      setIsCreating(false);
+      setFormData({name: "", code: "", professionalId: ""});
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteCampaign,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['online-scheduling-campaigns'] })
+  });
+
   const handleCreate = () => {
     if (formData.name && formData.code) {
-      setCampaigns([...campaigns, formData]);
-      setIsCreating(false);
-      setFormData({name: "", code: "", prof: "Todos los profesionales"});
+      createMutation.mutate({
+        name: formData.name,
+        code: formData.code,
+        professionalId: formData.professionalId || undefined
+      });
     }
   };
 
@@ -73,18 +108,40 @@ export function CampaignsTab() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {campaigns.map((camp, i) => (
-                    <tr key={i} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-medium text-slate-800">{camp.name}</td>
-                      <td className="px-4 py-3 text-sky-600">{camp.code}</td>
-                      <td className="px-4 py-3">{camp.prof}</td>
-                      <td className="px-4 py-3 text-right">
-                        <Button variant="ghost" size="sm" className="text-slate-400 hover:text-red-500" onClick={() => setCampaigns(campaigns.filter((_, idx) => idx !== i))}>
-                          Eliminar
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {campaigns.map((camp) => {
+                    const linkUrl = config?.slug 
+                      ? `${baseUrl}/book/${config.slug}?campaign=${camp.code}${camp.professionalId ? `&professional=${camp.professionalId}` : ''}`
+                      : `${baseUrl}/book/loading...`;
+
+                    return (
+                      <tr key={camp.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-medium text-slate-800">{camp.name}</td>
+                        <td className="px-4 py-3 text-sky-600 font-mono">{camp.code}</td>
+                        <td className="px-4 py-3">{camp.professional ? `${camp.professional.firstName} ${camp.professional.lastName}` : "Todos los profesionales"}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-2">
+                            <HelpTooltip content="Copiar link" position="top">
+                              <button 
+                                onClick={() => navigator.clipboard.writeText(linkUrl)}
+                                className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded"
+                              >
+                                <Copy className="h-4 w-4" />
+                              </button>
+                            </HelpTooltip>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="text-slate-400 hover:text-red-500" 
+                              disabled={deleteMutation.isPending}
+                              onClick={() => deleteMutation.mutate(camp.id)}
+                            >
+                              Eliminar
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -104,18 +161,18 @@ export function CampaignsTab() {
             </label>
             <div className="pt-4 border-t border-slate-100">
               <label className="block text-sm font-bold text-slate-700 mb-1">Selección de profesional</label>
-              <Select className="max-w-md" value={formData.prof} onChange={(e) => setFormData({...formData, prof: e.target.value})}>
-                <option>Todos los profesionales</option>
+              <Select className="max-w-md" value={formData.professionalId} onChange={(e) => setFormData({...formData, professionalId: e.target.value})}>
+                <option value="">Todos los profesionales</option>
                 {professionals.data?.map((professional) => (
-                  <option key={professional.id} value={`${professional.firstName} ${professional.lastName}`.trim()}>
+                  <option key={professional.id} value={professional.id}>
                     {professional.firstName} {professional.lastName}
                   </option>
                 ))}
               </Select>
             </div>
             <div className="pt-6">
-              <Button onClick={handleCreate} className="bg-[#5cb85c] hover:bg-[#4cae4c] text-white px-6">
-                Crear campaña
+              <Button type="button" onClick={handleCreate} disabled={createMutation.isPending} className="bg-[#5cb85c] hover:bg-[#4cae4c] text-white px-6">
+                {createMutation.isPending ? 'Creando...' : 'Crear campaña'}
               </Button>
             </div>
           </form>

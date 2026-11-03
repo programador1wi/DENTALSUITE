@@ -60,7 +60,7 @@ npm run db:seed
 npm run dev
 ```
 
-API: `http://localhost:3001/api/v1`
+API: `http://127.0.0.1:3001/api/v1`
 Web: `http://localhost:3000`
 PostgreSQL local: `localhost:55432`
 Redis local: `localhost:6379`

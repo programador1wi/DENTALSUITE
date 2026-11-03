@@ -6,6 +6,7 @@ export type UserListItem = {
   firstName: string;
   lastName: string;
   phone?: string | null;
+  isActive: boolean;
   status: string;
   role: { id: string; code?: string | null; name: string } | null;
   branches: { id: string; code?: string | null; name: string; isPrimary: boolean }[];
@@ -48,6 +49,11 @@ export async function updateUser(id: string, payload: UpdateUserPayload) {
 
 export async function deactivateUser(id: string) {
   const { data } = await http.patch<UserListItem>(`/users/${id}/deactivate`);
+  return data;
+}
+
+export async function reactivateUser(id: string) {
+  const { data } = await http.patch<UserListItem>(`/users/${id}/reactivate`);
   return data;
 }
 

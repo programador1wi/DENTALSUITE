@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { APP_ROUTES } from "@/lib/routes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/data-table";
@@ -16,6 +17,7 @@ import { useTreatmentMutations, useTreatmentPlans } from "../hooks/use-treatment
 import type { TreatmentPlanStatus } from "../services/treatments.service";
 
 const STATUS_OPTIONS: TreatmentPlanStatus[] = ["DRAFT", "PRESENTED", "ACCEPTED", "IN_PROGRESS", "COMPLETED", "CANCELLED", "REJECTED"];
+const CLOSED_PLAN_STATUSES = new Set<TreatmentPlanStatus>(["CANCELLED", "REJECTED"]);
 
 export function TreatmentPlansPage() {
   const { branchId, setBranchId } = useActiveBranchFilter();
@@ -32,6 +34,7 @@ export function TreatmentPlansPage() {
   const mutations = useTreatmentMutations();
 
   const selected = useMemo(() => plans.data?.find((plan) => plan.id === selectedPlanId) ?? null, [plans.data, selectedPlanId]);
+  const selectedIsClosed = selected ? CLOSED_PLAN_STATUSES.has(selected.status) : false;
 
   if (plans.isLoading) return <LoadingState message="Cargando planes de tratamiento..." />;
   if (plans.isError) return <ErrorState message={plans.error.message} />;
@@ -44,7 +47,7 @@ export function TreatmentPlansPage() {
         helpText="Los planes de tratamiento agrupan las fases, el diagnóstico dental y las prestaciones propuestas para resolver las necesidades del paciente. Permiten estructurar diferentes alternativas clínicas antes de generar el presupuesto financiero final."
       />
 
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 md:grid-cols-4">
+      <div className="grid gap-3 rounded-[var(--radius-lg)] border border-slate-200 bg-white p-4 md:grid-cols-4">
         {/* Filtro paciente */}
         <div className="flex items-center gap-1.5">
           <Input
@@ -85,7 +88,7 @@ export function TreatmentPlansPage() {
         {/* Crear desde paciente */}
         <div className="flex items-center justify-end gap-1.5">
           <HelpTooltip content="Para iniciar un plan de tratamiento, ve a la ficha de un paciente desde el módulo de Pacientes y presiona 'Crear Plan'. Esto asociará el plan directamente a su expediente clínico." />
-          <Link to="/patients">
+          <Link to={APP_ROUTES.patients.root}>
             <Button variant="secondary">Crear desde paciente</Button>
           </Link>
         </div>
@@ -93,6 +96,9 @@ export function TreatmentPlansPage() {
 
       <DataTable
         rows={plans.data ?? []}
+        stickyFirstColumn={true}
+        stickyLastColumn={true}
+        responsiveCards={true}
         empty={<EmptyState title="Sin planes" description="No hay planes para los filtros seleccionados." />}
         columns={[
           {
@@ -119,6 +125,7 @@ export function TreatmentPlansPage() {
           },
           {
             key: "id",
+            actions: true,
             title: (
               <span className="flex items-center gap-1.5">
                 Acciones
@@ -126,11 +133,17 @@ export function TreatmentPlansPage() {
               </span>
             ),
             render: (row) => (
-              <div className="flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={() => setSelectedPlanId(row.id)}>
+              <div className="grid w-full min-w-0 gap-2 sm:flex sm:flex-wrap">
+                <Button className="w-full sm:w-auto" variant="secondary" onClick={() => setSelectedPlanId(row.id)}>
                   Ver detalle
                 </Button>
-                <Button onClick={() => mutations.createBudget.mutate({ treatmentPlanId: row.id })}>Generar presupuesto</Button>
+                <Button
+                  className="w-full sm:w-auto"
+                  disabled={CLOSED_PLAN_STATUSES.has(row.status)}
+                  onClick={() => mutations.createBudget.mutate({ treatmentPlanId: row.id })}
+                >
+                  Generar presupuesto
+                </Button>
               </div>
             )
           }
@@ -138,7 +151,7 @@ export function TreatmentPlansPage() {
       />
 
       {selected ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="rounded-[var(--radius-lg)] border border-slate-200 bg-white p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-base font-semibold text-slate-900">{selected.name}</h3>
@@ -148,6 +161,7 @@ export function TreatmentPlansPage() {
               <div className="flex items-center gap-1.5">
                 <Button
                   variant="secondary"
+                  disabled={selectedIsClosed}
                   onClick={() => mutations.updateTreatmentPlan.mutate({ id: selected.id, payload: { status: "PRESENTED" } })}
                 >
                   Marcar presentado
@@ -155,11 +169,31 @@ export function TreatmentPlansPage() {
                 <HelpTooltip content="Cambia el estado del plan a 'Presentado' para registrar que las opciones clínicas y el presupuesto fueron formalmente explicados y mostrados al paciente en consulta." />
               </div>
               <div className="flex items-center gap-1.5">
-                <Button onClick={() => mutations.updateTreatmentPlan.mutate({ id: selected.id, payload: { status: "IN_PROGRESS" } })}>
+                <Button
+                  disabled={selectedIsClosed}
+                  onClick={() => mutations.updateTreatmentPlan.mutate({ id: selected.id, payload: { status: "IN_PROGRESS" } })}
+                >
                   Iniciar
                 </Button>
                 <HelpTooltip content="Cambia el estado a 'En Progreso'. Activa el plan para que puedas registrar evoluciones clínicas de cada pieza dental tratada en las siguientes citas de atención." />
               </div>
+              {selectedIsClosed ? (
+                <Button
+                  variant="secondary"
+                  disabled={mutations.reactivateTreatmentPlan.isPending}
+                  onClick={() => mutations.reactivateTreatmentPlan.mutate({ id: selected.id })}
+                >
+                  Reactivar
+                </Button>
+              ) : (
+                <Button
+                  variant="danger"
+                  disabled={selected.status === "COMPLETED" || mutations.deactivateTreatmentPlan.isPending}
+                  onClick={() => mutations.deactivateTreatmentPlan.mutate({ id: selected.id })}
+                >
+                  Deshabilitar
+                </Button>
+              )}
             </div>
           </div>
           <div className="mt-3 flex items-center gap-1.5">

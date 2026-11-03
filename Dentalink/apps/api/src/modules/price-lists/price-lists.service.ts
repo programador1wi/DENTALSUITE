@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { Prisma } from "@prisma/client";
+import { Prisma, ProcedureType } from "@prisma/client";
 import { resolvePagination } from "../../common/utils/pagination.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
@@ -134,6 +134,9 @@ export class PriceListsService {
   }
 
   async create(actor: AuthUser, dto: CreatePriceListDto) {
+    if (process.env.PRICE_LISTS_V2_ENABLED === "true") {
+      throw new BadRequestException("Use POST /admin/price-lists to create a validated draft version");
+    }
     await this.ensureSingleDefault(actor, dto.isDefault ?? false);
     if (dto.items?.length)
       await this.validateProcedures(
@@ -162,7 +165,8 @@ export class PriceListsService {
             procedureId: item.procedureId,
             price: new Prisma.Decimal(item.price),
             labCost: new Prisma.Decimal(item.labCost ?? "0"),
-            allowsDiscount: item.allowsDiscount ?? false,
+            allowsDiscount: item.allowsDiscount ?? true,
+            maxDiscountPercent: this.discountMaximum(item),
             currency: item.currency ?? "MXN"
           })),
           skipDuplicates: true
@@ -187,6 +191,9 @@ export class PriceListsService {
   }
 
   async update(actor: AuthUser, id: string, dto: UpdatePriceListDto) {
+    if (process.env.PRICE_LISTS_V2_ENABLED === "true" && dto.items) {
+      throw new BadRequestException("Published prices are immutable; create a draft with POST /admin/price-lists/:id/versions");
+    }
     await this.findOne(actor, id);
     await this.ensureSingleDefault(actor, dto.isDefault ?? false, id);
 
@@ -223,7 +230,8 @@ export class PriceListsService {
               procedureId: item.procedureId,
               price: new Prisma.Decimal(item.price),
               labCost: new Prisma.Decimal(item.labCost ?? "0"),
-              allowsDiscount: item.allowsDiscount ?? false,
+              allowsDiscount: item.allowsDiscount ?? true,
+              maxDiscountPercent: this.discountMaximum(item),
               currency: item.currency ?? "MXN"
             })),
             skipDuplicates: true
@@ -252,6 +260,9 @@ export class PriceListsService {
   }
 
   async deactivate(actor: AuthUser, id: string) {
+    if (process.env.PRICE_LISTS_V2_ENABLED === "true") {
+      throw new BadRequestException("Use POST /admin/price-list-versions/:id/deactivate");
+    }
     return this.update(actor, id, { isActive: false });
   }
 
@@ -321,7 +332,8 @@ export class PriceListsService {
       actor,
       name,
       dto.description,
-      dto.sortOrder
+      dto.sortOrder,
+      dto.type
     );
     const row = await this.prisma.priceListCategory.create({
       data: {
@@ -349,18 +361,20 @@ export class PriceListsService {
     dto: UpdatePriceListCategoryDto
   ) {
     await this.ensurePriceList(actor, priceListId);
-    await this.findCategory(actor, priceListId, categoryId);
+    const currentCategory = await this.findCategory(actor, priceListId, categoryId);
 
     let procedureCategoryId: string | undefined;
     let name: string | undefined;
-    if (dto.name !== undefined) {
-      name = this.normalizeName(dto.name);
-      await this.ensureUniquePriceListCategory(priceListId, name, categoryId);
+    if (dto.name !== undefined || dto.type !== undefined) {
+      name = dto.name !== undefined ? this.normalizeName(dto.name) : undefined;
+      const targetName = name ?? currentCategory.name;
+      if (name !== undefined) await this.ensureUniquePriceListCategory(priceListId, name, categoryId);
       const procedureCategory = await this.resolveProcedureCategory(
         actor,
-        name,
-        dto.description,
-        dto.sortOrder
+        targetName,
+        dto.description ?? currentCategory.description ?? undefined,
+        dto.sortOrder ?? currentCategory.sortOrder,
+        dto.type
       );
       procedureCategoryId = procedureCategory.id;
     }
@@ -449,13 +463,14 @@ export class PriceListsService {
 
   private async ensureDefaultBranchScopeCatalogs(actor: AuthUser) {
     const brands = [
-      { code: "DENTAL_PLUS", name: "Dental+" },
-      { code: "DX_RAY", name: "Dx-Ray" },
-      { code: "DENTAL_JWARNER", name: "Dental J.Warner" }
+      { code: "DENTAL_PLUS", slug: "dental-plus", name: "Dental+" },
+      { code: "DX_RAY", slug: "dx-ray", name: "Dx-Ray" },
+      { code: "DENTAL_JWARNER", slug: "dental-jwarner", name: "Dental J.Warner" }
     ];
     const zones = [
       { code: "NORTE", name: "Norte" },
-      { code: "SUR", name: "Sur" }
+      { code: "SUR", name: "Sur" },
+      { code: "DJWARNER", name: "DJWarner" }
     ];
 
     await Promise.all([
@@ -540,7 +555,8 @@ export class PriceListsService {
     actor: AuthUser,
     name: string,
     description?: string,
-    sortOrder?: number
+    sortOrder?: number,
+    type?: ProcedureType
   ) {
     const existing = await this.prisma.procedureCategory.findFirst({
       where: {
@@ -549,14 +565,23 @@ export class PriceListsService {
       }
     });
 
-    if (existing) return existing;
+    if (existing) {
+      if (type !== undefined && existing.type !== type) {
+        return this.prisma.procedureCategory.update({
+          where: { id: existing.id },
+          data: { type }
+        });
+      }
+      return existing;
+    }
 
     return this.prisma.procedureCategory.create({
       data: {
         organizationId: actor.organizationId,
         name,
         description: description?.trim(),
-        sortOrder: sortOrder ?? 0
+        sortOrder: sortOrder ?? 0,
+        type
       }
     });
   }
@@ -565,6 +590,19 @@ export class PriceListsService {
     const normalized = name.trim();
     if (!normalized) throw new BadRequestException("Category name is required");
     return normalized;
+  }
+
+  private discountMaximum(item: { allowsDiscount?: boolean; maxDiscountPercent?: string }) {
+    const maximum = new Prisma.Decimal(
+      item.allowsDiscount === false ? "0" : item.maxDiscountPercent ?? "100"
+    );
+    if (maximum.lt(0) || maximum.gt(100)) {
+      throw new BadRequestException("maxDiscountPercent must be between 0 and 100");
+    }
+    if (item.allowsDiscount !== false && maximum.lte(0)) {
+      throw new BadRequestException("Discount-enabled procedures require maxDiscountPercent greater than 0");
+    }
+    return maximum.toDecimalPlaces(2);
   }
 
   private audit(actor: AuthUser, entity: string, entityId: string, action: string, payload: unknown) {

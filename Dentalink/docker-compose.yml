@@ -7,10 +7,15 @@ services:
       POSTGRES_DB: dentalwarner
       POSTGRES_USER: dentalwarner
       POSTGRES_PASSWORD: dentalwarner
+      DENTAL_APP_USER: ${POSTGRES_APP_USER:-dentalwarner_app}
+      DENTAL_APP_PASSWORD: ${POSTGRES_APP_PASSWORD:-dentalwarner_app_local}
+      DENTAL_MIGRATION_USER: ${POSTGRES_MIGRATION_USER:-dentalwarner_migrator}
+      DENTAL_MIGRATION_PASSWORD: ${POSTGRES_MIGRATION_PASSWORD:-dentalwarner_migrator_local}
     ports:
-      - "${POSTGRES_PORT:-55432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init/001-create-runtime-roles.sh:/docker-entrypoint-initdb.d/001-create-runtime-roles.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U dentalwarner -d dentalwarner"]
       interval: 10s
@@ -23,7 +28,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:

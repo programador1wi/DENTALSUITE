@@ -1,227 +1,60 @@
 import { http } from "@/lib/api/http-client";
 
-export type PaymentStatus = "RECEIVED" | "PARTIALLY_ALLOCATED" | "ALLOCATED" | "REFUNDED" | "VOIDED";
-export type CashRegisterStatus = "OPEN" | "CLOSED";
-export type InstallmentStatus = "PENDING" | "PARTIAL" | "PAID" | "OVERDUE" | "CANCELLED";
-export type InstallmentFrequency = "WEEKLY" | "BIWEEKLY" | "MONTHLY";
+import type { AccountsReceivableRow, BalanceByPlanRow, BoxSummaryResponse, CancelledPendingPaymentLinkStatus, CancelledPendingPaymentsResponse, CashRegister, CashRegisterDetail, CashRegisterListParams, CashReportQuery, CollectionSummaryResponse, DailyPaymentReceipt, FinancialDocument, Installment, InstallmentFrequency, OnlineBenefit, PatientBalance, PatientBillingSummary, PatientLedgerEntry, PatientPaymentsResponse, Payment, PaymentBehaviorPoint, PaymentDistributionRow, PaymentLink, PaymentsByPeriodResponse, PaymentsByProfessionalResponse, PaymentSettlement, PaymentSettlementsResponse, PaymentSettlementStatus, PaymentStatus, ReceiptEmailResponse, Refund, RefundStatus, ReimbursementRequest } from "./payments.types";
+export * from "./payments.types";
 
-export type Payment = {
-  id: string;
-  branchId: string;
-  patientId: string;
-  amount: string;
-  currency: string;
-  status: PaymentStatus;
-  reference?: string | null;
-  notes?: string | null;
-  voidReason?: string | null;
-  voidedAt?: string | null;
-  paidAt: string;
-  createdAt: string;
-  patient: { id: string; firstName: string; lastName: string };
-  branch: { id: string; name: string };
-  paymentMethod: { id: string; name: string; type: string };
-  financialInstitution?: { id: string; name: string } | null;
-  receivedBy: { id: string; firstName: string; lastName: string };
-  allocations: Array<{ id: string; treatmentPlanItemId: string; amount: string }>;
-  refunds: Array<{ id: string; amount: string; status: string; createdAt: string }>;
-};
-
-export type RefundStatus = "PENDING" | "PROCESSED" | "REJECTED";
-
-export type Refund = {
-  id: string;
-  branchId: string;
-  paymentId: string;
-  patientId: string;
-  amount: string;
-  reason?: string | null;
-  status: RefundStatus;
-  processedAt?: string | null;
-  createdAt: string;
-  patient: { id: string; firstName: string; lastName: string };
-  payment: {
-    id: string;
-    amount: string;
-    status: PaymentStatus;
-    allocations: Array<{
-      id: string;
-      amount: string;
-      treatmentPlanItem: {
-        id: string;
-        treatmentPlanId: string;
-        toothNumber?: string | null;
-        surface?: string | null;
-        procedure?: { id: string; code: string; name: string } | null;
-      };
-    }>;
-  };
-  processedBy?: { id: string; firstName: string; lastName: string } | null;
-};
-
-export type PaymentLink = {
-  id: string;
-  amount: string;
-  url: string;
-  status: "CREATED" | "PAID" | "EXPIRED" | "CANCELLED";
-  expiresAt?: string | null;
-  paidAt?: string | null;
-  createdAt: string;
-  patient: { id: string; firstName: string; lastName: string };
-  treatmentPlan?: { id: string; name: string } | null;
-};
-
-export type Installment = {
-  id: string;
-  installmentPlanId: string;
-  patientId: string;
-  number: number;
-  dueDate: string;
-  amount: string;
-  paidAmount: string;
-  status: InstallmentStatus;
-  paidAt?: string | null;
-  isOverdue?: boolean;
-  patient?: { id: string; firstName: string; lastName: string };
-  installmentPlan?: { id: string; treatmentPlanId: string; treatmentPlan?: { id: string; name: string } };
-};
-
-export type PayableTreatmentItem = {
-  id: string;
-  treatmentPlanId: string;
-  treatmentPlanName: string;
-  treatmentPlanStatus: string;
-  procedure: { id: string; code: string; name: string };
-  section?: { id: string; name: string } | null;
-  toothNumber?: string | null;
-  surface?: string | null;
-  quantity: number;
-  unitPrice: number;
-  discount: number;
-  total: number;
-  paidAmount: number;
-  outstandingAmount: number;
-  status: string;
-  plannedAt?: string | null;
-  completedAt?: string | null;
-};
-
-export type PayableTreatmentPlan = {
-  id: string;
-  name: string;
-  status: string;
-  professional: { id: string; firstName: string; lastName: string };
-  createdAt: string;
-  totalBudget: number;
-  paidAmount: number;
-  realizedAmount: number;
-  outstandingAmount: number;
-  items: PayableTreatmentItem[];
-};
-
-export type PatientPaymentsResponse = {
-  payments: Payment[];
-  links: Array<{ id: string; amount: string; status: string; url: string; expiresAt?: string | null; paidAt?: string | null }>;
-  installments: Installment[];
-  balance: {
-    plannedAmount: number;
-    allocatedPaidAmount: number;
-    totalPaidAmount: number;
-    outstandingAmount: number;
-    unallocatedCredit: number;
-    overdueInstallments: number;
-  };
-  payablePlans: PayableTreatmentPlan[];
-  payableItems: PayableTreatmentItem[];
-};
-
-export type CashRegister = {
-  id: string;
-  branchId: string;
-  openingAmount: string;
-  closingAmount?: string | null;
-  status: CashRegisterStatus;
-  openedAt: string;
-  closedAt?: string | null;
-  branch: { id: string; name: string };
-  openedBy: { id: string; firstName: string; lastName: string };
-  closedBy?: { id: string; firstName: string; lastName: string } | null;
-  expectedClosing?: number;
-  movementCount?: number;
-  previousBalance?: number;
-  openingTotal?: number;
-  incomeTotal?: number;
-  expenseTotal?: number;
-  refundTotal?: number;
-  adjustmentTotal?: number;
-  paymentMethodTotals?: CashRegisterPaymentMethodTotal[];
-};
-
-export type CashRegisterPaymentMethodTotal = {
-  name: string;
-  type: string;
-  count: number;
-  amount: number;
-};
-
-export type CashRegisterMovement = {
-  id: string;
-  type: "OPENING" | "INCOME" | "EXPENSE" | "ADJUSTMENT" | "REFUND" | "CLOSING";
-  amount: string;
-  description?: string | null;
-  createdAt: string;
-  createdBy: { id: string; firstName: string; lastName: string };
-  expense?: { id: string; description: string; total: string; paidAt: string } | null;
-  payment?: {
-    id: string;
-    amount: string;
-    reference?: string | null;
-    paidAt: string;
-    status: PaymentStatus;
-    patient: {
-      id: string;
-      firstName: string;
-      lastName: string;
-      documentNumber?: string | null;
-      agreement?: { id: string; name: string } | null;
-    };
-    paymentMethod: { id: string; name: string; type: string };
-    financialInstitution?: { id: string; name: string } | null;
-    allocations: Array<{
-      amount: string;
-      treatmentPlanItem: {
-        agreement?: { id: string; name: string } | null;
-        treatmentPlan: { id: string; name: string };
-      };
-    }>;
-  } | null;
-};
-
-export type CashRegisterDetail = CashRegister & {
-  movements: CashRegisterMovement[];
-  previousBalance: number;
-  openingTotal: number;
-  incomeTotal: number;
-  expenseTotal: number;
-  refundTotal: number;
-  adjustmentTotal: number;
-  expectedClosing: number;
-  movementCount: number;
-  paymentMethodTotals: CashRegisterPaymentMethodTotal[];
-};
-
-export type AccountsReceivableRow = {
-  patientId: string;
-  fullName: string;
-  branchName: string;
-  plannedAmount: number;
-  allocatedPaidAmount: number;
-  outstandingAmount: number;
-  overdueInstallments: number;
-};
-
-export async function listPayments(params?: { patientId?: string; branchId?: string; search?: string; status?: PaymentStatus }) {
+export async function listPayments(params?: {
+  patientId?: string;
+  branchId?: string;
+  search?: string;
+  status?: PaymentStatus;
+}) {
   const { data } = await http.get<Payment[]>("/payments", { params });
+  return data;
+}
+export async function listPaymentSettlements(params?: {
+  branchId?: string;
+  paymentMethodId?: string;
+  status?: PaymentSettlementStatus;
+  dueFrom?: string;
+  dueTo?: string;
+}) {
+  const { data } = await http.get<PaymentSettlementsResponse>("/payment-settlements", { params });
+  return data;
+}
+
+export async function receivePaymentSettlement(
+  id: string,
+  payload: {
+    cashRegisterId: string;
+    expectedVersion: number;
+    receivedAt?: string;
+    reference?: string;
+    financialInstitutionId?: string;
+  }
+) {
+  const { data } = await http.post<PaymentSettlement>(`/payment-settlements/${id}/receive`, payload);
+  return data;
+}
+
+export async function cancelPaymentSettlement(
+  id: string,
+  payload: { expectedVersion: number; reason: string }
+) {
+  const { data } = await http.post<PaymentSettlement>(`/payment-settlements/${id}/cancel`, payload);
+  return data;
+}
+
+export async function listCancelledPendingPayments(params?: {
+  branchId?: string;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  linkStatus?: CancelledPendingPaymentLinkStatus | "";
+}) {
+  const { data } = await http.get<CancelledPendingPaymentsResponse>("/payments/cancelled-pending", {
+    params
+  });
   return data;
 }
 
@@ -235,13 +68,47 @@ export async function createPayment(payload: {
   reference?: string;
   notes?: string;
   paidAt?: string;
-  allocations?: Array<{ treatmentPlanItemId: string; amount: number }>;
+  allocations?: Array<{ treatmentPlanItemId: string; amount: number; expectedVersion?: number }>;
+  splits?: Array<{
+    paymentMethodId: string;
+    amount: number;
+    financialInstitutionId?: string;
+    reference?: string;
+    scheduledSettlements?: Array<{
+      sequence: number;
+      amount: number;
+      dueAt: string;
+      reference?: string;
+      financialInstitutionId?: string;
+      notes?: string;
+    }>;
+  }>;
+  idempotencyKey?: string;
+  cashDiscountRuleId?: string;
+  cashDiscountTreatmentPlanId?: string;
 }) {
   const { data } = await http.post<Payment>("/payments", payload);
   return data;
 }
 
-export async function addPaymentAllocations(paymentId: string, allocations: Array<{ treatmentPlanItemId: string; amount: number }>) {
+export async function updatePayment(
+  paymentId: string,
+  payload: {
+    paymentMethodId?: string;
+    financialInstitutionId?: string;
+    reference?: string;
+    notes?: string;
+    paidAt?: string;
+  }
+) {
+  const { data } = await http.patch<Payment>(`/payments/${paymentId}`, payload);
+  return data;
+}
+
+export async function addPaymentAllocations(
+  paymentId: string,
+  allocations: Array<{ treatmentPlanItemId: string; amount: number }>
+) {
   const { data } = await http.post<Payment>(`/payments/${paymentId}/allocations`, { allocations });
   return data;
 }
@@ -251,12 +118,25 @@ export async function removePaymentAllocation(allocationId: string) {
   return data;
 }
 
-export async function createRefund(paymentId: string, payload: { amount: number; reason?: string }) {
+export async function createRefund(
+  paymentId: string,
+  payload: {
+    amount: number;
+    reason?: string;
+    paymentMethodId?: string;
+    financialInstitutionId?: string;
+    reference?: string;
+  }
+) {
   const { data } = await http.post(`/payments/${paymentId}/refund`, payload);
   return data;
 }
 
-export async function listRefunds(params?: { patientId?: string; treatmentPlanId?: string; status?: RefundStatus }) {
+export async function listRefunds(params?: {
+  patientId?: string;
+  treatmentPlanId?: string;
+  status?: RefundStatus;
+}) {
   const { data } = await http.get<Refund[]>("/refunds", { params });
   return data;
 }
@@ -266,17 +146,133 @@ export async function voidPayment(paymentId: string, payload: { reason: string }
   return data;
 }
 
+export async function getPaymentReceipt(paymentId: string) {
+  const { data } = await http.get<{ payment: Payment; printableText: string }>(
+    `/payments/${paymentId}/receipt`
+  );
+  return data;
+}
+
+export async function getDailyPaymentReceipt(patientId: string, params: { date: string; branchId: string }) {
+  const { data } = await http.get<DailyPaymentReceipt>(`/patients/${patientId}/payments/daily-receipt`, {
+    params
+  });
+  return data;
+}
+
+export async function downloadPaymentReceiptPdf(paymentNumber: string) {
+  const { data, headers } = await http.get<Blob>(`/payments/${paymentNumber}/receipt.pdf`, {
+    responseType: "blob"
+  });
+  const disposition = headers["content-disposition"];
+  const fileNameMatch = typeof disposition === "string" ? /filename="([^"]+)"/.exec(disposition) : null;
+  return {
+    blob: data,
+    fileName: fileNameMatch?.[1] ?? `Comprobante_Pago_${paymentNumber}.pdf`
+  };
+}
+
+export async function downloadDailyReceiptPdf(patientId: string, params: { date: string; branchId: string }) {
+  const { data, headers } = await http.get<Blob>(`/patients/${patientId}/payments/daily-receipt.pdf`, {
+    params,
+    responseType: "blob"
+  });
+  const disposition = headers["content-disposition"];
+  const fileNameMatch = typeof disposition === "string" ? /filename="([^"]+)"/.exec(disposition) : null;
+  return {
+    blob: data,
+    fileName: fileNameMatch?.[1] ?? `Comprobante_Diario_${params.date}.pdf`
+  };
+}
+
+export async function sendPaymentReceiptEmail(
+  paymentNumber: string,
+  payload: { to: string; subject: string; message: string; idempotencyKey: string }
+) {
+  const { data } = await http.post<ReceiptEmailResponse>(`/payments/${paymentNumber}/receipt/email`, payload);
+  return data;
+}
+
+export async function sendDailyReceiptEmail(
+  patientId: string,
+  params: { date: string; branchId: string },
+  payload: { to: string; subject: string; message: string; idempotencyKey: string }
+) {
+  const { data } = await http.post<ReceiptEmailResponse>(
+    `/patients/${patientId}/payments/daily-receipt/email`,
+    payload,
+    { params }
+  );
+  return data;
+}
+
 export async function listPatientPayments(patientId: string) {
   const { data } = await http.get<PatientPaymentsResponse>(`/patients/${patientId}/payments`);
   return data;
 }
 
-export async function getPatientBalance(patientId: string) {
-  const { data } = await http.get(`/patients/${patientId}/balance`);
+export async function getPatientBillingSummary(patientId: string) {
+  const { data } = await http.get<PatientBillingSummary>(`/patients/${patientId}/billing/summary`);
   return data;
 }
 
-export async function listAccountsReceivable(params?: { branchId?: string; patientId?: string; search?: string }) {
+export async function listPatientFinancialDocuments(
+  patientId: string,
+  params?: { type?: string; status?: string }
+) {
+  const { data } = await http.get<FinancialDocument[]>(`/patients/${patientId}/financial-documents`, {
+    params
+  });
+  return data;
+}
+
+export async function listPatientReimbursementRequests(patientId: string, params?: { status?: string }) {
+  const { data } = await http.get<ReimbursementRequest[]>(`/patients/${patientId}/reimbursement-requests`, {
+    params
+  });
+  return data;
+}
+
+export async function listPatientOnlineBenefits(patientId: string, params?: { status?: string }) {
+  const { data } = await http.get<OnlineBenefit[]>(`/patients/${patientId}/online-benefits`, { params });
+  return data;
+}
+
+export async function listPatientVoidedPayments(patientId: string) {
+  const { data } = await http.get<Payment[]>(`/patients/${patientId}/voided-payments`);
+  return data;
+}
+
+export async function getPatientBalance(patientId: string) {
+  const { data } = await http.get<PatientBalance>(`/patients/${patientId}/balance`);
+  return data;
+}
+
+export async function getPatientBalanceByPlan(patientId: string) {
+  const { data } = await http.get<BalanceByPlanRow[]>(`/patients/${patientId}/balance/by-plan`);
+  return data;
+}
+
+export async function getPatientLedger(patientId: string) {
+  const { data } = await http.get<PatientLedgerEntry[]>(`/patients/${patientId}/ledger`);
+  return data;
+}
+
+export async function getPatientPaymentDistribution(patientId: string) {
+  const { data } = await http.get<PaymentDistributionRow[]>(`/patients/${patientId}/payment-distribution`);
+  return data;
+}
+
+export async function getPatientPaymentBehavior(patientId: string) {
+  const { data } = await http.get<PaymentBehaviorPoint[]>(`/patients/${patientId}/payment-behavior`);
+  return data;
+}
+
+export async function listAccountsReceivable(params?: {
+  branchId?: string;
+  patientId?: string;
+  search?: string;
+}) {
   const { data } = await http.get<AccountsReceivableRow[]>("/accounts-receivable", { params });
   return data;
 }
@@ -304,6 +300,7 @@ export async function createInstallmentPlan(payload: {
   numberOfInstallments: number;
   frequency?: InstallmentFrequency;
   startDate: string;
+  itemAllocations?: Array<{ treatmentPlanItemId: string; amount: number; expectedVersion?: number }>;
 }) {
   const { data } = await http.post("/installment-plans", payload);
   return data;
@@ -319,16 +316,28 @@ export async function listInstallments(params?: {
   return data;
 }
 
-export async function payInstallment(
-  installmentId: string,
-  payload: { branchId: string; paymentMethodId: string; amount: number; reference?: string; notes?: string }
-) {
-  const { data } = await http.post(`/installments/${installmentId}/pay`, payload);
+export async function payInstallment(payload: {
+  installmentId: string;
+  branchId: string;
+  paymentMethodId?: string;
+  amount: number;
+  reference?: string;
+  notes?: string;
+  splits?: Array<{
+    paymentMethodId: string;
+    amount: number;
+    financialInstitutionId?: string;
+    reference?: string;
+  }>;
+  idempotencyKey?: string;
+}) {
+  const { data } = await http.post(`/installments/${payload.installmentId}/pay`, payload);
   return data;
 }
-
-export async function listCashRegisters(params?: { branchId?: string; status?: CashRegisterStatus | ""; search?: string }) {
-  const { data } = await http.get<CashRegister[]>("/cash-register", { params });
+export async function listCashRegisters(params?: CashRegisterListParams) {
+  const { status, ...filters } = params ?? {};
+  const normalizedParams = status ? { ...filters, status } : filters;
+  const { data } = await http.get<CashRegister[]>("/cash-register", { params: normalizedParams });
   return data;
 }
 
@@ -337,17 +346,37 @@ export async function getCashRegister(registerId: string) {
   return data;
 }
 
+export async function downloadCashRegisterReport(registerId: string, format: "pdf" | "csv" | "xlsx") {
+  const response = await http.get<Blob>(`/cash-register/${registerId}/report.${format}`, {
+    responseType: "blob"
+  });
+  const url = URL.createObjectURL(response.data);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = `${format === "csv" ? "movimientos" : "detalle"}-${registerId}.${format}`;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
+
 export async function getCurrentCashRegister(branchId: string) {
   const { data } = await http.get<CashRegister | null>("/cash-register/current", { params: { branchId } });
   return data;
 }
 
-export async function openCashRegister(payload: { branchId: string; openingAmount: number }) {
+export async function openCashRegister(payload: {
+  branchId: string;
+  openingAmount: number;
+  responsibleUserId?: string;
+  notes?: string;
+}) {
   const { data } = await http.post<CashRegister>("/cash-register/open", payload);
   return data;
 }
 
-export async function closeCashRegister(registerId: string, payload: { closingAmount: number; notes?: string }) {
+export async function closeCashRegister(
+  registerId: string,
+  payload: { closingAmount: number; closingCarryover?: number; expectedVersion?: number; notes?: string }
+) {
   const { data } = await http.post<{ register: CashRegister; expectedClosing: number; difference: number }>(
     `/cash-register/${registerId}/close`,
     payload
@@ -357,69 +386,20 @@ export async function closeCashRegister(registerId: string, payload: { closingAm
 
 export async function createCashMovement(
   registerId: string,
-  payload: { type: "INCOME" | "EXPENSE" | "ADJUSTMENT" | "REFUND"; amount: number; paymentId?: string; description?: string }
+  payload: {
+    type: "INCOME" | "EXPENSE" | "ADJUSTMENT" | "REFUND";
+    amount: number;
+    paymentId?: string;
+    description?: string;
+  }
 ) {
   const { data } = await http.post(`/cash-register/${registerId}/movements`, payload);
   return data;
 }
-
-// ─── Tipos de reportes de caja ───────────────────────────────────────────────
-
-export type CashReportQuery = {
-  branchId?: string;
-  dateFrom?: string;
-  dateTo?: string;
-};
-
-export type CollectionSummaryResponse = {
-  dateFrom: string;
-  dateTo: string;
-  total: number;
-  byDay: Array<{ date: string; amount: number }>;
-};
-
-export type BoxSummaryResponse = {
-  total: number;
-  patientsCount: number;
-  rows: Array<{ type: string; method: string; count: number; amount: number }>;
-};
-
-export type PaymentsByPeriodResponse = {
-  dateFrom: string;
-  dateTo: string;
-  total: number;
-  byDay: Array<{ date: string; amount: number }>;
-  payments: Array<{
-    id: string;
-    number: number;
-    date: string;
-    patient: string;
-    responsible: string;
-    documentNumber: string;
-    paymentType: string;
-    paymentMethod: string;
-    total: number;
-  }>;
-};
-
-export type PaymentsByProfessionalResponse = {
-  dateFrom: string;
-  dateTo: string;
-  total: number;
-  payments: Array<{
-    number: number;
-    treatmentNumber: string;
-    paymentMethod: string;
-    patientName: string;
-    reception: string;
-    amount: number;
-  }>;
-};
-
-// ─── Funciones HTTP de reportes ──────────────────────────────────────────────
-
 export async function getCashCollectionSummary(params?: CashReportQuery) {
-  const { data } = await http.get<CollectionSummaryResponse>("/cash-register/reports/collection-summary", { params });
+  const { data } = await http.get<CollectionSummaryResponse>("/cash-register/reports/collection-summary", {
+    params
+  });
   return data;
 }
 
@@ -429,12 +409,16 @@ export async function getCashBoxSummary(params?: CashReportQuery) {
 }
 
 export async function getCashPaymentsByPeriod(params?: CashReportQuery) {
-  const { data } = await http.get<PaymentsByPeriodResponse>("/cash-register/reports/payments-by-period", { params });
+  const { data } = await http.get<PaymentsByPeriodResponse>("/cash-register/reports/payments-by-period", {
+    params
+  });
   return data;
 }
 
 export async function getCashPaymentsByProfessional(params?: CashReportQuery & { professionalId?: string }) {
-  const { data } = await http.get<PaymentsByProfessionalResponse>("/cash-register/reports/payments-by-professional", { params });
+  const { data } = await http.get<PaymentsByProfessionalResponse>(
+    "/cash-register/reports/payments-by-professional",
+    { params }
+  );
   return data;
 }
-

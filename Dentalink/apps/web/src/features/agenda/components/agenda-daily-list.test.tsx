@@ -55,8 +55,11 @@ describe("AgendaDailyList comment action", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Editar comentario de cita" }));
+    const commentButtons = screen.getAllByRole("button", { name: "Editar comentario de cita" });
+    expect(commentButtons).toHaveLength(2);
+    commentButtons.forEach((button) => fireEvent.click(button));
 
-    expect(onMenuAction).toHaveBeenCalledWith(appointment, "addComment");
+    expect(onMenuAction).toHaveBeenCalledTimes(2);
+    expect(onMenuAction).toHaveBeenLastCalledWith(appointment, "addComment");
   });
 });

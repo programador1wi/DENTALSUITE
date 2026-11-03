@@ -18,9 +18,11 @@ export function FinancialInstitutionsSettingsPage() {
 
   return (
     <SimpleCrudPage
-      title="Bancos y entidades financieras"
-      description="Catalogo usado al registrar transferencias, depositos y cheques."
-      helpText="Configura las entidades financieras que tu clinica utiliza en la recaudacion de pagos."
+      title="Entidad financiera"
+      description="Catálogo usado al registrar transferencias, depósitos y cheques."
+      helpText="Configura las entidades financieras que tu clínica utiliza en la recaudación de pagos."
+      useModal={true}
+      createButtonLabel="Nueva entidad"
       rows={institutions.data}
       loading={institutions.isLoading}
       error={institutions.error?.message}

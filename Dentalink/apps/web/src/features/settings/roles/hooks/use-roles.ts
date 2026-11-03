@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { authStoreApi } from "@/stores/auth.store";
 import {
   createRole,
   deactivateRole,
@@ -11,10 +12,11 @@ import {
   type UpdateRolePayload
 } from "../services/roles.service";
 
-export function useRolesQuery(search?: string, active?: string) {
+export function useRolesQuery(search?: string, active?: string, enabled = true) {
   return useQuery<RoleListItem[], Error>({
     queryKey: ["settings", "roles", search, active],
-    queryFn: () => listRoles({ search, active })
+    queryFn: () => listRoles({ search, active }),
+    enabled
   });
 }
 
@@ -31,7 +33,12 @@ export function useDeactivateRole() {
 
   return useMutation({
     mutationFn: (id: string) => deactivateRole(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings", "roles"] })
+    onSuccess: (_data, roleId) => {
+      void queryClient.invalidateQueries({ queryKey: ["settings", "roles"] });
+      if (authStoreApi.getState().user?.roleIds.includes(roleId)) {
+        void queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      }
+    }
   });
 }
 
@@ -52,6 +59,9 @@ export function useUpdateRole() {
     onSuccess: (_data, variables) => {
       void queryClient.invalidateQueries({ queryKey: ["settings", "roles", variables.id] });
       void queryClient.invalidateQueries({ queryKey: ["settings", "roles"] });
+      if (authStoreApi.getState().user?.roleIds.includes(variables.id)) {
+        void queryClient.invalidateQueries({ queryKey: ["auth", "me"] });
+      }
     }
   });
 }

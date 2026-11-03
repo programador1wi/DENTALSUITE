@@ -15,15 +15,26 @@ import {
 import { CreateAppointmentNoteDto } from "./dto/appointment-note.dto";
 import { CreateAppointmentReminderDto, UpdateAppointmentReminderDto } from "./dto/appointment-reminder.dto";
 import { AppointmentsService } from "./appointments.service";
-import { CreateAppointmentDto } from "./dto/create-appointment.dto";
+import { CreateAppointmentDto, CreateAppointmentsBatchDto } from "./dto/create-appointment.dto";
+import { UpdateAppointmentStatusDto } from "./dto/update-appointment-status.dto";
 import { UpdateAppointmentDto } from "./dto/update-appointment.dto";
+import { AttendanceAnalyticsService } from "./application/attendance-analytics.service";
 
 @ApiTags("Appointments")
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller("appointments")
 export class AppointmentsController {
-  constructor(private readonly appointmentsService: AppointmentsService) {}
+  constructor(
+    private readonly appointmentsService: AppointmentsService,
+    private readonly attendanceAnalyticsService: AttendanceAnalyticsService
+  ) {}
+
+  @Get("patient/:patientId/attendance-stats")
+  @RequirePermissions("appointments.read")
+  getPatientAttendanceStats(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string) {
+    return this.attendanceAnalyticsService.getPatientAttendanceStats(patientId, user.organizationId);
+  }
 
   @Get()
   @RequirePermissions("appointments.read")
@@ -47,6 +58,12 @@ export class AppointmentsController {
   @RequirePermissions("appointments.create")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateAppointmentDto) {
     return this.appointmentsService.create(user, dto);
+  }
+
+  @Post("batch")
+  @RequirePermissions("appointments.create")
+  createBatch(@CurrentUser() user: AuthUser, @Body() dto: CreateAppointmentsBatchDto) {
+    return this.appointmentsService.createBatch(user, dto);
   }
 
   @Get(":id/notes")
@@ -94,6 +111,12 @@ export class AppointmentsController {
   @RequirePermissions("appointments.update")
   update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateAppointmentDto) {
     return this.appointmentsService.update(user, id, dto);
+  }
+
+  @Patch(":id/status")
+  @RequirePermissions("appointments.status.update")
+  updateStatus(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateAppointmentStatusDto) {
+    return this.appointmentsService.changeAppointmentStatus(user, id, dto.status, dto.reason);
   }
 
   @Delete(":id")

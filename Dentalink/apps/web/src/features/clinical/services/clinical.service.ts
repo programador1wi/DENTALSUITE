@@ -1,4 +1,5 @@
 import { http } from "@/lib/api/http-client";
+import type { ClinicalDocumentContent } from "@/features/clinical-documents/clinical-document-content";
 
 export type MedicalHistory = {
   id: string;
@@ -49,25 +50,132 @@ export type ClinicalAppointmentHistoryItem = {
   specialty?: { id: string; name: string } | null;
 };
 
+export type PatientHistoryCategory =
+  | "APPOINTMENTS"
+  | "TREATMENT_PLANS"
+  | "BUDGETS"
+  | "EVOLUTIONS"
+  | "PROCEDURES"
+  | "MEDICAL_HISTORY"
+  | "ODONTOGRAM"
+  | "PERIODONTOGRAM"
+  | "PAYMENTS"
+  | "REFUNDS"
+  | "BILLING"
+  | "DOCUMENTS"
+  | "PRESCRIPTIONS"
+  | "LABORATORY"
+  | "ORTHODONTICS"
+  | "CONSENTS"
+  | "INSURANCE"
+  | "COLLABORATIONS";
+
+export type PatientHistoryEvent = {
+  id: string;
+  eventType: string;
+  category: PatientHistoryCategory;
+  module: string;
+  title: string;
+  summary: string;
+  occurredAt: string;
+  clinicalDate?: string | null;
+  createdAt: string;
+  branch?: { id: string; name: string } | null;
+  professional?: { id: string; name: string } | null;
+  createdBy?: { id: string; name: string } | null;
+  sourceEntityType: string;
+  sourceEntityId: string;
+  treatmentPlanId?: string | null;
+  appointmentId?: string | null;
+  toothId?: string | null;
+  status?: string | null;
+  isAnnulled: boolean;
+  annulledAt?: string | null;
+  annulmentReason?: string | null;
+  isPrivate: boolean;
+  visibility: "PUBLIC" | "PRIVATE" | "FINANCIAL" | "SENSITIVE";
+  payload: Record<string, unknown>;
+};
+
+export type PatientHistoryQuery = {
+  month?: string;
+  from?: string;
+  to?: string;
+  categories?: string;
+  professionalId?: string;
+  branchId?: string;
+  treatmentPlanId?: string;
+  toothId?: string;
+  status?: string;
+  text?: string;
+  includeAnnulled?: boolean;
+  order?: "desc" | "asc";
+  cursor?: string;
+  take?: number;
+};
+
+export type PatientHistoryResponse = {
+  patient: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    documentType?: string | null;
+    documentNumber?: string | null;
+    birthDate?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    createdAt: string;
+  };
+  printContext: {
+    organizationName: string;
+    organizationLogoUrl?: string | null;
+    branchName: string;
+    branchLogoUrl?: string | null;
+    generatedAt: string;
+    generatedBy: string;
+  };
+  availableCategories: PatientHistoryCategory[];
+  items: PatientHistoryEvent[];
+  nextCursor?: string | null;
+  totalLoaded: number;
+};
+
 export type ClinicalEvolution = {
   id: string;
   patientId: string;
   appointmentId?: string | null;
   professionalId: string;
+  treatmentPlanId?: string | null;
+  treatmentPlanItemId?: string | null;
+  completionPercentage?: number | null;
+  performedAmountSnapshot?: string | number | null;
   subjective?: string | null;
   objective?: string | null;
   assessment?: string | null;
   plan?: string | null;
   notes?: string | null;
+  isPrivate: boolean;
   signedAt?: string | null;
+  annulledAt?: string | null;
+  annulReason?: string | null;
+  actionNameSnapshot?: string | null;
   professional: { firstName: string; lastName: string };
+  signedBy?: { firstName: string; lastName: string } | null;
+  annulledBy?: { firstName: string; lastName: string } | null;
+  createdBy?: { firstName: string; lastName: string } | null;
   addenda?: ClinicalEvolution[];
+  fields?: Array<{ label: string; value: string; group?: string | null; sortOrder: number }>;
+  materials?: Array<{ id: string; inventoryItemId: string; quantity: string | number; unitSnapshot?: string | null; nameSnapshot?: string | null; inventoryItem?: { name: string; unit: string } }>;
+  treatmentPlanItem?: { procedure?: { name: string; code: string }; treatmentPlan?: { name: string; displayId: string }; completionPercentage?: number; performedAmount?: string | number; version?: number };
 };
 
 export type Prescription = {
   id: string;
   diagnosis?: string | null;
   notes?: string | null;
+  status: string;
+  treatmentPlanId?: string | null;
+  treatmentPlan?: { id: string; name: string } | null;
   createdAt: string;
   professional: { firstName: string; lastName: string };
   items: Array<{ id: string; medication: string; dosage?: string | null; frequency?: string | null; duration?: string | null; instructions?: string | null }>;
@@ -77,17 +185,19 @@ export type Prescription = {
 export type ClinicalDocument = {
   id: string;
   title: string;
-  content: string;
+  content: ClinicalDocumentContent;
   status: string;
   createdAt: string;
-  template?: { id: string; name: string } | null;
+  template?: { id: string; name: string; content?: ClinicalDocumentContent } | null;
+  deletedAt?: string | null;
+  deleteReason?: string | null;
 };
 
 export type ClinicalDocumentTemplate = {
   id: string;
   name: string;
   description?: string | null;
-  content: string;
+  content: ClinicalDocumentContent;
 };
 
 export type ToothProcedureStatus = "PLANNED" | "ACCEPTED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
@@ -98,6 +208,7 @@ export type OdontogramRecord = {
   surface?: string | null;
   condition: string;
   diagnosis?: string | null;
+  odontogramSymbol?: string | null;
   status: ToothProcedureStatus;
   notes?: string | null;
   createdAt: string;
@@ -121,10 +232,12 @@ export type ToothProcedure = {
   toothNumber: string;
   surface?: string | null;
   diagnosis?: string | null;
+  odontogramSymbol?: string | null;
   status: ToothProcedureStatus;
   notes?: string | null;
   procedureId?: string | null;
   clinicalEvolutionId?: string | null;
+  treatmentPlanItemId?: string | null;
   completedAt?: string | null;
   createdAt: string;
   procedure?: { id: string; code: string; name: string } | null;
@@ -136,6 +249,7 @@ export type OdontogramPayload = {
   conditions: ToothCondition[];
   procedures: ToothProcedure[];
   latestByTooth: Record<string, OdontogramRecord>;
+  latestBySurface?: Record<string, OdontogramRecord>;
 };
 
 export type PeriodontalPosition = "MB" | "B" | "DB" | "ML" | "L" | "DL";
@@ -185,6 +299,11 @@ export async function getClinicalSummary(patientId: string) {
 
 export async function listAppointmentHistory(patientId: string) {
   const { data } = await http.get<ClinicalAppointmentHistoryItem[]>(`/patients/${patientId}/clinical/appointment-history`);
+  return data;
+}
+
+export async function listPatientHistory(patientId: string, params?: PatientHistoryQuery) {
+  const { data } = await http.get<PatientHistoryResponse>(`/patients/${patientId}/clinical/patient-history`, { params });
   return data;
 }
 
@@ -243,6 +362,11 @@ export async function printPrescription(patientId: string, prescriptionId: strin
   return data;
 }
 
+export async function updatePrescriptionStatus(patientId: string, prescriptionId: string, status: string) {
+  const { data } = await http.patch<Prescription>(`/patients/${patientId}/clinical/prescriptions/${prescriptionId}/status`, { status });
+  return data;
+}
+
 export async function listDocuments(patientId: string) {
   const { data } = await http.get<ClinicalDocument[]>(`/patients/${patientId}/clinical/documents`);
   return data;
@@ -253,30 +377,38 @@ export async function listDocumentTemplates(patientId: string) {
   return data;
 }
 
+export async function createDocument(patientId: string, payload: { templateId?: string; title: string; content: ClinicalDocumentContent }) {
+  const { data } = await http.post<ClinicalDocument>(`/patients/${patientId}/clinical/documents`, payload);
+  return data;
+}
+
 export async function createDocumentFromTemplate(patientId: string, payload: { templateId: string; title: string }) {
   const { data } = await http.post<ClinicalDocument>(`/patients/${patientId}/clinical/documents/from-template`, payload);
   return data;
 }
 
-export async function createDocumentTemplate(patientId: string, payload: { name: string; description?: string; content: string }) {
+export async function createDocumentTemplate(patientId: string, payload: { name: string; description?: string; content: ClinicalDocumentContent }) {
   const { data } = await http.post<ClinicalDocumentTemplate>(`/patients/${patientId}/clinical/document-templates`, payload);
   return data;
 }
 
-export async function getOdontogram(patientId: string, toothNumber?: string) {
+export async function getOdontogram(patientId: string, toothNumber?: string, surface?: string) {
   const { data } = await http.get<OdontogramPayload>(`/patients/${patientId}/clinical/odontogram`, {
-    params: toothNumber ? { toothNumber } : undefined
+    params: toothNumber || surface ? { ...(toothNumber ? { toothNumber } : {}), ...(surface ? { surface } : {}) } : undefined
   });
   return data;
 }
 
-export async function getToothHistory(patientId: string, toothNumber: string) {
+export async function getToothHistory(patientId: string, toothNumber: string, surface?: string) {
   const { data } = await http.get<{
     toothNumber: string;
+    surface?: string;
     records: OdontogramRecord[];
     conditions: ToothCondition[];
     procedures: ToothProcedure[];
-  }>(`/patients/${patientId}/clinical/odontogram/history/${toothNumber}`);
+  }>(`/patients/${patientId}/clinical/odontogram/history/${toothNumber}`, {
+    params: surface ? { surface } : undefined
+  });
   return data;
 }
 
@@ -314,7 +446,7 @@ export async function createToothProcedure(
 export async function updateToothProcedureStatus(
   patientId: string,
   toothProcedureId: string,
-  payload: { status: ToothProcedureStatus; notes?: string; createClinicalEvolution?: boolean }
+  payload: { status: ToothProcedureStatus; notes?: string; createClinicalEvolution?: boolean; completionPercentage?: number; expectedVersion?: number }
 ) {
   const { data } = await http.patch<ToothProcedure>(`/patients/${patientId}/clinical/odontogram/procedures/${toothProcedureId}/status`, payload);
   return data;
@@ -343,5 +475,22 @@ export async function comparePeriodontalCharts(patientId: string, chartAId: stri
   const { data } = await http.get<PeriodontalComparison>(`/patients/${patientId}/clinical/periodontogram/compare`, {
     params: { chartAId, chartBId }
   });
+  return data;
+}
+
+export async function deleteClinicalDocument(patientId: string, documentId: string, payload: { reason: string }) {
+  const { data } = await http.delete(`/patients/${patientId}/clinical/documents/${documentId}`, { data: payload });
+  return data;
+}
+
+
+export async function annulEvolution(patientId: string, evolutionId: string, reason: string) {
+  const { data } = await http.post<ClinicalEvolution>(`/patients/${patientId}/clinical/evolutions/${evolutionId}/annul`, { reason });
+  return data;
+}
+
+
+export async function updateEvolution(patientId: string, evolutionId: string, payload: Record<string, unknown>) {
+  const { data } = await http.patch<ClinicalEvolution>(`/patients/${patientId}/clinical/evolutions/${evolutionId}`, payload);
   return data;
 }

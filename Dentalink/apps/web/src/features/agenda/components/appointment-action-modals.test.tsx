@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { AppointmentCommentModal } from "./appointment-action-modals";
+import { AppointmentCommentModal, AppointmentDurationModal } from "./appointment-action-modals";
 import type { Appointment } from "../services/appointments.service";
 
 const { refetchComments } = vi.hoisted(() => ({
@@ -92,5 +92,53 @@ describe("AppointmentCommentModal", () => {
     expect(onConfirm.mock.calls[0]).toHaveLength(2);
     expect(refetchComments).toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("AppointmentDurationModal", () => {
+  it("updates duration without sending implicit overbooking intent", async () => {
+    const onClose = vi.fn();
+    const onConfirm = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <AppointmentDurationModal
+        appointment={buildAppointment()}
+        onClose={onClose}
+        onConfirm={onConfirm}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("Minutos"), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() =>
+      expect(onConfirm).toHaveBeenCalledWith("appointment-1", {
+        startAt: "2026-06-06T15:00:00.000Z",
+        endAt: "2026-06-06T15:40:00.000Z",
+        durationMinutes: 40
+      })
+    );
+    expect(onConfirm.mock.calls[0]?.[1]).not.toHaveProperty("allowOverbooking");
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("keeps the duration modal open when backend rejects an overlap", async () => {
+    const onClose = vi.fn();
+    const onConfirm = vi.fn().mockRejectedValue(new Error("No se puede modificar la cita porque se empalma con otra cita del doctor o sillón."));
+
+    render(
+      <AppointmentDurationModal
+        appointment={buildAppointment()}
+        onClose={onClose}
+        onConfirm={onConfirm}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText("Minutos"), { target: { value: "40" } });
+    fireEvent.click(screen.getByRole("button", { name: "Guardar" }));
+
+    await waitFor(() => expect(onConfirm).toHaveBeenCalled());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByPlaceholderText("Minutos")).toBeInTheDocument();
   });
 });

@@ -35,7 +35,7 @@ export class BranchesController {
   }
 
   @Post()
-  @RequirePermissions("branches.create")
+  @RequirePermissions("organization.manage_all", "branches.create")
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateBranchDto) {
     return this.branchesService.create(user, dto);
   }
@@ -50,5 +50,17 @@ export class BranchesController {
   @RequirePermissions("branches.deactivate")
   deactivate(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.branchesService.deactivate(user, id);
+  }
+
+  @Post(":id/archive")
+  @RequirePermissions("branches.archive")
+  archive(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.branchesService.archive(user, id);
+  }
+
+  @Post(":id/restore")
+  @RequirePermissions("branches.restore")
+  restore(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.branchesService.restore(user, id);
   }
 }

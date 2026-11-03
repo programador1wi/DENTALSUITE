@@ -22,6 +22,8 @@ export type SpecialtyClinicalTemplate = {
   name: string;
   content: string;
   isActive: boolean;
+  createdAt: string;
+  createdBy: { id: string; firstName: string; lastName: string } | null;
 };
 
 export type SpecialtyClinicalTemplatePayload = {
@@ -33,6 +35,7 @@ export type SpecialtyClinicalTemplatePayload = {
 export type SpecialtyAppointmentReason = {
   id: string;
   specialtyId: string;
+  legacyId?: number | null;
   name: string;
   durationMinutes: number;
   color?: string | null;

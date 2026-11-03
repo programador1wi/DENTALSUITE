@@ -16,15 +16,17 @@ export function LoginForm() {
   });
 
   return (
-    <form className="space-y-5" onSubmit={form.handleSubmit((values) => login.mutate(values))}>
-      <div className="space-y-2">
-        <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Correo</label>
+    <form className="space-y-4 sm:space-y-5" onSubmit={form.handleSubmit(({ email, password }) => login.mutate({ email, password }))}>
+      <div className="space-y-1.5">
+        <label htmlFor="login-email" className="block text-[var(--text-sm)] font-medium text-[var(--text-primary)]">Correo</label>
         <div className="relative">
-          <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+          <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
           <Input
             type="email"
+            id="login-email"
+            autoComplete="email"
             placeholder="admin@dentalwarner.local"
-            className="h-11 rounded-xl border-zinc-200/90 bg-white/80 pl-10 text-sm placeholder:text-zinc-400 focus:border-cyan-500 focus:ring-cyan-500/20"
+            className="h-11 rounded-[var(--radius-md)] border-[var(--border-default)] bg-[var(--bg-surface)] pl-10 text-[var(--text-sm)] placeholder:text-[var(--text-secondary)] focus:border-[var(--border-brand)] focus:ring-2 focus:ring-[var(--focus-ring)]"
             {...form.register("email")}
           />
         </div>
@@ -33,31 +35,24 @@ export function LoginForm() {
         )}
       </div>
 
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label className="block text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Contrasena</label>
-          <a
-            href="#"
-            onClick={(event) => event.preventDefault()}
-            className="text-[11px] font-medium text-zinc-500 transition-colors hover:text-zinc-800"
-          >
-            Recuperar acceso
-          </a>
-        </div>
+      <div className="space-y-1.5">
+        <label htmlFor="login-password" className="block text-[var(--text-sm)] font-medium text-[var(--text-primary)]">Contraseña</label>
 
         <div className="relative">
-          <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+          <LockKeyhole className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
           <Input
             type={showPassword ? "text" : "password"}
+            id="login-password"
+            autoComplete="current-password"
             placeholder="••••••••"
-            className="h-11 rounded-xl border-zinc-200/90 bg-white/80 pl-10 pr-11 text-sm placeholder:text-zinc-400 focus:border-cyan-500 focus:ring-cyan-500/20"
+            className="h-11 rounded-[var(--radius-md)] border-[var(--border-default)] bg-[var(--bg-surface)] pl-10 pr-11 text-[var(--text-sm)] placeholder:text-[var(--text-secondary)] focus:border-[var(--border-brand)] focus:ring-2 focus:ring-[var(--focus-ring)]"
             {...form.register("password")}
           />
           <button
             type="button"
-            className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
+            className="absolute right-2 top-1/2 grid h-8 w-8 -translate-y-1/2 place-items-center rounded-[var(--radius-md)] text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-subtle)] hover:text-[var(--text-primary)]"
             onClick={() => setShowPassword((current) => !current)}
-            aria-label={showPassword ? "Ocultar contrasena" : "Mostrar contrasena"}
+            aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
           >
             {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
           </button>
@@ -68,18 +63,9 @@ export function LoginForm() {
         )}
       </div>
 
-      <label className="flex cursor-pointer items-center gap-2.5 text-xs font-medium text-zinc-600">
-        <input
-          id="remember-me"
-          type="checkbox"
-          className="h-4 w-4 rounded border-zinc-300 text-cyan-600 focus:ring-cyan-500/30"
-        />
-        Mantener sesion iniciada
-      </label>
-
       <Button
         type="submit"
-        className="mt-1 h-11 w-full rounded-xl bg-[linear-gradient(95deg,#0f172a_0%,#111827_55%,#0f172a_100%)] text-sm font-semibold shadow-[0_12px_30px_-16px_rgba(6,182,212,0.55)] hover:brightness-110"
+        className="mt-[var(--space-2)] h-11 w-full"
         disabled={login.isPending}
       >
         {login.isPending ? "Autenticando..." : "Entrar al sistema"}

@@ -1,4 +1,5 @@
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { ProcedureType } from "@prisma/client";
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 
 export class UpdateProcedureDto {
   @IsOptional()
@@ -18,6 +19,10 @@ export class UpdateProcedureDto {
   description?: string;
 
   @IsOptional()
+  @IsEnum(ProcedureType)
+  type?: ProcedureType;
+
+  @IsOptional()
   @IsInt()
   @Min(5)
   @Max(600)
@@ -34,6 +39,14 @@ export class UpdateProcedureDto {
   @IsOptional()
   @IsBoolean()
   requiresLab?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresOdontogramSymbol?: boolean;
+
+  @IsOptional()
+  @IsString()
+  defaultOdontogramSymbol?: string;
 
   @IsOptional()
   @IsBoolean()

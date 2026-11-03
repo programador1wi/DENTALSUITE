@@ -1,18 +1,46 @@
+export type AuthUserOrganization = {
+  id: string;
+  name: string;
+  legalName?: string | null;
+  taxId?: string | null;
+  logoUrl?: string | null;
+  slug?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+};
+
+export type AuthUserBranch = {
+  id: string;
+  name: string;
+  code?: string | null;
+  isPrimary?: boolean;
+};
+
 export type AuthUser = {
   id: string;
   organizationId: string;
+  organizationName?: string;
+  organization?: AuthUserOrganization;
   email: string;
   firstName: string;
   lastName: string;
+  phone?: string | null;
+  avatarUrl?: string | null;
   roleIds: string[];
   roleNames: string[];
   permissions: string[];
   branchIds: string[];
+  branches?: AuthUserBranch[];
+  authorizationVersion?: number;
+  branchScopeVersion?: number;
+  status?: string;
+  lastLoginAt?: string | null;
+  createdAt?: string | null;
 };
 
 export type AuthTokens = {
   accessToken: string;
-  refreshToken: string;
   expiresIn: string;
 };
 
@@ -21,31 +49,20 @@ export type LoginPayload = {
   password: string;
 };
 
-export type RegisterOrganizationPayload = {
-  organizationName: string;
-  legalName?: string;
-  taxId?: string;
-  organizationPhone?: string;
-  organizationEmail?: string;
-  organizationAddress?: string;
-  branchName: string;
-  branchPhone?: string;
-  branchEmail?: string;
-  branchAddress?: string;
-  branchCity?: string;
-  branchState?: string;
-  branchCountry?: string;
-  branchTimezone?: string;
-  adminFirstName: string;
-  adminLastName: string;
-  adminEmail: string;
-  adminPhone?: string;
-  adminPassword: string;
+export type UpdateProfilePayload = {
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  avatarUrl?: string;
+};
+
+export type ChangePasswordPayload = {
+  currentPassword: string;
+  newPassword: string;
 };
 
 export type AuthResponse = {
   user: AuthUser;
   accessToken: string;
-  refreshToken: string;
   expiresIn: string;
 };

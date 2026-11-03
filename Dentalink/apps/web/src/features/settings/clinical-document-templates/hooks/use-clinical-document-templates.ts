@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   createClinicalDocumentTemplate,
   deactivateClinicalDocumentTemplate,
+  duplicateClinicalDocumentTemplate,
   listClinicalDocumentTemplates,
   updateClinicalDocumentTemplate,
+  uploadClinicalDocumentTemplateAsset,
   type ClinicalDocumentTemplatePayload
 } from "../services/clinical-document-templates.service";
 
@@ -36,7 +38,16 @@ export function useUpdateClinicalDocumentTemplateSettings() {
   });
 }
 
+export function useDuplicateClinicalDocumentTemplateSettings() {
+  const invalidate = useInvalidateClinicalDocumentTemplates();
+  return useMutation({ mutationFn: duplicateClinicalDocumentTemplate, onSuccess: invalidate });
+}
+
 export function useDeactivateClinicalDocumentTemplateSettings() {
   const invalidate = useInvalidateClinicalDocumentTemplates();
   return useMutation({ mutationFn: deactivateClinicalDocumentTemplate, onSuccess: invalidate });
+}
+
+export function useUploadClinicalDocumentTemplateAsset() {
+  return useMutation({ mutationFn: uploadClinicalDocumentTemplateAsset });
 }

@@ -1,28 +1,26 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { ConsentStatus, Prisma, RadiographyAnalysisProvider, RadiographyAnalysisStatus } from "@prisma/client";
+import { BadRequestException, HttpException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { Prisma, RadiographyAnalysisProvider, RadiographyAnalysisStatus } from "@prisma/client";
 import { randomUUID } from "node:crypto";
-import { createReadStream, type ReadStream } from "node:fs";
-import { mkdir, stat, writeFile } from "node:fs/promises";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
+import { extname, isAbsolute, relative, resolve } from "node:path";
+import { Readable } from "node:stream";
 import { resolvePagination } from "../../common/utils/pagination.util";
+import { coerceClinicalDocumentContent, normalizeClinicalDocumentContent } from "../../common/utils/clinical-document-content.util";
 import { branchScope } from "../../common/utils/branch-scope.util";
 import { AuthUser } from "../../common/types/auth-user";
 import { PrismaService } from "../../database/prisma.service";
 import {
   ClinicalDocumentTemplatesQueryDto,
-  ConsentTemplatesQueryDto,
   CreateClinicalDocumentTemplateSettingsDto,
-  CreateConsentDto,
-  CreateConsentTemplateDto,
-  PatientConsentsQueryDto,
   PatientFilesQueryDto,
-  SignConsentDto,
   UpsertRadiographyAnalysisDto,
   UploadBinaryFileAttachmentDto,
   UpdateClinicalDocumentTemplateSettingsDto,
-  UpdateConsentTemplateDto,
   UploadFileAttachmentDto
 } from "./dto/documents.dto";
+import { validateUploadedFile } from "./file-type-validation";
+import { ClinicalFileStorageService } from "../storage/clinical-file-storage.service";
 
 type UploadedPatientFile = {
   originalname: string;
@@ -40,26 +38,14 @@ type NormalizedRadiographyFinding = {
   source: "MANUAL";
 };
 
-const PATIENT_FILE_STORAGE_ROOT = resolve(process.cwd(), "storage", "patient-files");
-const USER_FILE_STORAGE_ROOT = resolve(process.cwd(), "storage", "user-files");
-const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
-const ALLOWED_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".txt", ".dcm", ".dicom"]);
-const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/plain",
-  "application/dicom"
-]);
+const DEFAULT_LEGACY_STORAGE_ROOT = resolve(__dirname, "../../../storage");
 
 @Injectable()
 export class DocumentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly clinicalStorage?: ClinicalFileStorageService
+  ) {}
 
   async listPatientFiles(actor: AuthUser, patientId: string, query: PatientFilesQueryDto) {
     const { skip, take } = resolvePagination(query);
@@ -68,7 +54,8 @@ export class DocumentsService {
       where: {
         organizationId: actor.organizationId,
         patientId,
-        ...(query.category ? { category: query.category } : {})
+        ...(query.category ? { category: query.category } : {}),
+        ...(query.treatmentPlanId ? { treatmentPlanId: query.treatmentPlanId } : {})
       },
       skip,
       take,
@@ -78,10 +65,12 @@ export class DocumentsService {
 
   async uploadPatientFile(actor: AuthUser, patientId: string, dto: UploadFileAttachmentDto) {
     await this.ensurePatient(actor, patientId);
+    if (dto.treatmentPlanId) await this.ensurePatientTreatmentPlan(actor, patientId, dto.treatmentPlanId);
     const created = await this.prisma.fileAttachment.create({
       data: {
         organizationId: actor.organizationId,
         patientId,
+        treatmentPlanId: dto.treatmentPlanId,
         uploadedById: actor.id,
         fileName: dto.fileName.trim(),
         originalName: dto.originalName.trim(),
@@ -98,6 +87,7 @@ export class DocumentsService {
       action: "upload",
       after: {
         patientId,
+        treatmentPlanId: created.treatmentPlanId,
         fileName: created.fileName,
         category: created.category
       }
@@ -108,20 +98,18 @@ export class DocumentsService {
 
   async uploadPatientBinaryFile(actor: AuthUser, patientId: string, dto: UploadBinaryFileAttachmentDto, file?: UploadedPatientFile) {
     await this.ensurePatient(actor, patientId);
-    if (!file?.buffer || !file.originalname?.trim()) throw new BadRequestException("File is required");
-    if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) throw new BadRequestException("File size is not allowed");
-
-    const extension = extname(file.originalname).toLowerCase();
-    const mimeType = file.mimetype?.trim() || "application/octet-stream";
-    if (!this.isAllowedFile(extension, mimeType)) {
-      throw new BadRequestException("Unsupported file type");
-    }
+    if (dto.treatmentPlanId) await this.ensurePatientTreatmentPlan(actor, patientId, dto.treatmentPlanId);
+    const validatedFile = await this.validateFileOrReject(actor, "Patient", patientId, file);
+    const { buffer, extension, mimeType, originalName, size } = validatedFile;
 
     const id = randomUUID();
     const storedFileName = `${Date.now()}-${id}${extension || ".bin"}`;
-    const targetDirectory = this.getPatientFileDirectory(actor.organizationId, patientId);
-    await mkdir(targetDirectory, { recursive: true });
-    await writeFile(join(targetDirectory, storedFileName), file.buffer);
+    const storage = this.requireClinicalStorage();
+    const stored = await this.storeClinicalFileOrReject(actor, "Patient", patientId, {
+      key: `${actor.organizationId}/patients/${patientId}/${id}.enc`,
+      buffer,
+      mimeType
+    });
 
     const category = dto.category?.trim() || this.inferCategory(mimeType, extension);
     const created = await this.prisma.fileAttachment.create({
@@ -129,14 +117,20 @@ export class DocumentsService {
         id,
         organizationId: actor.organizationId,
         patientId,
+        treatmentPlanId: dto.treatmentPlanId,
         uploadedById: actor.id,
         fileName: storedFileName,
-        originalName: file.originalname.trim(),
+        originalName,
         mimeType,
-        size: file.size,
+        size,
         url: `/patients/${patientId}/files/${id}/content`,
-        category
+        category,
+        ...stored,
+        detectedMimeType: mimeType
       }
+    }).catch(async (error) => {
+      await storage.discard(stored.storageKey).catch(() => undefined);
+      throw error;
     });
 
     await this.audit(actor, {
@@ -145,6 +139,7 @@ export class DocumentsService {
       action: "upload",
       after: {
         patientId,
+        treatmentPlanId: created.treatmentPlanId,
         fileName: created.fileName,
         originalName: created.originalName,
         category: created.category
@@ -154,7 +149,7 @@ export class DocumentsService {
     return created;
   }
 
-  async getPatientFileContent(actor: AuthUser, patientId: string, fileId: string): Promise<{ stream: ReadStream; mimeType: string; downloadName: string }> {
+  async getPatientFileContent(actor: AuthUser, patientId: string, fileId: string): Promise<{ stream: Readable; mimeType: string; downloadName: string }> {
     const file = await this.prisma.fileAttachment.findFirst({
       where: {
         id: fileId,
@@ -164,6 +159,22 @@ export class DocumentsService {
       }
     });
     if (!file) throw new NotFoundException("File not found");
+
+    if (file.storageKey) {
+      if (!file.checksumSha256 || !file.encryptionVersion) {
+        throw new Error("Clinical file storage metadata is incomplete");
+      }
+      const buffer = await this.requireClinicalStorage().read({
+        storageKey: file.storageKey,
+        checksumSha256: file.checksumSha256,
+        encryptionVersion: file.encryptionVersion
+      });
+      return {
+        stream: Readable.from([buffer]),
+        mimeType: file.detectedMimeType ?? file.mimeType,
+        downloadName: this.safeDownloadName(file.originalName)
+      };
+    }
 
     const directory = this.getPatientFileDirectory(actor.organizationId, patientId);
     const filePath = resolve(directory, file.fileName);
@@ -247,20 +258,17 @@ export class DocumentsService {
   async uploadUserBinaryFile(actor: AuthUser, userId: string, dto: UploadBinaryFileAttachmentDto, file?: UploadedPatientFile) {
     await this.ensureUser(actor, userId);
     const professionalId = dto.professionalId ? await this.ensureUserProfessional(actor, userId, dto.professionalId) : undefined;
-    if (!file?.buffer || !file.originalname?.trim()) throw new BadRequestException("File is required");
-    if (file.size <= 0 || file.size > MAX_FILE_SIZE_BYTES) throw new BadRequestException("File size is not allowed");
-
-    const extension = extname(file.originalname).toLowerCase();
-    const mimeType = file.mimetype?.trim() || "application/octet-stream";
-    if (!this.isAllowedFile(extension, mimeType)) {
-      throw new BadRequestException("Unsupported file type");
-    }
+    const validatedFile = await this.validateFileOrReject(actor, "User", userId, file);
+    const { buffer, extension, mimeType, originalName, size } = validatedFile;
 
     const id = randomUUID();
     const storedFileName = `${Date.now()}-${id}${extension || ".bin"}`;
-    const targetDirectory = this.getUserFileDirectory(actor.organizationId, userId);
-    await mkdir(targetDirectory, { recursive: true });
-    await writeFile(join(targetDirectory, storedFileName), file.buffer);
+    const storage = this.requireClinicalStorage();
+    const stored = await this.storeClinicalFileOrReject(actor, "User", userId, {
+      key: `${actor.organizationId}/users/${userId}/${id}.enc`,
+      buffer,
+      mimeType
+    });
 
     const category = dto.category?.trim() || this.inferCategory(mimeType, extension);
     const created = await this.prisma.fileAttachment.create({
@@ -271,12 +279,17 @@ export class DocumentsService {
         professionalId,
         uploadedById: actor.id,
         fileName: storedFileName,
-        originalName: file.originalname.trim(),
+        originalName,
         mimeType,
-        size: file.size,
+        size,
         url: `/users/${userId}/files/${id}/content`,
-        category
+        category,
+        ...stored,
+        detectedMimeType: mimeType
       }
+    }).catch(async (error) => {
+      await storage.discard(stored.storageKey).catch(() => undefined);
+      throw error;
     });
 
     await this.audit(actor, {
@@ -295,7 +308,7 @@ export class DocumentsService {
     return created;
   }
 
-  async getUserFileContent(actor: AuthUser, userId: string, fileId: string): Promise<{ stream: ReadStream; mimeType: string; downloadName: string }> {
+  async getUserFileContent(actor: AuthUser, userId: string, fileId: string): Promise<{ stream: Readable; mimeType: string; downloadName: string }> {
     await this.ensureUser(actor, userId);
     const file = await this.prisma.fileAttachment.findFirst({
       where: {
@@ -305,6 +318,22 @@ export class DocumentsService {
       }
     });
     if (!file) throw new NotFoundException("File not found");
+
+    if (file.storageKey) {
+      if (!file.checksumSha256 || !file.encryptionVersion) {
+        throw new Error("Clinical file storage metadata is incomplete");
+      }
+      const buffer = await this.requireClinicalStorage().read({
+        storageKey: file.storageKey,
+        checksumSha256: file.checksumSha256,
+        encryptionVersion: file.encryptionVersion
+      });
+      return {
+        stream: Readable.from([buffer]),
+        mimeType: file.detectedMimeType ?? file.mimeType,
+        downloadName: this.safeDownloadName(file.originalName)
+      };
+    }
 
     const directory = this.getUserFileDirectory(actor.organizationId, userId);
     const filePath = resolve(directory, file.fileName);
@@ -321,95 +350,9 @@ export class DocumentsService {
     };
   }
 
-  async listConsentTemplates(actor: AuthUser, query: ConsentTemplatesQueryDto) {
-    const { skip, take } = resolvePagination(query);
-    return this.prisma.consentTemplate.findMany({
-      where: {
-        organizationId: actor.organizationId,
-        ...(query.active !== undefined ? { isActive: query.active === "true" } : {}),
-        ...(query.search
-          ? {
-              OR: [
-                { name: { contains: query.search, mode: "insensitive" } },
-                { content: { contains: query.search, mode: "insensitive" } }
-              ]
-            }
-          : {})
-      },
-      include: { procedure: { select: { id: true, code: true, name: true } } },
-      skip,
-      take,
-      orderBy: { name: "asc" }
-    });
-  }
-
-  async createConsentTemplate(actor: AuthUser, dto: CreateConsentTemplateDto) {
-    if (dto.procedureId) await this.ensureProcedure(actor, dto.procedureId);
-    const created = await this.prisma.consentTemplate.create({
-      data: {
-        organizationId: actor.organizationId,
-        name: dto.name.trim(),
-        content: dto.content.trim(),
-        procedureId: dto.procedureId
-      }
-    });
-
-    await this.audit(actor, {
-      entity: "ConsentTemplate",
-      entityId: created.id,
-      action: "create",
-      after: {
-        name: created.name,
-        procedureId: created.procedureId
-      }
-    });
-
-    return created;
-  }
-
-  async updateConsentTemplate(actor: AuthUser, id: string, dto: UpdateConsentTemplateDto) {
-    const current = await this.prisma.consentTemplate.findFirst({
-      where: { id, organizationId: actor.organizationId }
-    });
-    if (!current) throw new NotFoundException("Consent template not found");
-
-    if (dto.procedureId) await this.ensureProcedure(actor, dto.procedureId);
-
-    const updated = await this.prisma.consentTemplate.update({
-      where: { id },
-      data: {
-        name: dto.name?.trim(),
-        content: dto.content?.trim(),
-        procedureId: dto.procedureId,
-        isActive: dto.isActive
-      }
-    });
-
-    await this.audit(actor, {
-      entity: "ConsentTemplate",
-      entityId: id,
-      action: "update",
-      before: {
-        name: current.name,
-        procedureId: current.procedureId,
-        isActive: current.isActive
-      },
-      after: {
-        name: updated.name,
-        procedureId: updated.procedureId,
-        isActive: updated.isActive
-      }
-    });
-    return updated;
-  }
-
-  async deactivateConsentTemplate(actor: AuthUser, id: string) {
-    return this.updateConsentTemplate(actor, id, { isActive: false });
-  }
-
   async listClinicalDocumentTemplates(actor: AuthUser, query: ClinicalDocumentTemplatesQueryDto) {
     const { skip, take } = resolvePagination(query);
-    return this.prisma.clinicalDocumentTemplate.findMany({
+    const templates = await this.prisma.clinicalDocumentTemplate.findMany({
       where: {
         organizationId: actor.organizationId,
         ...(query.active !== undefined ? { isActive: query.active === "true" } : {}),
@@ -417,8 +360,7 @@ export class DocumentsService {
           ? {
               OR: [
                 { name: { contains: query.search, mode: "insensitive" } },
-                { description: { contains: query.search, mode: "insensitive" } },
-                { content: { contains: query.search, mode: "insensitive" } }
+                { description: { contains: query.search, mode: "insensitive" } }
               ]
             }
           : {})
@@ -427,6 +369,7 @@ export class DocumentsService {
       take,
       orderBy: { name: "asc" }
     });
+    return templates.map((template) => this.serializeClinicalDocumentTemplate(template));
   }
 
   async createClinicalDocumentTemplate(actor: AuthUser, dto: CreateClinicalDocumentTemplateSettingsDto) {
@@ -435,7 +378,7 @@ export class DocumentsService {
         organizationId: actor.organizationId,
         name: dto.name.trim(),
         description: dto.description?.trim(),
-        content: dto.content.trim()
+        content: normalizeClinicalDocumentContent(dto.content)
       }
     });
 
@@ -445,7 +388,7 @@ export class DocumentsService {
       action: "create",
       after: { name: created.name, description: created.description }
     });
-    return created;
+    return this.serializeClinicalDocumentTemplate(created);
   }
 
   async updateClinicalDocumentTemplate(actor: AuthUser, id: string, dto: UpdateClinicalDocumentTemplateSettingsDto) {
@@ -459,7 +402,7 @@ export class DocumentsService {
       data: {
         name: dto.name?.trim(),
         description: dto.description?.trim(),
-        content: dto.content?.trim(),
+        content: dto.content === undefined ? undefined : normalizeClinicalDocumentContent(dto.content),
         isActive: dto.isActive
       }
     });
@@ -467,7 +410,7 @@ export class DocumentsService {
     await this.audit(actor, {
       entity: "ClinicalDocumentTemplate",
       entityId: id,
-      action: "update",
+      action: dto.isActive === false ? "deactivate" : "update",
       before: {
         name: current.name,
         description: current.description,
@@ -479,174 +422,134 @@ export class DocumentsService {
         isActive: updated.isActive
       }
     });
-    return updated;
+    return this.serializeClinicalDocumentTemplate(updated);
+  }
+
+  async duplicateClinicalDocumentTemplate(actor: AuthUser, id: string) {
+    const current = await this.prisma.clinicalDocumentTemplate.findFirst({
+      where: { id, organizationId: actor.organizationId }
+    });
+    if (!current) throw new NotFoundException("Clinical document template not found");
+
+    const name = await this.nextClinicalDocumentTemplateCopyName(actor.organizationId, current.name);
+    const created = await this.prisma.clinicalDocumentTemplate.create({
+      data: {
+        organizationId: actor.organizationId,
+        name,
+        description: current.description,
+        content: coerceClinicalDocumentContent(current.content),
+        isActive: true
+      }
+    });
+
+    await this.audit(actor, {
+      entity: "ClinicalDocumentTemplate",
+      entityId: created.id,
+      action: "duplicate",
+      before: { sourceId: current.id, sourceName: current.name },
+      after: { name: created.name, isActive: created.isActive }
+    });
+    return this.serializeClinicalDocumentTemplate(created);
   }
 
   async deactivateClinicalDocumentTemplate(actor: AuthUser, id: string) {
     return this.updateClinicalDocumentTemplate(actor, id, { isActive: false });
   }
 
-  async listPatientConsents(actor: AuthUser, patientId: string, query: PatientConsentsQueryDto) {
-    const { skip, take } = resolvePagination(query);
-    await this.ensurePatient(actor, patientId);
-    return this.prisma.consent.findMany({
-      where: {
-        patientId,
-        ...(query.status ? { status: query.status } : {})
-      },
-      include: {
-        template: { select: { id: true, name: true, procedureId: true } },
-        treatmentPlan: { select: { id: true, name: true, status: true } },
-        appointment: { select: { id: true, startAt: true, status: true } },
-        signatures: { orderBy: { signedAt: "asc" } }
-      },
-      skip,
-      take,
-      orderBy: { createdAt: "desc" }
+  async uploadClinicalDocumentTemplateAsset(actor: AuthUser, file?: UploadedPatientFile) {
+    const validatedFile = await this.validateFileOrReject(
+      actor,
+      "ClinicalDocumentTemplateAsset",
+      actor.organizationId,
+      file
+    );
+    const { buffer, extension, mimeType, originalName, size } = validatedFile;
+
+    const id = randomUUID();
+    const storedFileName = `${id}${extension}`;
+    await this.storeClinicalFileOrReject(actor, "ClinicalDocumentTemplateAsset", actor.organizationId, {
+      key: `${actor.organizationId}/clinical-document-assets/${storedFileName}.enc`,
+      buffer,
+      mimeType
     });
-  }
 
-  async createPatientConsent(actor: AuthUser, patientId: string, dto: CreateConsentDto) {
-    await this.ensurePatient(actor, patientId);
-    const template = await this.prisma.consentTemplate.findFirst({
-      where: { id: dto.templateId, organizationId: actor.organizationId, isActive: true }
-    });
-    if (!template) throw new NotFoundException("Consent template not found");
-
-    if (dto.treatmentPlanId) {
-      const treatmentPlan = await this.prisma.treatmentPlan.findFirst({
-        where: { id: dto.treatmentPlanId, organizationId: actor.organizationId, patientId }
-      });
-      if (!treatmentPlan) throw new BadRequestException("Invalid treatment plan for patient");
-    }
-
-    if (dto.appointmentId) {
-      const appointment = await this.prisma.appointment.findFirst({
-        where: { id: dto.appointmentId, organizationId: actor.organizationId, patientId }
-      });
-      if (!appointment) throw new BadRequestException("Invalid appointment for patient");
-    }
-
-    const created = await this.prisma.consent.create({
-      data: {
-        patientId,
-        templateId: dto.templateId,
-        treatmentPlanId: dto.treatmentPlanId,
-        appointmentId: dto.appointmentId,
-        contentSnapshot: template.content,
-        status: ConsentStatus.DRAFT
-      }
-    });
+    const uploaded = {
+      fileName: storedFileName,
+      originalName,
+      mimeType,
+      size,
+      url: `/settings/clinical-document-templates/assets/${storedFileName}`
+    };
 
     await this.audit(actor, {
-      entity: "Consent",
-      entityId: created.id,
-      action: "create",
-      after: {
-        patientId,
-        templateId: created.templateId,
-        treatmentPlanId: created.treatmentPlanId,
-        appointmentId: created.appointmentId
-      }
+      entity: "ClinicalDocumentTemplateAsset",
+      entityId: id,
+      action: "upload",
+      after: uploaded
     });
-
-    return this.getConsent(actor, created.id);
+    return uploaded;
   }
 
-  async signConsent(actor: AuthUser, consentId: string, dto: SignConsentDto) {
-    const consent = await this.prisma.consent.findFirst({
-      where: {
-        id: consentId,
-        patient: { organizationId: actor.organizationId, branchId: branchScope(actor) }
-      },
-      include: { signatures: true }
-    });
-    if (!consent) throw new NotFoundException("Consent not found");
-    if (consent.status === ConsentStatus.SIGNED) {
-      throw new BadRequestException("Signed consents cannot be modified");
+  async getClinicalDocumentTemplateAsset(actor: AuthUser, fileName: string): Promise<{ stream: Readable; mimeType: string; downloadName: string }> {
+    const safeFileName = this.safeStoredFileName(fileName);
+    if (this.clinicalStorage) {
+      const storageKey = `${actor.organizationId}/clinical-document-assets/${safeFileName}.enc`;
+      if (await this.clinicalStorage.exists(storageKey)) {
+        const buffer = await this.clinicalStorage.read({
+          storageKey,
+          encryptionVersion: 1
+        });
+        return {
+          stream: Readable.from([buffer]),
+          mimeType: this.mimeTypeFromExtension(extname(safeFileName).toLowerCase()),
+          downloadName: this.safeDownloadName(safeFileName)
+        };
+      }
     }
+    const directory = this.getClinicalDocumentTemplateAssetDirectory(actor.organizationId);
+    const filePath = resolve(directory, safeFileName);
+    if (!this.isPathInside(directory, filePath)) throw new BadRequestException("Invalid file path");
 
-    const signed = await this.prisma.$transaction(async (tx) => {
-      await tx.documentSignature.create({
-        data: {
-          consentId: consent.id,
-          signerName: dto.signerName.trim(),
-          signerType: dto.signerType.trim(),
-          signatureData: dto.signatureData.trim(),
-          ipAddress: dto.ipAddress?.trim() ?? null,
-          signedAt: new Date()
-        }
-      });
-
-      return tx.consent.update({
-        where: { id: consent.id },
-        data: {
-          status: ConsentStatus.SIGNED,
-          signedAt: new Date()
-        }
-      });
+    await stat(filePath).catch(() => {
+      throw new NotFoundException("Stored file not found");
     });
-
-    await this.audit(actor, {
-      entity: "Consent",
-      entityId: signed.id,
-      action: "sign",
-      after: {
-        signerName: dto.signerName,
-        signerType: dto.signerType
-      }
-    });
-
-    return this.getConsent(actor, signed.id);
-  }
-
-  async getConsentPdf(actor: AuthUser, consentId: string) {
-    const consent = await this.getConsent(actor, consentId);
-    const pdfText = [
-      `Consentimiento: ${consent.template.name}`,
-      `Paciente: ${consent.patient.firstName} ${consent.patient.lastName}`,
-      `Estado: ${consent.status}`,
-      `Fecha firma: ${consent.signedAt ? consent.signedAt.toISOString() : "NO FIRMADO"}`,
-      "",
-      "Contenido:",
-      consent.contentSnapshot
-    ].join("\n");
 
     return {
-      fileName: `consent-${consent.id}.pdf`,
-      mimeType: "application/pdf",
-      status: consent.status,
-      signedAt: consent.signedAt,
-      contentSnapshot: consent.contentSnapshot,
-      signatures: consent.signatures,
-      printableContent: pdfText
+      stream: createReadStream(filePath),
+      mimeType: this.mimeTypeFromExtension(extname(safeFileName).toLowerCase()),
+      downloadName: this.safeDownloadName(safeFileName)
     };
   }
 
-  private async getConsent(actor: AuthUser, consentId: string) {
-    const consent = await this.prisma.consent.findFirst({
-      where: {
-        id: consentId,
-        patient: { organizationId: actor.organizationId, branchId: branchScope(actor) }
-      },
-      include: {
-        patient: { select: { id: true, firstName: true, lastName: true } },
-        template: { select: { id: true, name: true, procedureId: true } },
-        treatmentPlan: { select: { id: true, name: true, status: true } },
-        appointment: { select: { id: true, startAt: true, status: true } },
-        signatures: { orderBy: { signedAt: "asc" } }
-      }
-    });
-    if (!consent) throw new NotFoundException("Consent not found");
-    return consent;
-  }
-
   private async ensurePatient(actor: AuthUser, patientId: string) {
+    const trimmed = patientId.trim();
+    const isNumeric = /^\d+$/.test(trimmed);
     const patient = await this.prisma.patient.findFirst({
-      where: { id: patientId, organizationId: actor.organizationId, branchId: branchScope(actor), deletedAt: null }
+      where: {
+        organizationId: actor.organizationId,
+        branchId: branchScope(actor),
+        deletedAt: null,
+        ...(isNumeric
+          ? { OR: [{ id: trimmed }, { patientNumber: parseInt(trimmed, 10) }] }
+          : { id: trimmed })
+      }
     });
     if (!patient) throw new NotFoundException("Patient not found");
     return patient;
+  }
+
+  private async ensurePatientTreatmentPlan(actor: AuthUser, patientId: string, treatmentPlanId: string) {
+    const treatmentPlan = await this.prisma.treatmentPlan.findFirst({
+      where: {
+        id: treatmentPlanId,
+        patientId,
+        organizationId: actor.organizationId,
+        branchId: branchScope(actor)
+      },
+      select: { id: true }
+    });
+    if (!treatmentPlan) throw new BadRequestException("Invalid treatment plan for patient");
+    return treatmentPlan;
   }
 
   private async ensureUser(actor: AuthUser, userId: string) {
@@ -758,12 +661,36 @@ export class DocumentsService {
     return Math.min(1 - origin, Math.max(0.01, value));
   }
 
+  private serializeClinicalDocumentTemplate<T extends { content: Prisma.JsonValue }>(template: T) {
+    return { ...template, content: coerceClinicalDocumentContent(template.content) };
+  }
+
+  private async nextClinicalDocumentTemplateCopyName(organizationId: string, sourceName: string) {
+    const baseName = `Copia de ${sourceName.trim()}`.slice(0, 180);
+    for (let index = 0; index < 50; index += 1) {
+      const candidate = index === 0 ? baseName : `${baseName} ${index + 1}`;
+      const existing = await this.prisma.clinicalDocumentTemplate.findFirst({
+        where: { organizationId, name: candidate }
+      });
+      if (!existing) return candidate;
+    }
+    return `${baseName} ${Date.now()}`;
+  }
+
   private getPatientFileDirectory(organizationId: string, patientId: string) {
-    return resolve(PATIENT_FILE_STORAGE_ROOT, organizationId, patientId);
+    return resolve(this.legacyStorageRoot(), "patient-files", organizationId, patientId);
   }
 
   private getUserFileDirectory(organizationId: string, userId: string) {
-    return resolve(USER_FILE_STORAGE_ROOT, organizationId, userId);
+    return resolve(this.legacyStorageRoot(), "user-files", organizationId, userId);
+  }
+
+  private getClinicalDocumentTemplateAssetDirectory(organizationId: string) {
+    return resolve(this.legacyStorageRoot(), "clinical-document-assets", organizationId);
+  }
+
+  private legacyStorageRoot() {
+    return resolve(process.env.LEGACY_STORAGE_ROOT?.trim() || DEFAULT_LEGACY_STORAGE_ROOT);
   }
 
   private isPathInside(parentPath: string, childPath: string) {
@@ -771,8 +698,62 @@ export class DocumentsService {
     return Boolean(segment) && !segment.startsWith("..") && !isAbsolute(segment);
   }
 
-  private isAllowedFile(extension: string, mimeType: string) {
-    return ALLOWED_MIME_TYPES.has(mimeType) || ALLOWED_EXTENSIONS.has(extension);
+  private async validateFileOrReject(
+    actor: AuthUser,
+    targetEntity: string,
+    targetId: string,
+    file?: UploadedPatientFile
+  ) {
+    const validation = validateUploadedFile(file);
+    if (validation.ok) return validation;
+
+    await this.audit(actor, {
+      entity: targetEntity,
+      entityId: targetId,
+      action: "upload_rejected",
+      after: {
+        reasonCode: validation.code,
+        extension: validation.extension,
+        declaredMimeType: validation.mimeType,
+        size: file?.size ?? null
+      }
+    });
+    throw new BadRequestException({
+      code: "UNSUPPORTED_FILE_CONTENT",
+      message: "La extensión, el tipo MIME y el contenido del archivo deben coincidir."
+    });
+  }
+
+  private requireClinicalStorage() {
+    if (!this.clinicalStorage) throw new Error("Clinical file storage is not configured");
+    return this.clinicalStorage;
+  }
+
+  private async storeClinicalFileOrReject(
+    actor: AuthUser,
+    targetEntity: string,
+    targetId: string,
+    input: { key: string; buffer: Buffer; mimeType: string }
+  ) {
+    try {
+      return await this.requireClinicalStorage().store(input);
+    } catch (error) {
+      const response = error instanceof HttpException
+        ? error.getResponse()
+        : error instanceof Error
+          ? { code: "CLINICAL_STORAGE_UNAVAILABLE", message: error.message }
+          : { code: "CLINICAL_STORAGE_UNAVAILABLE" };
+      const reasonCode = typeof response === "object" && response && "code" in response
+        ? String(response.code)
+        : "CLINICAL_STORAGE_UNAVAILABLE";
+      await this.audit(actor, {
+        entity: targetEntity,
+        entityId: targetId,
+        action: "upload_rejected",
+        after: { reasonCode }
+      });
+      throw error;
+    }
   }
 
   private inferCategory(mimeType: string, extension: string) {
@@ -780,6 +761,22 @@ export class DocumentsService {
     if (mimeType === "application/dicom" || extension === ".dcm" || extension === ".dicom") return "XRAY";
     if (mimeType === "application/pdf" || extension === ".pdf") return "DOCUMENT";
     return "OTHER";
+  }
+
+  private safeStoredFileName(fileName: string) {
+    const trimmed = fileName.trim();
+    if (!trimmed || trimmed.includes("/") || trimmed.includes("\\") || trimmed.includes("..")) {
+      throw new BadRequestException("Invalid file path");
+    }
+    return trimmed;
+  }
+
+  private mimeTypeFromExtension(extension: string) {
+    if ([".jpg", ".jpeg"].includes(extension)) return "image/jpeg";
+    if (extension === ".png") return "image/png";
+    if (extension === ".webp") return "image/webp";
+    if (extension === ".pdf") return "application/pdf";
+    return "application/octet-stream";
   }
 
   private safeDownloadName(fileName: string) {
@@ -807,6 +804,64 @@ export class DocumentsService {
         before: payload.before,
         after: payload.after
       }
+    });
+  }
+
+  async deletePatientFile(actor: AuthUser, patientId: string, fileId: string, reason: string) {
+    const patient = await this.ensurePatient(actor, patientId);
+
+    return this.prisma.$transaction(async (tx) => {
+      const file = await tx.fileAttachment.findFirst({
+        where: {
+          id: fileId,
+          patientId: patient.id,
+          organizationId: actor.organizationId,
+          patient: { branchId: branchScope(actor) },
+          deletedAt: null
+        }
+      });
+
+      if (!file) {
+        throw new NotFoundException("File not found or already deleted");
+      }
+
+      const updateResult = await tx.fileAttachment.updateMany({
+        where: {
+          id: fileId,
+          patientId: patient.id,
+          organizationId: actor.organizationId,
+          patient: { branchId: branchScope(actor) },
+          deletedAt: null
+        },
+        data: {
+          deletedAt: new Date(),
+          deletedById: actor.id,
+          deleteReason: reason
+        }
+      });
+
+      if (updateResult.count !== 1) {
+        throw new NotFoundException("File not found or already deleted");
+      }
+
+      const updated = await tx.fileAttachment.findUniqueOrThrow({
+        where: { id: fileId }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          organizationId: actor.organizationId,
+          userId: actor.id,
+          actorUserId: actor.id,
+          entity: "FileAttachment",
+          entityId: fileId,
+          action: "DELETE",
+          before: file as unknown as Prisma.InputJsonValue,
+          after: updated as unknown as Prisma.InputJsonValue
+        }
+      });
+
+      return updated;
     });
   }
 }

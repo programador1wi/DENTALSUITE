@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
@@ -15,13 +15,16 @@ import {
 import {
   CreateClinicalEvolutionAddendumDto,
   CreateClinicalEvolutionDto,
-  UpdateClinicalEvolutionDto
+  UpdateClinicalEvolutionDto,
+  ListEvolutionsQueryDto,
+  AnnulClinicalEvolutionDto
 } from "./dto/clinical-evolution.dto";
 import { CreatePrescriptionDto } from "./dto/prescription.dto";
 import {
   CreateClinicalDocumentDto,
   CreateClinicalDocumentFromTemplateDto,
-  CreateClinicalDocumentTemplateDto
+  CreateClinicalDocumentTemplateDto,
+  DeleteClinicalDocumentDto
 } from "./dto/clinical-document.dto";
 import {
   ComparePeriodontalChartsQueryDto,
@@ -31,6 +34,7 @@ import {
   ListOdontogramQueryDto,
   UpdateToothProcedureStatusDto
 } from "./dto/odontogram.dto";
+import { ListPatientHistoryQueryDto } from "./dto/patient-history.dto";
 
 @ApiTags("Clinical")
 @ApiBearerAuth()
@@ -49,6 +53,12 @@ export class ClinicalController {
   @RequirePermissions("clinical.read")
   appointmentHistory(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string) {
     return this.clinicalService.listAppointmentHistory(user, patientId);
+  }
+
+  @Get("patient-history")
+  @RequirePermissions("clinical.read")
+  patientHistory(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string, @Query() query: ListPatientHistoryQueryDto) {
+    return this.clinicalService.listPatientHistory(user, patientId, query);
   }
 
   @Put("history")
@@ -77,8 +87,8 @@ export class ClinicalController {
 
   @Get("evolutions")
   @RequirePermissions("clinical.read")
-  evolutions(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string) {
-    return this.clinicalService.listEvolutions(user, patientId);
+  evolutions(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string, @Query() query: ListEvolutionsQueryDto) {
+    return this.clinicalService.listEvolutions(user, patientId, query);
   }
 
   @Post("evolutions")
@@ -102,6 +112,12 @@ export class ClinicalController {
   @RequirePermissions("clinical.evolutions.sign")
   signEvolution(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string, @Param("evolutionId") evolutionId: string) {
     return this.clinicalService.signEvolution(user, patientId, evolutionId);
+  }
+
+  @Post("evolutions/:evolutionId/annul")
+  @RequirePermissions("clinical.evolutions.sign")
+  annulEvolution(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string, @Param("evolutionId") evolutionId: string, @Body() dto: AnnulClinicalEvolutionDto) {
+    return this.clinicalService.annulEvolution(user, patientId, evolutionId, dto);
   }
 
   @Post("evolutions/:evolutionId/addendum")
@@ -133,6 +149,17 @@ export class ClinicalController {
     return this.clinicalService.printPrescription(user, patientId, prescriptionId);
   }
 
+  @Patch("prescriptions/:prescriptionId/status")
+  @RequirePermissions("clinical.prescriptions.create")
+  updatePrescriptionStatus(
+    @CurrentUser() user: AuthUser,
+    @Param("patientId") patientId: string,
+    @Param("prescriptionId") prescriptionId: string,
+    @Body("status") status: string
+  ) {
+    return this.clinicalService.updatePrescriptionStatus(user, patientId, prescriptionId, status);
+  }
+
   @Get("documents")
   @RequirePermissions("clinical.read")
   documents(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string) {
@@ -143,6 +170,17 @@ export class ClinicalController {
   @RequirePermissions("clinical.documents.create")
   createDocument(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string, @Body() dto: CreateClinicalDocumentDto) {
     return this.clinicalService.createDocument(user, patientId, dto);
+  }
+
+  @Delete("documents/:documentId")
+  @RequirePermissions("clinical.documents.delete")
+  deleteDocument(
+    @CurrentUser() user: AuthUser,
+    @Param("patientId") patientId: string,
+    @Param("documentId") documentId: string,
+    @Body() dto: DeleteClinicalDocumentDto
+  ) {
+    return this.clinicalService.deleteClinicalDocument(user, patientId, documentId, dto.reason);
   }
 
   @Post("documents/from-template")
@@ -179,8 +217,13 @@ export class ClinicalController {
 
   @Get("odontogram/history/:toothNumber")
   @RequirePermissions("clinical.odontogram.read")
-  toothHistory(@CurrentUser() user: AuthUser, @Param("patientId") patientId: string, @Param("toothNumber") toothNumber: string) {
-    return this.clinicalService.getToothHistory(user, patientId, toothNumber);
+  toothHistory(
+    @CurrentUser() user: AuthUser,
+    @Param("patientId") patientId: string,
+    @Param("toothNumber") toothNumber: string,
+    @Query() query: ListOdontogramQueryDto
+  ) {
+    return this.clinicalService.getToothHistory(user, patientId, toothNumber, query.surface);
   }
 
   @Post("odontogram/conditions")

@@ -1,4 +1,3 @@
-@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -8,11 +7,12 @@
   color-scheme: light;
 
   --color-base-white: #ffffff;
-  --color-base-gray-50: #f8fafc;
-  --color-base-gray-100: #f1f5f9;
-  --color-base-gray-200: #e2e8f0;
-  --color-base-gray-300: #cbd5e1;
+  --color-base-gray-50: #f9fafb;
+  --color-base-gray-100: #f3f4f6;
+  --color-base-gray-200: #e5e7eb;
+  --color-base-gray-300: #d1d5db;
   --color-base-slate-500: #64748b;
+  --color-base-slate-600: #475569;
   --color-base-slate-700: #334155;
   --color-base-navy-600: #185fa5;
   --color-base-navy-700: #0c447c;
@@ -25,6 +25,8 @@
   --color-base-page-bg: #f8fafd;
   --color-base-emerald-500: #10b981;
   --color-base-emerald-600: #059669;
+  --color-base-emerald-700: #047857;
+  --color-base-emerald-800: #065f46;
   --color-base-red-500: #ef4444;
   --color-base-amber-400: #fbbf24;
 
@@ -36,7 +38,7 @@
   --bg-brand-light: var(--color-base-blue-50);
 
   --text-primary: var(--color-base-slate-700);
-  --text-secondary: var(--color-base-slate-500);
+  --text-secondary: var(--color-base-slate-600);
   --text-inverse: var(--color-base-gray-50);
   --text-brand: var(--color-base-blue-500);
   --text-brand-strong: var(--color-base-navy-700);
@@ -49,8 +51,8 @@
   --border-brand: var(--color-base-blue-500);
   --border-brand-light: var(--color-base-blue-100);
 
-  --action-primary: var(--color-base-emerald-500);
-  --action-primary-hover: var(--color-base-emerald-600);
+  --action-primary: var(--color-base-navy-600);
+  --action-primary-hover: var(--color-base-navy-700);
   --action-brand: var(--color-base-blue-500);
   --action-brand-hover: var(--color-base-blue-600);
 
@@ -143,6 +145,44 @@ body {
   font-family: var(--font-sans);
 }
 
+/* Apply aggressive wrapping only to uncontrolled technical data, never globally. */
+[data-break-uncontrolled="true"] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+html,
+body,
+#root {
+  max-width: 100%;
+}
+
+/* Contained two-dimensional workspaces may scroll without widening the page. */
+[data-responsive-overflow="contained"] {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+}
+
+/* Long, explicitly approved action labels may wrap without forcing their container wider. */
+[data-allow-multiline] {
+  max-width: 100%;
+  height: auto;
+  min-height: 38px;
+  white-space: normal;
+}
+
+/* Dense operational controls remain usable by touch without inflating desktop UI. */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  a[role="button"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
 @keyframes sidebar-item-in {
   from {
     opacity: 0;
@@ -196,4 +236,150 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-strong);
+}
+
+/* Hide scrollbar while maintaining scroll functionality (used in horizontal nav) */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.consent-editor-content h1,
+.consent-document h1 {
+  margin: var(--space-5) 0 var(--space-3);
+  color: var(--text-brand-strong);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+  line-height: var(--leading-2xl);
+}
+
+.consent-editor-content h2,
+.consent-document h2 {
+  margin: var(--space-4) 0 var(--space-2);
+  color: var(--text-brand-strong);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+}
+
+.consent-editor-content h3,
+.consent-document h3 {
+  margin: var(--space-3) 0 var(--space-2);
+  color: var(--text-primary);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+}
+
+.consent-editor-content p,
+.consent-document p {
+  margin: var(--space-2) 0;
+}
+
+.consent-editor-content ul,
+.consent-editor-content ol,
+.consent-document ul,
+.consent-document ol {
+  margin: var(--space-3) 0;
+  padding-left: var(--space-6);
+}
+
+.consent-editor-content ul,
+.consent-document ul {
+  list-style: disc;
+}
+
+.consent-editor-content ol,
+.consent-document ol {
+  list-style: decimal;
+}
+
+.consent-editor-token,
+.consent-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 2px;
+  border: 1px solid var(--border-brand-light);
+  border-radius: var(--radius-full);
+  background: var(--bg-brand-light);
+  padding: 2px var(--space-2);
+  color: var(--text-brand-strong);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  vertical-align: baseline;
+}
+
+.consent-editor-token.ProseMirror-selectednode {
+  border-color: var(--border-brand);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+.consent-field__label {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.consent-field__value {
+  color: var(--text-primary);
+}
+
+.consent-document {
+  margin: 0 auto;
+  max-width: 760px;
+  min-height: 980px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  padding: var(--space-10);
+  color: var(--text-primary);
+}
+
+.consent-document > header {
+  margin-bottom: var(--space-8);
+  border-bottom: 1px solid var(--border-default);
+  padding-bottom: var(--space-4);
+}
+
+.consent-document > header > p {
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.consent-document > footer {
+  margin-top: var(--space-10);
+  border-top: 1px solid var(--border-default);
+  padding-top: var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-xs);
+}
+
+.consent-signatures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-6);
+  margin-bottom: var(--space-6);
+}
+
+.consent-signature > div {
+  height: 64px;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+@media print {
+  .consent-document {
+    min-height: auto;
+    border: 0;
+    padding: 0;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--border-brand);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }

@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import { APP_ROUTES } from "@/lib/routes";
 import {
   AlertTriangle,
+  Activity,
   Building2,
   Briefcase,
   CalendarClock,
+  Camera,
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
@@ -15,20 +18,28 @@ import {
   FileText,
   FolderOpen,
   GripVertical,
+  ImageIcon,
   Link2Off,
   MessageSquarePlus,
+  MoreVertical,
+  Pause,
+  Play,
   Plus,
   Printer,
   Receipt,
   RotateCcw,
   Search,
   Send,
+  Save,
   ShoppingCart,
   Stethoscope,
   Trash2,
+  UploadCloud,
   UserCircle,
   UserRound,
-  X
+  X,
+  ChevronDown,
+  Settings
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,187 +51,209 @@ import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
+import { ProgressDonut } from "@/components/ui/progress-donut";
 import { OdontogramView } from "@/features/clinical/components/odontogram-view";
+import {
+  ODONTOGRAM_PROCEDURE_SYMBOL_OPTIONS,
+  getDiagnosisMark,
+  type DiagnosisMark
+} from "@/features/clinical/components/tooth-diagnosis-symbols";
 import { SurfaceSelector } from "@/features/clinical/components/surface-selector";
-import { MultipleToothSelectionModal, ToothInformationModal } from "@/features/clinical/components/tooth-action-modals";
-import { ToothDiagnosisModal as DiagnosisModal, ToothDiagnosisPickerWindow } from "@/features/clinical/components/tooth-diagnosis-modal";
-import { useClinicalAppointmentHistory, useClinicalMutations, useOdontogram, useToothHistory } from "@/features/clinical/hooks/use-clinical";
+import {
+  MultipleToothSelectionModal,
+  ToothInformationModal
+} from "@/features/clinical/components/tooth-action-modals";
+import { ClinicalEvolutionModal } from "@/features/clinical/components/clinical-evolution-modal";
+
+import {
+  ToothDiagnosisModal as DiagnosisModal,
+  ToothDiagnosisPickerWindow
+} from "@/features/clinical/components/tooth-diagnosis-modal";
+import {
+  useClinicalAppointmentHistory,
+  useClinicalMutations,
+  useOdontogram,
+  useToothHistory
+} from "@/features/clinical/hooks/use-clinical";
+import { useDocumentsMutations, usePatientFiles } from "@/features/documents/hooks/use-documents";
+import type { FileAttachment } from "@/features/documents/services/documents.service";
 import { usePatientPayments, usePaymentsMutations, useRefunds } from "@/features/payments/hooks/use-payments";
-import type { Refund, RefundStatus } from "@/features/payments/services/payments.service";
-import { useAgreements } from "@/features/settings/admin-workflows/hooks/use-admin-workflows";
+import { PrintCenterModal } from "@/features/treatments/components/print-center-modal";
+import { FinancingModal } from "@/features/treatments/components/financing-modal";
+import { PayrollDiscountModal } from "@/features/treatments/components/payroll-discount-modal";
+import { RefundsModal } from "@/features/treatments/components/refunds-modal";
+import {
+  BulkDiscountModal,
+  isBulkDiscountEligible,
+  itemDiscountBase,
+  itemPaidAmount
+} from "@/features/treatments/components/bulk-discount-modal";
+import { TreatmentRepriceModal } from "@/features/treatments/components/treatment-reprice-modal";
+import { BudgetPanel } from "@/features/treatments/components/budget-panel";
+import {
+  AgreementAssignmentModal,
+  AgreementDetailModal,
+  resolveEffectiveTreatmentAgreement,
+  type PatientAgreementOption
+} from "@/features/treatments/components/treatment-agreements-modals";
+import { BranchChangeModal } from "@/features/treatments/components/branch-change-modal";
+import { FutureAppointmentsModal } from "@/features/treatments/components/future-appointments-modal";
+import { PieceAssignmentModal } from "@/features/treatments/components/piece-assignment-modal";
+import { BudgetProcedureDrawer } from "@/features/treatments/components/budget-procedure-drawer";
+import {
+  PlanProcedureModal,
+  SectionModal,
+  SymbolModal,
+  CommentModal
+} from "@/features/treatments/components/plan-procedure-modals";
+import { OrthodonticPlanWorkspace } from "@/features/treatments/components/orthodontic-plan-workspace";
+import {
+  NewTreatmentPlanModal,
+  PLAN_KIND_LABELS
+} from "@/features/treatments/components/new-treatment-plan-modal";
+import { TreatmentPlanCardsList } from "@/features/treatments/components/treatment-plan-cards-list";
+import { PlanSidebar } from "@/features/treatments/components/plan-sidebar";
+import {
+  TreatmentItemsTable,
+  PRICE_SOURCE_LABELS,
+  ITEM_STATUS_LABELS,
+  planClinicalProgressPercentage
+} from "@/features/treatments/components/treatment-items-table";
+import { PatientSignaturePanel } from "@/features/treatments/components/patient-signature-panel";
+import {
+  FDI_PERMANENT_TEETH,
+  FDI_TEMPORAL_TEETH,
+  PIECE_SURFACES,
+  PLAN_CLINICAL_STATUS_LABELS,
+  addInstallmentPeriod,
+  collectDisabledReason,
+  dateInputValue,
+  displayPlanSpecialty,
+  fdiLabel,
+  financeableAmount,
+  financingDisabledReason,
+  finiteNumberValue,
+  formatDate,
+  formatDateTime,
+  isKnownSymbolProcedure,
+  money,
+  normalizeCatalogText,
+  numberValue,
+  numericId,
+  payrollDiscountDisabledReason,
+  planClinicalStatus,
+  planHasFinancialDebt,
+  planTotals,
+  procedureRequiresOdontogramSymbol,
+  progressPercentageValue,
+  roundMoney,
+  splitAmount,
+  surfaceLabel,
+  surfaceValues,
+  todayInputValue,
+  treatmentPlanStatusLabel
+} from "@/features/treatments/components/treatment-modal-helpers";
+import type {
+  InstallmentFrequency,
+  PayableTreatmentItem,
+  Refund,
+  RefundStatus
+} from "@/features/payments/services/payments.service";
+import {
+  useAgreements,
+  useCreatePayrollDiscountPlan
+} from "@/features/settings/admin-workflows/hooks/use-admin-workflows";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import type { Branch } from "@/features/settings/branches/services/branches.service";
-import { usePriceList } from "@/features/settings/price-lists/hooks/use-price-lists";
-import type { PriceList, PriceListItem } from "@/features/settings/price-lists/services/price-lists.service";
 import { useProcedures } from "@/features/settings/procedures/hooks/use-procedures";
 import type { Procedure } from "@/features/settings/procedures/services/procedures.service";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import type { Professional } from "@/features/settings/professionals/services/professionals.service";
 import { useBranchStore } from "@/stores/branch.store";
 import { useOdontogramStore } from "@/stores/odontogram.store";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useAddPatientNote, usePatient, useUpdatePatient } from "../hooks/use-patients";
 import { PatientSectionPage } from "../components/patient-section-page";
 import {
   budgetCatalogCategoryMatchesSearch,
   budgetCatalogItemMatchesSearch,
-  buildTreatmentBudgetCatalog
+  buildTreatmentBudgetCatalog,
+  flatSearchBudgetCatalog
 } from "../utils/treatment-budget-catalog";
-import { useBudgets, useTreatmentMutations, useTreatmentPlan, useTreatmentPlans } from "@/features/treatments/hooks/use-treatments";
+import {
+  useBudgets,
+  useTreatmentPlanProcedures,
+  useTreatmentPlanPriceCatalog,
+  useTreatmentMutations,
+  useTreatmentPlan,
+  useTreatmentPlanPrintOptions,
+  useTreatmentPlans
+} from "@/features/treatments/hooks/use-treatments";
 import type {
   Budget,
+  TreatmentPlanClinicalStatus,
   TreatmentPlanDetail,
+  TreatmentPlanFinancialSummary,
   TreatmentPlanItem,
+  TreatmentPlanRepricePreview,
+  TreatmentPriceCatalog,
+  TreatmentPriceCatalogItem,
   TreatmentPlanItemStatus,
+  TreatmentPlanKind,
+  TreatmentPlanPrintOption,
+  TreatmentPlanPrintDocumentType,
+  TreatmentPlanProceduresResult,
   TreatmentPlanStatus
 } from "@/features/treatments/services/treatments.service";
 
-const PLAN_STATUS_LABELS: Record<TreatmentPlanStatus, string> = {
-  DRAFT: "Borrador",
-  PRESENTED: "Presentado",
-  ACCEPTED: "Aceptado",
-  IN_PROGRESS: "En progreso",
-  COMPLETED: "Completado",
-  CANCELLED: "Cancelado",
-  REJECTED: "Rechazado"
+
+function defaultOdontogramSymbol(procedure: TreatmentPriceCatalogItem["procedure"]): DiagnosisMark {
+  return getDiagnosisMark(procedure.defaultOdontogramSymbol) ?? "other";
+}
+
+type CatalogToothSelection = {
+  teeth: string[];
+  surface: string;
 };
 
-const ITEM_STATUS_LABELS: Record<TreatmentPlanItemStatus, string> = {
-  PLANNED: "Planificado",
-  ACCEPTED: "Aceptado",
-  PAID: "Pagado",
-  IN_PROGRESS: "En atencion",
-  COMPLETED: "Realizado",
-  CANCELLED: "Cancelado"
-};
 
-const REFUND_STATUS_LABELS: Record<RefundStatus, string> = {
-  PENDING: "Pendiente",
-  PROCESSED: "Procesado",
-  REJECTED: "Rechazado"
-};
 
-const FDI_PERMANENT_TEETH = [
-  "18",
-  "17",
-  "16",
-  "15",
-  "14",
-  "13",
-  "12",
-  "11",
-  "21",
-  "22",
-  "23",
-  "24",
-  "25",
-  "26",
-  "27",
-  "28",
-  "48",
-  "47",
-  "46",
-  "45",
-  "44",
-  "43",
-  "42",
-  "41",
-  "31",
-  "32",
-  "33",
-  "34",
-  "35",
-  "36",
-  "37",
-  "38"
-];
-
-const FDI_TEMPORAL_TEETH = ["55", "54", "53", "52", "51", "61", "62", "63", "64", "65", "85", "84", "83", "82", "81", "71", "72", "73", "74", "75"];
-
-const PIECE_SURFACES = [
-  { code: "P", label: "Palatina" },
-  { code: "M", label: "Mesial" },
-  { code: "B", label: "Vestibular" },
-  { code: "D", label: "Distal" },
-  { code: "O", label: "Oclusal" }
-];
-
-function numberValue(value?: string | number | null) {
-  return Number(value ?? 0) || 0;
-}
-
-function money(value: number) {
-  return new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN", maximumFractionDigits: 0 }).format(value);
-}
-
-function fdiLabel(value?: string | null) {
-  if (!value) return "-";
-  return value.length >= 2 ? `${value[0]}.${value[1]}` : value;
-}
-
-function surfaceValues(value?: string | null) {
-  if (!value || value === "ALL") return [];
-  if (value.includes(",")) return value.split(",").map((part) => part.trim()).filter(Boolean);
-  return [value];
-}
-
-function surfaceLabel(value?: string | null) {
-  const values = surfaceValues(value);
-  if (!values.length) return "";
-  return values
-    .map((surface) => PIECE_SURFACES.find((item) => item.code === surface)?.label ?? surface)
-    .join(", ");
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) return "-";
-  return new Intl.DateTimeFormat("es-MX", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
-
-function itemPaidAmount(item: TreatmentPlanItem) {
-  return (item.paymentAllocations ?? []).reduce((sum, allocation) => sum + numberValue(allocation.amount), 0);
-}
-
-function planTotals(plan?: TreatmentPlanDetail | null) {
-  const items = plan?.items ?? [];
-  const subtotal = items.reduce((sum, item) => sum + numberValue(item.quantity) * numberValue(item.unitPrice), 0);
-  const discount = items.reduce((sum, item) => sum + numberValue(item.discount), 0);
-  const total = items.reduce((sum, item) => sum + numberValue(item.total), 0);
-  const paid = items.reduce((sum, item) => sum + itemPaidAmount(item), 0);
-  const completed = items.filter((item) => item.status === "COMPLETED").reduce((sum, item) => sum + numberValue(item.total), 0);
-  return { subtotal, discount, total, paid, completed, balance: Math.max(total - paid, 0) };
-}
-
-function itemStatusDotClass(status: TreatmentPlanItemStatus) {
-  if (status === "COMPLETED" || status === "PAID") return "bg-green-600";
-  if (status === "CANCELLED") return "bg-slate-400";
-  if (status === "IN_PROGRESS") return "bg-sky-600";
-  return "bg-red-600";
-}
-
-function itemDiscountPercent(item: TreatmentPlanItem) {
-  const base = numberValue(item.quantity) * numberValue(item.unitPrice);
-  if (!base) return 0;
-  return Math.round((numberValue(item.discount) / base) * 100);
-}
-
-function priceForProcedure(priceList: PriceList | null, procedureId: string) {
-  return numberValue(priceList?.items.find((item) => item.procedureId === procedureId)?.price);
-}
 
 export function PatientTreatmentsPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const [selectedPlanId, setSelectedPlanId] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedPlanId = searchParams.get("planId") ?? "";
+
+  const setSelectedPlanId = (newId: string) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (newId) next.set("planId", newId);
+      else next.delete("planId");
+      return next;
+    });
+  };
   const [procedureModalOpen, setProcedureModalOpen] = useState(false);
   const [sectionModalOpen, setSectionModalOpen] = useState(false);
+  const [autoSectionIdsByName, setAutoSectionIdsByName] = useState<Record<string, string>>({});
   const [commentModalOpen, setCommentModalOpen] = useState(false);
   const [agreementModalOpen, setAgreementModalOpen] = useState(false);
   const [agreementDetailModalOpen, setAgreementDetailModalOpen] = useState(false);
+  const [financingModalOpen, setFinancingModalOpen] = useState(false);
+  const [payrollDiscountModalOpen, setPayrollDiscountModalOpen] = useState(false);
   const [branchModalOpen, setBranchModalOpen] = useState(false);
+  const [planModalOpen, setPlanModalOpen] = useState(false);
   const [refundsModalOpen, setRefundsModalOpen] = useState(false);
   const [budgetDrawerOpen, setBudgetDrawerOpen] = useState(false);
+  const [repricePreview, setRepricePreview] = useState<TreatmentPlanRepricePreview | null>(null);
+  const [repriceReason, setRepriceReason] = useState("");
   const [budgetDrawerAddedItems, setBudgetDrawerAddedItems] = useState(0);
+  const [printCenterOption, setPrintCenterOption] = useState<TreatmentPlanPrintOption | null>(null);
   const [pieceAssignmentItem, setPieceAssignmentItem] = useState<TreatmentPlanItem | null>(null);
+  const [evolutionContext, setEvolutionContext] = useState<{
+    treatmentPlanId: string;
+    treatmentPlanItemId?: string;
+  } | null>(null);
   const [pendingAppointmentMove, setPendingAppointmentMove] = useState<{
     planId: string;
     branchId: string;
@@ -237,76 +270,145 @@ export function PatientTreatmentsPage() {
   const payments = usePatientPayments(id);
   const branches = useBranches(undefined, "ACTIVE");
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const planList = Array.isArray(plans.data) ? plans.data : [];
+  const plan = selectedPlan.data ?? null;
   const professionalBranchId = patient.data?.branchId ?? activeBranchId;
   const professionals = useProfessionals(undefined, "true", {
     branchId: professionalBranchId || undefined,
     pageSize: 100
   });
   const procedures = useProcedures(undefined, "true");
-  const agreementPriceListId = patient.data?.agreement?.priceList?.id ?? "";
-  const agreementPriceList = usePriceList(agreementPriceListId);
+  const agreementsForPricing = useAgreements(undefined, "true");
+  const effectiveAgreement = resolveEffectiveTreatmentAgreement({
+    plan,
+    patientAgreement: patient.data?.agreement ?? null,
+    agreements: agreementsForPricing.data ?? []
+  });
+  const agreementPriceListId = effectiveAgreement.priceListId;
+  const treatmentPriceCatalog = useTreatmentPlanPriceCatalog(plan?.id ?? "", Boolean(plan?.id));
   const clinicalMutations = useClinicalMutations(id);
   const treatmentMutations = useTreatmentMutations();
   const paymentMutations = usePaymentsMutations();
   const addNote = useAddPatientNote();
   const updatePatient = useUpdatePatient();
+  const { hasPermission } = usePermissions();
 
   const selectedTooth = useOdontogramStore((state) => state.selectedTooth);
   const selectedTeeth = useOdontogramStore((state) => state.selectedTeeth);
   const selectedSurface = useOdontogramStore((state) => state.selectedSurface);
   const activeModal = useOdontogramStore((state) => state.activeModal);
-  const selectTooth = useOdontogramStore((state) => state.selectTooth);
+  const storeSelectTooth = useOdontogramStore((state) => state.selectTooth);
   const setSelectedSurface = useOdontogramStore((state) => state.setSelectedSurface);
   const setActiveTool = useOdontogramStore((state) => state.setActiveTool);
   const openOdontogramModal = useOdontogramStore((state) => state.openModal);
   const closeOdontogramModal = useOdontogramStore((state) => state.closeModal);
   const resetWorkspace = useOdontogramStore((state) => state.resetWorkspace);
-  const toothHistory = useToothHistory(id, selectedTooth);
 
-  const planList = plans.data ?? [];
-  const plan = selectedPlan.data ?? null;
+  const selectTooth = (tooth: string, options?: { additive?: boolean }) => {
+    storeSelectTooth(tooth, options);
+  };
+
+  const handleSelectTooth = (tooth: string, options?: { additive?: boolean }) => {
+    storeSelectTooth(tooth, options);
+    if (plan) {
+      openBudgetDrawer();
+    }
+  };
+  const toothHistory = useToothHistory(id, selectedTooth, selectedSurface || undefined);
+
+  const planProcedures = useTreatmentPlanProcedures(plan?.id ?? "", Boolean(plan?.id));
+  const printOptions = useTreatmentPlanPrintOptions(plan?.id ?? "", Boolean(plan?.id));
+  const printOptionsByType = useMemo(
+    () => new Map((printOptions.data ?? []).map((option) => [option.document_type, option] as const)),
+    [printOptions.data]
+  );
+  const payablePlan = useMemo(
+    () => (payments.data?.payablePlans ?? []).find((candidate) => candidate.id === plan?.id) ?? null,
+    [payments.data?.payablePlans, plan?.id]
+  );
+  const financeableItems = useMemo(
+    () => payablePlan?.items.filter((item) => financeableAmount(item) > 0) ?? [],
+    [payablePlan]
+  );
+  const financeableTotal = useMemo(
+    () => roundMoney(financeableItems.reduce((sum, item) => sum + financeableAmount(item), 0)),
+    [financeableItems]
+  );
+  const payrollChargeItems = useMemo(
+    () =>
+      plan?.items.filter((item) => item.status !== "CANCELLED" && numberValue(item.agreementCoverage) > 0) ??
+      [],
+    [plan]
+  );
+  const payrollChargeTotal = useMemo(
+    () => roundMoney(payrollChargeItems.reduce((sum, item) => sum + numberValue(item.agreementCoverage), 0)),
+    [payrollChargeItems]
+  );
   const totals = useMemo(() => planTotals(plan), [plan]);
-  const priceList = agreementPriceList.data ?? null;
+  const priceList = treatmentPriceCatalog.data ?? null;
   const upcomingAppointments = (appointments.data ?? []).slice(0, 3);
   const latestBudget = (plan?.budgets?.[0] ?? budgets.data?.[0] ?? null) as Budget | null;
-  const planHasAgreementLock = Boolean(patient.data?.agreement && plan && (plan.items.length || plan.budgets.length || latestBudget));
+  const completeBudgetPrintOption = printOptionsByType.get("BUDGET_COMPLETE");
+  const planHasAgreementLock = Boolean(
+    effectiveAgreement.agreement && plan && (plan.items.length || plan.budgets.length || latestBudget)
+  );
   const professionalOptions = (professionals.data ?? []).map((professional) => ({
     id: professional.id,
     label: `${professional.firstName} ${professional.lastName}`
   }));
   const actionTeeth = selectedTeeth.length ? selectedTeeth : selectedTooth ? [selectedTooth] : [];
+  const canCreateFinancing = hasPermission("installments.create") || hasPermission("organization.manage_all");
+  const canCollectPayment = hasPermission("payments.create") || hasPermission("organization.manage_all");
+  const canUsePayrollDiscount =
+    (hasPermission("agreements.payments.create") ||
+      hasPermission("settings.update") ||
+      hasPermission("organization.manage_all")) &&
+    Boolean(patient.data?.agreement?.isActive && patient.data.agreement.payrollDiscount);
+  const createPayrollDiscountPlan = useCreatePayrollDiscountPlan();
 
   useEffect(() => {
     resetWorkspace();
   }, [id, resetWorkspace]);
 
   useEffect(() => {
-    if (!selectedPlanId && planList.length) setSelectedPlanId(planList[0].id);
-  }, [planList, selectedPlanId]);
+    setAutoSectionIdsByName({});
+  }, [plan?.id]);
 
-  const createPlan = async () => {
+  // No auto-selection on load, user must select a plan card manually.
+
+  const openCreatePlan = () => {
     const patientRow = patient.data;
-    const professional = professionals.data?.[0];
-    if (!patientRow || !professional) {
-      toast.error("Necesitas un paciente y al menos un profesional activo.");
+    if (!patientRow) {
+      toast.error("Necesitas un paciente cargado para crear el plan.");
       return;
     }
+    setPlanModalOpen(true);
+  };
 
+  const createPlanFromModal = async (payload: {
+    branchId: string;
+    professionalId: string;
+    kind: TreatmentPlanKind;
+    name: string;
+    description?: string;
+  }) => {
     const created = await treatmentMutations.createTreatmentPlan.mutateAsync({
-      branchId: patientRow.branchId,
+      branchId: payload.branchId,
       patientId: id,
-      professionalId: professional.id,
-      name: `Plan de tratamiento ${planList.length + 1}`,
-      description: "Plan clinico creado desde odontograma",
+      professionalId: payload.professionalId,
+      kind: payload.kind,
+      name: payload.name,
+      description: payload.description,
       status: "DRAFT"
     });
+    setPlanModalOpen(false);
     setSelectedPlanId(created.id);
   };
 
   const createDiagnosisForSelectedTeeth = async (diagnosis: string, notes?: string) => {
     const professionalId = professionalOptions[0]?.id ?? plan?.professional.id;
     if (!professionalId) {
-      toast.error("No hay profesionales activos para registrar el diagnostico.");
+      toast.error("No hay profesionales activos para registrar el diagnóstico.");
       return;
     }
     if (!actionTeeth.length) {
@@ -320,7 +422,7 @@ export function PatientTreatmentsPage() {
           clinicalMutations.createToothCondition.mutateAsync({
             professionalId,
             toothNumber,
-            surface: selectedSurface || undefined,
+            surface: selectedSurface || "ALL",
             condition: diagnosis,
             diagnosis,
             notes
@@ -328,7 +430,11 @@ export function PatientTreatmentsPage() {
         )
       );
       closeOdontogramModal();
-      toast.success(actionTeeth.length > 1 ? `Diagnostico agregado a ${actionTeeth.length} piezas.` : "Diagnostico agregado al odontograma.");
+      toast.success(
+        actionTeeth.length > 1
+          ? `Diagnóstico agregado a ${actionTeeth.length} piezas.`
+          : "Diagnóstico agregado al odontograma."
+      );
     } catch {
       // El hook de mutacion ya muestra el error de API.
     }
@@ -352,12 +458,25 @@ export function PatientTreatmentsPage() {
       toast.error("Selecciona o crea un plan de tratamiento.");
       return;
     }
-    if (!patient.data?.agreement?.priceList?.id) {
+    if (
+      effectiveAgreement.source === "patient" &&
+      effectiveAgreement.agreementId &&
+      agreementsForPricing.isLoading
+    ) {
+      toast.error("Cargando convenio del plan. Intenta nuevamente.");
+      return;
+    }
+    if (!effectiveAgreement.agreement) {
       toast.error("Asigna un convenio con arancel antes de crear presupuesto.");
       setAgreementModalOpen(true);
       return;
     }
-    if (agreementPriceList.isLoading) {
+    if (!agreementPriceListId) {
+      toast.error("Asigna un convenio con arancel antes de crear presupuesto.");
+      setAgreementModalOpen(true);
+      return;
+    }
+    if (treatmentPriceCatalog.isLoading) {
       toast.error("Cargando arancel del convenio. Intenta nuevamente.");
       return;
     }
@@ -369,6 +488,24 @@ export function PatientTreatmentsPage() {
     setBudgetDrawerOpen(true);
   };
 
+  const openRepriceModal = async () => {
+    if (!plan || plan.status !== "DRAFT") return;
+    const preview = await treatmentMutations.previewReprice.mutateAsync({ id: plan.id });
+    setRepriceReason("");
+    setRepricePreview(preview);
+  };
+
+  const applyReprice = async () => {
+    if (!plan || !repricePreview || !repriceReason.trim()) return;
+    await treatmentMutations.applyReprice.mutateAsync({
+      id: plan.id,
+      payload: { reason: repriceReason.trim() }
+    });
+    setRepricePreview(null);
+    setRepriceReason("");
+    toast.success("Precios del borrador actualizados con trazabilidad.");
+  };
+
   const openAgreementPanel = () => {
     if (planHasAgreementLock) {
       setAgreementDetailModalOpen(true);
@@ -377,40 +514,108 @@ export function PatientTreatmentsPage() {
     setAgreementModalOpen(true);
   };
 
-  const addBudgetCatalogItem = async (item: PriceListItem) => {
+  const [symbolModalOpen, setSymbolModalOpen] = useState(false);
+  const [pendingSymbolItem, setPendingSymbolItem] = useState<TreatmentPriceCatalogItem | null>(null);
+  const [pendingSymbolSelection, setPendingSymbolSelection] = useState<CatalogToothSelection>({
+    teeth: [],
+    surface: ""
+  });
+  const [selectedSymbol, setSelectedSymbol] = useState<string>("");
+
+  const readCurrentCatalogSelection = (): CatalogToothSelection => {
+    const current = useOdontogramStore.getState();
+    const teeth = current.selectedTeeth.length
+      ? current.selectedTeeth
+      : current.selectedTooth
+        ? [current.selectedTooth]
+        : actionTeeth;
+    return {
+      teeth,
+      surface: current.selectedSurface || selectedSurface
+    };
+  };
+
+  const requestBudgetCatalogItem = async (item: TreatmentPriceCatalogItem) => {
+    const selection = readCurrentCatalogSelection();
+    if (procedureRequiresOdontogramSymbol(item.procedure)) {
+      setPendingSymbolItem(item);
+      setPendingSymbolSelection(selection);
+      setSelectedSymbol(defaultOdontogramSymbol(item.procedure));
+      setSymbolModalOpen(true);
+    } else {
+      await addBudgetCatalogItem(item, undefined, selection);
+    }
+  };
+
+  const addBudgetCatalogItem = async (
+    item: TreatmentPriceCatalogItem,
+    explicitSymbol?: string,
+    selection: CatalogToothSelection = readCurrentCatalogSelection()
+  ) => {
     if (!plan) {
       toast.error("Selecciona o crea un plan de tratamiento.");
       return;
     }
-    if (item.procedure.requiresTooth && !selectedTooth) {
-      toast.error("Selecciona una pieza dental para esta prestacion.");
-      return;
-    }
-    if (item.procedure.requiresSurface && !selectedSurface) {
-      toast.error("Selecciona una superficie para esta prestacion.");
+    const targetTeeth = selection.teeth.length ? selection.teeth : [undefined];
+    const targetSurface = selection.surface;
+
+    if ((item.procedure.requiresTooth || item.procedure.requiresSurface) && !selection.teeth.length) {
+      toast.error("Selecciona una pieza dental, una cara o una region para continuar.");
       return;
     }
 
-    await treatmentMutations.addItem.mutateAsync({
-      treatmentPlanId: plan.id,
-      payload: {
-        procedureId: item.procedureId,
-        toothNumber: item.procedure.requiresTooth ? selectedTooth : undefined,
-        surface: item.procedure.requiresSurface ? selectedSurface : undefined,
-        quantity: 1,
-        unitPrice: numberValue(item.price),
-        discount: 0,
-        syncOdontogram: Boolean(item.procedure.requiresTooth && selectedTooth)
+    const sectionName = `[${item.procedure.code}] ${item.procedure.name}`;
+    let sectionId: string | undefined =
+      plan.sections?.find((section) => section.name === sectionName)?.id ?? autoSectionIdsByName[sectionName];
+
+    if (!sectionId) {
+      try {
+        const updatedPlan = await treatmentMutations.addSection.mutateAsync({
+          treatmentPlanId: plan.id,
+          name: sectionName,
+          sortOrder: (plan.sections?.length || 0) + 1
+        });
+        sectionId = updatedPlan.sections?.find((section) => section.name === sectionName)?.id;
+        if (sectionId) {
+          const createdSectionId = sectionId;
+          setAutoSectionIdsByName((current) => ({ ...current, [sectionName]: createdSectionId }));
+        }
+      } catch {
+        toast.error("No se pudo crear la seccion automatica. Se cargara sin seccion.");
       }
-    });
-    setBudgetDrawerAddedItems((count) => count + 1);
-    toast.success("Prestacion agregada al plan.");
+    }
+
+    await Promise.all(
+      targetTeeth.map((toothNumber) =>
+        treatmentMutations.addItem.mutateAsync({
+          treatmentPlanId: plan.id,
+          payload: {
+            procedureId: item.procedureId,
+            toothNumber,
+            surface: toothNumber ? (targetSurface ? targetSurface : "ALL") : undefined,
+            quantity: 1,
+            odontogramSymbol: explicitSymbol || undefined,
+            sectionId,
+            syncOdontogram: Boolean(toothNumber)
+          }
+        })
+      )
+    );
+    setBudgetDrawerAddedItems((count) => count + targetTeeth.length);
+    toast.success(
+      targetTeeth.length > 1 ? "Prestaciones agregadas al plan." : "Prestación agregada al plan."
+    );
+    if (symbolModalOpen) {
+      setSymbolModalOpen(false);
+      setPendingSymbolItem(null);
+      setPendingSymbolSelection({ teeth: [], surface: "" });
+    }
   };
 
   const createBudgetFromDrawer = async () => {
     if (!plan) return;
     if (!plan.items.length && !budgetDrawerAddedItems) {
-      toast.error("Agrega al menos una prestacion antes de crear el presupuesto.");
+      toast.error("Agrega al menos una prestación antes de crear el presupuesto.");
       return;
     }
     await treatmentMutations.createBudget.mutateAsync({ treatmentPlanId: plan.id });
@@ -430,8 +635,15 @@ export function PatientTreatmentsPage() {
       }
     });
     selectTooth(toothNumber);
+    setSelectedSurface(surfaces.length ? surfaces.join(",") : "");
     setPieceAssignmentItem(null);
-    toast.success("Pieza asignada a la prestacion.");
+    toast.success("Pieza asignada a la prestación.");
+  };
+
+  const selectTreatmentItemPiece = (item: TreatmentPlanItem) => {
+    if (!item.toothNumber) return;
+    selectTooth(item.toothNumber);
+    setSelectedSurface(item.surface && item.surface !== "ALL" ? item.surface : "");
   };
 
   const markItemForFuture = async (item: TreatmentPlanItem) => {
@@ -442,19 +654,29 @@ export function PatientTreatmentsPage() {
       itemId: item.id,
       payload: { plannedAt: marked ? null : new Date().toISOString() }
     });
-    toast.success(marked ? "Prestacion desmarcada para futura realizacion." : "Prestacion marcada para futura realizacion.");
+    toast.success(
+      marked
+        ? "Prestación desmarcada para futura realizacion."
+        : "Prestación marcada para futura realizacion."
+    );
   };
 
   const unrealizeItem = async (item: TreatmentPlanItem) => {
     if (!plan) return;
-    await treatmentMutations.updateItemStatus.mutateAsync({ treatmentPlanId: plan.id, itemId: item.id, status: "PLANNED" });
-    toast.success("Prestacion marcada como no realizada.");
+    await treatmentMutations.updateItemStatus.mutateAsync({
+      treatmentPlanId: plan.id,
+      itemId: item.id,
+      status: "PLANNED",
+      completionPercentage: 0,
+      expectedVersion: item.version
+    });
+    toast.success("Prestación marcada como no realizada.");
   };
 
   const unlinkItemPayment = async (item: TreatmentPlanItem) => {
     const allocation = item.paymentAllocations?.[0];
     if (!allocation) {
-      toast.error("Esta prestacion no tiene pagos asociados.");
+      toast.error("Esta prestación no tiene pagos asociados.");
       return;
     }
     await paymentMutations.removeAllocation.mutateAsync(allocation.id);
@@ -463,32 +685,151 @@ export function PatientTreatmentsPage() {
   const payItem = (item: TreatmentPlanItem) => {
     const pending = Math.max(numberValue(item.total) - itemPaidAmount(item), 0);
     if (pending <= 0) {
-      toast.error("Esta prestacion no tiene saldo pendiente.");
+      toast.error("Esta prestación no tiene saldo pendiente.");
       return;
     }
-    navigate(`/patients/${id}/payments?treatmentPlanId=${encodeURIComponent(item.treatmentPlanId)}&itemId=${encodeURIComponent(item.id)}&amount=${pending}`);
+    navigate(
+      `${APP_ROUTES.patients.payments(id)}?treatmentPlanId=${encodeURIComponent(item.treatmentPlanId)}&itemId=${encodeURIComponent(item.id)}&amount=${pending}`
+    );
   };
 
-  const printBudget = async () => {
-    if (!latestBudget) {
-      toast.error("Primero genera un presupuesto.");
+  const evolveItem = (item: TreatmentPlanItem) => {
+    setEvolutionContext({
+      treatmentPlanId: item.treatmentPlanId,
+      treatmentPlanItemId: item.id
+    });
+  };
+
+  const openPdfDocument = (document: { base64: string; mimeType: string; fileName: string }, win: Window) => {
+    const binary = window.atob(document.base64);
+    const len = binary.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const url = URL.createObjectURL(new Blob([bytes], { type: document.mimeType || "application/pdf" }));
+    win.document.open();
+    win.document.write(`
+      <!DOCTYPE html>
+      <html style="height: 100%; margin: 0;">
+        <head><title>${document.fileName}</title></head>
+        <body style="margin:0; overflow:hidden; height: 100vh;">
+          <iframe src="${url}#view=FitH" width="100%" height="100%" style="border:none; height: 100vh; width: 100vw;"></iframe>
+        </body>
+      </html>
+    `);
+    win.document.close();
+  };
+
+  const printTreatmentDocument = async (type: TreatmentPlanPrintDocumentType) => {
+    if (!plan) {
+      toast.error("Selecciona un plan de tratamiento.");
       return;
     }
-    const printable = await treatmentMutations.printBudget.mutateAsync(latestBudget.id);
-    const win = window.open("", "_blank", "noopener,noreferrer,width=720,height=900");
+    const option = printOptionsByType.get(type);
+    if (option && !option.enabled) {
+      toast.error(option.disabled_reason ?? "Esta opcion no esta disponible.");
+      return;
+    }
+    setPrintCenterOption(
+      option ?? {
+        visible: true,
+        enabled: true,
+        disabled_reason: null,
+        permission: "budgets.print",
+        document_type: type,
+        label: type,
+        description: "Documento de plan de tratamiento.",
+        context: { budgetId: latestBudget?.id ?? null }
+      }
+    );
+  };
+
+  const generatePrintDocument = async (mode: "preview" | "generate") => {
+    if (!plan || !printCenterOption) return;
+    const win = window.open("about:blank", "_blank", "width=1200,height=900");
     if (!win) {
       toast.error("El navegador bloqueo la ventana de impresion.");
       return;
     }
-    win.document.write(`<pre style="font:14px/1.5 system-ui;white-space:pre-wrap">${printable.printableText ?? ""}</pre>`);
-    win.document.close();
-    win.print();
+    win.opener = null;
+    try {
+      win.document.open();
+      win.document.write('<p style="font:14px system-ui;margin:24px">Generando documento...</p>');
+      win.document.close();
+
+      const payload = {
+        treatmentPlanId: plan.id,
+        type: printCenterOption.document_type,
+        budgetId: printCenterOption.context?.budgetId ?? latestBudget?.id ?? undefined
+      };
+      const document =
+        mode === "preview"
+          ? await treatmentMutations.previewTreatmentPlanDocument.mutateAsync(payload)
+          : await treatmentMutations.generateTreatmentPlanDocument.mutateAsync(payload);
+      openPdfDocument(document, win);
+      if (mode === "generate") setPrintCenterOption(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Hubo un error al generar el documento.";
+      win.document.open();
+      win.document.write(`<p style="font:14px system-ui;margin:24px;color:#b91c1c">${message}</p>`);
+      win.document.close();
+      toast.error(message);
+    }
+  };
+
+  const collectPlan = (targetPlan: TreatmentPlanDetail) => {
+    if (!canCollectPayment) {
+      toast.error("No tienes permisos para recaudar.");
+      return;
+    }
+    const returnUrl = `${APP_ROUTES.patients.treatments(id)}?planId=${encodeURIComponent(targetPlan.id)}`;
+    navigate(
+      `${APP_ROUTES.patients.payments(id)}?treatmentPlanId=${encodeURIComponent(targetPlan.id)}&returnUrl=${encodeURIComponent(returnUrl)}`
+    );
+  };
+
+  const openFinancingPlan = () => {
+    if (!plan) return;
+    if (!canCreateFinancing) {
+      toast.error("No tienes permisos para crear financiamientos.");
+      return;
+    }
+    if (!financeableItems.length) {
+      toast.error("No existen prestaciones con saldo disponible para financiar.");
+      return;
+    }
+    setFinancingModalOpen(true);
+  };
+
+  const openPayrollDiscount = () => {
+    if (!canUsePayrollDiscount) {
+      toast.error(payrollDiscountDisabledReason(patient.data?.agreement, payrollChargeTotal));
+      return;
+    }
+    if (!plan?.agreementId) {
+      toast.error("El plan no conserva un convenio asociado.");
+      return;
+    }
+    setPayrollDiscountModalOpen(true);
+  };
+
+  const duplicatePlan = async (targetPlan: TreatmentPlanDetail) => {
+    const duplicated = await treatmentMutations.duplicateTreatmentPlan.mutateAsync({
+      id: targetPlan.id,
+      reason: "Duplicado desde barra de acciones del plan"
+    });
+    if (duplicated?.id) setSelectedPlanId(duplicated.id);
+    toast.success("Plan de tratamiento duplicado.");
   };
 
   const assignAgreement = async (agreementId: string) => {
     await updatePatient.mutateAsync({
       id,
-      payload: { agreementId }
+      payload: {
+        agreementId,
+        expectedVersion: patient.data?.version
+      }
     });
     setAgreementModalOpen(false);
     toast.success("Convenio asignado al paciente.");
@@ -526,146 +867,369 @@ export function PatientTreatmentsPage() {
     setPendingAppointmentMove(null);
   };
 
-  if (patient.isLoading || plans.isLoading) return <LoadingState message="Cargando planes de tratamiento..." />;
+  const planOdontogramPanel = plan ? (
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+        <div>
+          <h2 className="text-base font-semibold text-slate-900">Odontograma del plan</h2>
+          <p className="text-xs text-slate-500">
+            Selecciona una pieza y agrega productos desde el arancel del convenio del plan.
+          </p>
+        </div>
+      </div>
+
+      {odontogram.isLoading ? <LoadingState message="Cargando odontograma..." /> : null}
+      {odontogram.isError ? <ErrorState message={odontogram.error.message} /> : null}
+      {odontogram.data ? (
+        <OdontogramView
+          mode="treatment-plan"
+          selectedTooth={selectedTooth}
+          latestByTooth={odontogram.data.latestByTooth ?? {}}
+          conditions={odontogram.data.conditions ?? []}
+          records={odontogram.data.records ?? []}
+          procedures={odontogram.data.procedures ?? []}
+          onSelectTooth={handleSelectTooth}
+          onOpenDiagnosis={() => openOdontogramModal("diagnosis")}
+          onOpenPreexistence={() => openOdontogramModal("preexistence")}
+          onOpenLesion={() => openOdontogramModal("lesion")}
+          onOpenTreatment={openProcedureModal}
+          onOpenProcedureCatalog={openBudgetDrawer}
+          onOpenInformation={() => openOdontogramModal("info")}
+          onApplyQuickDiagnosis={(diagnosis) => void createDiagnosisForSelectedTeeth(diagnosis)}
+          showHistoryTable={false}
+        />
+      ) : null}
+    </section>
+  ) : null;
+
+  const planItemsPanel = plan ? (
+    <TreatmentItemsTable
+      plan={plan}
+      activePriceVersionNumber={priceList?.activeVersion?.number ?? null}
+      proceduresData={planProcedures.data ?? null}
+      loadingProcedures={planProcedures.isLoading}
+      onAssignPiece={setPieceAssignmentItem}
+      onMarkFuture={(item) => void markItemForFuture(item)}
+      onUnrealize={(item) => void unrealizeItem(item)}
+      onUnlinkPayment={(item) => void unlinkItemPayment(item)}
+      onPay={payItem}
+      onCreateSection={() => setSectionModalOpen(true)}
+      onOpenProcedureCatalog={openBudgetDrawer}
+      onSelectPiece={selectTreatmentItemPiece}
+      onEvolveItem={evolveItem}
+      canApplyTreatmentDiscount={
+        hasPermission("treatment_discount.apply") ||
+        hasPermission("treatment_discount.override") ||
+        hasPermission("organization.manage_all")
+      }
+      onApplyBulkDiscount={(payload) =>
+        treatmentMutations.applyBulkDiscount.mutateAsync({ treatmentPlanId: plan.id, ...payload })
+      }
+      onDelete={(itemId) => treatmentMutations.deleteItem.mutate({ treatmentPlanId: plan.id, itemId })}
+    />
+  ) : null;
+
+  const planBudgetPanel = plan ? (
+    <BudgetPanel
+      budget={latestBudget}
+      onSend={(budgetId) => treatmentMutations.sendBudget.mutate(budgetId)}
+      onAccept={(budgetId) => treatmentMutations.acceptBudget.mutate(budgetId)}
+      onCreate={openBudgetDrawer}
+    />
+  ) : null;
+
+  const planSignaturePanel = (
+    <PatientSignaturePanel
+      patientId={id}
+      notes={patient.data?.notes ?? []}
+      onAddComment={() => setCommentModalOpen(true)}
+    />
+  );
+
+  if (patient.isLoading || plans.isLoading)
+    return <LoadingState message="Cargando planes de tratamiento..." />;
   if (patient.isError) return <ErrorState message={patient.error.message} />;
   if (plans.isError) return <ErrorState message={plans.error.message} />;
 
   return (
-    <PatientSectionPage patientId={id} title="Paciente - Tratamientos" description="Plan clinico, odontograma, precios y presupuesto.">
+    <PatientSectionPage
+      patientId={id}
+      title="Paciente - Tratamientos"
+      description="Plan clinico, odontograma, precios y presupuesto."
+      hideSubnav={!!selectedPlanId}
+    >
       <div className="space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-          <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-slate-900">Plan de tratamiento</span>
-            {planList.length ? (
-              <Select value={selectedPlanId} onChange={(event) => setSelectedPlanId(event.target.value)} className="w-[280px]">
-                {planList.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} - {PLAN_STATUS_LABELS[item.status]}
-                  </option>
-                ))}
-              </Select>
-            ) : null}
-            {plan ? <Badge value={PLAN_STATUS_LABELS[plan.status]} tone={plan.status === "COMPLETED" || plan.status === "ACCEPTED" ? "success" : "warning"} /> : null}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => void createPlan()} disabled={treatmentMutations.createTreatmentPlan.isPending}>
-              <Plus className="mr-1 h-4 w-4" />
-              Nuevo plan
-            </Button>
-            <Button
-              variant="secondary"
-              disabled={!plan || treatmentMutations.createBudget.isPending}
-              onClick={openBudgetDrawer}
-            >
-              <Receipt className="mr-1 h-4 w-4" />
-              Generar presupuesto
-            </Button>
-            <Button variant="secondary" disabled={!latestBudget} onClick={() => void printBudget()}>
-              <Printer className="mr-1 h-4 w-4" />
-              Imprimir
-            </Button>
-          </div>
-        </div>
-
-        {!planList.length ? (
-          <Card className="text-center">
-            <EmptyState title="Sin planes de tratamiento" description="Crea el primer plan para activar odontograma, precios y presupuesto." />
-            <Button className="mt-3" onClick={() => void createPlan()}>
-              Crear plan inicial
-            </Button>
-          </Card>
-        ) : null}
-
-        {selectedPlan.isLoading ? <LoadingState message="Cargando detalle del plan..." /> : null}
-        {selectedPlan.isError ? <ErrorState message={selectedPlan.error.message} /> : null}
-
-        {plan ? (
-          <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
-            <PlanSidebar
-              plan={plan}
-              totals={totals}
-              patientAgreementName={patient.data?.agreement?.name}
-              upcomingAppointments={upcomingAppointments}
-              globalPaid={payments.data?.balance.allocatedPaidAmount ?? 0}
-              onOpenAgreement={openAgreementPanel}
-              onOpenBranch={() => setBranchModalOpen(true)}
-              onOpenRefunds={() => setRefundsModalOpen(true)}
-            />
-
-            <main className="min-w-0 space-y-4">
-              <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-                  <div>
-                    <h2 className="text-base font-semibold text-slate-900">Odontograma del plan</h2>
-                    <p className="text-xs text-slate-500">
-                      Selecciona una pieza y agrega productos desde el convenio del paciente.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="secondary" onClick={() => setSectionModalOpen(true)}>
-                      <Plus className="mr-1 h-4 w-4" />
-                      Seccion
-                    </Button>
-                    <Button onClick={openProcedureModal}>
-                      <Stethoscope className="mr-1 h-4 w-4" />
-                      Procedimiento
-                    </Button>
-                  </div>
-                </div>
-
-                {odontogram.isLoading ? <LoadingState message="Cargando odontograma..." /> : null}
-                {odontogram.isError ? <ErrorState message={odontogram.error.message} /> : null}
-                {odontogram.data ? (
-                  <OdontogramView
-                    mode="treatment-plan"
-                    selectedTooth={selectedTooth}
-                    latestByTooth={odontogram.data.latestByTooth ?? {}}
-                    conditions={odontogram.data.conditions ?? []}
-                    records={odontogram.data.records ?? []}
-                    procedures={odontogram.data.procedures ?? []}
-                    onSelectTooth={selectTooth}
-                    onOpenDiagnosis={() => openOdontogramModal("diagnosis")}
-                    onOpenPreexistence={() => openOdontogramModal("preexistence")}
-                    onOpenLesion={() => openOdontogramModal("lesion")}
-                    onOpenTreatment={openProcedureModal}
-                    onOpenProcedureCatalog={openBudgetDrawer}
-                    onOpenInformation={() => openOdontogramModal("info")}
-                    onApplyQuickDiagnosis={(diagnosis) => void createDiagnosisForSelectedTeeth(diagnosis)}
-                    showHistoryTable={false}
+        {selectedPlanId ? (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 shadow-sm mb-4">
+              <div className="flex min-w-0 flex-wrap items-center gap-4">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedPlanId("")}
+                  className="text-slate-500 hover:text-slate-800 -ml-2"
+                >
+                  <ChevronLeft className="mr-1 h-4 w-4" />
+                  Volver a planes
+                </Button>
+                <div className="h-6 w-px bg-slate-200 hidden md:block" />
+                <span
+                  className="text-sm font-semibold text-slate-900 truncate max-w-[200px] sm:max-w-[300px]"
+                  title={plan?.name}
+                >
+                  {plan?.name}
+                </span>
+                {plan ? (
+                  <Badge
+                    value={PLAN_CLINICAL_STATUS_LABELS[planClinicalStatus(plan)]}
+                    tone={
+                      planClinicalStatus(plan) === "COMPLETED" ||
+                      planClinicalStatus(plan) === "READY_TO_COMPLETE"
+                        ? "success"
+                        : planClinicalStatus(plan) === "NOT_STARTED"
+                          ? "default"
+                          : "warning"
+                    }
                   />
                 ) : null}
-              </section>
+                {plan ? (
+                  <Badge
+                    value={displayPlanSpecialty(plan)}
+                    tone={plan.kind === "ORTHODONTICS" ? "warning" : "default"}
+                  />
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={openCreatePlan}
+                  disabled={treatmentMutations.createTreatmentPlan.isPending}
+                >
+                  <Plus className="mr-1 h-4 w-4" />
+                  Nuevo plan
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!plan || treatmentMutations.createBudget.isPending}
+                  onClick={openBudgetDrawer}
+                >
+                  <Receipt className="mr-1 h-4 w-4" />
+                  Generar presupuesto
+                </Button>
+                {plan?.status === "DRAFT" ? (
+                  <Button
+                    variant="secondary"
+                    disabled={treatmentMutations.previewReprice.isPending}
+                    onClick={() => void openRepriceModal()}
+                  >
+                    <RotateCcw className="mr-1 h-4 w-4" />
+                    Actualizar precios
+                  </Button>
+                ) : null}
+                <Button
+                  variant="secondary"
+                  disabled={completeBudgetPrintOption ? !completeBudgetPrintOption.enabled : !latestBudget}
+                  onClick={() => void printTreatmentDocument("BUDGET_COMPLETE")}
+                >
+                  <Printer className="mr-1 h-4 w-4" />
+                  Imprimir
+                </Button>
+              </div>
+            </div>
 
-              <TreatmentItemsTable
-                plan={plan}
-                onAssignPiece={setPieceAssignmentItem}
-                onMarkFuture={(item) => void markItemForFuture(item)}
-                onUnrealize={(item) => void unrealizeItem(item)}
-                onUnlinkPayment={(item) => void unlinkItemPayment(item)}
-                onPay={payItem}
-                onDelete={(itemId) => treatmentMutations.deleteItem.mutate({ treatmentPlanId: plan.id, itemId })}
-              />
+            {selectedPlan.isLoading ? <LoadingState message="Cargando detalle del plan..." /> : null}
+            {selectedPlan.isError ? <ErrorState message={selectedPlan.error.message} /> : null}
 
-              <BudgetPanel
-                budget={latestBudget}
-                onSend={(budgetId) => treatmentMutations.sendBudget.mutate(budgetId)}
-                onAccept={(budgetId) => treatmentMutations.acceptBudget.mutate(budgetId)}
-                onCreate={openBudgetDrawer}
-              />
+            {plan ? (
+              <div className="grid gap-4 lg:grid-cols-[300px_1fr]">
+                <PlanSidebar
+                  plan={plan}
+                  totals={totals}
+                  patientAgreementName={effectiveAgreement.agreement?.name}
+                  upcomingAppointments={upcomingAppointments}
+                  onOpenAgreement={openAgreementPanel}
+                  onOpenBranch={() => setBranchModalOpen(true)}
+                  onOpenRefunds={() => setRefundsModalOpen(true)}
+                />
 
-              <PatientSignaturePanel
-                patientId={id}
-                notes={patient.data?.notes ?? []}
-                onAddComment={() => setCommentModalOpen(true)}
-              />
-            </main>
-          </div>
-        ) : null}
+                <main className="min-w-0 space-y-4">
+                  {plan.kind === "ORTHODONTICS" ? (
+                    <OrthodonticPlanWorkspace
+                      patientId={id}
+                      plan={plan}
+                      procedures={procedures.data ?? []}
+                      odontogramPanel={planOdontogramPanel}
+                      savingProfile={treatmentMutations.updateOrthodonticProfile.isPending}
+                      savingDiagnosis={
+                        treatmentMutations.saveOrthodonticDiagnosisDraft.isPending ||
+                        treatmentMutations.saveOrthodonticDiagnosisActive.isPending
+                      }
+                      generatingMonthlyItems={treatmentMutations.createOrthodonticMonthlyItems.isPending}
+                      onSaveProfile={(payload) =>
+                        treatmentMutations.updateOrthodonticProfile.mutateAsync({ id: plan.id, payload })
+                      }
+                      onSaveDiagnosisDraft={(payload) =>
+                        treatmentMutations.saveOrthodonticDiagnosisDraft.mutateAsync({ id: plan.id, payload })
+                      }
+                      onSaveDiagnosisActive={(payload) =>
+                        treatmentMutations.saveOrthodonticDiagnosisActive.mutateAsync({
+                          id: plan.id,
+                          payload
+                        })
+                      }
+                      onGenerateMonthlyItems={(payload) =>
+                        treatmentMutations.createOrthodonticMonthlyItems.mutateAsync({ id: plan.id, payload })
+                      }
+                      onCollect={() => collectPlan(plan)}
+                      onFinance={openFinancingPlan}
+                      onPayrollDiscount={openPayrollDiscount}
+                      financeDisabledReason={financingDisabledReason(canCreateFinancing, financeableTotal)}
+                      payrollDiscountDisabledReason={payrollDiscountDisabledReason(
+                        patient.data?.agreement,
+                        payrollChargeTotal
+                      )}
+                      collectDisabledReason={collectDisabledReason(canCollectPayment, totals.balance)}
+                      onOpenRefunds={() => setRefundsModalOpen(true)}
+                      onDuplicate={() => void duplicatePlan(plan)}
+                      onPrintDocument={(type) => void printTreatmentDocument(type)}
+                      printOptions={printOptions.data ?? []}
+                      canPrintBudget={Boolean(latestBudget)}
+                      canPrintDocuments={plan.items.length > 0}
+                      onPause={(reason) =>
+                        treatmentMutations.pauseTreatment.mutateAsync({ id: plan.id, reason })
+                      }
+                      onResume={() => treatmentMutations.resumeTreatment.mutateAsync(plan.id)}
+                      startingTreatment={treatmentMutations.startOrthodonticTreatment.isPending}
+                      canManageOrthodonticCatalogs={
+                        hasPermission("orthodontic_catalogs.manage") || hasPermission("organization.manage_all")
+                      }
+                      canManageOrthodonticDiagnosisCatalogs={
+                        hasPermission("orthodontic_diagnosis.catalogs.manage") ||
+                        hasPermission("organization.manage_all")
+                      }
+                      onStart={(payload) =>
+                        treatmentMutations.startOrthodonticTreatment.mutateAsync({ id: plan.id, payload })
+                      }
+                      onCreateCatalogOption={(fieldId, label) =>
+                        treatmentMutations.createOrthodonticFieldOption.mutateAsync({ fieldId, label })
+                      }
+                      onUpdateCatalogOption={(optionId, payload) =>
+                        treatmentMutations.updateOrthodonticFieldOption.mutateAsync({ optionId, payload })
+                      }
+                      onDeactivateCatalogOption={(optionId, reason) =>
+                        treatmentMutations.deactivateOrthodonticFieldOption.mutateAsync({ optionId, reason })
+                      }
+                      onReactivateCatalogOption={(optionId) =>
+                        treatmentMutations.reactivateOrthodonticFieldOption.mutateAsync(optionId)
+                      }
+                      onSortCatalogOptions={(fieldId, optionIds) =>
+                        treatmentMutations.sortOrthodonticFieldOptions.mutateAsync({ fieldId, optionIds })
+                      }
+                      onCreateDiagnosisOption={(fieldId, label) =>
+                        treatmentMutations.createOrthodonticDiagnosisFieldOption.mutateAsync({
+                          fieldId,
+                          label
+                        })
+                      }
+                      onUpdateDiagnosisOption={(optionId, payload) =>
+                        treatmentMutations.updateOrthodonticDiagnosisFieldOption.mutateAsync({
+                          optionId,
+                          payload
+                        })
+                      }
+                      onDeactivateDiagnosisOption={(optionId, reason) =>
+                        treatmentMutations.deactivateOrthodonticDiagnosisFieldOption.mutateAsync({
+                          optionId,
+                          reason
+                        })
+                      }
+                      onReactivateDiagnosisOption={(optionId) =>
+                        treatmentMutations.reactivateOrthodonticDiagnosisFieldOption.mutateAsync(optionId)
+                      }
+                      onSortDiagnosisOptions={(fieldId, optionIds) =>
+                        treatmentMutations.sortOrthodonticDiagnosisFieldOptions.mutateAsync({
+                          fieldId,
+                          optionIds
+                        })
+                      }
+                    />
+                  ) : (
+                    <>
+                      <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+                          <div>
+                            <h2 className="text-base font-semibold text-slate-900">Odontograma del plan</h2>
+                            <p className="text-xs text-slate-500">
+                              Selecciona una pieza y agrega productos desde el convenio del paciente.
+                            </p>
+                          </div>
+                        </div>
+
+                        {odontogram.isLoading ? <LoadingState message="Cargando odontograma..." /> : null}
+                        {odontogram.isError ? <ErrorState message={odontogram.error.message} /> : null}
+                        {odontogram.data ? (
+                          <OdontogramView
+                            mode="treatment-plan"
+                            selectedTooth={selectedTooth}
+                            latestByTooth={odontogram.data.latestByTooth ?? {}}
+                            conditions={odontogram.data.conditions ?? []}
+                            records={odontogram.data.records ?? []}
+                            procedures={odontogram.data.procedures ?? []}
+                            onSelectTooth={handleSelectTooth}
+                            onOpenDiagnosis={() => openOdontogramModal("diagnosis")}
+                            onOpenPreexistence={() => openOdontogramModal("preexistence")}
+                            onOpenLesion={() => openOdontogramModal("lesion")}
+                            onOpenTreatment={openProcedureModal}
+                            onOpenProcedureCatalog={openBudgetDrawer}
+                            onOpenInformation={() => openOdontogramModal("info")}
+                            onApplyQuickDiagnosis={(diagnosis) =>
+                              void createDiagnosisForSelectedTeeth(diagnosis)
+                            }
+                            showHistoryTable={false}
+                          />
+                        ) : null}
+                      </section>
+                    </>
+                  )}
+                  {planItemsPanel}
+                  {planBudgetPanel}
+                  {planSignaturePanel}
+                </main>
+              </div>
+            ) : null}
+          </>
+        ) : (
+          <TreatmentPlanCardsList
+            planList={planList}
+            onSelectPlan={setSelectedPlanId}
+            onOpenCreatePlan={openCreatePlan}
+            creatingPlan={treatmentMutations.createTreatmentPlan.isPending}
+          />
+        )}
       </div>
+
+      <ClinicalEvolutionModal
+        patientId={id}
+        branchId={plan?.branch.id ?? patient.data?.branchId ?? activeBranchId ?? undefined}
+        open={Boolean(evolutionContext)}
+        initialTreatmentPlanId={evolutionContext?.treatmentPlanId}
+        initialTreatmentPlanItemId={evolutionContext?.treatmentPlanItemId}
+        onClose={() => setEvolutionContext(null)}
+      />
+
+      <NewTreatmentPlanModal
+        open={planModalOpen}
+        patientBranchId={patient.data?.branchId ?? activeBranchId ?? ""}
+        planCount={planList.length}
+        onClose={() => setPlanModalOpen(false)}
+        onSave={createPlanFromModal}
+        saving={treatmentMutations.createTreatmentPlan.isPending}
+      />
 
       <BudgetProcedureDrawer
         open={budgetDrawerOpen}
         plan={plan}
+        agreementName={effectiveAgreement.agreement?.name ?? null}
         priceList={priceList}
         selectedTooth={selectedTooth}
         selectedSurface={selectedSurface}
@@ -673,8 +1237,21 @@ export function PatientTreatmentsPage() {
         addingItem={treatmentMutations.addItem.isPending}
         creatingBudget={treatmentMutations.createBudget.isPending}
         onClose={() => setBudgetDrawerOpen(false)}
-        onAddItem={addBudgetCatalogItem}
+        onAddItem={requestBudgetCatalogItem}
         onCreateBudget={createBudgetFromDrawer}
+      />
+
+      <TreatmentRepriceModal
+        preview={repricePreview}
+        plan={plan}
+        reason={repriceReason}
+        applying={treatmentMutations.applyReprice.isPending}
+        onReasonChange={setRepriceReason}
+        onClose={() => {
+          setRepricePreview(null);
+          setRepriceReason("");
+        }}
+        onApply={() => void applyReprice()}
       />
 
       <PlanProcedureModal
@@ -703,13 +1280,49 @@ export function PatientTreatmentsPage() {
         onSave={assignPieceToItem}
       />
 
+      <SymbolModal
+        open={symbolModalOpen}
+        item={pendingSymbolItem}
+        selectedSymbol={selectedSymbol}
+        onSymbolChange={setSelectedSymbol}
+        teeth={pendingSymbolSelection.teeth}
+        saving={treatmentMutations.addItem.isPending}
+        onClose={() => {
+          setSymbolModalOpen(false);
+          setPendingSymbolItem(null);
+          setPendingSymbolSelection({ teeth: [], surface: "" });
+        }}
+        onSave={() => {
+          if (pendingSymbolItem) {
+            void addBudgetCatalogItem(pendingSymbolItem, selectedSymbol, pendingSymbolSelection);
+          }
+        }}
+      />
+
+      <PrintCenterModal
+        open={Boolean(printCenterOption)}
+        option={printCenterOption}
+        plan={plan}
+        patientName={`${patient.data?.firstName ?? ""} ${patient.data?.lastName ?? ""}`.trim()}
+        logoLabel="Logo configurado en identidad de clinica/sucursal"
+        saving={
+          treatmentMutations.previewTreatmentPlanDocument.isPending ||
+          treatmentMutations.generateTreatmentPlanDocument.isPending
+        }
+        onClose={() => setPrintCenterOption(null)}
+        onPreview={() => void generatePrintDocument("preview")}
+        onGenerate={() => void generatePrintDocument("generate")}
+      />
+
       <SectionModal
         open={sectionModalOpen}
+        nextSortOrder={(plan?.sections.length ?? 0) + 1}
         onClose={() => setSectionModalOpen(false)}
-        onSave={async (name) => {
+        onSave={async ({ name, sortOrder }) => {
           if (!plan) return;
-          await treatmentMutations.addSection.mutateAsync({ treatmentPlanId: plan.id, name });
+          await treatmentMutations.addSection.mutateAsync({ treatmentPlanId: plan.id, name, sortOrder });
           setSectionModalOpen(false);
+          toast.success("La seccion fue creada correctamente.");
         }}
       />
 
@@ -724,8 +1337,8 @@ export function PatientTreatmentsPage() {
 
       <AgreementAssignmentModal
         open={agreementModalOpen}
-        currentAgreementId={patient.data?.agreement?.id}
-        currentAgreement={patient.data?.agreement ?? null}
+        currentAgreementId={effectiveAgreement.agreement?.id ?? patient.data?.agreement?.id}
+        currentAgreement={effectiveAgreement.agreement ?? patient.data?.agreement ?? null}
         plan={plan}
         onClose={() => setAgreementModalOpen(false)}
         onAssign={assignAgreement}
@@ -734,8 +1347,36 @@ export function PatientTreatmentsPage() {
 
       <AgreementDetailModal
         open={agreementDetailModalOpen}
-        agreement={patient.data?.agreement ?? null}
+        agreement={effectiveAgreement.agreement ?? patient.data?.agreement ?? null}
         onClose={() => setAgreementDetailModalOpen(false)}
+      />
+
+      <FinancingModal
+        open={financingModalOpen}
+        plan={plan}
+        items={financeableItems}
+        totalAvailable={financeableTotal}
+        saving={paymentMutations.createInstallmentPlan.isPending}
+        onClose={() => setFinancingModalOpen(false)}
+        onCreate={async (payload) => {
+          if (!plan) return;
+          await paymentMutations.createInstallmentPlan.mutateAsync(payload);
+          setFinancingModalOpen(false);
+        }}
+      />
+
+      <PayrollDiscountModal
+        open={payrollDiscountModalOpen}
+        plan={plan}
+        items={payrollChargeItems}
+        totalAvailable={payrollChargeTotal}
+        saving={createPayrollDiscountPlan.isPending}
+        onClose={() => setPayrollDiscountModalOpen(false)}
+        onCreate={async (payload) => {
+          if (!plan?.agreementId) return;
+          await createPayrollDiscountPlan.mutateAsync({ agreementId: plan.agreementId, payload });
+          setPayrollDiscountModalOpen(false);
+        }}
       />
 
       <BranchChangeModal
@@ -765,6 +1406,7 @@ export function PatientTreatmentsPage() {
       <DiagnosisModal
         open={activeModal === "diagnosis" && Boolean(selectedTooth)}
         toothNumber={selectedTooth}
+        surface={selectedSurface}
         onClose={closeOdontogramModal}
         onAddDiagnosis={(diagnosis, notes) => void createDiagnosisForSelectedTeeth(diagnosis, notes)}
       />
@@ -775,6 +1417,7 @@ export function PatientTreatmentsPage() {
         tone="preexistence"
         sectionTitles={["Preexistencias"]}
         toothNumbers={actionTeeth}
+        surface={selectedSurface}
         onClose={closeOdontogramModal}
         onAddDiagnosis={(diagnosis, notes) => void createDiagnosisForSelectedTeeth(diagnosis, notes)}
       />
@@ -785,6 +1428,7 @@ export function PatientTreatmentsPage() {
         tone="lesion"
         sectionTitles={["Lesiones"]}
         toothNumbers={actionTeeth}
+        surface={selectedSurface}
         onClose={closeOdontogramModal}
         onAddDiagnosis={(diagnosis, notes) => void createDiagnosisForSelectedTeeth(diagnosis, notes)}
       />
@@ -792,1257 +1436,17 @@ export function PatientTreatmentsPage() {
       <ToothInformationModal
         open={activeModal === "info" && Boolean(selectedTooth)}
         toothNumber={selectedTooth}
+        surface={selectedSurface}
         history={toothHistory.data}
         historyLoading={toothHistory.isLoading}
-        onCancelRecord={(odontogramRecordId) => clinicalMutations.cancelOdontogramRecord.mutate(odontogramRecordId)}
+        onCancelRecord={(odontogramRecordId) =>
+          clinicalMutations.cancelOdontogramRecord.mutate(odontogramRecordId)
+        }
         onUpdateProcedureStatus={(payload) => clinicalMutations.updateToothProcedureStatus.mutate(payload)}
         onClose={closeOdontogramModal}
       />
 
       <MultipleToothSelectionModal open={activeModal === "multi-help"} onClose={closeOdontogramModal} />
     </PatientSectionPage>
-  );
-}
-
-function PlanSidebar({
-  plan,
-  totals,
-  patientAgreementName,
-  upcomingAppointments,
-  globalPaid,
-  onOpenAgreement,
-  onOpenBranch,
-  onOpenRefunds
-}: {
-  plan: TreatmentPlanDetail;
-  totals: ReturnType<typeof planTotals>;
-  patientAgreementName?: string | null;
-  upcomingAppointments: Array<{ id: string; startAt: string; status: string; professional: { firstName: string; lastName: string }; branch?: { name: string } | null }>;
-  globalPaid: number;
-  onOpenAgreement: () => void;
-  onOpenBranch: () => void;
-  onOpenRefunds: () => void;
-}) {
-  return (
-    <aside className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="bg-gradient-to-br from-[#0b8bd8] to-[#23b4c8] p-5 text-white">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase text-white/75">Plan de tratamiento</p>
-            <h2 className="mt-1 text-xl font-bold leading-tight">{plan.name}</h2>
-          </div>
-          <span className="rounded bg-white/15 px-2 py-1 text-xs font-semibold">#{plan.id.slice(-6).toUpperCase()}</span>
-        </div>
-
-        <div className="mt-5 rounded-lg bg-white p-4 text-slate-900 shadow-sm">
-          <p className="text-center text-xs text-slate-500">Presupuesto total</p>
-          <p className="mt-1 text-center text-2xl font-semibold text-[#0879d5]">{money(totals.total)}</p>
-          <div className="mt-4 space-y-2 text-xs">
-            <SummaryLine label="Subtotal" value={money(totals.subtotal)} />
-            <SummaryLine label="Descuento" value={money(totals.discount)} />
-            <SummaryLine label="Realizado" value={money(totals.completed)} />
-            <SummaryLine label="Abonado al plan" value={money(totals.paid)} />
-            <SummaryLine label="Abonos del paciente" value={money(globalPaid)} />
-            <SummaryLine label="Saldo por abonar" value={money(totals.balance)} strong />
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-4 p-5 text-sm">
-        <SidebarFact icon={<UserRound className="h-5 w-5" />} label="Profesional a cargo" value={`${plan.professional.firstName} ${plan.professional.lastName}`} />
-        <SidebarFact icon={<FolderOpen className="h-5 w-5" />} label="Convenio" value={patientAgreementName ?? "Sin convenio"} onClick={onOpenAgreement} />
-        <SidebarFact icon={<Building2 className="h-5 w-5" />} label="Sucursal" value={plan.branch.name} onClick={onOpenBranch} />
-        <SidebarFact icon={<Briefcase className="h-5 w-5" />} label="Reembolsos" value="Ver reembolsos" onClick={onOpenRefunds} />
-      </div>
-
-      <div className="border-t border-slate-200 p-5">
-        <h3 className="text-sm font-semibold text-slate-900">Citas del paciente</h3>
-        <div className="mt-3 space-y-3">
-          {upcomingAppointments.length ? (
-            upcomingAppointments.map((appointment) => (
-              <div key={appointment.id} className="text-xs text-slate-500">
-                <p className="font-semibold text-slate-800">Cita #{appointment.id.slice(-6).toUpperCase()}</p>
-                <p>{formatDateTime(appointment.startAt)}</p>
-                <p>
-                  Dr(a). {appointment.professional.firstName} {appointment.professional.lastName}
-                </p>
-                <p>{appointment.branch?.name ?? plan.branch.name}</p>
-                <p>{appointment.status}</p>
-              </div>
-            ))
-          ) : (
-            <p className="text-xs text-slate-500">No hay citas registradas para mostrar.</p>
-          )}
-        </div>
-      </div>
-    </aside>
-  );
-}
-
-function SummaryLine({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-dotted border-slate-200 pb-1">
-      <span className="text-slate-500">{label}</span>
-      <span className={strong ? "font-bold text-slate-950" : "font-medium text-slate-700"}>{value}</span>
-    </div>
-  );
-}
-
-function SidebarFact({ icon, label, value, onClick }: { icon: ReactNode; label: string; value: string; onClick?: () => void }) {
-  const content = (
-    <>
-      <div className="mt-0.5 text-slate-400">{icon}</div>
-      <div>
-        <p className="text-xs text-slate-400">{label}</p>
-        <p className="font-medium text-[#0b8bd8]">{value}</p>
-      </div>
-    </>
-  );
-
-  if (onClick) {
-    return (
-      <button type="button" className="flex w-full gap-3 rounded-md text-left transition hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-200" onClick={onClick}>
-        {content}
-      </button>
-    );
-  }
-
-  return (
-    <div className="flex gap-3">
-      {content}
-    </div>
-  );
-}
-
-type PatientAgreementOption = {
-  id: string;
-  name: string;
-  discountPercent?: string | number | null;
-  priceList?: { id: string; name: string; isDefault?: boolean | null } | null;
-};
-
-function AgreementAssignmentModal({
-  open,
-  currentAgreementId,
-  currentAgreement,
-  plan,
-  onClose,
-  onAssign,
-  saving
-}: {
-  open: boolean;
-  currentAgreementId?: string | null;
-  currentAgreement?: PatientAgreementOption | null;
-  plan: TreatmentPlanDetail | null;
-  onClose: () => void;
-  onAssign: (agreementId: string) => Promise<void>;
-  saving: boolean;
-}) {
-  const [search, setSearch] = useState("");
-  const [agreementId, setAgreementId] = useState("");
-  const agreements = useAgreements(search || undefined, "true");
-  const agreementOptions: PatientAgreementOption[] = agreements.data ?? [];
-  const selectableAgreements =
-    currentAgreement && !agreementOptions.some((agreement) => agreement.id === currentAgreement.id)
-      ? [currentAgreement, ...agreementOptions]
-      : agreementOptions;
-  const selectedAgreement = selectableAgreements.find((agreement) => agreement.id === agreementId) ?? null;
-
-  useEffect(() => {
-    if (!open) return;
-    setSearch("");
-    setAgreementId(currentAgreementId ?? "");
-  }, [currentAgreementId, open]);
-
-  return (
-    <Modal open={open} title="Asignar convenio" onClose={onClose} size="lg">
-      <div className="space-y-4">
-        <div>
-          <label className="text-xs font-semibold text-slate-700">Buscar convenio</label>
-          <div className="mt-2 grid gap-2 md:grid-cols-[1fr_260px]">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar convenio..." />
-            </div>
-            <Select value={agreementId} onChange={(event) => setAgreementId(event.target.value)}>
-              <option value="">Seleccionar convenio</option>
-              {selectableAgreements.map((agreement) => (
-                <option key={agreement.id} value={agreement.id}>
-                  {agreement.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-        </div>
-
-        <div className="rounded-lg bg-sky-50 p-5 text-center text-sm text-sky-900">
-          {!plan?.items.length ? (
-            <>
-              <p className="font-semibold">Plan de tratamiento sin prestaciones</p>
-              <p className="mt-2">Agrega prestaciones al plan de tratamiento para ver los valores con el convenio seleccionado.</p>
-            </>
-          ) : (
-            <>
-              <p className="font-semibold">{plan.items.length} prestaciones en este plan</p>
-              <p className="mt-2">El convenio se asignara al paciente. Los procedimientos existentes no se recalculan automaticamente.</p>
-            </>
-          )}
-        </div>
-
-        {selectedAgreement ? <AgreementSummary agreement={selectedAgreement} /> : null}
-
-        <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
-          <Button variant="secondary" onClick={onClose}>
-            Cerrar
-          </Button>
-          <Button disabled={!agreementId || saving} onClick={() => void onAssign(agreementId)}>
-            Asignar convenio
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function AgreementSummary({ agreement }: { agreement: PatientAgreementOption }) {
-  return (
-    <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 text-sm md:grid-cols-3">
-      <SummaryPill label="Convenio" value={agreement.name} />
-      <SummaryPill label="Descuento" value={`${numberValue(agreement.discountPercent)}%`} />
-      <SummaryPill label="Arancel" value={agreement.priceList?.name ?? "Sin lista asociada"} />
-    </div>
-  );
-}
-
-function AgreementDetailModal({ open, agreement, onClose }: { open: boolean; agreement?: PatientAgreementOption | null; onClose: () => void }) {
-  return (
-    <Modal open={open} title="Detalle del convenio" onClose={onClose} size="lg">
-      <div className="space-y-5">
-        <div>
-          <h3 className="text-lg font-semibold text-slate-900">{agreement?.name ?? "Sin convenio"}</h3>
-          <p className="mt-1 text-sm text-slate-500">Asignado al paciente</p>
-        </div>
-
-        <div className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm md:grid-cols-2">
-          <SummaryPill label="Arancel del convenio" value={agreement?.priceList?.name ?? "Sin arancel asociado"} />
-          <SummaryPill label="Descuento convenio" value={`${numberValue(agreement?.discountPercent)}%`} />
-        </div>
-
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          Este convenio no se modifica desde este plan porque ya existen prestaciones o presupuesto. Las prestaciones existentes conservan sus valores.
-        </div>
-
-        <div className="flex justify-end border-t border-slate-100 pt-4">
-          <Button variant="secondary" onClick={onClose}>
-            Cerrar
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function BranchChangeModal({
-  open,
-  plan,
-  branches,
-  branchesLoading,
-  onClose,
-  onConfirm,
-  saving
-}: {
-  open: boolean;
-  plan: TreatmentPlanDetail | null;
-  branches: Branch[];
-  branchesLoading: boolean;
-  onClose: () => void;
-  onConfirm: (payload: { branchId: string; professionalId: string }) => Promise<void>;
-  saving: boolean;
-}) {
-  const [branchId, setBranchId] = useState("");
-  const [professionalId, setProfessionalId] = useState("");
-  const [confirming, setConfirming] = useState(false);
-  const professionals = useProfessionals(undefined, "true", {
-    branchId: branchId || undefined,
-    pageSize: 100
-  });
-  const selectedBranch = branches.find((branch) => branch.id === branchId) ?? null;
-  const professionalOptions = professionals.data ?? [];
-  const selectedProfessional = professionalOptions.find((professional) => professional.id === professionalId) ?? null;
-  const hasChanges = Boolean(plan && (branchId !== plan.branch.id || professionalId !== plan.professional.id));
-
-  useEffect(() => {
-    if (!open || !plan) return;
-    setBranchId(plan.branch.id);
-    setProfessionalId(plan.professional.id);
-    setConfirming(false);
-  }, [open, plan?.branch.id, plan?.id, plan?.professional.id]);
-
-  useEffect(() => {
-    if (!open || !professionalOptions.length) return;
-    const selectedStillVisible = professionalOptions.some((professional) => professional.id === professionalId);
-    if (!selectedStillVisible) setProfessionalId(professionalOptions[0]?.id ?? "");
-  }, [open, professionalId, professionalOptions]);
-
-  return (
-    <Modal open={open} title="Cambiar sucursal" onClose={onClose}>
-      <div className="space-y-4">
-        <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-          <div className="flex gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
-            <p>
-              Selecciona la sucursal y el doctor que recibira este plan. El paciente pasara a formar parte de la sucursal asignada.
-            </p>
-          </div>
-        </div>
-
-        <div className="grid gap-3">
-          <label className="text-xs font-semibold text-slate-700">Sucursal *</label>
-          <Select
-            value={branchId}
-            disabled={branchesLoading}
-            onChange={(event) => {
-              setBranchId(event.target.value);
-              setProfessionalId("");
-              setConfirming(false);
-            }}
-          >
-            <option value="">Buscar sucursal...</option>
-            {branches.map((branch) => (
-              <option key={branch.id} value={branch.id}>
-                {branch.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-
-        <div className="grid gap-3">
-          <label className="text-xs font-semibold text-slate-700">Doctor asignado *</label>
-          <Select value={professionalId} disabled={!branchId || professionals.isLoading} onChange={(event) => {
-            setProfessionalId(event.target.value);
-            setConfirming(false);
-          }}>
-            <option value="">Seleccionar doctor...</option>
-            {professionalOptions.map((professional) => (
-              <option key={professional.id} value={professional.id}>
-                {professionalName(professional)}
-              </option>
-            ))}
-          </Select>
-          {branchId && !professionals.isLoading && !professionalOptions.length ? (
-            <p className="text-xs text-red-600">No hay profesionales activos en la sucursal seleccionada.</p>
-          ) : null}
-        </div>
-
-        {confirming && selectedBranch && selectedProfessional ? (
-          <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
-            <p className="font-semibold">Confirma el cambio</p>
-            <p className="mt-1">
-              El paciente y el plan se moveran a {selectedBranch.name}, asignados a {professionalName(selectedProfessional)}.
-            </p>
-          </div>
-        ) : null}
-
-        <div className="flex justify-end gap-2 border-t border-slate-100 pt-4">
-          <Button variant="secondary" onClick={onClose}>
-            Cerrar
-          </Button>
-          {!confirming ? (
-            <Button disabled={!branchId || !professionalId || !hasChanges} onClick={() => setConfirming(true)}>
-              Revisar cambio
-            </Button>
-          ) : (
-            <Button disabled={!branchId || !professionalId || saving} onClick={() => void onConfirm({ branchId, professionalId })}>
-              Cambiar
-            </Button>
-          )}
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function RefundsModal({ open, patientId, plan, onClose }: { open: boolean; patientId: string; plan: TreatmentPlanDetail | null; onClose: () => void }) {
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState<RefundStatus | "">("");
-  const refunds = useRefunds(
-    {
-      patientId,
-      treatmentPlanId: plan?.id,
-      status: status || undefined
-    },
-    open && Boolean(patientId && plan?.id)
-  );
-  const filteredRefunds = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    const rows = refunds.data ?? [];
-    if (!term) return rows;
-    return rows.filter((refund) => refundMatchesSearch(refund, plan?.id ?? "", term));
-  }, [plan?.id, refunds.data, search]);
-
-  useEffect(() => {
-    if (!open) return;
-    setSearch("");
-    setStatus("");
-  }, [open]);
-
-  return (
-    <Modal open={open} title="Reembolsos" onClose={onClose} size="2xl">
-      <div className="space-y-4">
-        <p className="text-sm text-slate-500">Tratamiento {plan?.id.slice(-6).toUpperCase() ?? "-"}</p>
-
-        <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 md:flex-row md:items-center md:justify-between">
-          <div className="relative md:w-[360px]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <Input className="pl-9" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por ID o prestacion" />
-          </div>
-          <Select value={status} onChange={(event) => setStatus(event.target.value as RefundStatus | "")} className="md:w-[220px]">
-            <option value="">Todos los reembolsos</option>
-            <option value="PROCESSED">Procesados</option>
-            <option value="PENDING">Pendientes</option>
-            <option value="REJECTED">Rechazados</option>
-          </Select>
-        </div>
-
-        {refunds.isLoading ? <LoadingState message="Cargando reembolsos..." /> : null}
-        {refunds.isError ? <ErrorState message={refunds.error.message} /> : null}
-        {!refunds.isLoading && !refunds.isError ? (
-          filteredRefunds.length ? (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse text-sm">
-                <thead>
-                  <tr className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-                    <th className="px-4 py-3">Reembolso</th>
-                    <th className="px-4 py-3">Prestacion</th>
-                    <th className="px-4 py-3">Pago</th>
-                    <th className="px-4 py-3">Monto</th>
-                    <th className="px-4 py-3">Estado</th>
-                    <th className="px-4 py-3">Fecha</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRefunds.map((refund) => (
-                    <tr key={refund.id} className="border-t border-slate-100 align-top">
-                      <td className="px-4 py-3">
-                        <p className="font-semibold text-slate-900">#{refund.id.slice(-6).toUpperCase()}</p>
-                        <p className="text-xs text-slate-500">{refund.reason ?? "Sin motivo capturado"}</p>
-                      </td>
-                      <td className="px-4 py-3 text-slate-700">{refundProcedureSummary(refund, plan?.id ?? "")}</td>
-                      <td className="px-4 py-3 text-slate-700">#{refund.payment.id.slice(-6).toUpperCase()}</td>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{money(numberValue(refund.amount))}</td>
-                      <td className="px-4 py-3">
-                        <Badge value={REFUND_STATUS_LABELS[refund.status]} tone={refund.status === "PROCESSED" ? "success" : refund.status === "REJECTED" ? "danger" : "warning"} />
-                      </td>
-                      <td className="px-4 py-3 text-slate-500">{formatDateTime(refund.processedAt ?? refund.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <EmptyState title="No hay elementos" description="Paciente sin reembolsos para este tratamiento." />
-          )
-        ) : null}
-
-        <div className="flex justify-end border-t border-slate-100 pt-4">
-          <Button variant="secondary" onClick={onClose}>
-            Cerrar
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function FutureAppointmentsModal({
-  pending,
-  onClose,
-  onConfirm,
-  saving
-}: {
-  pending: { futureAppointmentsCount: number } | null;
-  onClose: () => void;
-  onConfirm: () => Promise<void>;
-  saving: boolean;
-}) {
-  return (
-    <Modal open={Boolean(pending)} title="Mover citas futuras" onClose={onClose}>
-      <div className="space-y-4">
-        <div className="flex gap-3 rounded-lg border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-          <CalendarClock className="mt-0.5 h-5 w-5 flex-none" />
-          <div>
-            <p className="font-semibold">Este plan tiene {pending?.futureAppointmentsCount ?? 0} citas futuras.</p>
-            <p className="mt-1">Puedes moverlas a la nueva sucursal y doctor, o dejarlas como estaban en la agenda.</p>
-          </div>
-        </div>
-
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose}>
-            No mover citas
-          </Button>
-          <Button disabled={saving} onClick={() => void onConfirm()}>
-            Mover citas futuras
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-function SummaryPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <p className="text-xs text-slate-400">{label}</p>
-      <p className="mt-1 font-semibold text-slate-900">{value}</p>
-    </div>
-  );
-}
-
-function professionalName(professional: Professional) {
-  return `Dr(a) ${professional.firstName} ${professional.lastName}`;
-}
-
-function refundProcedureSummary(refund: Refund, treatmentPlanId: string) {
-  const labels = refund.payment.allocations
-    .filter((allocation) => allocation.treatmentPlanItem.treatmentPlanId === treatmentPlanId)
-    .map((allocation) => {
-      const item = allocation.treatmentPlanItem;
-      const procedure = item.procedure ? `${item.procedure.code} - ${item.procedure.name}` : "Prestacion";
-      const tooth = item.toothNumber ? ` (${fdiLabel(item.toothNumber)}${item.surface ? `-${item.surface}` : ""})` : "";
-      return `${procedure}${tooth}`;
-    });
-
-  return labels.length ? labels.join(", ") : "Pago del tratamiento";
-}
-
-function refundMatchesSearch(refund: Refund, treatmentPlanId: string, term: string) {
-  const haystack = [
-    refund.id,
-    refund.payment.id,
-    refund.reason ?? "",
-    refundProcedureSummary(refund, treatmentPlanId)
-  ].join(" ").toLowerCase();
-  return haystack.includes(term);
-}
-
-function PieceAssignmentModal({
-  item,
-  saving,
-  onClose,
-  onSave
-}: {
-  item: TreatmentPlanItem | null;
-  saving: boolean;
-  onClose: () => void;
-  onSave: (item: TreatmentPlanItem, toothNumber: string, surfaces: string[]) => Promise<void>;
-}) {
-  const [toothNumber, setToothNumber] = useState("");
-  const [surfaces, setSurfaces] = useState<string[]>([]);
-
-  useEffect(() => {
-    setToothNumber(item?.toothNumber ?? "");
-    setSurfaces(surfaceValues(item?.surface));
-  }, [item]);
-
-  const toggleSurface = (surface: string) => {
-    setSurfaces((current) => (current.includes(surface) ? current.filter((item) => item !== surface) : [...current, surface]));
-  };
-
-  const procedureLabel = item?.procedure ? `[${item.procedure.code}] ${item.procedure.name}` : "Prestacion";
-
-  return (
-    <Modal open={Boolean(item)} title="Asignar piezas a prestacion" onClose={onClose} size="lg">
-      {item ? (
-        <div className="space-y-5">
-          <div className="flex gap-4">
-            <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sky-500 text-lg font-bold text-white">i</div>
-            <div className="min-w-0 border-l-4 border-sky-400 pl-4">
-              <p className="text-sm font-semibold text-sky-700">Seleccione la pieza que quiere asignar a esta prestacion</p>
-              <p className="mt-1 text-xs text-slate-500">
-                Para asignar mas de una cara, seleccione las opciones necesarias y presione Agregar piezas.
-              </p>
-              <p className="mt-2 line-clamp-2 text-xs font-semibold text-slate-700">{procedureLabel}</p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3 pl-14">
-            <Select value={toothNumber} onChange={(event) => setToothNumber(event.target.value)} className="w-48">
-              <option value="">Seleccione una opcion</option>
-              <optgroup label="Permanentes">
-                {FDI_PERMANENT_TEETH.map((tooth) => (
-                  <option key={tooth} value={tooth}>
-                    Pieza {fdiLabel(tooth)}
-                  </option>
-                ))}
-              </optgroup>
-              <optgroup label="Temporales">
-                {FDI_TEMPORAL_TEETH.map((tooth) => (
-                  <option key={tooth} value={tooth}>
-                    Pieza {fdiLabel(tooth)}
-                  </option>
-                ))}
-              </optgroup>
-            </Select>
-
-            {PIECE_SURFACES.map((surface) => {
-              const active = surfaces.includes(surface.code);
-              return (
-                <button
-                  key={surface.code}
-                  type="button"
-                  className={`inline-flex h-8 items-center gap-1 rounded px-2.5 text-xs font-semibold transition ${
-                    active ? "bg-[#0879d5] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600 hover:border-sky-300"
-                  }`}
-                  onClick={() => toggleSurface(surface.code)}
-                >
-                  <span className="grid h-3.5 w-3.5 place-items-center rounded border border-current text-[10px]">{active ? "x" : ""}</span>
-                  {surface.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="-mx-6 -mb-6 flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-4">
-            <Button variant="ghost" onClick={onClose} disabled={saving}>
-              Cancelar
-            </Button>
-            <Button disabled={!toothNumber || saving} onClick={() => void onSave(item, toothNumber, surfaces)}>
-              {saving ? "Guardando..." : "Agregar piezas"}
-            </Button>
-          </div>
-        </div>
-      ) : null}
-    </Modal>
-  );
-}
-
-function TreatmentItemsTable({
-  plan,
-  onAssignPiece,
-  onMarkFuture,
-  onUnrealize,
-  onUnlinkPayment,
-  onPay,
-  onDelete
-}: {
-  plan: TreatmentPlanDetail;
-  onAssignPiece: (item: TreatmentPlanItem) => void;
-  onMarkFuture: (item: TreatmentPlanItem) => void;
-  onUnrealize: (item: TreatmentPlanItem) => void;
-  onUnlinkPayment: (item: TreatmentPlanItem) => void;
-  onPay: (item: TreatmentPlanItem) => void;
-  onDelete: (itemId: string) => void;
-}) {
-  const [expandedItemId, setExpandedItemId] = useState("");
-
-  const toggleItem = (itemId: string) => {
-    setExpandedItemId((current) => (current === itemId ? "" : itemId));
-  };
-
-  return (
-    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
-        <div>
-          <h2 className="text-base font-semibold text-slate-900">Procedimientos del plan</h2>
-          <p className="text-xs text-slate-500">{plan.items.length} procedimientos asociados al odontograma y presupuesto.</p>
-        </div>
-        <div className="hidden min-w-[500px] grid-cols-[1fr_72px_84px_90px_72px_72px] gap-3 text-right text-[11px] font-bold uppercase text-slate-500 md:grid">
-          <span className="text-left">Pieza</span>
-          <span>Dscto</span>
-          <span>Precio</span>
-          <span>Pago</span>
-          <span>Futuro</span>
-          <span>Estado</span>
-        </div>
-      </div>
-
-      {plan.items.length ? (
-        <div className="overflow-x-auto bg-slate-50/70 p-3">
-          <div className="min-w-[760px] space-y-3">
-            {plan.items.map((item) => {
-              const expanded = expandedItemId === item.id;
-              const paid = itemPaidAmount(item);
-              const pending = Math.max(numberValue(item.total) - paid, 0);
-              const markedForFuture = Boolean(item.plannedAt);
-              const procedureLabel = item.procedure ? `[${item.procedure.code}] ${item.procedure.name}` : item.procedureId;
-              const toothLabel = item.toothNumber ? fdiLabel(item.toothNumber) : "";
-              const surfaces = surfaceLabel(item.surface);
-
-              return (
-                <article key={item.id} className={`border bg-white shadow-sm transition ${expanded ? "border-sky-100 bg-sky-50" : "border-slate-200 hover:border-slate-300"}`}>
-                  <div
-                    role="button"
-                    tabIndex={0}
-                    className="grid w-full grid-cols-[42px_minmax(180px,1fr)_80px_70px_88px_82px_44px_38px] items-center gap-3 px-4 py-3 text-left"
-                    onClick={() => toggleItem(item.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") toggleItem(item.id);
-                    }}
-                  >
-                    <span
-                      className={`h-6 w-6 rounded-full border-4 ${expanded ? "border-sky-500 bg-white" : "border-slate-300 bg-white"}`}
-                      aria-hidden="true"
-                    />
-                    <span className="min-w-0">
-                      <span className="line-clamp-2 text-xs font-semibold uppercase leading-snug text-slate-900">{procedureLabel}</span>
-                      {item.section?.name ? <span className="mt-1 block text-[11px] text-slate-500">{item.section.name}</span> : null}
-                    </span>
-
-                    <span className="flex justify-center">
-                      <button
-                        type="button"
-                        aria-label="Asignar pieza dental"
-                        className="group inline-flex h-10 min-w-12 items-center justify-center gap-1 rounded border border-slate-200 bg-white px-2 text-xs font-bold text-slate-500 shadow-sm transition hover:border-sky-300 hover:text-sky-700"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onAssignPiece(item);
-                        }}
-                      >
-                        <img src="/logo-2.png" alt="" className="h-5 w-5 object-contain opacity-75 group-hover:opacity-100" />
-                        <span>{toothLabel || "+"}</span>
-                      </button>
-                    </span>
-
-                    <span className="text-center text-sm font-medium text-slate-900">{itemDiscountPercent(item)}%</span>
-                    <span className="text-right text-sm font-semibold text-slate-900">{money(numberValue(item.total))}</span>
-                    <span className="text-right text-xs font-medium text-slate-600">
-                      {paid ? money(paid) : "-"}
-                    </span>
-                    <span className="flex justify-center">
-                      <button
-                        type="button"
-                        aria-label={markedForFuture ? "Desmarcar futura realizacion" : "Marcar futura realizacion"}
-                        title={markedForFuture ? "Prestacion marcada para futura realizacion" : "Prestacion desmarcada para futura realizacion"}
-                        className={`grid h-8 w-8 place-items-center rounded-full transition hover:bg-green-50 ${markedForFuture ? "text-green-600" : "text-slate-300"}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onMarkFuture(item);
-                        }}
-                      >
-                        <ShoppingCart className="h-5 w-5" />
-                      </button>
-                    </span>
-                    <span className="flex justify-end">
-                      <span className={`h-4 w-4 rounded-full ${itemStatusDotClass(item.status)}`} title={ITEM_STATUS_LABELS[item.status]} />
-                    </span>
-                  </div>
-
-                  {expanded ? (
-                    <div className="border-t border-sky-100 bg-sky-50 px-4 py-4">
-                      <div className="flex flex-wrap items-center gap-5 text-xs">
-                        <button
-                          type="button"
-                          disabled={item.status === "PLANNED"}
-                          className="inline-flex items-center gap-1 text-slate-500 hover:text-sky-700 disabled:cursor-not-allowed disabled:text-slate-300"
-                          onClick={() => onUnrealize(item)}
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                          Desrealizar
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!item.paymentAllocations?.length}
-                          className="inline-flex items-center gap-1 text-slate-500 hover:text-sky-700 disabled:cursor-not-allowed disabled:text-slate-300"
-                          onClick={() => onUnlinkPayment(item)}
-                        >
-                          <Link2Off className="h-4 w-4" />
-                          Desasociar pago
-                        </button>
-                        <button
-                          type="button"
-                          disabled={pending <= 0}
-                          className="inline-flex items-center gap-1 text-slate-500 hover:text-sky-700 disabled:cursor-not-allowed disabled:text-slate-300"
-                          onClick={() => onPay(item)}
-                        >
-                          <DollarSign className="h-4 w-4" />
-                          Abonar
-                        </button>
-                        <button
-                          type="button"
-                          className="ml-auto inline-flex items-center gap-1 text-red-600 hover:text-red-700 disabled:cursor-not-allowed disabled:text-slate-300"
-                          disabled={item.status === "PAID"}
-                          onClick={() => onDelete(item.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Eliminar
-                        </button>
-                      </div>
-
-                      <div className="mt-4 grid gap-4 border-l-4 border-slate-200 pl-5 text-sm md:grid-cols-[220px_1fr_1fr]">
-                        <div className="flex gap-3">
-                          <GripVertical className="mt-1 h-5 w-5 text-slate-300" />
-                          <UserCircle className="mt-1 h-9 w-9 text-slate-300" />
-                        </div>
-                        <div>
-                          <p className="text-xs font-semibold uppercase text-slate-400">Creado por</p>
-                          <p className="font-semibold text-slate-900">Sistema</p>
-                          <p className="text-xs text-slate-500">Plan actual</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-semibold uppercase text-slate-400">Realizado por</p>
-                          <p className="italic text-slate-500">
-                            {item.status === "COMPLETED" ? "Prestacion marcada como realizada" : "Esta prestacion aun no ha sido realizada"}
-                          </p>
-                          {toothLabel ? <p className="mt-2 text-xs text-slate-600">Pieza {toothLabel}{surfaces ? ` · ${surfaces}` : ""}</p> : null}
-                          {item.notes ? <p className="mt-2 text-xs text-slate-600">{item.notes}</p> : null}
-                        </div>
-                      </div>
-                    </div>
-                  ) : null}
-                </article>
-              );
-            })}
-          </div>
-        </div>
-      ) : (
-        <div className="px-4 py-10 text-center text-slate-500">
-          Selecciona una pieza y agrega un procedimiento para construir el plan.
-        </div>
-      )}
-    </section>
-  );
-}
-
-function BudgetPanel({
-  budget,
-  onCreate,
-  onSend,
-  onAccept
-}: {
-  budget: Budget | null;
-  onCreate: () => void;
-  onSend: (budgetId: string) => void;
-  onAccept: (budgetId: string) => void;
-}) {
-  return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <CheckCircle2 className="h-7 w-7 text-green-600" />
-          <div>
-            <h2 className="text-base font-semibold text-slate-900">Presupuesto y firma</h2>
-            <p className="text-sm text-slate-500">{budget ? `Presupuesto ${budget.status} por ${money(numberValue(budget.total))}` : "Aun no se ha generado presupuesto."}</p>
-          </div>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={onCreate}>
-            <Receipt className="mr-1 h-4 w-4" />
-            Crear presupuesto
-          </Button>
-          <Button variant="secondary" disabled={!budget || !["DRAFT"].includes(budget.status)} onClick={() => budget && onSend(budget.id)}>
-            <Send className="mr-1 h-4 w-4" />
-            Enviar
-          </Button>
-          <Button disabled={!budget || !["DRAFT", "SENT"].includes(budget.status)} onClick={() => budget && onAccept(budget.id)}>
-            <ClipboardCheck className="mr-1 h-4 w-4" />
-            Aceptar
-          </Button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function BudgetProcedureDrawer({
-  open,
-  plan,
-  priceList,
-  selectedTooth,
-  selectedSurface,
-  addedItemsCount,
-  addingItem,
-  creatingBudget,
-  onClose,
-  onAddItem,
-  onCreateBudget
-}: {
-  open: boolean;
-  plan: TreatmentPlanDetail | null;
-  priceList: PriceList | null;
-  selectedTooth: string;
-  selectedSurface: string;
-  addedItemsCount: number;
-  addingItem: boolean;
-  creatingBudget: boolean;
-  onClose: () => void;
-  onAddItem: (item: PriceListItem) => Promise<void>;
-  onCreateBudget: () => Promise<void>;
-}) {
-  const [search, setSearch] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const catalog = useMemo(() => buildTreatmentBudgetCatalog(priceList), [priceList]);
-  const selectedCategory = catalog.find((category) => category.id === categoryId) ?? null;
-  const filteredCategories = catalog.filter((category) => budgetCatalogCategoryMatchesSearch(category, search));
-  const filteredItems = selectedCategory?.items.filter((item) => budgetCatalogItemMatchesSearch(item, search)) ?? [];
-  const planItemCount = Math.max(plan?.items.length ?? 0, addedItemsCount);
-  const canCreateBudget = Boolean(planItemCount);
-  const selectedPieceLabel = selectedTooth ? `${fdiLabel(selectedTooth)}${selectedSurface ? `-${selectedSurface}` : ""}` : "Sin piezas seleccionadas";
-  const drawerTitle = selectedCategory ? `Productos de ${selectedCategory.name}` : "Definir procedimiento";
-
-  useEffect(() => {
-    if (!open) return;
-    setSearch("");
-    setCategoryId("");
-  }, [open, priceList?.id]);
-
-  if (!open || typeof document === "undefined") return null;
-
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex" role="presentation">
-      <button type="button" aria-label="Cerrar definicion de procedimiento" className="absolute inset-0 bg-black/55" onClick={onClose} />
-      <aside
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="budget-procedure-drawer-title"
-        className="relative z-10 flex h-full w-full max-w-[780px] flex-col bg-white shadow-2xl"
-      >
-        <header className="flex h-[70px] shrink-0 items-center justify-between bg-red-600 px-5 text-white">
-          <div className="flex min-w-0 items-center gap-3">
-            {selectedCategory ? (
-              <button type="button" aria-label="Volver a categorias" className="rounded p-1.5 transition hover:bg-white/10" onClick={() => setCategoryId("")}>
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-            ) : (
-              <Receipt className="h-5 w-5 shrink-0" />
-            )}
-            <div className="min-w-0">
-              <h2 id="budget-procedure-drawer-title" className="truncate text-base font-semibold">
-                {drawerTitle}
-              </h2>
-            </div>
-          </div>
-          <button type="button" aria-label="Cerrar" className="rounded p-2 text-white/85 transition hover:bg-white/10 hover:text-white" onClick={onClose}>
-            <X className="h-5 w-5" />
-          </button>
-        </header>
-
-        <div className="relative shrink-0 border-b border-slate-200">
-          <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-          <Input
-            className="h-14 rounded-none border-0 pl-12 text-sm shadow-none focus:border-transparent focus:ring-0"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder={selectedCategory ? "Buscar prestaciones..." : "Buscar categorias, prestaciones, plantillas"}
-          />
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {selectedCategory ? (
-            <div>
-              {filteredItems.length ? (
-                <div className="divide-y divide-slate-100">
-                  {filteredItems.map((item) => (
-                    <div
-                      key={item.id}
-                      className="grid w-full grid-cols-[1fr_auto_auto] items-center gap-4 px-4 py-3 text-left transition hover:bg-slate-50"
-                    >
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <span className="text-xs font-semibold uppercase text-slate-400">{item.procedure.code}</span>
-                          {item.procedure.requiresTooth ? <Badge value="Requiere pieza" tone={selectedTooth ? "brand" : "warning"} /> : null}
-                          {item.procedure.requiresSurface ? <Badge value="Requiere superficie" tone={selectedSurface ? "brand" : "warning"} /> : null}
-                          {item.procedure.requiresLab ? <Badge value="Laboratorio" tone="default" /> : null}
-                        </div>
-                        <p className="mt-1 truncate text-sm font-semibold text-slate-900">{item.procedure.name}</p>
-                        {item.procedure.description ? <p className="mt-1 line-clamp-2 text-xs text-slate-500">{item.procedure.description}</p> : null}
-                      </div>
-                      <div className="whitespace-nowrap text-right text-sm font-semibold text-slate-900">{money(numberValue(item.price))}</div>
-                      <button
-                        type="button"
-                        className="inline-flex h-8 items-center justify-center rounded bg-green-600 px-3 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-wait disabled:opacity-60"
-                        disabled={addingItem}
-                        onClick={() => void onAddItem(item)}
-                      >
-                        <Plus className="h-4 w-4" />
-                        Cargar
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="px-6 py-16 text-center text-sm text-slate-500">
-                  {selectedCategory.items.length
-                    ? "No hay productos con ese filtro en esta categoria."
-                    : "Esta categoria del arancel no tiene productos configurados."}
-                </div>
-              )}
-            </div>
-          ) : catalog.length ? (
-            <div className="divide-y divide-slate-100">
-              {filteredCategories.map((category) => (
-                <button
-                  key={category.id}
-                  type="button"
-                  className="grid w-full grid-cols-[1fr_auto] items-center gap-4 px-4 py-4 text-left transition hover:bg-slate-50"
-                  onClick={() => setCategoryId(category.id)}
-                >
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-slate-800">{category.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {category.items.length ? `${category.items.length} productos` : "Sin productos configurados"}
-                      {category.description ? ` - ${category.description}` : ""}
-                    </p>
-                  </div>
-                  <ChevronRight className="h-5 w-5 text-slate-500" />
-                </button>
-              ))}
-              {!filteredCategories.length ? <div className="px-6 py-16 text-center text-sm text-slate-500">No hay categorias con ese filtro.</div> : null}
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center px-6 text-center">
-              <div>
-                <FolderOpen className="mx-auto h-9 w-9 text-slate-300" />
-                <p className="mt-3 text-sm font-semibold text-slate-700">Sin categorias en el convenio</p>
-                <p className="mt-1 text-xs text-slate-500">Configura categorias en el catalogo asociado al convenio para navegar productos desde aqui.</p>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <footer className="shrink-0 border-t border-slate-200 bg-white px-5 py-4">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="min-w-0">
-              <p className="text-xs text-slate-400">Piezas seleccionadas</p>
-              <p className="truncate text-base font-medium text-slate-800">{selectedPieceLabel}</p>
-              <p className="mt-1 text-xs text-slate-500">Prestaciones en el plan: {planItemCount}</p>
-            </div>
-            <Button disabled={!canCreateBudget || creatingBudget} onClick={() => void onCreateBudget()}>
-              <Receipt className="mr-1 h-4 w-4" />
-              Crear presupuesto
-            </Button>
-          </div>
-        </footer>
-      </aside>
-    </div>,
-    document.body
-  );
-}
-
-function PatientSignaturePanel({
-  patientId,
-  notes,
-  onAddComment
-}: {
-  patientId: string;
-  notes: Array<{ id: string; note: string; createdAt: string }>;
-  onAddComment: () => void;
-}) {
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
-          <h2 className="text-base font-semibold text-slate-900">Firma del paciente</h2>
-          <Link to={`/patients/${patientId}/clinical/consents`}>
-            <Button variant="secondary" size="sm">
-              <FileText className="mr-1 h-4 w-4" />
-              Crear consentimiento
-            </Button>
-          </Link>
-        </div>
-        <div className="space-y-4 py-4 text-sm">
-          <div>
-            <p className="font-semibold text-slate-900">Evoluciones</p>
-            <p className="mt-1 text-slate-500">No hay documentos pendientes por firmar.</p>
-          </div>
-          <div className="border-t border-dashed border-slate-200 pt-4">
-            <p className="font-semibold text-slate-900">Consentimientos</p>
-            <p className="mt-1 text-slate-500">Consulta o crea consentimientos desde la ficha del paciente.</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
-          <h2 className="text-base font-semibold text-slate-900">Comentarios para el paciente</h2>
-          <Button variant="secondary" size="sm" onClick={onAddComment}>
-            <MessageSquarePlus className="mr-1 h-4 w-4" />
-            Agregar
-          </Button>
-        </div>
-        <div className="mt-4 space-y-3">
-          {notes.slice(0, 3).map((note) => (
-            <div key={note.id} className="rounded border border-slate-100 bg-slate-50 p-3 text-sm">
-              <p className="text-slate-700">{note.note}</p>
-              <p className="mt-1 text-xs text-slate-400">{formatDateTime(note.createdAt)}</p>
-            </div>
-          ))}
-          {!notes.length ? <p className="text-center text-sm text-slate-400">Sin comentario, agrega uno para imprimirlo en presupuestos.</p> : null}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function PlanProcedureModal({
-  open,
-  plan,
-  toothNumber,
-  surface,
-  onSurfaceChange,
-  procedures,
-  priceList,
-  onClose,
-  onSave
-}: {
-  open: boolean;
-  plan: TreatmentPlanDetail | null;
-  toothNumber: string;
-  surface: string;
-  onSurfaceChange: (surface: string) => void;
-  procedures: Procedure[];
-  priceList: PriceList | null;
-  onClose: () => void;
-  onSave: (payload: {
-    sectionId?: string;
-    procedureId: string;
-    toothNumber?: string;
-    surface?: string;
-    quantity: number;
-    unitPrice: number;
-    discount: number;
-    notes?: string;
-  }) => Promise<void>;
-}) {
-  const [sectionId, setSectionId] = useState("");
-  const [procedureId, setProcedureId] = useState("");
-  const [quantity, setQuantity] = useState("1");
-  const [unitPrice, setUnitPrice] = useState("0");
-  const [discount, setDiscount] = useState("0");
-  const [notes, setNotes] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setSectionId("");
-    setProcedureId("");
-    setQuantity("1");
-    setUnitPrice("0");
-    setDiscount("0");
-    setNotes("");
-  }, [open, toothNumber]);
-
-  useEffect(() => {
-    if (!procedureId) return;
-    setUnitPrice(String(priceForProcedure(priceList, procedureId)));
-  }, [priceList, procedureId]);
-
-  const selectedProcedure = procedures.find((procedure) => procedure.id === procedureId);
-  const total = Math.max(numberValue(quantity) * numberValue(unitPrice) - numberValue(discount), 0);
-
-  return (
-    <Modal open={open} title={`Agregar procedimiento - Pieza ${fdiLabel(toothNumber)}`} onClose={onClose} size="lg">
-      <div className="grid gap-3 md:grid-cols-2">
-        <Select value={sectionId} onChange={(event) => setSectionId(event.target.value)}>
-          <option value="">Sin seccion</option>
-          {plan?.sections.map((section) => (
-            <option key={section.id} value={section.id}>
-              {section.name}
-            </option>
-          ))}
-        </Select>
-        <SurfaceSelector value={surface} onChange={onSurfaceChange} />
-      </div>
-
-      <div className="mt-3 grid gap-3 md:grid-cols-[1fr_140px]">
-        <Select value={procedureId} onChange={(event) => setProcedureId(event.target.value)}>
-          <option value="">Procedimiento</option>
-          {procedures.map((procedure) => (
-            <option key={procedure.id} value={procedure.id}>
-              {procedure.code} - {procedure.name}
-            </option>
-          ))}
-        </Select>
-        <Input value={quantity} type="number" min={0.01} step={0.01} onChange={(event) => setQuantity(event.target.value)} placeholder="Cantidad" />
-      </div>
-
-      <div className="mt-3 grid gap-3 md:grid-cols-3">
-        <Input value={unitPrice} type="number" min={0} step={0.01} onChange={(event) => setUnitPrice(event.target.value)} placeholder="Precio" />
-        <Input value={discount} type="number" min={0} step={0.01} onChange={(event) => setDiscount(event.target.value)} placeholder="Descuento" />
-        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-          <p className="text-xs text-slate-500">Total</p>
-          <p className="font-semibold text-slate-900">{money(total)}</p>
-        </div>
-      </div>
-
-      <Textarea className="mt-3" rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Diagnostico o notas clinicas" />
-
-      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-        <p>
-          Arancel: <span className="font-semibold text-slate-900">{priceList?.name ?? "Sin lista activa"}</span>
-        </p>
-        <p>
-          Procedimiento: <span className="font-semibold text-slate-900">{selectedProcedure ? `${selectedProcedure.code} - ${selectedProcedure.name}` : "No seleccionado"}</span>
-        </p>
-        <p>
-          Pieza: <span className="font-semibold text-slate-900">{fdiLabel(toothNumber)}{surface ? `-${surface}` : ""}</span>
-        </p>
-      </div>
-
-      <div className="mt-4 flex justify-end gap-2">
-        <Button variant="secondary" onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button
-          disabled={!procedureId || !toothNumber}
-          onClick={() =>
-            void onSave({
-              sectionId: sectionId || undefined,
-              procedureId,
-              toothNumber,
-              surface: surface || undefined,
-              quantity: numberValue(quantity) || 1,
-              unitPrice: numberValue(unitPrice),
-              discount: numberValue(discount),
-              notes: notes || undefined
-            })
-          }
-        >
-          Guardar en plan y odontograma
-        </Button>
-      </div>
-    </Modal>
-  );
-}
-
-function SectionModal({ open, onClose, onSave }: { open: boolean; onClose: () => void; onSave: (name: string) => Promise<void> }) {
-  const [name, setName] = useState("");
-
-  useEffect(() => {
-    if (open) setName("");
-  }, [open]);
-
-  return (
-    <Modal open={open} title="Agregar seccion" onClose={onClose}>
-      <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Fase diagnostica, Endodoncia, Protesis" />
-      <div className="mt-4 flex justify-end gap-2">
-        <Button variant="secondary" onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button disabled={!name.trim()} onClick={() => void onSave(name.trim())}>
-          Guardar seccion
-        </Button>
-      </div>
-    </Modal>
-  );
-}
-
-function CommentModal({ open, onClose, onSave }: { open: boolean; onClose: () => void; onSave: (note: string) => Promise<void> }) {
-  const [note, setNote] = useState("");
-
-  useEffect(() => {
-    if (open) setNote("");
-  }, [open]);
-
-  return (
-    <Modal open={open} title="Comentario para el paciente" onClose={onClose}>
-      <Textarea rows={5} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Escribe el comentario que se usara como referencia del plan." />
-      <div className="mt-4 flex justify-end gap-2">
-        <Button variant="secondary" onClick={onClose}>
-          Cancelar
-        </Button>
-        <Button disabled={!note.trim()} onClick={() => void onSave(note.trim())}>
-          Guardar comentario
-        </Button>
-      </div>
-    </Modal>
   );
 }

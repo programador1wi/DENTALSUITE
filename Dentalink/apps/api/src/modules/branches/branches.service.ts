@@ -22,7 +22,7 @@ export class BranchesService {
     const where: Prisma.BranchWhereInput = {
       deletedAt: null,
       ...this.organizationScope(actor),
-      id: { in: actor.branchIds },
+      ...this.branchAccessScope(actor),
       ...(status ? { status: status as Prisma.EnumBranchStatusFilter["equals"] } : {}),
       ...(search
         ? {
@@ -46,7 +46,7 @@ export class BranchesService {
 
   async findOne(actor: AuthUser, id: string) {
     const branch = await this.prisma.branch.findFirst({
-      where: { id: { equals: id, in: actor.branchIds }, deletedAt: null, ...this.organizationScope(actor) },
+      where: { id, deletedAt: null, ...this.organizationScope(actor), ...this.branchAccessScope(actor) },
       include: { brand: true, zone: true }
     });
     if (!branch) throw new NotFoundException("Branch not found");
@@ -65,13 +65,29 @@ export class BranchesService {
           zoneId: dto.zoneId,
           code: this.normalizeCode(dto.code),
           name: dto.name.trim(),
+          description: dto.description?.trim(),
+          countryCode: dto.countryCode?.trim() ?? "+52",
           phone: dto.phone?.trim(),
+          secondaryPhone: dto.secondaryPhone?.trim(),
           email: dto.email?.toLowerCase().trim(),
+          replyToEmail: dto.replyToEmail?.toLowerCase().trim(),
+          website: dto.website?.trim(),
           address: dto.address?.trim(),
+          exteriorNumber: dto.exteriorNumber?.trim(),
+          interiorNumber: dto.interiorNumber?.trim(),
+          neighborhood: dto.neighborhood?.trim(),
+          postalCode: dto.postalCode?.trim(),
+          municipality: dto.municipality?.trim(),
+          references: dto.references?.trim(),
           city: dto.city?.trim(),
           state: dto.state?.trim(),
           country: dto.country?.trim() ?? "MX",
           timezone: dto.timezone?.trim() ?? "America/Mexico_City",
+          showInEmails: dto.showInEmails ?? true,
+          showInDocuments: dto.showInDocuments ?? true,
+          showInOnlineScheduling: dto.showInOnlineScheduling ?? true,
+          allowOnlineAppointments: dto.allowOnlineAppointments ?? true,
+          allowNotifications: dto.allowNotifications ?? true,
           agendaSlotMinutes: dto.agendaSlotMinutes,
           agendaStartHour: dto.agendaStartHour,
           agendaEndHour: dto.agendaEndHour,
@@ -83,6 +99,11 @@ export class BranchesService {
         where: { userId_branchId: { userId: actor.id, branchId: created.id } },
         create: { userId: actor.id, branchId: created.id, isPrimary: actor.branchIds.length === 0 },
         update: {}
+      });
+
+      await tx.organization.update({
+        where: { id: actor.organizationId },
+        data: { branchScopeVersion: { increment: 1 } }
       });
 
       await this.ensureMinimumBranchStaffing(tx, actor.organizationId, created.id, created.code ?? created.id, created.name);
@@ -106,9 +127,12 @@ export class BranchesService {
 
   async update(actor: AuthUser, id: string, dto: UpdateBranchDto) {
     const current = await this.prisma.branch.findFirst({
-      where: { id: { equals: id, in: actor.branchIds }, deletedAt: null, ...this.organizationScope(actor) }
+      where: { id, deletedAt: null, ...this.organizationScope(actor), ...this.branchAccessScope(actor) }
     });
     if (!current) throw new NotFoundException("Branch not found");
+    if (dto.brandId !== undefined && dto.brandId !== current.brandId && !this.canAssignBrand(actor)) {
+      throw new BadRequestException("No tienes permiso para mover la sucursal de marca");
+    }
 
     this.validateAgendaSettings(dto, {
       agendaStartHour: current.agendaStartHour,
@@ -125,13 +149,29 @@ export class BranchesService {
         brandId: dto.brandId,
         zoneId: dto.zoneId,
         name: dto.name?.trim(),
+        description: dto.description?.trim(),
+        countryCode: dto.countryCode?.trim(),
         phone: dto.phone?.trim(),
+        secondaryPhone: dto.secondaryPhone?.trim(),
         email: dto.email?.toLowerCase().trim(),
+        replyToEmail: dto.replyToEmail?.toLowerCase().trim(),
+        website: dto.website?.trim(),
         address: dto.address?.trim(),
+        exteriorNumber: dto.exteriorNumber?.trim(),
+        interiorNumber: dto.interiorNumber?.trim(),
+        neighborhood: dto.neighborhood?.trim(),
+        postalCode: dto.postalCode?.trim(),
+        municipality: dto.municipality?.trim(),
+        references: dto.references?.trim(),
         city: dto.city?.trim(),
         state: dto.state?.trim(),
         country: dto.country?.trim(),
         timezone: dto.timezone?.trim(),
+        showInEmails: dto.showInEmails,
+        showInDocuments: dto.showInDocuments,
+        showInOnlineScheduling: dto.showInOnlineScheduling,
+        allowOnlineAppointments: dto.allowOnlineAppointments,
+        allowNotifications: dto.allowNotifications,
         status: dto.status,
         agendaSlotMinutes: dto.agendaSlotMinutes,
         agendaStartHour: dto.agendaStartHour,
@@ -156,6 +196,10 @@ export class BranchesService {
   }
 
   async deactivate(actor: AuthUser, id: string) {
+    return this.archive(actor, id);
+  }
+
+  async archive(actor: AuthUser, id: string) {
     const assignedUsers = await this.prisma.userBranch.count({ where: { branchId: id } });
     if (assignedUsers > 0) {
       throw new BadRequestException("Cannot deactivate a branch assigned to users");
@@ -163,8 +207,28 @@ export class BranchesService {
     return this.update(actor, id, { status: "INACTIVE" });
   }
 
+  async restore(actor: AuthUser, id: string) {
+    return this.update(actor, id, { status: "ACTIVE" });
+  }
+
   private organizationScope(actor: AuthUser): Prisma.BranchWhereInput {
-    return actor.permissions.includes("system.manage_all") ? {} : { organizationId: actor.organizationId };
+    return { organizationId: actor.organizationId };
+  }
+
+  private branchAccessScope(actor: AuthUser): Prisma.BranchWhereInput {
+    return actor.permissions.includes("organization.manage_all") ||
+      actor.permissions.includes("branches.view_all") ||
+      actor.permissions.includes("health_center.manage")
+      ? {}
+      : { id: { in: actor.branchIds } };
+  }
+
+  private canAssignBrand(actor: AuthUser) {
+    return (
+      actor.permissions.includes("organization.manage_all") ||
+      actor.permissions.includes("health_center.manage") ||
+      actor.permissions.includes("branches.assign_brand")
+    );
   }
 
   private normalizeCode(code: string) {

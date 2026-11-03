@@ -3,13 +3,20 @@ import { http } from "@/lib/api/http-client";
 export type AppointmentStatus =
   | "SCHEDULED"
   | "CONFIRMED"
+  | "CONFIRMED_BY_WHATSAPP"
+  | "CONFIRMED_BY_PHONE"
+  | "CONFIRMED_BY_EMAIL"
   | "PENDING_CONFIRMATION"
+  | "NOTIFIED_BY_WHATSAPP"
+  | "NOTIFIED_BY_EMAIL"
   | "ARRIVED"
   | "WAITING_ROOM"
   | "IN_PROGRESS"
   | "COMPLETED"
   | "CANCELLED_BY_PATIENT"
   | "CANCELLED_BY_CLINIC"
+  | "CANCELLED_CONFLICT"
+  | "CANCELLED_RESCHEDULED"
   | "NO_SHOW"
   | "RESCHEDULED"
   | "BLOCKED";
@@ -21,6 +28,9 @@ export type Appointment = {
   patientId?: string | null;
   professionalId: string;
   chairId?: string | null;
+  chairIndex?: number;
+  isOverbooking?: boolean;
+  attendanceMode?: AttendanceMode;
   specialtyId?: string | null;
   treatmentPlanId?: string | null;
   title: string;
@@ -34,17 +44,35 @@ export type Appointment = {
   createdAt?: string;
   updatedAt?: string;
   branch: { id: string; name: string };
-  patient?: { id: string; firstName: string; lastName: string; phone?: string | null; email?: string | null } | null;
+  patient?: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    phone?: string | null;
+    email?: string | null;
+    hasDebt?: boolean;
+    outstandingBalance?: number;
+  } | null;
   professional: { id: string; firstName: string; lastName: string; color?: string | null };
   chair?: { id: string; name: string } | null;
   specialty?: { id: string; name: string } | null;
   treatmentPlan?: { id: string; name: string; status: string } | null;
+  financialSituation?: {
+    treatmentPlanId: string;
+    code: "DEBT" | "AVAILABLE_BALANCE" | "DIAGNOSTIC" | "NO_AVAILABLE_BALANCE" | "CANCELLED";
+    label: string;
+    severity: "danger" | "success" | "warning" | "neutral";
+    amount: string | null;
+    currency: string;
+  } | null;
   createdBy?: { id: string; firstName: string; lastName: string } | null;
   statusHistory?: AppointmentStatusHistory[];
   appointmentNotes?: AppointmentNote[];
   reminders?: AppointmentReminder[];
   _count?: { appointmentNotes?: number };
 };
+
+export type AttendanceMode = "PRESENTIAL" | "TELECONSULTATION" | "BOTH";
 
 export type AppointmentStatusHistory = {
   id: string;
@@ -105,15 +133,23 @@ export type AppointmentReminderUpdatePayload = Partial<AppointmentReminderPayloa
   errorMessage?: string;
 };
 
+export type AppointmentStatusPayload = {
+  status: AppointmentStatus;
+  reason?: string;
+};
+
 export type RescheduleAppointmentPayload = {
   branchId?: string;
   professionalId?: string;
   chairId?: string;
+  chairIndex?: number;
+  attendanceMode?: AttendanceMode;
   specialtyId?: string;
   startAt: string;
   endAt: string;
   durationMinutes?: number;
   reason?: string;
+  allowOverbooking?: boolean;
 };
 
 export type AppointmentPayload = {
@@ -121,6 +157,8 @@ export type AppointmentPayload = {
   patientId?: string;
   professionalId: string;
   chairId?: string;
+  chairIndex?: number;
+  attendanceMode?: AttendanceMode;
   specialtyId?: string;
   treatmentPlanId?: string;
   title: string;
@@ -130,6 +168,12 @@ export type AppointmentPayload = {
   endAt: string;
   durationMinutes?: number;
   notes?: string;
+  allowOverbooking?: boolean;
+};
+
+export type CreateAppointmentsBatchPayload = {
+  appointments: AppointmentPayload[];
+  autoCreateInitialTreatmentPlan?: boolean;
 };
 
 export type AppointmentQuery = {
@@ -141,6 +185,8 @@ export type AppointmentQuery = {
   patientId?: string;
   professionalId?: string;
   chairId?: string;
+  chairIndex?: string;
+  overbooking?: string;
   status?: string;
   search?: string;
 };
@@ -149,6 +195,7 @@ export type AvailabilitySlot = {
   startAt: string;
   endAt: string;
   available: boolean;
+  chairIndex?: number;
 };
 
 export async function listAppointments(params?: AppointmentQuery) {
@@ -186,8 +233,15 @@ export async function createAppointmentReminder(id: string, payload: Appointment
   return data;
 }
 
-export async function updateAppointmentReminder(id: string, reminderId: string, payload: AppointmentReminderUpdatePayload) {
-  const { data } = await http.patch<AppointmentReminder>(`/appointments/${id}/reminders/${reminderId}`, payload);
+export async function updateAppointmentReminder(
+  id: string,
+  reminderId: string,
+  payload: AppointmentReminderUpdatePayload
+) {
+  const { data } = await http.patch<AppointmentReminder>(
+    `/appointments/${id}/reminders/${reminderId}`,
+    payload
+  );
   return data;
 }
 
@@ -196,8 +250,18 @@ export async function createAppointment(payload: AppointmentPayload) {
   return data;
 }
 
+export async function createAppointmentsBatch(payload: CreateAppointmentsBatchPayload) {
+  const { data } = await http.post<Appointment[]>("/appointments/batch", payload);
+  return data;
+}
+
 export async function updateAppointment(id: string, payload: Partial<AppointmentPayload>) {
   const { data } = await http.patch<Appointment>(`/appointments/${id}`, payload);
+  return data;
+}
+
+export async function updateAppointmentStatus(id: string, payload: AppointmentStatusPayload) {
+  const { data } = await http.patch<Appointment>(`/appointments/${id}/status`, payload);
   return data;
 }
 
@@ -211,7 +275,10 @@ export async function confirmAppointment(id: string) {
   return data;
 }
 
-export async function cancelAppointment(id: string, payload: { reason: string; cancelledBy?: "patient" | "clinic" }) {
+export async function cancelAppointment(
+  id: string,
+  payload: { reason: string; cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled" }
+) {
   const { data } = await http.post<Appointment>(`/appointments/${id}/cancel`, payload);
   return data;
 }
@@ -250,8 +317,10 @@ export async function getAvailability(params: {
   branchId: string;
   professionalId: string;
   chairId?: string;
+  chairIndex?: string;
   date: string;
   durationMinutes?: string;
+  excludeAppointmentId?: string;
 }) {
   const { data } = await http.get<{ slots: AvailabilitySlot[] }>("/appointments/availability", { params });
   return data;

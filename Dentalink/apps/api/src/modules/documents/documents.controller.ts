@@ -1,6 +1,6 @@
 import {
   Body,
-  Controller,
+  Controller, Delete,
   Get,
   Param,
   Patch,
@@ -21,17 +21,12 @@ import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import {
   ClinicalDocumentTemplatesQueryDto,
-  ConsentTemplatesQueryDto,
   CreateClinicalDocumentTemplateSettingsDto,
-  CreateConsentDto,
-  CreateConsentTemplateDto,
-  PatientConsentsQueryDto,
+  DeleteFileAttachmentDto,
   PatientFilesQueryDto,
-  SignConsentDto,
   UpsertRadiographyAnalysisDto,
   UploadBinaryFileAttachmentDto,
   UpdateClinicalDocumentTemplateSettingsDto,
-  UpdateConsentTemplateDto,
   UploadFileAttachmentDto
 } from "./dto/documents.dto";
 import { DocumentsService } from "./documents.service";
@@ -60,6 +55,17 @@ export class DocumentsController {
   @RequirePermissions("files.upload")
   uploadPatientFile(@CurrentUser() actor: AuthUser, @Param("patientId") patientId: string, @Body() dto: UploadFileAttachmentDto) {
     return this.service.uploadPatientFile(actor, patientId, dto);
+  }
+
+  @Delete("patients/:patientId/files/:fileId")
+  @RequirePermissions("patients.files.manage")
+  deletePatientFile(
+    @CurrentUser() actor: AuthUser,
+    @Param("patientId") patientId: string,
+    @Param("fileId") fileId: string,
+    @Body() dto: DeleteFileAttachmentDto
+  ) {
+    return this.service.deletePatientFile(actor, patientId, fileId, dto.reason);
   }
 
   @Post("patients/:patientId/files/upload")
@@ -164,30 +170,6 @@ export class DocumentsController {
     });
   }
 
-  @Get("settings/consent-templates")
-  @RequirePermissions("consent_templates.read")
-  listTemplates(@CurrentUser() actor: AuthUser, @Query() query: ConsentTemplatesQueryDto) {
-    return this.service.listConsentTemplates(actor, query);
-  }
-
-  @Post("settings/consent-templates")
-  @RequirePermissions("consent_templates.create")
-  createTemplate(@CurrentUser() actor: AuthUser, @Body() dto: CreateConsentTemplateDto) {
-    return this.service.createConsentTemplate(actor, dto);
-  }
-
-  @Patch("settings/consent-templates/:id")
-  @RequirePermissions("consent_templates.update")
-  updateTemplate(@CurrentUser() actor: AuthUser, @Param("id") id: string, @Body() dto: UpdateConsentTemplateDto) {
-    return this.service.updateConsentTemplate(actor, id, dto);
-  }
-
-  @Patch("settings/consent-templates/:id/deactivate")
-  @RequirePermissions("consent_templates.deactivate")
-  deactivateTemplate(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
-    return this.service.deactivateConsentTemplate(actor, id);
-  }
-
   @Get("settings/clinical-document-templates")
   @RequirePermissions("clinical.read")
   listClinicalDocumentTemplates(@CurrentUser() actor: AuthUser, @Query() query: ClinicalDocumentTemplatesQueryDto) {
@@ -210,33 +192,41 @@ export class DocumentsController {
     return this.service.updateClinicalDocumentTemplate(actor, id, dto);
   }
 
+  @Post("settings/clinical-document-templates/:id/duplicate")
+  @RequirePermissions("clinical.templates.manage")
+  duplicateClinicalDocumentTemplate(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
+    return this.service.duplicateClinicalDocumentTemplate(actor, id);
+  }
+
   @Patch("settings/clinical-document-templates/:id/deactivate")
   @RequirePermissions("clinical.templates.manage")
   deactivateClinicalDocumentTemplate(@CurrentUser() actor: AuthUser, @Param("id") id: string) {
     return this.service.deactivateClinicalDocumentTemplate(actor, id);
   }
 
-  @Get("patients/:patientId/consents")
-  @RequirePermissions("consents.read")
-  listPatientConsents(@CurrentUser() actor: AuthUser, @Param("patientId") patientId: string, @Query() query: PatientConsentsQueryDto) {
-    return this.service.listPatientConsents(actor, patientId, query);
+  @Post("settings/clinical-document-templates/assets/upload")
+  @RequirePermissions("clinical.templates.manage")
+  @UseInterceptors(FileInterceptor("file", { limits: { fileSize: 25 * 1024 * 1024 } }))
+  @ApiConsumes("multipart/form-data")
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: { file: { type: "string", format: "binary" } },
+      required: ["file"]
+    }
+  })
+  uploadClinicalDocumentTemplateAsset(@CurrentUser() actor: AuthUser, @UploadedFile() file?: UploadedPatientFile) {
+    return this.service.uploadClinicalDocumentTemplateAsset(actor, file);
   }
 
-  @Post("patients/:patientId/consents")
-  @RequirePermissions("consents.create")
-  createPatientConsent(@CurrentUser() actor: AuthUser, @Param("patientId") patientId: string, @Body() dto: CreateConsentDto) {
-    return this.service.createPatientConsent(actor, patientId, dto);
+  @Get("settings/clinical-document-templates/assets/:fileName")
+  @RequirePermissions("clinical.read")
+  async getClinicalDocumentTemplateAsset(@CurrentUser() actor: AuthUser, @Param("fileName") fileName: string) {
+    const file = await this.service.getClinicalDocumentTemplateAsset(actor, fileName);
+    return new StreamableFile(file.stream, {
+      type: file.mimeType,
+      disposition: `inline; filename="${file.downloadName}"`
+    });
   }
 
-  @Post("consents/:id/sign")
-  @RequirePermissions("consents.sign")
-  signConsent(@CurrentUser() actor: AuthUser, @Param("id") consentId: string, @Body() dto: SignConsentDto) {
-    return this.service.signConsent(actor, consentId, dto);
-  }
-
-  @Get("consents/:id/pdf")
-  @RequirePermissions("consents.pdf")
-  getConsentPdf(@CurrentUser() actor: AuthUser, @Param("id") consentId: string) {
-    return this.service.getConsentPdf(actor, consentId);
-  }
 }

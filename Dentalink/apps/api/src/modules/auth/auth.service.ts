@@ -1,12 +1,17 @@
-import { ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { JwtService, type JwtSignOptions } from "@nestjs/jwt";
 import { Prisma } from "@prisma/client";
+import { permissionDefinitions, roleDefinitions } from "@dentalwarner/shared";
 import bcrypt from "bcryptjs";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { PrismaService } from "../../database/prisma.service";
+import { RedisService } from "../redis/redis.service";
 import { LoginDto } from "./dto/login.dto";
 import { RegisterOrganizationDto } from "./dto/register-organization.dto";
+import { UpdateProfileDto } from "./dto/update-profile.dto";
+import { ChangePasswordDto } from "./dto/change-password.dto";
+import { authUserInclude, isActiveAuthUser, serializeAuthUser } from "./auth-user.resolver";
 
 type TokenPair = {
   accessToken: string;
@@ -19,530 +24,18 @@ type RequestMeta = {
   ipAddress?: string;
 };
 
-const PERMISSION_TEMPLATES = [
-  ["system.manage_all", "Manage all", "Global administration", "system"],
-  ["dashboard.read", "Read dashboard", "View dashboard", "dashboard"],
-  ["users.read", "Read users", "View users", "users"],
-  ["users.create", "Create users", "Create users", "users"],
-  ["users.update", "Update users", "Update users", "users"],
-  ["users.deactivate", "Deactivate users", "Deactivate users", "users"],
-  ["roles.read", "Read roles", "View roles", "roles"],
-  ["roles.create", "Create roles", "Create roles", "roles"],
-  ["roles.update", "Update roles", "Update roles", "roles"],
-  ["roles.deactivate", "Deactivate roles", "Deactivate roles", "roles"],
-  ["permissions.read", "Read permissions", "View permissions", "permissions"],
-  ["permissions.create", "Create permissions", "Create permissions", "permissions"],
-  ["permissions.update", "Update permissions", "Update permissions", "permissions"],
-  ["permissions.deactivate", "Deactivate permissions", "Deactivate permissions", "permissions"],
-  ["branches.read", "Read branches", "View branches", "branches"],
-  ["branches.create", "Create branches", "Create branches", "branches"],
-  ["branches.update", "Update branches", "Update branches", "branches"],
-  ["branches.deactivate", "Deactivate branches", "Deactivate branches", "branches"],
-  ["settings.read", "Read settings", "View settings", "settings"],
-  ["settings.update", "Update settings", "Update settings", "settings"],
-  ["specialties.read", "Read specialties", "View specialties", "specialties"],
-  ["specialties.create", "Create specialties", "Create specialties", "specialties"],
-  ["specialties.update", "Update specialties", "Update specialties", "specialties"],
-  ["specialties.deactivate", "Deactivate specialties", "Deactivate specialties", "specialties"],
-  ["professionals.read", "Read professionals", "View professionals", "professionals"],
-  ["professionals.create", "Create professionals", "Create professionals", "professionals"],
-  ["professionals.update", "Update professionals", "Update professionals", "professionals"],
-  ["professionals.deactivate", "Deactivate professionals", "Deactivate professionals", "professionals"],
-  ["schedules.read", "Read schedules", "View schedules", "schedules"],
-  ["schedules.create", "Create schedules", "Create schedules", "schedules"],
-  ["schedules.update", "Update schedules", "Update schedules", "schedules"],
-  ["schedules.deactivate", "Deactivate schedules", "Deactivate schedules", "schedules"],
-  ["chairs.read", "Read chairs", "View chairs", "chairs"],
-  ["chairs.create", "Create chairs", "Create chairs", "chairs"],
-  ["chairs.update", "Update chairs", "Update chairs", "chairs"],
-  ["chairs.deactivate", "Deactivate chairs", "Deactivate chairs", "chairs"],
-  ["payment_methods.read", "Read payment methods", "View payment methods", "payment_methods"],
-  ["payment_methods.create", "Create payment methods", "Create payment methods", "payment_methods"],
-  ["payment_methods.update", "Update payment methods", "Update payment methods", "payment_methods"],
-  [
-    "payment_methods.deactivate",
-    "Deactivate payment methods",
-    "Deactivate payment methods",
-    "payment_methods"
-  ],
-  [
-    "procedure_categories.read",
-    "Read procedure categories",
-    "View procedure categories",
-    "procedure_categories"
-  ],
-  [
-    "procedure_categories.create",
-    "Create procedure categories",
-    "Create procedure categories",
-    "procedure_categories"
-  ],
-  [
-    "procedure_categories.update",
-    "Update procedure categories",
-    "Update procedure categories",
-    "procedure_categories"
-  ],
-  [
-    "procedure_categories.deactivate",
-    "Deactivate procedure categories",
-    "Deactivate procedure categories",
-    "procedure_categories"
-  ],
-  ["procedures.read", "Read procedures", "View procedures", "procedures"],
-  ["procedures.create", "Create procedures", "Create procedures", "procedures"],
-  ["procedures.update", "Update procedures", "Update procedures", "procedures"],
-  ["procedures.deactivate", "Deactivate procedures", "Deactivate procedures", "procedures"],
-  ["price_lists.read", "Read price lists", "View price lists", "price_lists"],
-  ["price_lists.create", "Create price lists", "Create price lists", "price_lists"],
-  ["price_lists.update", "Update price lists", "Update price lists", "price_lists"],
-  ["price_lists.deactivate", "Deactivate price lists", "Deactivate price lists", "price_lists"],
-  ["patients.read", "Read patients", "View patients", "patients"],
-  ["patients.create", "Create patients", "Create patients", "patients"],
-  ["patients.update", "Update patients", "Update patients", "patients"],
-  ["patients.deactivate", "Deactivate patients", "Deactivate patients", "patients"],
-  ["patients.notes.create", "Create patient notes", "Create patient notes", "patients"],
-  ["patients.alerts.create", "Create patient alerts", "Create patient alerts", "patients"],
-  ["patients.tasks.read", "Read patient tasks", "View patient management tasks", "patients"],
-  ["patients.tasks.create", "Create patient tasks", "Create patient management tasks", "patients"],
-  ["patients.tasks.update", "Update patient tasks", "Update patient management tasks", "patients"],
-  ["patients.tasks.complete", "Complete patient tasks", "Complete patient management tasks", "patients"],
-  ["appointments.read", "Read appointments", "View appointments", "appointments"],
-  ["appointments.create", "Create appointments", "Create appointments", "appointments"],
-  ["appointments.update", "Update appointments", "Update appointments", "appointments"],
-  ["appointments.cancel", "Cancel appointments", "Cancel appointments", "appointments"],
-  ["appointments.status.update", "Update appointment status", "Update appointment status", "appointments"],
-  ["appointments.overbook", "Overbook appointments", "Allow appointment overbooking", "appointments"],
-  ["appointments.block", "Block appointment slots", "Block appointment slots", "appointments"],
-  ["clinical.read", "Read clinical record", "View clinical record", "clinical"],
-  ["clinical.history.update", "Update medical history", "Update medical history", "clinical"],
-  ["clinical.evolutions.create", "Create clinical evolutions", "Create clinical evolutions", "clinical"],
-  ["clinical.evolutions.sign", "Sign clinical evolutions", "Sign clinical evolutions", "clinical"],
-  ["clinical.prescriptions.create", "Create prescriptions", "Create prescriptions", "clinical"],
-  ["clinical.documents.create", "Create clinical documents", "Create clinical documents", "clinical"],
-  [
-    "clinical.templates.manage",
-    "Manage clinical templates",
-    "Manage clinical document templates",
-    "clinical"
-  ],
-  ["clinical.odontogram.read", "Read odontogram", "View odontogram and tooth history", "clinical"],
-  ["clinical.odontogram.write", "Write odontogram", "Create and update odontogram records", "clinical"],
-  [
-    "clinical.periodontogram.read",
-    "Read periodontogram",
-    "View periodontal charts and comparisons",
-    "clinical"
-  ],
-  ["clinical.periodontogram.write", "Write periodontogram", "Create periodontal charts", "clinical"],
-  ["treatment_plans.read", "Read treatment plans", "View treatment plans", "treatment_plans"],
-  ["treatment_plans.create", "Create treatment plans", "Create treatment plans", "treatment_plans"],
-  ["treatment_plans.update", "Update treatment plans", "Update treatment plans", "treatment_plans"],
-  [
-    "treatment_plans.status.update",
-    "Update treatment plan item status",
-    "Update treatment plan item status",
-    "treatment_plans"
-  ],
-  [
-    "treatment_plans.alternatives.manage",
-    "Manage treatment plan alternatives",
-    "Manage treatment plan alternatives",
-    "treatment_plans"
-  ],
-  ["budgets.read", "Read budgets", "View budgets", "budgets"],
-  ["budgets.create", "Create budgets", "Generate budgets", "budgets"],
-  ["budgets.update", "Update budgets", "Update budgets", "budgets"],
-  ["budgets.send", "Send budgets", "Send budgets to patients", "budgets"],
-  ["budgets.accept", "Accept budgets", "Accept budget and treatment plan", "budgets"],
-  ["budgets.reject", "Reject budgets", "Reject budget", "budgets"],
-  ["budgets.print", "Print budgets", "Print budget document", "budgets"],
-  ["payments.read", "Read payments", "View payments and collections", "payments"],
-  ["payments.create", "Create payments", "Register patient payments", "payments"],
-  ["payments.allocate", "Allocate payments", "Allocate payments to treatment items", "payments"],
-  ["payments.refund", "Refund payments", "Register payment refunds", "payments"],
-  [
-    "payments.override.closed_cash",
-    "Override closed cash register",
-    "Allow receiving payments without open cash register",
-    "payments"
-  ],
-  ["payment_links.create", "Create payment links", "Create simulated online payment links", "payments"],
-  ["installments.read", "Read installments", "View installment plans and installments", "installments"],
-  ["installments.create", "Create installments", "Create installment plans", "installments"],
-  ["installments.pay", "Pay installments", "Register installment payments", "installments"],
-  ["cash_register.read", "Read cash register", "View cash register shifts and balances", "cash_register"],
-  ["cash_register.open", "Open cash register", "Open cash register shift", "cash_register"],
-  ["cash_register.close", "Close cash register", "Close cash register shift", "cash_register"],
-  [
-    "cash_register.close_any",
-    "Close any cash register",
-    "Close another user's cash register",
-    "cash_register"
-  ],
-  ["cash_register.move", "Create cash movement", "Register manual cash movements", "cash_register"],
-  [
-    "accounts_receivable.read",
-    "Read accounts receivable",
-    "View outstanding balances and overdue installments",
-    "accounts_receivable"
-  ],
-  ["collections.read", "Read collections", "View collection cases", "collections"],
-  ["collections.create", "Create collections", "Create collection cases", "collections"],
-  ["collections.detect", "Detect collections", "Detect overdue installments and create cases", "collections"],
-  ["collections.update", "Update collections", "Update case status and assignment", "collections"],
-  [
-    "collections.activities.create",
-    "Create collection activities",
-    "Register collection calls/messages",
-    "collections"
-  ],
-  ["files.read", "Read files", "View patient files and attachments", "documents"],
-  ["files.upload", "Upload files", "Upload patient files and attachments", "documents"],
-  ["consent_templates.read", "Read consent templates", "View consent templates", "documents"],
-  ["consent_templates.create", "Create consent templates", "Create consent templates", "documents"],
-  ["consent_templates.update", "Update consent templates", "Update consent templates", "documents"],
-  [
-    "consent_templates.deactivate",
-    "Deactivate consent templates",
-    "Deactivate consent templates",
-    "documents"
-  ],
-  ["consents.read", "Read consents", "View generated consents", "documents"],
-  ["consents.create", "Create consents", "Generate consents for patients", "documents"],
-  ["consents.sign", "Sign consents", "Sign and lock consents", "documents"],
-  ["consents.pdf", "Download consent PDF", "Download signed consent snapshot", "documents"],
-  ["reports.read", "Read reports", "View dashboards and reports", "reports"],
-  ["reports.export", "Export reports", "Export reports in CSV/XLSX", "reports"],
-  ["lab_providers.read", "Read lab providers", "View laboratory providers", "labs"],
-  ["lab_providers.create", "Create lab providers", "Create laboratory providers", "labs"],
-  ["lab_providers.update", "Update lab providers", "Update laboratory providers", "labs"],
-  ["lab_providers.deactivate", "Deactivate lab providers", "Deactivate laboratory providers", "labs"],
-  ["lab_orders.read", "Read lab orders", "View laboratory orders", "labs"],
-  ["lab_orders.create", "Create lab orders", "Create laboratory orders", "labs"],
-  ["lab_orders.update", "Update lab orders", "Update laboratory order status", "labs"],
-  ["lab_orders.cost.update", "Update lab order cost", "Update laboratory order costs", "labs"],
-  ["lab_profitability.read", "Read lab profitability", "View treatment profitability with lab costs", "labs"],
-  ["suppliers.read", "Read suppliers", "View suppliers", "inventory"],
-  ["suppliers.create", "Create suppliers", "Create suppliers", "inventory"],
-  ["suppliers.update", "Update suppliers", "Update suppliers", "inventory"],
-  ["suppliers.deactivate", "Deactivate suppliers", "Deactivate suppliers", "inventory"],
-  ["inventory.read", "Read inventory", "View inventory items", "inventory"],
-  ["inventory.create", "Create inventory items", "Create inventory items", "inventory"],
-  ["inventory.update", "Update inventory items", "Update inventory items", "inventory"],
-  ["inventory.deactivate", "Deactivate inventory items", "Deactivate inventory items", "inventory"],
-  ["inventory.movements.read", "Read inventory movements", "View inventory movements", "inventory"],
-  ["inventory.movements.create", "Create inventory movements", "Create inventory movements", "inventory"],
-  ["inventory.alerts.read", "Read inventory alerts", "View minimum stock alerts", "inventory"]
-] as const;
-
-const ROLE_TEMPLATES = [
-  { name: "SUPER_ADMIN", permissions: PERMISSION_TEMPLATES.map(([key]) => key) },
-  {
-    name: "ADMIN",
-    permissions: PERMISSION_TEMPLATES.map(([key]) => key).filter((key) => key !== "system.manage_all")
-  },
-  {
-    name: "RECEPTIONIST",
-    permissions: [
-      "dashboard.read",
-      "users.read",
-      "branches.read",
-      "professionals.read",
-      "schedules.read",
-      "patients.read",
-      "patients.create",
-      "patients.update",
-      "patients.notes.create",
-      "patients.alerts.create",
-      "patients.tasks.read",
-      "patients.tasks.create",
-      "patients.tasks.update",
-      "patients.tasks.complete",
-      "appointments.read",
-      "appointments.create",
-      "appointments.update",
-      "appointments.cancel",
-      "appointments.status.update",
-      "appointments.block",
-      "clinical.read",
-      "clinical.history.update",
-      "clinical.evolutions.create",
-      "clinical.prescriptions.create",
-      "clinical.documents.create",
-      "clinical.odontogram.read",
-      "clinical.periodontogram.read",
-      "treatment_plans.read",
-      "treatment_plans.create",
-      "treatment_plans.update",
-      "budgets.read",
-      "budgets.create",
-      "budgets.send",
-      "budgets.print",
-      "payments.read",
-      "payments.create",
-      "payments.allocate",
-      "payment_links.create",
-      "installments.read",
-      "accounts_receivable.read",
-      "collections.read",
-      "collections.create",
-      "collections.detect",
-      "collections.activities.create",
-      "files.read",
-      "files.upload",
-      "consent_templates.read",
-      "consents.read",
-      "consents.create",
-      "consents.sign",
-      "consents.pdf",
-      "reports.read",
-      "lab_providers.read",
-      "lab_orders.read",
-      "lab_orders.create",
-      "inventory.read",
-      "inventory.movements.read"
-    ]
-  },
-  {
-    name: "DENTIST",
-    permissions: [
-      "dashboard.read",
-      "procedures.read",
-      "price_lists.read",
-      "patients.read",
-      "patients.notes.create",
-      "patients.alerts.create",
-      "patients.tasks.read",
-      "patients.tasks.create",
-      "patients.tasks.update",
-      "patients.tasks.complete",
-      "appointments.read",
-      "appointments.status.update",
-      "clinical.read",
-      "clinical.history.update",
-      "clinical.evolutions.create",
-      "clinical.evolutions.sign",
-      "clinical.prescriptions.create",
-      "clinical.documents.create",
-      "clinical.odontogram.read",
-      "clinical.odontogram.write",
-      "clinical.periodontogram.read",
-      "clinical.periodontogram.write",
-      "treatment_plans.read",
-      "treatment_plans.create",
-      "treatment_plans.update",
-      "treatment_plans.status.update",
-      "treatment_plans.alternatives.manage",
-      "budgets.read",
-      "budgets.create",
-      "budgets.update",
-      "budgets.send",
-      "budgets.accept",
-      "budgets.reject",
-      "budgets.print",
-      "payments.read",
-      "payments.allocate",
-      "accounts_receivable.read",
-      "installments.read",
-      "files.read",
-      "files.upload",
-      "consent_templates.read",
-      "consents.read",
-      "consents.create",
-      "consents.sign",
-      "consents.pdf",
-      "reports.read",
-      "lab_providers.read",
-      "lab_orders.read",
-      "lab_orders.create",
-      "lab_orders.update",
-      "lab_orders.cost.update",
-      "lab_profitability.read",
-      "inventory.read",
-      "inventory.movements.read",
-      "inventory.alerts.read"
-    ]
-  },
-  {
-    name: "CASHIER",
-    permissions: [
-      "dashboard.read",
-      "payment_methods.read",
-      "price_lists.read",
-      "patients.read",
-      "appointments.read",
-      "payments.read",
-      "payments.create",
-      "payments.allocate",
-      "payments.refund",
-      "payment_links.create",
-      "installments.read",
-      "installments.create",
-      "installments.pay",
-      "cash_register.read",
-      "cash_register.open",
-      "cash_register.close",
-      "cash_register.move",
-      "accounts_receivable.read",
-      "collections.read",
-      "collections.create",
-      "collections.detect",
-      "collections.update",
-      "collections.activities.create",
-      "files.read",
-      "files.upload",
-      "consents.read",
-      "consents.create",
-      "consents.sign",
-      "consents.pdf",
-      "reports.read",
-      "inventory.read",
-      "inventory.movements.read",
-      "inventory.movements.create",
-      "inventory.alerts.read"
-    ]
-  },
-  {
-    name: "CEYE",
-    permissions: [
-      "dashboard.read",
-      "branches.read",
-      "patients.read",
-      "appointments.read",
-      "clinical.read",
-      "professionals.read",
-      "schedules.read",
-      "chairs.read",
-      "lab_providers.read",
-      "lab_orders.read",
-      "lab_orders.update",
-      "suppliers.read",
-      "inventory.read",
-      "inventory.update",
-      "inventory.movements.read",
-      "inventory.movements.create",
-      "inventory.alerts.read",
-      "reports.read"
-    ]
-  },
-  {
-    name: "MANAGER",
-    permissions: [
-      "dashboard.read",
-      "users.read",
-      "roles.read",
-      "branches.read",
-      "settings.read",
-      "specialties.read",
-      "professionals.read",
-      "schedules.read",
-      "chairs.read",
-      "payment_methods.read",
-      "procedure_categories.read",
-      "procedures.read",
-      "price_lists.read",
-      "patients.read",
-      "patients.create",
-      "patients.update",
-      "patients.deactivate",
-      "patients.notes.create",
-      "patients.alerts.create",
-      "patients.tasks.read",
-      "patients.tasks.create",
-      "patients.tasks.update",
-      "patients.tasks.complete",
-      "appointments.read",
-      "appointments.create",
-      "appointments.update",
-      "appointments.cancel",
-      "appointments.status.update",
-      "appointments.overbook",
-      "appointments.block",
-      "clinical.read",
-      "clinical.history.update",
-      "clinical.evolutions.create",
-      "clinical.evolutions.sign",
-      "clinical.prescriptions.create",
-      "clinical.documents.create",
-      "clinical.templates.manage",
-      "clinical.odontogram.read",
-      "clinical.odontogram.write",
-      "clinical.periodontogram.read",
-      "clinical.periodontogram.write",
-      "treatment_plans.read",
-      "treatment_plans.create",
-      "treatment_plans.update",
-      "treatment_plans.status.update",
-      "treatment_plans.alternatives.manage",
-      "budgets.read",
-      "budgets.create",
-      "budgets.update",
-      "budgets.send",
-      "budgets.accept",
-      "budgets.reject",
-      "budgets.print",
-      "payments.read",
-      "payments.create",
-      "payments.allocate",
-      "payments.refund",
-      "payment_links.create",
-      "installments.read",
-      "installments.create",
-      "installments.pay",
-      "cash_register.read",
-      "cash_register.open",
-      "cash_register.close",
-      "cash_register.move",
-      "accounts_receivable.read",
-      "collections.read",
-      "collections.create",
-      "collections.detect",
-      "collections.update",
-      "collections.activities.create",
-      "files.read",
-      "files.upload",
-      "consent_templates.read",
-      "consent_templates.create",
-      "consent_templates.update",
-      "consent_templates.deactivate",
-      "consents.read",
-      "consents.create",
-      "consents.sign",
-      "consents.pdf",
-      "reports.read",
-      "reports.export",
-      "lab_providers.read",
-      "lab_providers.create",
-      "lab_providers.update",
-      "lab_providers.deactivate",
-      "lab_orders.read",
-      "lab_orders.create",
-      "lab_orders.update",
-      "lab_orders.cost.update",
-      "lab_profitability.read",
-      "suppliers.read",
-      "suppliers.create",
-      "suppliers.update",
-      "suppliers.deactivate",
-      "inventory.read",
-      "inventory.create",
-      "inventory.update",
-      "inventory.deactivate",
-      "inventory.movements.read",
-      "inventory.movements.create",
-      "inventory.alerts.read"
-    ]
-  }
-] as const;
-
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-    private readonly config: ConfigService
+    private readonly config: ConfigService,
+    private readonly redis: RedisService
   ) {}
+
+  async invalidateUserCache(userId: string) {
+    await this.redis.del(`auth:user:${userId}`);
+  }
 
   async registerOrganization(dto: RegisterOrganizationDto, meta: RequestMeta) {
     const adminEmail = dto.adminEmail.toLowerCase().trim();
@@ -588,7 +81,7 @@ export class AuthService {
 
       await this.ensurePermissionTemplates(tx);
       const roles = await this.ensureOrganizationRoles(tx, organization.id);
-      const superAdmin = roles.find((role) => role.name === "SUPER_ADMIN");
+      const superAdmin = roles.find((role) => role.code === "super_admin");
       if (!superAdmin) throw new Error("SUPER_ADMIN role was not created");
 
       const createdUser = await tx.user.create({
@@ -635,21 +128,21 @@ export class AuthService {
 
       return tx.user.findUniqueOrThrow({
         where: { id: createdUser.id },
-        include: this.authUserInclude()
+        include: authUserInclude
       });
     });
 
-    const tokens = await this.issueTokens(user.id, user.email, user.organizationId, meta);
-    return { user: this.serializeUser(user), ...tokens };
+    const tokens = await this.createSessionTokens(user.id, user.email, user.organizationId, meta);
+    return { user: serializeAuthUser(user), ...tokens };
   }
 
   async login(dto: LoginDto, meta: RequestMeta) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase().trim() },
-      include: this.authUserInclude()
+      include: authUserInclude
     });
 
-    if (!user || !user.isActive || user.status !== "ACTIVE" || user.deletedAt) {
+    if (!isActiveAuthUser(user)) {
       throw new UnauthorizedException("Invalid credentials");
     }
 
@@ -660,116 +153,172 @@ export class AuthService {
 
     await this.prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
 
-    const tokens = await this.issueTokens(user.id, user.email, user.organizationId, meta);
+    // Invalidate stale user cache on fresh login
+    await this.invalidateUserCache(user.id);
+
+    const tokens = await this.createSessionTokens(user.id, user.email, user.organizationId, meta);
     return {
-      user: this.serializeUser(user),
+      user: serializeAuthUser(user),
       ...tokens
     };
   }
 
   async refresh(refreshToken: string, meta: RequestMeta) {
-    const activeSessions = await this.prisma.session.findMany({
+    let payload: { sub?: string; sid?: string; refreshVersion?: number };
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.config.getOrThrow<string>("JWT_REFRESH_SECRET")
+      });
+    } catch {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    if (!payload?.sub || !payload.sid || !Number.isInteger(payload.refreshVersion)) {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    const session = await this.prisma.session.findFirst({
       where: {
+        id: payload.sid,
+        userId: payload.sub,
         revokedAt: null,
         expiresAt: { gt: new Date() }
       },
       include: {
         user: {
-          include: this.authUserInclude()
+          include: authUserInclude
         }
       }
     });
 
-    const matched = await this.findMatchingSession(activeSessions, refreshToken);
-    if (!matched || !matched.user.isActive || matched.user.status !== "ACTIVE" || matched.user.deletedAt) {
+    if (!session || !isActiveAuthUser(session.user)) {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
-    await this.prisma.session.update({
-      where: { id: matched.id },
-      data: { revokedAt: new Date() }
-    });
+    if (
+      session.refreshVersion !== payload.refreshVersion ||
+      this.digestRefreshToken(refreshToken) !== session.refreshTokenHash
+    ) {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
 
-    const tokens = await this.issueTokens(
-      matched.userId,
-      matched.user.email,
-      matched.user.organizationId,
-      meta
+    const nextVersion = session.refreshVersion + 1;
+    const newTokens = await this.signTokenPair(
+      session.userId,
+      session.user.email,
+      session.user.organizationId,
+      session.id,
+      nextVersion
     );
-    return { user: this.serializeUser(matched.user), ...tokens };
+    const refreshExpiresIn = this.config.get<string>("JWT_REFRESH_EXPIRES_IN") ?? "7d";
+    const claim = await this.prisma.session.updateMany({
+        where: {
+          id: session.id,
+          userId: session.userId,
+          refreshVersion: session.refreshVersion,
+          refreshTokenHash: session.refreshTokenHash,
+          revokedAt: null,
+          expiresAt: { gt: new Date() }
+        },
+        data: {
+          refreshVersion: nextVersion,
+          refreshTokenHash: this.digestRefreshToken(newTokens.refreshToken),
+          userAgent: meta.userAgent,
+          ipAddress: meta.ipAddress,
+          expiresAt: new Date(Date.now() + this.durationToMs(refreshExpiresIn))
+        }
+      });
+    if (claim.count !== 1) throw new UnauthorizedException("Invalid refresh token");
+
+    return { user: serializeAuthUser(session.user), ...newTokens };
   }
 
-  async logout(userId: string, refreshToken?: string) {
-    if (!refreshToken) {
+  async logout(userId: string, refreshToken?: string, sessionId?: string) {
+    await this.invalidateUserCache(userId);
+
+    if (!refreshToken && sessionId) {
       await this.prisma.session.updateMany({
-        where: { userId, revokedAt: null },
+        where: { id: sessionId, userId, revokedAt: null },
         data: { revokedAt: new Date() }
       });
       return { success: true };
     }
 
-    const sessions = await this.prisma.session.findMany({ where: { userId, revokedAt: null } });
-    const matched = await this.findMatchingSession(sessions, refreshToken);
-    if (matched) {
-      await this.prisma.session.update({
-        where: { id: matched.id },
-        data: { revokedAt: new Date() }
+    if (!refreshToken) return { success: true };
+
+    try {
+      const payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.config.getOrThrow<string>("JWT_REFRESH_SECRET")
       });
+      if (payload?.sid && payload?.sub === userId) {
+        await this.prisma.session.updateMany({
+          where: { id: payload.sid, userId, revokedAt: null },
+          data: { revokedAt: new Date() }
+        });
+      }
+    } catch {
+      // Logout remains idempotent and does not scan session hashes for invalid tokens.
     }
 
     return { success: true };
   }
 
-  private async issueTokens(
+  private async createSessionTokens(
     userId: string,
     email: string,
     organizationId: string,
-    meta: RequestMeta
+    meta: RequestMeta,
+    prismaClient: PrismaService | Prisma.TransactionClient = this.prisma
   ): Promise<TokenPair> {
-    const accessExpiresIn = this.config.get<string>("JWT_ACCESS_EXPIRES_IN") ?? "15m";
     const refreshExpiresIn = this.config.get<string>("JWT_REFRESH_EXPIRES_IN") ?? "7d";
-    const refreshTokenId = randomUUID();
+    const sessionId = randomUUID();
+    const tokens = await this.signTokenPair(userId, email, organizationId, sessionId, 0);
 
-    const [accessToken, refreshToken] = await Promise.all([
-      this.jwtService.signAsync(
-        { sub: userId, email, organizationId },
-        {
-          secret: this.config.getOrThrow<string>("JWT_ACCESS_SECRET"),
-          expiresIn: accessExpiresIn as JwtSignOptions["expiresIn"]
-        }
-      ),
-      this.jwtService.signAsync(
-        { sub: userId, email, organizationId, tokenId: refreshTokenId },
-        {
-          secret: this.config.getOrThrow<string>("JWT_REFRESH_SECRET"),
-          expiresIn: refreshExpiresIn as JwtSignOptions["expiresIn"]
-        }
-      )
-    ]);
-
-    await this.prisma.session.create({
+    await (prismaClient as PrismaService).session.create({
       data: {
+        id: sessionId,
         userId,
-        refreshTokenHash: await bcrypt.hash(refreshToken, 12),
+        refreshTokenHash: this.digestRefreshToken(tokens.refreshToken),
+        refreshVersion: 0,
         userAgent: meta.userAgent,
         ipAddress: meta.ipAddress,
         expiresAt: new Date(Date.now() + this.durationToMs(refreshExpiresIn))
       }
     });
 
+    return tokens;
+  }
+
+  private async signTokenPair(
+    userId: string,
+    email: string,
+    organizationId: string,
+    sessionId: string,
+    refreshVersion: number
+  ): Promise<TokenPair> {
+    const accessExpiresIn = this.config.get<string>("JWT_ACCESS_EXPIRES_IN") ?? "15m";
+    const refreshExpiresIn = this.config.get<string>("JWT_REFRESH_EXPIRES_IN") ?? "7d";
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(
+        { sub: userId, email, organizationId, sid: sessionId },
+        {
+          secret: this.config.getOrThrow<string>("JWT_ACCESS_SECRET"),
+          expiresIn: accessExpiresIn as JwtSignOptions["expiresIn"]
+        }
+      ),
+      this.jwtService.signAsync(
+        { sub: userId, email, organizationId, sid: sessionId, refreshVersion },
+        {
+          secret: this.config.getOrThrow<string>("JWT_REFRESH_SECRET"),
+          expiresIn: refreshExpiresIn as JwtSignOptions["expiresIn"]
+        }
+      )
+    ]);
     return { accessToken, refreshToken, expiresIn: accessExpiresIn };
   }
 
-  private async findMatchingSession<T extends { refreshTokenHash: string }>(
-    records: T[],
-    plainToken: string
-  ): Promise<T | null> {
-    for (const record of records) {
-      if (await bcrypt.compare(plainToken, record.refreshTokenHash)) {
-        return record;
-      }
-    }
-    return null;
+  private digestRefreshToken(token: string) {
+    return createHash("sha256").update(token, "utf8").digest("hex");
   }
 
   private durationToMs(value: string): number {
@@ -784,61 +333,62 @@ export class AuthService {
     return amount * 24 * 60 * 60 * 1000;
   }
 
-  private authUserInclude() {
-    return {
-      role: {
-        include: {
-          permissions: { include: { permission: true } }
-        }
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null }
+    });
+
+    if (!user) {
+      throw new NotFoundException("Usuario no encontrado");
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.firstName ? { firstName: dto.firstName.trim() } : {}),
+        ...(dto.lastName ? { lastName: dto.lastName.trim() } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone?.trim() || null } : {}),
+        ...(dto.avatarUrl !== undefined ? { avatarUrl: dto.avatarUrl?.trim() || null } : {})
       },
-      roles: {
-        include: {
-          role: {
-            include: {
-              permissions: { include: { permission: true } }
-            }
-          }
-        }
-      },
-      branches: true
-    } as const;
+      include: authUserInclude
+    });
+
+    await this.invalidateUserCache(userId);
+
+    return serializeAuthUser(updated);
   }
 
-  private serializeUser(
-    user: Prisma.UserGetPayload<{ include: ReturnType<AuthService["authUserInclude"]> }>
-  ) {
-    const roleNames = user.roles.map((entry) => entry.role.name);
-    const roleIds = user.roles.map((entry) => entry.role.id);
+  async changePassword(userId: string, dto: ChangePasswordDto) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null }
+    });
 
-    if (user.role && !roleIds.includes(user.role.id)) {
-      roleIds.push(user.role.id);
-      roleNames.push(user.role.name);
+    if (!user) {
+      throw new NotFoundException("Usuario no encontrado");
     }
 
-    const permissions = new Set<string>();
-    const permissionEntries = [
-      ...(user.role?.permissions ?? []),
-      ...user.roles.flatMap((roleEntry) => roleEntry.role.permissions)
-    ];
-
-    for (const permissionEntry of permissionEntries) {
-      const permission = permissionEntry.permission;
-      if (permission.isActive && !permission.deletedAt) {
-        permissions.add(permission.key ?? permission.code ?? "");
-      }
+    const validPassword = await bcrypt.compare(dto.currentPassword, user.passwordHash);
+    if (!validPassword) {
+      throw new BadRequestException("La contraseña actual es incorrecta");
     }
 
-    return {
-      id: user.id,
-      organizationId: user.organizationId,
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      roleIds,
-      roleNames,
-      permissions: [...permissions].filter(Boolean),
-      branchIds: user.branches.map((branch) => branch.branchId)
-    };
+    const passwordHash = await bcrypt.hash(dto.newPassword, 12);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { passwordHash }
+      });
+
+      await tx.session.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() }
+      });
+    });
+
+    await this.invalidateUserCache(userId);
+
+    return { success: true, message: "Contraseña actualizada con éxito" };
   }
 
   private generateSlug(name: string) {
@@ -850,7 +400,7 @@ export class AuthService {
   }
 
   private async ensurePermissionTemplates(tx: Prisma.TransactionClient) {
-    for (const [key, name, description, module] of PERMISSION_TEMPLATES) {
+    for (const [key, name, description, module] of permissionDefinitions) {
       await tx.permission.upsert({
         where: { key },
         update: {
@@ -879,10 +429,10 @@ export class AuthService {
   }
 
   private async ensureOrganizationRoles(tx: Prisma.TransactionClient, organizationId: string) {
-    const roles: { id: string; name: string }[] = [];
+    const roles: { id: string; name: string; code: string }[] = [];
 
-    for (const template of ROLE_TEMPLATES) {
-      const roleCode = template.name.toLowerCase();
+    for (const template of roleDefinitions) {
+      const roleCode = template.code;
       const existingRole = await tx.role.findFirst({
         where: {
           organizationId,
@@ -895,7 +445,7 @@ export class AuthService {
             where: { id: existingRole.id },
             data: {
               name: template.name,
-              description: template.name,
+              description: template.description,
               isSystem: true,
               isActive: true,
               code: roleCode
@@ -905,7 +455,7 @@ export class AuthService {
             data: {
               organizationId,
               name: template.name,
-              description: template.name,
+              description: template.description,
               isSystem: true,
               isActive: true,
               code: roleCode
@@ -913,7 +463,7 @@ export class AuthService {
           });
 
       const permissions = await tx.permission.findMany({
-        where: { key: { in: [...template.permissions] } },
+        where: { key: { in: [...template.permissionKeys] } },
         select: { id: true }
       });
 
@@ -923,7 +473,7 @@ export class AuthService {
         skipDuplicates: true
       });
 
-      roles.push({ id: role.id, name: role.name });
+      roles.push({ id: role.id, name: role.name, code: role.code ?? roleCode });
     }
 
     return roles;

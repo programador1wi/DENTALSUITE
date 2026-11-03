@@ -1,16 +1,19 @@
 import { type ReactNode, useMemo, useState } from "react";
+import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/data-table";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { TableActionGroup } from "@/components/ui/table-toolbar";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
 import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { Modal } from "@/components/ui/modal";
 
 type FieldOption = {
   label: string;
@@ -77,7 +80,9 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
   setActive,
   fields,
   columns,
-  actions
+  actions,
+  useModal = false,
+  createButtonLabel
 }: {
   title: string;
   description: string;
@@ -93,10 +98,13 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
   fields: FieldConfig[];
   columns: ColumnConfig<T>[];
   actions: CrudActions<T>;
+  useModal?: boolean;
+  createButtonLabel?: string;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<Record<string, unknown>>(() => normalizeInitial(fields));
   const [submitting, setSubmitting] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const mapToPayload = actions.mapToPayload ?? ((current) => current);
 
@@ -108,11 +116,19 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
   const onReset = () => {
     setEditingId(null);
     setForm(normalizeInitial(fields));
+    setIsModalOpen(false);
   };
 
   const onEdit = (row: T) => {
     setEditingId(actions.getId(row));
     setForm(actions.mapToForm(row));
+    setIsModalOpen(true);
+  };
+
+  const onNew = () => {
+    setEditingId(null);
+    setForm(normalizeInitial(fields));
+    setIsModalOpen(true);
   };
 
   const onSubmit = async () => {
@@ -129,6 +145,58 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
       setSubmitting(false);
     }
   };
+
+  const renderFields = () => (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {fields.map((field) => {
+        const isCheckbox = field.type === "checkbox";
+        const gridClass = field.type === "textarea" ? "sm:col-span-2" : "";
+        return (
+          <div key={field.key} className={gridClass}>
+            {isCheckbox ? (
+              <label className="flex h-full cursor-pointer select-none items-center gap-2 text-sm font-medium text-slate-700 sm:pt-6">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-500"
+                  checked={Boolean(form[field.key])}
+                  onChange={(event) => setForm((prev) => ({ ...prev, [field.key]: event.target.checked }))}
+                />
+                <span>{field.label}</span>
+              </label>
+            ) : (
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-slate-700">
+                <span>{field.label}</span>
+                {field.type === "textarea" ? (
+                  <Textarea
+                    value={String(form[field.key] ?? "")}
+                    onChange={(event) => setForm((prev) => ({ ...prev, [field.key]: event.target.value }))}
+                  />
+                ) : field.type === "select" ? (
+                  <Select
+                    value={String(form[field.key] ?? "")}
+                    onChange={(event) => setForm((prev) => ({ ...prev, [field.key]: event.target.value }))}
+                  >
+                    <option value="">Selecciona</option>
+                    {field.options?.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                ) : (
+                  <Input
+                    type={field.type}
+                    value={fieldValueToRender(form[field.key])}
+                    onChange={(event) => setForm((prev) => ({ ...prev, [field.key]: event.target.value }))}
+                  />
+                )}
+              </label>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -169,62 +237,49 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
             </div>
             <HelpTooltip content="Filtra los registros por su estado de activación. Los elementos inactivos no estarán disponibles para nuevas operaciones." />
           </div>
-        </div>
-      </Card>
-
-      <Card>
-        <h3 className="mb-3 text-base font-semibold text-slate-900">{editingId ? "Editar" : "Crear"}</h3>
-        <div className="grid gap-3 md:grid-cols-2">
-          {fields.map((field) => (
-            <label key={field.key} className="text-sm text-slate-700">
-              {field.label}
-              {field.type === "textarea" ? (
-                <Textarea
-                  value={String(form[field.key] ?? "")}
-                  onChange={(event) => setForm((prev) => ({ ...prev, [field.key]: event.target.value }))}
-                />
-              ) : field.type === "select" ? (
-                <Select
-                  value={String(form[field.key] ?? "")}
-                  onChange={(event) => setForm((prev) => ({ ...prev, [field.key]: event.target.value }))}
-                >
-                  <option value="">Selecciona</option>
-                  {field.options?.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </Select>
-              ) : field.type === "checkbox" ? (
-                <div className="mt-2">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(form[field.key])}
-                    onChange={(event) => setForm((prev) => ({ ...prev, [field.key]: event.target.checked }))}
-                  />
-                </div>
-              ) : (
-                <Input
-                  type={field.type}
-                  value={fieldValueToRender(form[field.key])}
-                  onChange={(event) => setForm((prev) => ({ ...prev, [field.key]: event.target.value }))}
-                />
-              )}
-            </label>
-          ))}
-        </div>
-
-        <div className="mt-4 flex gap-2">
-          <Button onClick={onSubmit} disabled={submitting}>
-            {submitting ? "Guardando..." : editingId ? "Actualizar" : "Crear"}
-          </Button>
-          {editingId ? (
-            <Button variant="secondary" onClick={onReset} disabled={submitting}>
-              Cancelar edicion
-            </Button>
+          {useModal ? (
+            <div className="flex items-center justify-end">
+              <Button onClick={onNew}>
+                <Plus className="mr-1.5 h-4 w-4" />
+                {createButtonLabel ?? `Nuevo ${title}`}
+              </Button>
+            </div>
           ) : null}
         </div>
       </Card>
+
+      {useModal ? (
+        <Modal open={isModalOpen} title={editingId ? `Editar ${title}` : `Crear ${title}`} onClose={onReset} size="lg">
+          <div className="space-y-4">
+            {renderFields()}
+
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="secondary" onClick={onReset} disabled={submitting}>
+                Cancelar
+              </Button>
+              <Button onClick={onSubmit} disabled={submitting}>
+                {submitting ? "Guardando..." : editingId ? "Actualizar" : "Crear"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : (
+        <Card>
+          <h3 className="mb-3 text-base font-semibold text-slate-900">{editingId ? "Editar" : "Crear"}</h3>
+          {renderFields()}
+
+          <div className="mt-4 flex gap-2">
+            <Button onClick={onSubmit} disabled={submitting}>
+              {submitting ? "Guardando..." : editingId ? "Actualizar" : "Crear"}
+            </Button>
+            {editingId ? (
+              <Button variant="secondary" onClick={onReset} disabled={submitting}>
+                Cancelar edicion
+              </Button>
+            ) : null}
+          </div>
+        </Card>
+      )}
 
       {loading ? <LoadingState message="Cargando registros..." /> : null}
       {error ? <ErrorState message={error} /> : null}
@@ -238,12 +293,14 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
             {
               key: columns[0].key,
               title: "Acciones",
+              actions: true,
+              headerClassName: "text-right",
               render: (row) => {
                 const id = actions.getId(row);
                 const canDeactivate = (row as { isActive?: boolean }).isActive !== false;
 
                 return (
-                  <div className="flex gap-2">
+                  <TableActionGroup>
                     <Button variant="secondary" onClick={() => onEdit(row)}>
                       Editar
                     </Button>
@@ -257,7 +314,7 @@ export function SimpleCrudPage<T extends Record<string, unknown>>({
                     >
                       Desactivar
                     </Button>
-                  </div>
+                  </TableActionGroup>
                 );
               }
             }

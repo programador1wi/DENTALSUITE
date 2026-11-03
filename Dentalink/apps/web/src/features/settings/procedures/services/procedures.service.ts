@@ -1,9 +1,12 @@
 import { http } from "@/lib/api/http-client";
 
+export type ProcedureType = "CLINICAL" | "LAB" | "MIXED";
+
 export type ProcedureCategory = {
   id: string;
   name: string;
   description?: string | null;
+  type: ProcedureType;
   sortOrder: number;
   isActive: boolean;
 };
@@ -15,10 +18,13 @@ export type Procedure = {
   code: string;
   name: string;
   description?: string | null;
+  type: ProcedureType;
   defaultDuration: number;
   requiresTooth: boolean;
   requiresSurface: boolean;
   requiresLab: boolean;
+  requiresOdontogramSymbol: boolean;
+  defaultOdontogramSymbol?: string | null;
   isActive: boolean;
   category: { id: string; name: string };
 };
@@ -26,6 +32,7 @@ export type Procedure = {
 export type ProcedureCategoryPayload = {
   name?: string;
   description?: string;
+  type?: ProcedureType;
   sortOrder?: number;
   isActive?: boolean;
 };
@@ -35,10 +42,13 @@ export type ProcedurePayload = {
   code?: string;
   name?: string;
   description?: string;
+  type?: ProcedureType;
   defaultDuration?: number;
   requiresTooth?: boolean;
   requiresSurface?: boolean;
   requiresLab?: boolean;
+  requiresOdontogramSymbol?: boolean;
+  defaultOdontogramSymbol?: string | null;
   isActive?: boolean;
 };
 

@@ -1,4 +1,5 @@
-import { IsDateString, IsInt, IsOptional, IsString, Min } from "class-validator";
+import { AttendanceMode } from "@prisma/client";
+import { IsBoolean, IsDateString, IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator";
 
 export class CancelAppointmentDto {
   @IsString()
@@ -6,7 +7,7 @@ export class CancelAppointmentDto {
 
   @IsOptional()
   @IsString()
-  cancelledBy?: "patient" | "clinic";
+  cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled";
 }
 
 export class RescheduleAppointmentDto {
@@ -21,6 +22,15 @@ export class RescheduleAppointmentDto {
   @IsOptional()
   @IsString()
   chairId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  chairIndex?: number;
+
+  @IsOptional()
+  @IsEnum(AttendanceMode)
+  attendanceMode?: AttendanceMode;
 
   @IsOptional()
   @IsString()
@@ -40,6 +50,10 @@ export class RescheduleAppointmentDto {
   @IsOptional()
   @IsString()
   reason?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowOverbooking?: boolean;
 }
 
 export class AppointmentStatusReasonDto {
@@ -59,10 +73,18 @@ export class AvailabilityQueryDto {
   @IsString()
   chairId?: string;
 
+  @IsOptional()
+  @IsString()
+  chairIndex?: string;
+
   @IsDateString()
   date!: string;
 
   @IsOptional()
   @IsString()
   durationMinutes?: string;
+
+  @IsOptional()
+  @IsString()
+  excludeAppointmentId?: string;
 }

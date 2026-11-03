@@ -19,7 +19,8 @@ export const DIAGNOSIS_SECTIONS = [
       { label: "Sellante", mark: "sealant" },
       { label: "Implante (mal estado)", mark: "bad-implant" },
       { label: "Endodoncia (mal estado)", mark: "bad-endo" },
-      { label: "Ausente", mark: "absent" }
+      { label: "Ausente", mark: "absent" },
+      { label: "Rayos X", mark: "radiography" }
     ]
   },
   {
@@ -49,16 +50,46 @@ export type DiagnosisOption = (typeof DIAGNOSIS_SECTIONS)[number]["options"][num
 export type DiagnosisMark = DiagnosisOption["mark"];
 
 const DIAGNOSIS_MARK_BY_LABEL = new Map<string, DiagnosisMark>();
+const DIAGNOSIS_MARKS = new Set<string>();
 
 for (const section of DIAGNOSIS_SECTIONS) {
   for (const option of section.options) {
     DIAGNOSIS_MARK_BY_LABEL.set(option.label.toUpperCase(), option.mark);
+    DIAGNOSIS_MARKS.add(option.mark);
   }
 }
 
+DIAGNOSIS_MARK_BY_LABEL.set("EXTRACCION", "absent");
+DIAGNOSIS_MARK_BY_LABEL.set("EXTRACCION SIMPLE", "absent");
+DIAGNOSIS_MARK_BY_LABEL.set("RADIOGRAFIA", "radiography");
+DIAGNOSIS_MARK_BY_LABEL.set("RX", "radiography");
+DIAGNOSIS_MARK_BY_LABEL.set("CROWN", "crown");
+DIAGNOSIS_MARK_BY_LABEL.set("ENDODONTICS", "endo");
+DIAGNOSIS_MARK_BY_LABEL.set("EXTRACTION", "absent");
+DIAGNOSIS_MARK_BY_LABEL.set("IMPLANT", "implant");
+DIAGNOSIS_MARK_BY_LABEL.set("RESTORATION", "restoration");
+DIAGNOSIS_MARK_BY_LABEL.set("RADIOGRAPHY", "radiography");
+DIAGNOSIS_MARK_BY_LABEL.set("SEALANT", "sealant");
+DIAGNOSIS_MARK_BY_LABEL.set("OTHER", "other");
+
+export const ODONTOGRAM_PROCEDURE_SYMBOL_OPTIONS: Array<{ label: string; value: DiagnosisMark }> = [
+  { label: "Corona", value: "crown" },
+  { label: "Endodoncia", value: "endo" },
+  { label: "Extraccion", value: "absent" },
+  { label: "Implante", value: "implant" },
+  { label: "Restauracion", value: "restoration" },
+  { label: "Rayos X", value: "radiography" },
+  { label: "Sellante", value: "sealant" },
+  { label: "Otro", value: "other" }
+];
+
 export function getDiagnosisMark(value?: string | null) {
   if (!value) return undefined;
-  return DIAGNOSIS_MARK_BY_LABEL.get(value.trim().toUpperCase());
+  const normalized = value.trim();
+  if (DIAGNOSIS_MARKS.has(normalized)) return normalized as DiagnosisMark;
+  const lowerMark = normalized.toLowerCase();
+  if (DIAGNOSIS_MARKS.has(lowerMark)) return lowerMark as DiagnosisMark;
+  return DIAGNOSIS_MARK_BY_LABEL.get(normalized.toUpperCase());
 }
 
 export function ToothDiagnosisSymbol({ mark, className = "h-20 w-20" }: { mark: DiagnosisMark; className?: string }) {
@@ -117,6 +148,7 @@ export function ToothDiagnosisSymbol({ mark, className = "h-20 w-20" }: { mark: 
           <line x1="54" y1="30" x2="26" y2="70" />
         </g>
       ) : null}
+      {mark === "radiography" ? <text x="40" y="66" textAnchor="middle" fontSize="15" fontWeight="700" fill="#2382d9">RX</text> : null}
       {mark === "caries" ? <circle cx="40" cy="57" r="8" fill="#111" /> : null}
       {mark === "pulp-infection" ? <path d="M40 26 C39 39 39 55 37 68" fill="none" stroke="#111" strokeWidth="6" strokeLinecap="round" /> : null}
       {mark === "fracture" ? <path d="M47 18 L35 45 L47 43 L33 77" fill="none" stroke="#111" strokeWidth="3.5" strokeLinejoin="round" /> : null}

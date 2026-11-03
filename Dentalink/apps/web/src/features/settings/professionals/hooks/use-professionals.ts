@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  bulkUpdateProfessionalContracts,
   createProfessional,
   deactivateProfessional,
+  getProfessionalDeactivationImpact,
   listProfessionals,
+  previewBulkProfessionalContracts,
   transferProfessionalBranch,
   updateProfessional,
+  type BulkProfessionalContractPayload,
   type ProfessionalBranchTransferPayload,
   type ProfessionalPayload
 } from "../services/professionals.service";
@@ -13,12 +17,15 @@ type ProfessionalQueryOptions = {
   branchId?: string;
   page?: number;
   pageSize?: number;
+  enabled?: boolean;
 };
 
 export function useProfessionals(search?: string, active?: string, options?: ProfessionalQueryOptions) {
+  const { enabled = true, ...queryOptions } = options ?? {};
   return useQuery({
-    queryKey: ["settings", "professionals", search, active, options],
-    queryFn: () => listProfessionals({ search, active, ...options })
+    queryKey: ["settings", "professionals", search, active, queryOptions],
+    queryFn: () => listProfessionals({ search, active, ...queryOptions }),
+    enabled
   });
 }
 
@@ -47,6 +54,14 @@ export function useDeactivateProfessional() {
   });
 }
 
+export function useProfessionalDeactivationImpact(id?: string, branchId?: string) {
+  return useQuery({
+    queryKey: ["settings", "professionals", id, "deactivation-impact", branchId],
+    queryFn: () => getProfessionalDeactivationImpact(id!, branchId),
+    enabled: Boolean(id)
+  });
+}
+
 export function useTransferProfessionalBranch() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -56,5 +71,22 @@ export function useTransferProfessionalBranch() {
       queryClient.invalidateQueries({ queryKey: ["settings", "schedules"] });
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
     }
+  });
+}
+
+export function useBulkUpdateProfessionalContracts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: BulkProfessionalContractPayload) => bulkUpdateProfessionalContracts(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["settings", "professionals"] });
+      queryClient.invalidateQueries({ queryKey: ["settings", "payroll"] });
+    }
+  });
+}
+
+export function useBulkProfessionalContractPreview() {
+  return useMutation({
+    mutationFn: (payload: BulkProfessionalContractPayload) => previewBulkProfessionalContracts(payload)
   });
 }

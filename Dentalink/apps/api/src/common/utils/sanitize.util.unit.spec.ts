@@ -12,7 +12,7 @@ describe("sanitize util", () => {
     };
 
     expect(sanitizeUnknown(payload)).toEqual({
-      name: "alert(1)Maria",
+      name: "Maria",
       nested: [{ note: "ok" }]
     });
   });

@@ -6,6 +6,7 @@ import {
   createPeriodontalChart,
   createAllergy,
   createCondition,
+  createDocument,
   createDocumentFromTemplate,
   createDocumentTemplate,
   createEvolution,
@@ -24,10 +25,18 @@ import {
   listEvolutions,
   listPrescriptions,
   printPrescription,
+  updatePrescriptionStatus,
   signEvolution,
   updateToothProcedureStatus,
   upsertMedicalHistory,
+  deleteClinicalDocument,
+  listPatientHistory,
+  updateEvolution,
+  annulEvolution,
+  type ClinicalDocument,
+  type ClinicalEvolution,
   type MedicalHistory,
+  type PatientHistoryQuery,
   type PeriodontalMeasurement,
   type ToothProcedureStatus
 } from "../services/clinical.service";
@@ -60,18 +69,26 @@ export function useClinicalTemplates(patientId: string) {
   return useQuery({ queryKey: ["clinical", patientId, "templates"], queryFn: () => listDocumentTemplates(patientId), enabled: Boolean(patientId) });
 }
 
-export function useOdontogram(patientId: string, toothNumber?: string) {
+export function useOdontogram(patientId: string, toothNumber?: string, surface?: string) {
   return useQuery({
-    queryKey: ["clinical", patientId, "odontogram", toothNumber ?? "all"],
-    queryFn: () => getOdontogram(patientId, toothNumber),
+    queryKey: ["clinical", patientId, "odontogram", toothNumber ?? "all", surface ?? "all"],
+    queryFn: () => getOdontogram(patientId, toothNumber, surface),
     enabled: Boolean(patientId)
   });
 }
 
-export function useToothHistory(patientId: string, toothNumber: string) {
+export function usePatientHistory(patientId: string, params: PatientHistoryQuery) {
   return useQuery({
-    queryKey: ["clinical", patientId, "odontogram-history", toothNumber],
-    queryFn: () => getToothHistory(patientId, toothNumber),
+    queryKey: ["clinical", patientId, "patient-history", params],
+    queryFn: () => listPatientHistory(patientId, params),
+    enabled: Boolean(patientId)
+  });
+}
+
+export function useToothHistory(patientId: string, toothNumber: string, surface?: string) {
+  return useQuery({
+    queryKey: ["clinical", patientId, "odontogram-history", toothNumber, surface ?? "all"],
+    queryFn: () => getToothHistory(patientId, toothNumber, surface),
     enabled: Boolean(patientId && toothNumber)
   });
 }
@@ -94,7 +111,22 @@ export function usePeriodontalComparison(patientId: string, chartAId?: string, c
 
 export function useClinicalMutations(patientId: string) {
   const queryClient = useQueryClient();
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["clinical", patientId] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "evolutions"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "summary"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "appointment-history"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "odontogram"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "odontogram-history"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "documents"] });
+    queryClient.invalidateQueries({ queryKey: ["clinical", patientId, "templates"] });
+    queryClient.invalidateQueries({ queryKey: ["treatment-plans"] });
+    queryClient.invalidateQueries({ queryKey: ["treatment-plan"] });
+    queryClient.invalidateQueries({ queryKey: ["budgets"] });
+    queryClient.invalidateQueries({ queryKey: ["patient-payments"] });
+    queryClient.invalidateQueries({ queryKey: ["orthodontic-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["orthodontic-evolutions"] });
+    queryClient.invalidateQueries({ queryKey: ["settings", "clinical-document-templates"] });
+  };
   const options = { onSuccess: invalidate, onError: (error: Error) => toast.error(error.message) };
 
   return {
@@ -102,7 +134,20 @@ export function useClinicalMutations(patientId: string) {
     createAllergy: useMutation({ mutationFn: (payload: { name: string; reaction?: string; severity?: string; notes?: string }) => createAllergy(patientId, payload), ...options }),
     createMedication: useMutation({ mutationFn: (payload: { name: string; dosage?: string; frequency?: string; notes?: string }) => createMedication(patientId, payload), ...options }),
     createCondition: useMutation({ mutationFn: (payload: { name: string; notes?: string }) => createCondition(patientId, payload), ...options }),
-    createEvolution: useMutation({ mutationFn: (payload: Record<string, unknown>) => createEvolution(patientId, payload), ...options }),
+    createEvolution: useMutation({
+      mutationFn: (payload: Record<string, unknown>) => createEvolution(patientId, payload),
+      onSuccess: (created) => {
+        queryClient.setQueryData<ClinicalEvolution[]>(["clinical", patientId, "evolutions"], (current) => {
+          if (!current) return [created];
+          if (current.some((evolution) => evolution.id === created.id)) {
+            return current.map((evolution) => (evolution.id === created.id ? created : evolution));
+          }
+          return [created, ...current];
+        });
+        invalidate();
+      },
+      onError: options.onError
+    }),
     signEvolution: useMutation({ mutationFn: (evolutionId: string) => signEvolution(patientId, evolutionId), ...options }),
     createAddendum: useMutation({
       mutationFn: ({ evolutionId, professionalId, notes }: { evolutionId: string; professionalId: string; notes: string }) =>
@@ -111,9 +156,18 @@ export function useClinicalMutations(patientId: string) {
     }),
     createPrescription: useMutation({ mutationFn: (payload: Record<string, unknown>) => createPrescription(patientId, payload), ...options }),
     printPrescription: useMutation({ mutationFn: (prescriptionId: string) => printPrescription(patientId, prescriptionId), ...options }),
+    updatePrescriptionStatus: useMutation({
+      mutationFn: ({ prescriptionId, status }: { prescriptionId: string; status: string }) =>
+        updatePrescriptionStatus(patientId, prescriptionId, status),
+      ...options
+    }),
+    createDocument: useMutation({
+      mutationFn: (payload: { templateId?: string; title: string; content: ClinicalDocument["content"] }) => createDocument(patientId, payload),
+      ...options
+    }),
     createDocumentFromTemplate: useMutation({ mutationFn: (payload: { templateId: string; title: string }) => createDocumentFromTemplate(patientId, payload), ...options }),
     createDocumentTemplate: useMutation({
-      mutationFn: (payload: { name: string; description?: string; content: string }) => createDocumentTemplate(patientId, payload),
+      mutationFn: (payload: { name: string; description?: string; content: ClinicalDocument["content"] }) => createDocumentTemplate(patientId, payload),
       ...options
     }),
     createToothCondition: useMutation({
@@ -121,6 +175,17 @@ export function useClinicalMutations(patientId: string) {
         createToothCondition(patientId, payload),
       ...options
     }),
+    deleteDocument: useMutation({ mutationFn: ({ documentId, reason }: { documentId: string, reason: string }) => deleteClinicalDocument(patientId, documentId, { reason }), ...options }),
+    
+    updateEvolution: useMutation({
+      mutationFn: ({ evolutionId, data }: { evolutionId: string, data: any }) => updateEvolution(patientId, evolutionId, data),
+      ...options
+    }),
+    annulEvolution: useMutation({
+      mutationFn: ({ evolutionId, reason }: { evolutionId: string, reason: string }) => annulEvolution(patientId, evolutionId, reason),
+      ...options
+    }),
+
     cancelOdontogramRecord: useMutation({ mutationFn: (odontogramRecordId: string) => cancelOdontogramRecord(patientId, odontogramRecordId), ...options }),
     createToothProcedure: useMutation({
       mutationFn: (payload: {
@@ -141,13 +206,17 @@ export function useClinicalMutations(patientId: string) {
         toothProcedureId,
         status,
         notes,
+        completionPercentage,
+        expectedVersion,
         createClinicalEvolution
       }: {
         toothProcedureId: string;
         status: ToothProcedureStatus;
         notes?: string;
+        completionPercentage?: number;
+        expectedVersion?: number;
         createClinicalEvolution?: boolean;
-      }) => updateToothProcedureStatus(patientId, toothProcedureId, { status, notes, createClinicalEvolution }),
+      }) => updateToothProcedureStatus(patientId, toothProcedureId, { status, notes, completionPercentage, expectedVersion, createClinicalEvolution }),
       ...options
     }),
     createPeriodontalChart: useMutation({

@@ -1,135 +1,196 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent } from "react";
 import { CheckCircle2, Info, Plus, Printer, Stethoscope, X } from "lucide-react";
-import { HelpTooltip } from "@/components/ui/help-tooltip";
+import { DataTable } from "@/components/ui/data-table";
+import { SafeSvg } from "@/components/ui/safe-html";
 import { cn } from "@/lib/utils/cn";
 import { useOdontogramStore, type OdontogramContextMenu, type OdontogramTool } from "@/stores/odontogram.store";
 import type { OdontogramRecord, ToothCondition, ToothProcedure } from "../services/clinical.service";
-import { getDiagnosisMark, type DiagnosisMark } from "./tooth-diagnosis-symbols";
+import {
+  activateWarnerSuiteSvgMarkup,
+  symbolIdsFromRecords,
+  uniqueValues,
+  warnerSuiteActivationCss
+} from "./odontogram-symbol-state";
+import { faceIndexesForSurface, fdiLabel, pieceSurfaceLabel, surfaceCodes, surfaceForFaceIndex, surfaceLabel } from "../utils/tooth-surface";
 
 const PERMANENT_UPPER = ["18", "17", "16", "15", "14", "13", "12", "11", "21", "22", "23", "24", "25", "26", "27", "28"];
 const PERMANENT_LOWER = ["48", "47", "46", "45", "44", "43", "42", "41", "31", "32", "33", "34", "35", "36", "37", "38"];
 const TEMPORAL_UPPER = ["55", "54", "53", "52", "51", "61", "62", "63", "64", "65"];
 const TEMPORAL_LOWER = ["85", "84", "83", "82", "81", "71", "72", "73", "74", "75"];
 
-function fdiLabel(tooth: string) {
-  return `${tooth[0]}.${tooth[1]}`;
+const PERMANENT_FACE_OFFSETS = [0, 74, 146, 218, 291, 363, 434, 506, 578, 649, 718, 788, 862, 936, 1009, 1080];
+const TEMPORAL_FACE_OFFSETS = [0, 72, 144, 215, 287, 359, 430, 499, 569, 642];
+const FACE_START_X = 25;
+const UPPER_FACE_Y = { permanent: 221, temporal: 220 } as const;
+const LOWER_FACE_Y = { permanent: 320, temporal: 319 } as const;
+const FACE_CENTER = 23.436;
+const FACE_RADIUS = 11.34;
+const FACE_PATHS = {
+  1: "M23.436,3.46389584e-14 C29.9076727,3.46389584e-14 35.7666727,2.62316365 40.0077545,6.86424548 L31.4545909,15.4174091 C29.4024545,13.3652727 26.5674545,12.096 23.436,12.096 C20.3045455,12.096 17.4695455,13.3652727 15.4174091,15.4174091 L6.86424548,6.86424548 C11.1053273,2.62316365 16.9643273,3.46389584e-14 23.436,3.46389584e-14 Z",
+  2: "M40.0077545,6.86424548 C44.2488363,11.1053273 46.872,16.9643273 46.872,23.436 C46.872,29.9076727 44.2488363,35.7666727 40.0077545,40.0077545 L31.4545909,31.4545909 C33.5067273,29.4024545 34.776,26.5674545 34.776,23.436 C34.776,20.3045455 33.5067273,17.4695455 31.4545909,15.4174091 L40.0077545,6.86424548 Z",
+  3: "M23.436,34.776 C26.5674545,34.776 29.4024545,33.5067273 31.4545909,31.4545909 L40.0077545,40.0077545 C35.7666727,44.2488363 29.9076727,46.872 23.436,46.872 C16.9643273,46.872 11.1053273,44.2488363 6.86424548,40.0077545 L15.4174091,31.4545909 C17.4695455,33.5067273 20.3045455,34.776 23.436,34.776 Z",
+  4: "M6.86424548,6.86424548 L15.4174091,15.4174091 C13.3652727,17.4695455 12.096,20.3045455 12.096,23.436 C12.096,26.5669527 13.3648659,29.4015459 15.4164226,31.4536042 L6.86424548,40.0077545 C2.62316365,35.7666727 0,29.9076727 0,23.436 C0,16.9643273 2.62316365,11.1053273 6.86424548,6.86424548 Z"
+} as const;
+
+type SurfaceVisualState = "lesion" | "todo" | "done";
+type SurfaceStateMap = Record<string, SurfaceVisualState>;
+
+function surfaceStateKey(toothNumber: string, surface: string) {
+  return `${toothNumber}:${surface}`;
 }
 
-type WarnerSuiteSymbolSource = {
-  toothNumber: string;
+function surfaceVisualPriority(state: SurfaceVisualState) {
+  if (state === "done") return 3;
+  if (state === "todo") return 2;
+  return 1;
+}
+
+export function resolveDentalSurfaceVisualState(source: {
   status?: string | null;
   condition?: string | null;
-  diagnosis?: string | null;
-  procedure?: { code?: string | null; name?: string | null } | null;
-};
-
-const WARNER_SUITE_SYMBOL_BY_MARK: Partial<Record<DiagnosisMark, string>> = {
-  crown: "cor",
-  "temporary-crown": "cp",
-  endo: "endo",
-  restoration: "r",
-  implant: "i",
-  post: "pm",
-  other: "o",
-  removable: "protesis_removible",
-  "bad-crown": "cor_achurado",
-  "bad-temporary-crown": "cp",
-  "bad-post": "pm_achurado",
-  "bad-restoration": "r_achurado",
-  amalgam: "a",
-  "bad-amalgam": "a_achurado",
-  sealant: "sell",
-  "bad-implant": "i_achurado",
-  "bad-endo": "endo_achurado",
-  absent: "rx",
-  caries: "c",
-  "pulp-infection": "ip",
-  fracture: "f",
-  mobility: "mov",
-  "root-residue": "rr",
-  erosion: "e",
-  attrition: "at",
-  abfraction: "ab",
-  "lesion-other": "o",
-  unerupted: "se",
-  healthy: "s"
-};
-
-function normalizeClinicalText(value?: string | null) {
-  return (value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toUpperCase();
+}): SurfaceVisualState {
+  const isProcedureRecord = source.condition === "TOOTH_PROCEDURE" || source.condition === "TOOTH_PROCEDURE_STATUS";
+  if (isProcedureRecord || (!source.condition && source.status)) {
+    return source.status === "COMPLETED" ? "done" : "todo";
+  }
+  return "lesion";
 }
 
-function inferDiagnosisMark(source: WarnerSuiteSymbolSource) {
-  const exact = getDiagnosisMark(source.diagnosis ?? source.condition ?? source.procedure?.name ?? source.procedure?.code);
-  if (exact) return exact;
-
-  const text = normalizeClinicalText([source.diagnosis, source.condition, source.procedure?.code, source.procedure?.name].filter(Boolean).join(" "));
-  if (!text) return undefined;
-  if (text.includes("CORONA") && (text.includes("PROVISORIA") || text.includes("TEMPORAL"))) return "temporary-crown";
-  if (text.includes("CORONA")) return "crown";
-  if (text.includes("ENDOD")) return "endo";
-  if (text.includes("RESTAUR") || text.includes("OBTUR") || text.includes("RESINA")) return "restoration";
-  if (text.includes("IMPLANTE")) return "implant";
-  if (text.includes("PERNO") || text.includes("MUÑON") || text.includes("MUNON")) return "post";
-  if (text.includes("SELLANTE") || text.includes("SELLADO")) return "sealant";
-  if (text.includes("AMALG")) return "amalgam";
-  if (text.includes("AUSENTE") || text.includes("EXODON") || text.includes("EXTRACC")) return "absent";
-  if (text.includes("CARIES")) return "caries";
-  if (text.includes("FRACT")) return "fracture";
-  if (text.includes("MOVIL")) return "mobility";
-  if (text.includes("RESIDUO") || text.includes("RADICULAR")) return "root-residue";
-  if (text.includes("EROSION")) return "erosion";
-  if (text.includes("ATRICION")) return "attrition";
-  if (text.includes("ABFRACCION")) return "abfraction";
-  return undefined;
+function applySurfaceState(states: SurfaceStateMap, toothNumber: string, surface: string | null | undefined, state: SurfaceVisualState) {
+  const targetSurface = surface?.trim() ? surface : "ALL";
+  for (const faceIndex of faceIndexesForSurface(toothNumber, targetSurface)) {
+    const surfaceCode = surfaceForFaceIndex(toothNumber, faceIndex);
+    const key = surfaceStateKey(toothNumber, surfaceCode);
+    const current = states[key];
+    if (!current || surfaceVisualPriority(state) >= surfaceVisualPriority(current)) states[key] = state;
+  }
 }
 
-function symbolIdsFromRecords(sources: WarnerSuiteSymbolSource[]) {
-  const ids = new Set<string>();
+function surfaceStatesFromSources({
+  records = [],
+  conditions = [],
+  procedures = []
+}: {
+  records?: OdontogramRecord[];
+  conditions?: ToothCondition[];
+  procedures?: ToothProcedure[];
+}) {
+  const states: SurfaceStateMap = {};
 
-  for (const record of sources) {
+  for (const record of records) {
     if (record.status === "CANCELLED") continue;
-    const mark = inferDiagnosisMark(record);
-    if (!mark) continue;
-    const symbol = WARNER_SUITE_SYMBOL_BY_MARK[mark];
-    if (symbol) ids.add(`${symbol}_${record.toothNumber}`);
+    applySurfaceState(states, record.toothNumber, record.surface, resolveDentalSurfaceVisualState(record));
   }
 
-  return [...ids];
+  for (const procedure of procedures) {
+    if (procedure.status === "CANCELLED") continue;
+    applySurfaceState(states, procedure.toothNumber, procedure.surface, resolveDentalSurfaceVisualState(procedure));
+  }
+
+  for (const condition of conditions) {
+    applySurfaceState(states, condition.toothNumber, condition.surface, "lesion");
+  }
+
+  return states;
 }
 
-function uniqueValues(values: string[]) {
-  return [...new Set(values.filter(Boolean))];
+function faceOffset(dentition: "permanent" | "temporal", index: number) {
+  return FACE_START_X + (dentition === "permanent" ? PERMANENT_FACE_OFFSETS[index] : TEMPORAL_FACE_OFFSETS[index]);
 }
 
-function warnerSuiteActivationCss(symbolIds: string[], activeTeeth: string[]) {
-  const activeIds = activeTeeth.map((tooth) => `hover_${tooth}`);
-  const visibleIds = [...symbolIds, ...activeIds].filter(Boolean);
-  if (!visibleIds.length) return "";
-
-  return `
-    ${visibleIds.map((id) => `#${id}`).join(", ")} {
-      display: inline !important;
-    }
-    ${activeIds.length ? `${activeIds.map((id) => `#${id}`).join(", ")} { fill-opacity: 0.13 !important; stroke-opacity: 1 !important; }` : ""}
-  `;
+function faceRowY(dentition: "permanent" | "temporal", row: "upper" | "lower") {
+  return row === "upper" ? UPPER_FACE_Y[dentition] : LOWER_FACE_Y[dentition];
 }
 
-function escapeRegExp(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function surfaceFaceClass(state?: SurfaceVisualState, selected?: boolean) {
+  return cn(
+    "cursor-pointer transition-[fill,fill-opacity,stroke,stroke-width] duration-150 outline-none",
+    state === "done"
+      ? "fill-[#1f7ae0] stroke-[#1f7ae0]"
+      : state === "todo"
+        ? "fill-[#ff0000] stroke-black"
+        : selected
+          ? "fill-[#008aca] stroke-[#008aca]"
+          : state === "lesion"
+            ? "fill-black stroke-black"
+            : "fill-white stroke-transparent"
+  );
 }
 
-function activateWarnerSuiteSvgMarkup(markup: string, visibleIds: string[]) {
-  return visibleIds.reduce((current, id) => {
-    const idPattern = escapeRegExp(id);
-    return current
-      .replace(new RegExp(`(id="${idPattern}"[^>]*?)style="display:\\s*none;?"`, "g"), '$1style="display: inline;"')
-      .replace(new RegExp(`(id="${idPattern}"[^>]*?style="[^"]*?)display:\\s*none;?`, "g"), '$1display: inline;');
-  }, markup);
+function surfaceFaceOpacity(state?: SurfaceVisualState, selected?: boolean) {
+  if (state === "done" || state === "todo" || state === "lesion") return 0.82;
+  if (selected) return 0.32;
+  return 0.001;
+}
+
+function SurfaceFaceOverlay({
+  dentition,
+  row,
+  teeth,
+  selectedTeeth,
+  selectedSurface,
+  surfaceStates,
+  onSelectSurface,
+  onOpenSurfaceContextMenu
+}: {
+  dentition: "permanent" | "temporal";
+  row: "upper" | "lower";
+  teeth: string[];
+  selectedTeeth: string[];
+  selectedSurface: string;
+  surfaceStates: SurfaceStateMap;
+  onSelectSurface: (tooth: string, surface: string, options?: { additive?: boolean }) => void;
+  onOpenSurfaceContextMenu: (tooth: string, surface: string, event: MouseEvent<SVGElement>) => void;
+}) {
+  return (
+    <g>
+      {teeth.map((tooth, toothIndex) => {
+        const transform = `translate(${faceOffset(dentition, toothIndex)} ${faceRowY(dentition, row)})`;
+        const verticalOffset = row === "lower" ? 22 : 0;
+        const faceIndexes = [1, 2, 3, 4, 5] as const;
+
+        return (
+          <g key={`surface-hit-${row}-${tooth}`} transform={transform}>
+            {faceIndexes.map((faceIndex) => {
+              const surface = surfaceForFaceIndex(tooth, faceIndex);
+              const visualState = surfaceStates[surfaceStateKey(tooth, surface)];
+              const selected = Boolean(selectedSurface && selectedTeeth.includes(tooth) && surfaceCodes(selectedSurface).includes(surface));
+              const commonProps = {
+                role: "button",
+                tabIndex: 0,
+                "aria-label": `Cara ${surfaceLabel(surface).toLowerCase()} de pieza ${fdiLabel(tooth)}`,
+                "aria-pressed": selected,
+                "data-testid": `surface-face-${tooth}-${surface}`,
+                className: surfaceFaceClass(visualState, selected),
+                fillOpacity: surfaceFaceOpacity(visualState, selected),
+                strokeOpacity: selected || visualState ? 1 : 0,
+                strokeWidth: visualState ? 1.9 : selected ? 2.1 : 1.5,
+                style: { pointerEvents: "all" as const },
+                onClick: (event: MouseEvent<SVGElement>) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  onSelectSurface(tooth, surface, { additive: event.ctrlKey || event.metaKey });
+                },
+                onContextMenu: (event: MouseEvent<SVGElement>) => onOpenSurfaceContextMenu(tooth, surface, event),
+                onKeyDown: (event: ReactKeyboardEvent<SVGElement>) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelectSurface(tooth, surface);
+                  }
+                }
+              };
+
+              if (faceIndex === 5) {
+                return <circle key={`${tooth}-${surface}`} {...commonProps} cx={FACE_CENTER} cy={FACE_CENTER + verticalOffset} r={FACE_RADIUS} />;
+              }
+
+              return <path key={`${tooth}-${surface}`} {...commonProps} d={FACE_PATHS[faceIndex]} transform={verticalOffset ? `translate(0 ${verticalOffset})` : undefined} />;
+            })}
+          </g>
+        );
+      })}
+    </g>
+  );
 }
 
 function SextantsMandibleSvg() {
@@ -198,50 +259,69 @@ function SextantsMandibleSvg() {
 }
 
 function ClinicalSvg({
+  dentition,
   teethUpper,
   teethLower,
   selectedTooth,
   selectedTeeth,
+  selectedSurface,
   hoveredTooth,
   latestByTooth,
   conditions,
   records,
   procedures,
   onSelectTooth,
+  onSelectSurface,
   onHoverTooth,
-  onOpenContextMenu
+  onOpenContextMenu,
+  onOpenSurfaceContextMenu
 }: {
+  dentition: "permanent" | "temporal";
   teethUpper: string[];
   teethLower: string[];
   selectedTooth: string;
   selectedTeeth: string[];
+  selectedSurface: string;
   hoveredTooth: string;
   latestByTooth: Record<string, OdontogramRecord>;
   conditions?: ToothCondition[];
   records?: OdontogramRecord[];
   procedures?: ToothProcedure[];
   onSelectTooth: (tooth: string, options?: { additive?: boolean }) => void;
+  onSelectSurface: (tooth: string, surface: string, options?: { additive?: boolean }) => void;
   onHoverTooth: (tooth: string) => void;
-  onOpenContextMenu: (tooth: string, event: MouseEvent<SVGRectElement>) => void;
+  onOpenContextMenu: (tooth: string, event: MouseEvent<SVGElement>) => void;
+  onOpenSurfaceContextMenu: (tooth: string, surface: string, event: MouseEvent<SVGElement>) => void;
 }) {
   const [svgMarkup, setSvgMarkup] = useState("");
-  const upperStartX = 12;
-  const lowerStartX = 12;
-  const toothWidth = 72.0666667;
+  const assetPath = dentition === "temporal" ? "/warner-suite-odontogram-temporal.svg" : "/warner-suite-odontogram-permanent.svg";
+  const overlayViewBox = dentition === "temporal" ? "0 0 740 607" : "0 0 1177 608";
+  const upperStartX = dentition === "temporal" ? 10 : 12;
+  const lowerStartX = dentition === "temporal" ? 10 : 12;
+  const toothWidth = dentition === "temporal" ? 72 : 72.0666667;
   const interactiveTeeth = [...teethUpper, ...teethLower];
+  const interactiveToothSet = useMemo(() => new Set(interactiveTeeth), [interactiveTeeth]);
   const symbolSources = useMemo(
-    () => [...Object.values(latestByTooth), ...(records ?? []), ...(conditions ?? []), ...(procedures ?? [])],
-    [conditions, latestByTooth, procedures, records]
+    () =>
+      [...Object.values(latestByTooth), ...(records ?? []), ...(conditions ?? []), ...(procedures ?? [])].filter((source) =>
+        interactiveToothSet.has(source.toothNumber)
+      ),
+    [conditions, interactiveToothSet, latestByTooth, procedures, records]
   );
   const symbolIds = useMemo(() => symbolIdsFromRecords(symbolSources), [symbolSources]);
   const activeTeeth = useMemo(() => uniqueValues([selectedTooth, hoveredTooth, ...selectedTeeth]), [hoveredTooth, selectedTeeth, selectedTooth]);
+  const surfaceStates = useMemo(
+    () => surfaceStatesFromSources({ records, conditions, procedures }),
+    [conditions, procedures, records]
+  );
   const visibleIds = useMemo(() => [...symbolIds, ...activeTeeth.map((tooth) => `hover_${tooth}`)].filter(Boolean), [activeTeeth, symbolIds]);
   const activationCss = useMemo(() => warnerSuiteActivationCss(symbolIds, activeTeeth), [activeTeeth, symbolIds]);
   const activatedSvgMarkup = useMemo(() => activateWarnerSuiteSvgMarkup(svgMarkup, visibleIds), [svgMarkup, visibleIds]);
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/warner-suite-odontogram-permanent.svg")
+    setSvgMarkup("");
+    fetch(assetPath)
       .then((response) => response.text())
       .then((markup) => {
         if (!cancelled) setSvgMarkup(markup.replace(/\sstyle="width:\s*700px;?"/, ""));
@@ -253,19 +333,19 @@ function ClinicalSvg({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [assetPath]);
 
   return (
-    <div className="relative mx-auto h-auto w-full max-w-[980px]">
+    <div className="relative mx-auto h-auto w-full max-w-[1120px]">
       {activationCss ? <style>{activationCss}</style> : null}
       {svgMarkup ? (
-        <div
+        <SafeSvg
+          markup={activatedSvgMarkup}
           className="pointer-events-none block h-auto w-full select-none [&_svg]:block [&_svg]:h-auto [&_svg]:w-full"
-          dangerouslySetInnerHTML={{ __html: activatedSvgMarkup }}
         />
       ) : (
         <img
-          src="/warner-suite-odontogram-permanent.svg"
+          src={assetPath}
           alt="Odontograma Internacional FDI"
           className="block h-auto w-full select-none"
           draggable={false}
@@ -273,7 +353,7 @@ function ClinicalSvg({
       )}
       <svg
         className="absolute inset-0 z-10 h-full w-full"
-        viewBox="0 0 1177 608"
+        viewBox={overlayViewBox}
         aria-label="Zonas interactivas del odontograma"
         style={{ pointerEvents: "none" }}
       >
@@ -367,6 +447,26 @@ function ClinicalSvg({
             </g>
           );
         })}
+        <SurfaceFaceOverlay
+          dentition={dentition}
+          row="upper"
+          teeth={teethUpper}
+          selectedTeeth={selectedTeeth}
+          selectedSurface={selectedSurface}
+          surfaceStates={surfaceStates}
+          onSelectSurface={onSelectSurface}
+          onOpenSurfaceContextMenu={onOpenSurfaceContextMenu}
+        />
+        <SurfaceFaceOverlay
+          dentition={dentition}
+          row="lower"
+          teeth={teethLower}
+          selectedTeeth={selectedTeeth}
+          selectedSurface={selectedSurface}
+          surfaceStates={surfaceStates}
+          onSelectSurface={onSelectSurface}
+          onOpenSurfaceContextMenu={onOpenSurfaceContextMenu}
+        />
         <title>{interactiveTeeth.length ? "Selecciona una pieza dental" : "Odontograma"}</title>
       </svg>
     </div>
@@ -418,25 +518,28 @@ function OdontogramContextMenuView({
   if (!menu) return null;
 
   const position = contextMenuPosition(menu);
-  const targetLabel = selectedCount > 1 ? `${selectedCount} piezas` : `pieza ${fdiLabel(menu.toothNumber)}`;
+  const targetLabel =
+    selectedCount > 1
+      ? `${selectedCount} piezas${menu.surface ? ` - Cara ${surfaceLabel(menu.surface).toLowerCase()}` : ""}`
+      : pieceSurfaceLabel(menu.toothNumber, menu.surface).toLowerCase();
   const procedureEnabled = mode === "treatment-plan";
-  const itemClass = "flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-300 disabled:hover:bg-white";
+  const itemClass = "flex w-full items-center gap-2 px-3 py-2.5 text-left text-[var(--text-sm)] text-[var(--text-primary)] transition-[background-color,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] hover:bg-[var(--bg-subtle)] disabled:cursor-not-allowed disabled:text-[var(--border-strong)] disabled:hover:bg-transparent";
 
   return (
     <div className="fixed inset-0 z-40" role="presentation" onMouseDown={onClose}>
       <div
         role="menu"
         aria-label={`Opciones de pieza ${fdiLabel(menu.toothNumber)}`}
-        className="fixed w-[248px] overflow-hidden rounded-sm border border-slate-200 bg-white text-sm shadow-[0_12px_26px_rgba(15,23,42,0.22)]"
+        className="fixed w-[248px] overflow-hidden rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--bg-surface)] text-[var(--text-sm)] shadow-[var(--shadow-modal)]"
         style={{ left: position.left, top: position.top }}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <header className="flex items-start justify-between gap-2 bg-[#0789d4] px-3 py-3 text-white">
+        <header className="flex items-start justify-between gap-2 bg-[var(--bg-nav)] px-3 py-3 text-[var(--text-inverse)]">
           <div>
             <p className="text-sm font-bold">Opciones</p>
-            <p className="mt-0.5 text-xs text-sky-100">Aplicar estos cambios a {targetLabel}</p>
+            <p className="mt-0.5 text-xs text-[rgba(248,250,252,0.65)]">Aplicar estos cambios a {targetLabel}</p>
           </div>
-          <button type="button" aria-label="Cerrar opciones" className="rounded p-0.5 text-white/85 hover:bg-white/10 hover:text-white" onClick={onClose}>
+          <button type="button" aria-label="Cerrar opciones" className="rounded-[var(--radius-sm)] p-0.5 text-[rgba(248,250,252,0.85)] hover:bg-[rgba(255,255,255,0.1)] hover:text-[var(--text-inverse)]" onClick={onClose}>
             <X className="h-4 w-4" />
           </button>
         </header>
@@ -491,8 +594,7 @@ function formatDate(value: string) {
 }
 
 function recordSurface(value?: string | null) {
-  if (!value || value === "ALL") return "";
-  return value;
+  return surfaceLabel(value);
 }
 
 export function OdontogramView({
@@ -534,22 +636,36 @@ export function OdontogramView({
   const activeTool = useOdontogramStore((state) => state.activeTool);
   const selectedTeeth = useOdontogramStore((state) => state.selectedTeeth);
   const hoveredTooth = useOdontogramStore((state) => state.hoveredTooth);
+  const selectedSurface = useOdontogramStore((state) => state.selectedSurface);
   const contextMenu = useOdontogramStore((state) => state.contextMenu);
   const showOnlyDiagnosis = useOdontogramStore((state) => state.showOnlyDiagnosis);
   const setHoveredTooth = useOdontogramStore((state) => state.setHoveredTooth);
   const setDentition = useOdontogramStore((state) => state.setDentition);
+  const selectToothSurface = useOdontogramStore((state) => state.selectToothSurface);
   const openContextMenu = useOdontogramStore((state) => state.openContextMenu);
   const closeContextMenu = useOdontogramStore((state) => state.closeContextMenu);
   const openModal = useOdontogramStore((state) => state.openModal);
   const enableMultiSelectMode = useOdontogramStore((state) => state.enableMultiSelectMode);
   const toggleShowOnlyDiagnosis = useOdontogramStore((state) => state.toggleShowOnlyDiagnosis);
 
-  const activeRecords = useMemo(() => (records ?? []).filter((record) => record.status !== "CANCELLED"), [records]);
+  const upper = dentition === "permanent" ? PERMANENT_UPPER : TEMPORAL_UPPER;
+  const lower = dentition === "permanent" ? PERMANENT_LOWER : TEMPORAL_LOWER;
+  const activeDentitionTeeth = useMemo(() => new Set([...upper, ...lower]), [lower, upper]);
+  const activeRecords = useMemo(
+    () => (records ?? []).filter((record) => record.status !== "CANCELLED" && activeDentitionTeeth.has(record.toothNumber)),
+    [activeDentitionTeeth, records]
+  );
   const activeConditions = useMemo(() => {
     const cancelledRecordIds = new Set((records ?? []).filter((record) => record.status === "CANCELLED").map((record) => record.id));
-    return (conditions ?? []).filter((condition) => !condition.odontogramRecordId || !cancelledRecordIds.has(condition.odontogramRecordId));
-  }, [conditions, records]);
-  const activeProcedures = useMemo(() => (procedures ?? []).filter((procedure) => procedure.status !== "CANCELLED"), [procedures]);
+    return (conditions ?? []).filter(
+      (condition) =>
+        activeDentitionTeeth.has(condition.toothNumber) && (!condition.odontogramRecordId || !cancelledRecordIds.has(condition.odontogramRecordId))
+    );
+  }, [activeDentitionTeeth, conditions, records]);
+  const activeProcedures = useMemo(
+    () => (procedures ?? []).filter((procedure) => procedure.status !== "CANCELLED" && activeDentitionTeeth.has(procedure.toothNumber)),
+    [activeDentitionTeeth, procedures]
+  );
 
   const rows = useMemo(() => {
     const conditionRows = activeRecords.map((record) => {
@@ -580,13 +696,17 @@ export function OdontogramView({
     return [...conditionRows, ...(showOnlyDiagnosis ? [] : procedureRows)].sort((a, b) => Number(new Date(b.date)) - Number(new Date(a.date)));
   }, [activeProcedures, activeRecords, showOnlyDiagnosis]);
 
-  const upper = dentition === "permanent" ? PERMANENT_UPPER : TEMPORAL_UPPER;
-  const lower = dentition === "permanent" ? PERMANENT_LOWER : TEMPORAL_LOWER;
   const actionTeethCount = Math.max(selectedTeeth.length, selectedTooth ? 1 : 0);
-  const handleOpenContextMenu = (toothNumber: string, event: MouseEvent<SVGRectElement>) => {
+  const handleOpenContextMenu = (toothNumber: string, event: MouseEvent<SVGElement>) => {
     event.preventDefault();
     event.stopPropagation();
     openContextMenu({ toothNumber, x: event.clientX, y: event.clientY });
+  };
+  const handleOpenSurfaceContextMenu = (toothNumber: string, surface: string, event: MouseEvent<SVGElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const menuSurface = selectedTooth === toothNumber && selectedSurface && surfaceCodes(selectedSurface).includes(surface) ? selectedSurface : surface;
+    openContextMenu({ toothNumber, surface: menuSurface, x: event.clientX, y: event.clientY });
   };
   const handleMenuAction = (action: () => void) => {
     closeContextMenu();
@@ -594,28 +714,28 @@ export function OdontogramView({
   };
   const toolButtonClass = (tool: OdontogramTool) =>
     cn(
-      "inline-flex h-9 items-center gap-1 rounded border px-3 font-bold transition-colors disabled:opacity-55",
+      "inline-flex h-9 items-center gap-1 rounded-[var(--radius-md)] border px-3 font-[var(--weight-bold)] transition-[background-color,border-color,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] disabled:opacity-40",
       activeTool === tool
-        ? "border-[#0879d5] bg-[#0879d5] text-white"
+        ? "border-[var(--action-brand)] bg-[var(--action-brand)] text-[var(--text-inverse)] hover:bg-[var(--action-brand-hover)]"
         : selectedTooth && (tool === "procedure" || tool === "info")
-          ? "border-[#b9dcfb] bg-[#eaf4ff] text-[#0879d5]"
-          : "border-transparent bg-slate-100 text-slate-700"
+          ? "border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] text-[var(--text-brand)] hover:bg-[var(--border-brand-light)]"
+          : "border-transparent bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
     );
 
   return (
-    <section className="border border-slate-200 bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#0b8c89] px-4 py-3">
+    <section className="border-[0.5px] border-[var(--border-default)] rounded-[var(--radius-lg)] bg-[var(--bg-surface)] overflow-hidden shadow-[var(--shadow-card-hover)]">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border-default)] px-4 py-3">
         <div className="flex items-center gap-4 text-sm">
           <button
             type="button"
-            className={cn("border-b-2 px-1 pb-2", dentition === "permanent" ? "border-[#0879d5] text-slate-900" : "border-transparent text-slate-500")}
+            className={cn("border-b-2 px-1 pb-2", dentition === "permanent" ? "border-[var(--text-brand)] text-[var(--text-primary)] font-[var(--weight-bold)]" : "border-transparent text-[var(--text-secondary)]")}
             onClick={() => setDentition("permanent")}
           >
             Permanente
           </button>
           <button
             type="button"
-            className={cn("border-b-2 px-1 pb-2", dentition === "temporal" ? "border-[#0879d5] text-slate-900" : "border-transparent text-slate-500")}
+            className={cn("border-b-2 px-1 pb-2", dentition === "temporal" ? "border-[var(--text-brand)] text-[var(--text-primary)] font-[var(--weight-bold)]" : "border-transparent text-[var(--text-secondary)]")}
             onClick={() => setDentition("temporal")}
           >
             Temporal
@@ -629,7 +749,6 @@ export function OdontogramView({
           <button
             type="button"
             className={toolButtonClass("diagnosis")}
-            disabled={!selectedTooth}
             onClick={onOpenDiagnosis}
           >
             <Stethoscope className="h-4 w-4" />
@@ -638,8 +757,7 @@ export function OdontogramView({
           <button
             type="button"
             className={toolButtonClass("procedure")}
-            disabled={!selectedTooth}
-            onClick={onOpenTreatment}
+            onClick={mode === "treatment-plan" && onOpenProcedureCatalog ? onOpenProcedureCatalog : onOpenTreatment}
           >
             <Plus className="h-4 w-4" />
             Tratamiento
@@ -647,7 +765,6 @@ export function OdontogramView({
           <button
             type="button"
             className={toolButtonClass("info")}
-            disabled={!selectedTooth}
             onClick={onOpenInformation}
           >
             <Info className="h-4 w-4" />
@@ -655,12 +772,17 @@ export function OdontogramView({
           </button>
           <button
             type="button"
-            className={cn("h-9 rounded px-3 text-slate-700", showOnlyDiagnosis ? "bg-[#d8eef8] font-semibold" : "bg-slate-100")}
+            className={cn(
+              "h-9 rounded-[var(--radius-md)] px-3 text-[var(--text-sm)] transition-[background-color,border-color,color] duration-[var(--duration-fast)] ease-[var(--ease-default)] border",
+              showOnlyDiagnosis
+                ? "bg-[var(--bg-brand-light)] border-[var(--border-brand-light)] text-[var(--text-brand-strong)] font-[var(--weight-bold)]"
+                : "bg-[var(--bg-subtle)] border-transparent text-[var(--text-secondary)] hover:bg-[var(--border-default)]"
+            )}
             onClick={toggleShowOnlyDiagnosis}
           >
             Ver solo diagnostico
           </button>
-          <button type="button" className="grid h-9 w-9 place-items-center rounded bg-slate-100 text-slate-700">
+          <button type="button" className="grid h-9 w-9 place-items-center rounded-[var(--radius-md)] bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:bg-[var(--border-default)] transition-colors">
             <Printer className="h-4 w-4" />
           </button>
         </div>
@@ -668,37 +790,44 @@ export function OdontogramView({
 
       <div className="px-4 py-5">
         <p className="mb-2 text-center text-sm text-[#7a4f52]">Odontograma Internacional <span className="text-[#0879d5]">FDI</span></p>
-        <div className="w-full overflow-x-auto">
+        <div className="w-full overflow-x-auto" data-responsive-overflow="contained" aria-label="Odontograma desplazable">
           <ClinicalSvg
+            dentition={dentition}
             teethUpper={upper}
             teethLower={lower}
             selectedTooth={selectedTooth}
             selectedTeeth={selectedTeeth}
+            selectedSurface={selectedSurface}
             hoveredTooth={hoveredTooth}
             latestByTooth={latestByTooth}
             conditions={activeConditions}
             records={activeRecords}
             procedures={activeProcedures}
             onSelectTooth={onSelectTooth}
+            onSelectSurface={selectToothSurface}
             onHoverTooth={setHoveredTooth}
             onOpenContextMenu={handleOpenContextMenu}
+            onOpenSurfaceContextMenu={handleOpenSurfaceContextMenu}
           />
-          <div className="mx-auto mt-3 flex w-full max-w-[980px] justify-center">
+          <div className="mx-auto mt-3 flex w-full max-w-[1120px] justify-center">
             <SextantsMandibleSvg />
           </div>
         </div>
 
         <div className="mt-2 flex items-center justify-between gap-3">
-          <div className="flex gap-2">
-            <HelpTooltip content="Diagnostico" position="top">
+          <div className="flex flex-wrap gap-3 text-xs font-medium text-slate-600">
+            <span className="inline-flex items-center gap-1.5">
               <span className="h-3 w-3 rounded bg-black" />
-            </HelpTooltip>
-            <HelpTooltip content="Anulado o ausente" position="top">
-              <span className="h-3 w-3 rounded bg-[#d2182a]" />
-            </HelpTooltip>
-            <HelpTooltip content="Planificado" position="top">
-              <span className="h-3 w-3 rounded bg-[#1f77d0]" />
-            </HelpTooltip>
+              Lesion
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded bg-[#ff0000]" />
+              Por hacer
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded bg-[#1f7ae0]" />
+              Hecho
+            </span>
           </div>
           <button type="button" className="text-sm text-[#0879d5]">
             Arcadas y Sextantes v
@@ -706,51 +835,64 @@ export function OdontogramView({
         </div>
       </div>
 
-      {showHistoryTable ? <div className="overflow-x-auto border-t border-slate-200">
-        <table className="w-full min-w-[780px] border-collapse text-sm">
-          <thead>
-            <tr className="bg-white text-left">
-              <th className="border border-slate-200 px-3 py-3 font-bold">Fecha</th>
-              <th className="border border-slate-200 px-3 py-3 font-bold">Pieza</th>
-              <th className="border border-slate-200 px-3 py-3 font-bold">Caras</th>
-              <th className="border border-slate-200 px-3 py-3 font-bold">Estado</th>
-              <th className="border border-slate-200 px-3 py-3 font-bold">Creador</th>
-              <th className="border border-slate-200 px-3 py-3 font-bold">Anular</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length ? (
-              rows.map((row) => (
-                <tr key={row.id} className="align-top">
-                  <td className="border border-slate-200 px-3 py-3">{formatDate(row.date)}</td>
-                  <td className="border border-slate-200 px-3 py-3">{row.tooth}</td>
-                  <td className="border border-slate-200 px-3 py-3">{row.surface}</td>
-                  <td className="border border-slate-200 px-3 py-3">
-                    <p>{row.status}</p>
-                    {row.detail ? <p className="mt-1 uppercase text-slate-400">{row.detail}</p> : null}
-                  </td>
-                  <td className="border border-slate-200 px-3 py-3">{row.creator}</td>
-                  <td className="border border-slate-200 px-3 py-3">
-                    {row.recordId && onCancelRecord ? (
-                      <button type="button" className="rounded bg-orange-400 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-500" onClick={() => onCancelRecord(row.recordId)}>
-                        Anular
-                      </button>
-                    ) : (
-                      <span className="text-slate-300">-</span>
-                    )}
-                  </td>
-                </tr>
-              ))
-            ) : (
-              <tr>
-                <td colSpan={6} className="border border-slate-200 px-3 py-8 text-center text-slate-500">
-                  Sin diagnosticos registrados.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div> : null}
+      {showHistoryTable ? (
+        <div className="border-t border-[var(--border-default)]">
+          <DataTable
+            rows={rows as any}
+            empty={
+              <div className="p-[var(--space-8)] text-center text-[var(--text-secondary)]">
+                Sin diagnosticos registrados.
+              </div>
+            }
+            columns={[
+              {
+                key: "date",
+                title: "Fecha",
+                render: (row: any) => formatDate(row.date)
+              },
+              {
+                key: "tooth",
+                title: "Pieza"
+              },
+              {
+                key: "surface",
+                title: "Caras"
+              },
+              {
+                key: "status",
+                title: "Estado",
+                render: (row: any) => (
+                  <div>
+                    <p className="font-[var(--weight-medium)] text-[var(--text-primary)]">{row.status}</p>
+                    {row.detail ? <p className="mt-1 text-[var(--text-xs)] uppercase text-[var(--text-secondary)]">{row.detail}</p> : null}
+                  </div>
+                )
+              },
+              {
+                key: "creator",
+                title: "Creador"
+              },
+              {
+                key: "recordId",
+                title: "Anular",
+                render: (row: any) => (
+                  row.recordId && onCancelRecord ? (
+                    <button
+                      type="button"
+                      className="rounded-[var(--radius-sm)] bg-[var(--status-danger-text)] px-2.5 py-1 text-[var(--text-xs)] font-[var(--weight-bold)] text-[var(--text-inverse)] hover:opacity-90 transition-opacity"
+                      onClick={() => onCancelRecord(row.recordId)}
+                    >
+                      Anular
+                    </button>
+                  ) : (
+                    <span className="text-[var(--border-strong)]">-</span>
+                  )
+                )
+              }
+            ]}
+          />
+        </div>
+      ) : null}
 
       <OdontogramContextMenuView
         menu={contextMenu}

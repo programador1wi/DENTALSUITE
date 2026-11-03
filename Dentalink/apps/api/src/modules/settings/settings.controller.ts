@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, GoneException, Param, ParseIntPipe, Patch, Post, Put, Delete, Query, UseGuards } from "@nestjs/common";
 import { ApiBearerAuth, ApiTags } from "@nestjs/swagger";
 import { CurrentUser } from "../../common/decorators/current-user.decorator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
@@ -7,13 +7,26 @@ import { PermissionsGuard } from "../../common/guards/permissions.guard";
 import { AuthUser } from "../../common/types/auth-user";
 import {
   AssignAgreementPatientsDto,
+  AssignAgreementTreatmentPlanDto,
   CreateAgreementDto,
+  CreateCompanyDto,
   CreateExpenseDto,
   FinalizePayrollDto,
-  UpdateAgreementDto
+  ImportAffiliatesDto,
+  RecalculatePayrollDto,
+  UpdateExpenseDto,
+  UpdateAgreementDto,
+  UpdateCompanyDto,
+  VoidExpenseDto,
+  PublishAgreementDto,
+  PreviewAgreementPriceDto
 } from "./dto/admin-workflows.dto";
-import { CreateFinancialInstitutionDto, UpdateFinancialInstitutionDto } from "./dto/financial-institution.dto";
+import {
+  CreateFinancialInstitutionDto,
+  UpdateFinancialInstitutionDto
+} from "./dto/financial-institution.dto";
 import { UpdateGeneralSettingsDto } from "./dto/update-general-settings.dto";
+import { UpsertBrandDto } from "./dto/upsert-brand.dto";
 import { SettingsService } from "./settings.service";
 
 @ApiTags("Settings")
@@ -81,6 +94,36 @@ export class SettingsController {
     return this.settingsService.deactivateFinancialInstitution(user, id);
   }
 
+  @Delete("financial-institutions/:id")
+  @RequirePermissions("settings.update")
+  deleteFinancialInstitution(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.deleteFinancialInstitution(user, id);
+  }
+
+  @Get("brands")
+  @RequirePermissions("settings.read")
+  listBrands(@CurrentUser() user: AuthUser) {
+    return this.settingsService.listBrands(user);
+  }
+
+  @Post("brands")
+  @RequirePermissions("settings.update")
+  createBrand(@CurrentUser() user: AuthUser, @Body() dto: UpsertBrandDto) {
+    return this.settingsService.upsertBrand(user, undefined, dto);
+  }
+
+  @Put("brands/:id")
+  @RequirePermissions("settings.update")
+  updateBrand(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpsertBrandDto) {
+    return this.settingsService.upsertBrand(user, id, dto);
+  }
+
+  @Delete("brands/:id")
+  @RequirePermissions("settings.update")
+  deleteBrand(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.deleteBrand(user, id);
+  }
+
   @Get("agreements")
   @RequirePermissions("settings.read")
   listAgreements(
@@ -99,32 +142,128 @@ export class SettingsController {
     return this.settingsService.listAgreementDebts(user);
   }
 
+  @Get("agreements/:id")
+  @RequirePermissions("agreements.read")
+  getAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.getAgreement(user, id);
+  }
+
   @Post("agreements")
-  @RequirePermissions("settings.update")
+  @RequirePermissions("agreements.manage")
   createAgreement(@CurrentUser() user: AuthUser, @Body() dto: CreateAgreementDto) {
     return this.settingsService.createAgreement(user, dto);
   }
 
   @Patch("agreements/:id")
-  @RequirePermissions("settings.update")
+  @RequirePermissions("agreements.manage")
   updateAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateAgreementDto) {
     return this.settingsService.updateAgreement(user, id, dto);
   }
 
   @Patch("agreements/:id/deactivate")
-  @RequirePermissions("settings.update")
+  @RequirePermissions("agreements.manage")
   deactivateAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.settingsService.deactivateAgreement(user, id);
   }
 
+  @Post("agreements/:id/versions")
+  @RequirePermissions("agreements.manage")
+  createAgreementVersion(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: CreateAgreementDto
+  ) {
+    return this.settingsService.createAgreementVersion(user, id, dto);
+  }
+
+  @Post("agreements/:id/publish")
+  @RequirePermissions("agreements.publish")
+  publishAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: PublishAgreementDto) {
+    return this.settingsService.publishAgreement(user, id, dto.version);
+  }
+
+  @Post("agreements/:id/cancel")
+  @RequirePermissions("agreements.manage")
+  cancelAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.cancelAgreement(user, id);
+  }
+
+  @Get("agreements/:id/preview")
+  @RequirePermissions("agreements.read")
+  previewAgreementPrice(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Query() dto: PreviewAgreementPriceDto
+  ) {
+    return this.settingsService.previewAgreementPrice(user, id, dto);
+  }
+
+  @Get("companies")
+  @RequirePermissions("agreements.read")
+  listCompanies(@CurrentUser() user: AuthUser, @Query("search") search?: string) {
+    return this.settingsService.listCompanies(user, search);
+  }
+
+  @Get("companies/:id")
+  @RequirePermissions("agreements.read")
+  getCompany(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.getCompany(user, id);
+  }
+
+  @Post("companies")
+  @RequirePermissions("agreements.manage")
+  createCompany(@CurrentUser() user: AuthUser, @Body() dto: CreateCompanyDto) {
+    return this.settingsService.createCompany(user, dto);
+  }
+
+  @Patch("companies/:id")
+  @RequirePermissions("agreements.manage")
+  updateCompany(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateCompanyDto) {
+    return this.settingsService.updateCompany(user, id, dto);
+  }
+
+  @Post("agreements/:id/default")
+  @RequirePermissions("agreements.manage")
+  setDefaultAgreement(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body("isDefault") isDefault: boolean
+  ) {
+    return this.settingsService.setDefaultAgreement(user, id, Boolean(isDefault));
+  }
+
+  @Get("agreements/:id/impact")
+  @RequirePermissions("agreements.read")
+  getAgreementDeactivationImpact(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.getAgreementDeactivationImpact(user, id);
+  }
+
+  @Post("agreements/:id/import-affiliates")
+  @RequirePermissions("agreements.assign")
+  importAffiliates(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: ImportAffiliatesDto
+  ) {
+    return this.settingsService.importAffiliates(user, id, dto);
+  }
+
+  @Post("agreements/:id/duplicate")
+  @RequirePermissions("agreements.manage")
+  duplicateAgreement(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.duplicateAgreement(user, id);
+  }
+
   @Post("agreements/:id/pay-debt")
   @RequirePermissions("settings.update")
-  payAgreementDebt(@CurrentUser() user: AuthUser, @Param("id") id: string) {
-    return this.settingsService.payAgreementDebt(user, id);
+  payAgreementDebt() {
+    throw new GoneException(
+      "Usa POST /agreements/:agreementId/payments para registrar y aplicar pagos empresariales"
+    );
   }
 
   @Post("agreements/:id/patients")
-  @RequirePermissions("settings.update")
+  @RequirePermissions("agreements.assign")
   assignAgreementPatients(
     @CurrentUser() user: AuthUser,
     @Param("id") id: string,
@@ -133,24 +272,75 @@ export class SettingsController {
     return this.settingsService.assignAgreementPatients(user, id, dto);
   }
 
+  @Post("agreements/:id/treatment-plans")
+  @RequirePermissions("agreements.assign")
+  assignAgreementTreatmentPlan(
+    @CurrentUser() user: AuthUser,
+    @Param("id") id: string,
+    @Body() dto: AssignAgreementTreatmentPlanDto
+  ) {
+    return this.settingsService.assignAgreementTreatmentPlan(user, id, dto.treatmentPlanId);
+  }
+
   @Get("expenses")
-  @RequirePermissions("settings.read")
+  @RequirePermissions("expenses.read")
   listExpenses(
     @CurrentUser() user: AuthUser,
     @Query("search") search?: string,
     @Query("branchId") branchId?: string,
     @Query("month", new ParseIntPipe({ optional: true })) month?: number,
     @Query("year", new ParseIntPipe({ optional: true })) year?: number,
+    @Query("status") status?: string,
+    @Query("categoryId") categoryId?: string,
     @Query("page") page?: number,
     @Query("pageSize") pageSize?: number
   ) {
-    return this.settingsService.listExpenses(user, search, branchId, month, year, page, pageSize);
+    return this.settingsService.listExpenses(
+      user,
+      search,
+      branchId,
+      month,
+      year,
+      page,
+      pageSize,
+      status,
+      categoryId
+    );
+  }
+
+  @Get("expenses/summary")
+  @RequirePermissions("expenses.read")
+  getExpenseSummary(
+    @CurrentUser() user: AuthUser,
+    @Query("branchId") branchId?: string,
+    @Query("month", new ParseIntPipe({ optional: true })) month?: number,
+    @Query("year", new ParseIntPipe({ optional: true })) year?: number
+  ) {
+    return this.settingsService.getExpenseSummary(user, branchId, month, year);
+  }
+
+  @Get("expenses/:id")
+  @RequirePermissions("expenses.read")
+  getExpense(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.settingsService.getExpense(user, id);
   }
 
   @Post("expenses")
-  @RequirePermissions("settings.update")
+  @RequirePermissions("expenses.create")
   createExpense(@CurrentUser() user: AuthUser, @Body() dto: CreateExpenseDto) {
     return this.settingsService.createExpense(user, dto);
+  }
+
+  @Patch("expenses/:id")
+  @RequirePermissions("expenses.update")
+  updateExpense(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: UpdateExpenseDto) {
+    return this.settingsService.updateExpense(user, id, dto);
+  }
+
+  @Post("expenses/:id/void")
+  @RequirePermissions("expenses.void")
+  voidExpense(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() dto: VoidExpenseDto) {
+    return this.settingsService.voidExpense(user, id, dto);
   }
 
   @Get("payroll")
@@ -169,5 +359,11 @@ export class SettingsController {
   @RequirePermissions("settings.update")
   finalizePayroll(@CurrentUser() user: AuthUser, @Body() dto: FinalizePayrollDto) {
     return this.settingsService.finalizePayroll(user, dto);
+  }
+
+  @Post("payroll/recalculate")
+  @RequirePermissions("settings.update")
+  recalculatePayroll(@CurrentUser() user: AuthUser, @Body() dto: RecalculatePayrollDto) {
+    return this.settingsService.recalculatePayroll(user, dto.branchId, dto.professionalId);
   }
 }

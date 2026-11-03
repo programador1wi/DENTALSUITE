@@ -5,6 +5,7 @@ import { EmptyState } from "@/components/feedback/empty-state";
 import { ErrorState } from "@/components/feedback/error-state";
 import { LoadingState } from "@/components/feedback/loading-state";
 import { PageHeader } from "@/components/layout/page-header";
+import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -17,6 +18,7 @@ import { useBranches } from "@/features/settings/branches/hooks/use-branches";
 import { useChairs } from "@/features/settings/chairs/hooks/use-chairs";
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { useBranchStore } from "@/stores/branch.store";
+import { useAuthStore } from "@/stores/auth.store";
 import { toast } from "sonner";
 import {
   useCreateSchedule,
@@ -29,124 +31,32 @@ import {
   useUpdateProfessionalAgendaConfig
 } from "../hooks/use-schedules";
 import { AgendaIntervalModals } from "../components/agenda-interval-modals";
+import { SpecialSchedulesSection } from "../components/special-schedules-section";
 import type { Schedule, ScheduleBlockAppointment, SchedulePayload } from "../services/schedules.service";
-
-type DayForm = {
-  startTime: string;
-  endTime: string;
-  chairId: string;
-  hasBreak: boolean;
-  breakStartTime: string;
-  breakEndTime: string;
-  noAttend: boolean;
-};
-
-type BlockForm = {
-  branchId: string;
-  professionalId: string;
-  chairId: string;
-  date: string;
-  startTime: string;
-  endTime: string;
-  reason: string;
-  notes: string;
-};
-
-const days = [
-  { value: 1, label: "Lunes" },
-  { value: 2, label: "Martes" },
-  { value: 3, label: "Miercoles" },
-  { value: 4, label: "Jueves" },
-  { value: 5, label: "Viernes" },
-  { value: 6, label: "Sabado" },
-  { value: 0, label: "Domingo" }
-];
-
-const timeOptions = buildTimeOptions(10, 19, 60);
-const fixedEndTimesByDay: Partial<Record<number, string>> = {
-  1: "19:00",
-  2: "19:00",
-  3: "19:00",
-  4: "19:00",
-  5: "19:00",
-  6: "15:00"
-};
-
-function defaultDayForm(dayOfWeek: number, chairId = ""): DayForm {
-  const hasBreak = dayOfWeek !== 0 && dayOfWeek !== 6;
-
-  if (dayOfWeek === 0) {
-    return {
-      startTime: "10:00",
-      endTime: fixedEndTimesByDay[dayOfWeek] ?? "19:00",
-      chairId,
-      hasBreak: false,
-      breakStartTime: "",
-      breakEndTime: "",
-      noAttend: true
-    };
-  }
-
-  return {
-    startTime: "10:00",
-    endTime: fixedEndTimesByDay[dayOfWeek] ?? "19:00",
-    chairId,
-    hasBreak,
-    breakStartTime: hasBreak ? "14:00" : "",
-    breakEndTime: hasBreak ? "15:00" : "",
-    noAttend: false
-  };
-}
-
-function emptyWeeklyForm(chairId = "") {
-  return Object.fromEntries(days.map((day) => [day.value, defaultDayForm(day.value, chairId)])) as Record<number, DayForm>;
-}
-
-function emptyBlockForm(branchId = "", professionalId = "", chairId = ""): BlockForm {
-  return {
-    branchId,
-    professionalId,
-    chairId,
-    date: toDateInputValue(new Date()),
-    startTime: "10:00",
-    endTime: "11:00",
-    reason: "Bloqueo programado",
-    notes: ""
-  };
-}
-
-function scheduleToDayForm(schedule: Schedule): DayForm {
-  const hasBreak = schedule.dayOfWeek !== 6 && Boolean(schedule.breakStartTime && schedule.breakEndTime);
-
-  return {
-    startTime: schedule.startTime,
-    endTime: fixedEndTimesByDay[schedule.dayOfWeek] ?? schedule.endTime,
-    chairId: schedule.chairId ?? "",
-    hasBreak,
-    breakStartTime: hasBreak ? schedule.breakStartTime ?? "" : "",
-    breakEndTime: hasBreak ? schedule.breakEndTime ?? "" : "",
-    noAttend: !schedule.isActive
-  };
-}
-
-function weeklyFormFromSchedules(schedules: Schedule[], chairId = "") {
-  const form = emptyWeeklyForm(chairId);
-  for (const schedule of schedulesByDayMap(schedules).values()) {
-    form[schedule.dayOfWeek] = scheduleToDayForm(schedule);
-  }
-  return form;
-}
-
-function schedulesByDayMap(schedules: Schedule[]) {
-  const map = new Map<number, Schedule>();
-  for (const schedule of schedules) {
-    const current = map.get(schedule.dayOfWeek);
-    if (!current || (!current.isActive && schedule.isActive)) {
-      map.set(schedule.dayOfWeek, schedule);
-    }
-  }
-  return map;
-}
+import {
+  blockDateRange,
+  days,
+  diffMinutes,
+  emptyBlockForm,
+  emptyWeeklyForm,
+  endOfFutureIso,
+  endTimeOptionsForDay,
+  fixedEndTimesByDay,
+  formatCreatedBy,
+  formatDate,
+  formatTime,
+  formatTimeRange,
+  normalizeDayForm,
+  scheduleSaveErrorMessage,
+  schedulesByDayMap,
+  startOfTodayIso,
+  timeOptions,
+  validateChairConflicts,
+  validateWeeklyForm,
+  weeklyFormFromSchedules,
+  type BlockForm,
+  type DayForm
+} from "./schedules-page-model";
 
 export function SchedulesSettingsPage() {
   const [params, setParams] = useSearchParams();
@@ -158,6 +68,7 @@ export function SchedulesSettingsPage() {
   const [blockForm, setBlockForm] = useState<BlockForm>(emptyBlockForm());
   const [intervalOpen, setIntervalOpen] = useState(false);
   const activeBranchId = useBranchStore((state) => state.activeBranchId);
+  const currentUser = useAuthStore((state) => state.user);
   const professionalBranchFilterId = selectedBranchId || (!selectedProfessionalId ? activeBranchId : "");
 
   const professionals = useProfessionals(undefined, "true", {
@@ -181,7 +92,8 @@ export function SchedulesSettingsPage() {
   const futureBlocks = useFutureScheduleBlocks({
     professionalId: selectedProfessionalId || undefined,
     branchId: selectedBranchId || undefined,
-    start: startOfTodayIso()
+    start: startOfTodayIso(),
+    end: endOfFutureIso()
   });
   const createSchedule = useCreateSchedule();
   const updateSchedule = useUpdateSchedule();
@@ -222,14 +134,15 @@ export function SchedulesSettingsPage() {
   const actionPending = createSchedule.isPending || updateSchedule.isPending || updateAgendaConfig.isPending || branchActiveSchedules.isLoading;
 
   useEffect(() => {
-    if (selectedBranchId || selectedProfessionalId || !activeBranchId) return;
+    if (!activeBranchId) return;
+    
     setParams((current) => {
-      if (current.get("branchId") || current.get("professionalId")) return current;
+      if (current.get("branchId") === activeBranchId) return current;
       const next = new URLSearchParams(current);
       next.set("branchId", activeBranchId);
       return next;
-    });
-  }, [activeBranchId, selectedBranchId, selectedProfessionalId, setParams]);
+    }, { replace: true });
+  }, [activeBranchId, setParams]);
 
   useEffect(() => {
     if (!selectedProfessionalId || !professionalBranchFilterId || !professionals.data) return;
@@ -239,8 +152,25 @@ export function SchedulesSettingsPage() {
       const next = new URLSearchParams(current);
       next.delete("professionalId");
       return next;
-    });
+    }, { replace: true });
   }, [professionalBranchFilterId, professionals.data, selectedProfessionalId, setParams]);
+
+  useEffect(() => {
+    if (!professionals.data?.length) return;
+    if (params.get("professionalId")) return;
+
+    const matchedProfessional = professionals.data.find(
+      (prof) => prof.user?.id === currentUser?.id
+    );
+
+    const defaultProfId = matchedProfessional?.id ?? professionals.data[0].id;
+
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("professionalId", defaultProfId);
+      return next;
+    }, { replace: true });
+  }, [professionals.data, currentUser, params, setParams]);
 
   const blockRange = blockDateRange(blockForm);
   const blockConflictQuery = useScheduleBlockConflicts(
@@ -274,7 +204,7 @@ export function SchedulesSettingsPage() {
         const next = new URLSearchParams(current);
         next.set("branchId", nextBranchId);
         return next;
-      });
+      }, { replace: true });
       return;
     }
 
@@ -283,7 +213,7 @@ export function SchedulesSettingsPage() {
         const next = new URLSearchParams(current);
         next.delete("branchId");
         return next;
-      });
+      }, { replace: true });
     }
   }, [professionalBranches, selectedBranchId, selectedProfessional, selectedProfessionalId, setParams]);
 
@@ -364,7 +294,9 @@ export function SchedulesSettingsPage() {
           startTime: row.startTime,
           endTime: row.endTime,
           breakStartTime: row.hasBreak ? row.breakStartTime : null,
-          breakEndTime: row.hasBreak ? row.breakEndTime : null
+          breakEndTime: row.hasBreak ? row.breakEndTime : null,
+          simultaneousChairs: row.simultaneousChairs,
+          attendanceMode: row.attendanceMode
         };
 
         if (current) {
@@ -414,59 +346,6 @@ export function SchedulesSettingsPage() {
 
   return (
     <div className="space-y-[var(--space-4)]">
-      <PageHeader
-        title="Horarios profesionales"
-        description="Disponibilidad habitual, box asignado y bloqueos programados por profesional."
-        helpText="Los descansos se consideran horario de comida y quedan cerrados automaticamente para agenda. Los sabados no usan descanso."
-      />
-
-      <Card className="space-y-[var(--space-4)]">
-        <div className="grid gap-[var(--space-3)] md:grid-cols-2">
-          {isProfessionalLocked && selectedProfessional ? (
-            <ReadonlyField label="Profesional" value={selectedProfessionalName} />
-          ) : (
-            <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
-              Profesional
-              <Select value={selectedProfessionalId} onChange={(event) => updateParam("professionalId", event.target.value)}>
-                <option value="">Selecciona profesional</option>
-                {professionals.data?.map((professional) => (
-                  <option key={professional.id} value={professional.id}>
-                    {professional.firstName} {professional.lastName}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          )}
-
-          {hasSingleBranch && selectedBranch ? (
-            <ReadonlyField label="Sucursal" value={selectedBranch.name} />
-          ) : (
-            <label className="grid gap-[var(--space-1)] text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
-              Sucursal
-              <Select
-                value={selectedBranchId}
-                disabled={Boolean(selectedProfessional && !professionalBranches.length)}
-                onChange={(event) => updateParam("branchId", event.target.value)}
-              >
-                <option value="">{needsBranchSelection ? "Selecciona sucursal del doctor" : "Selecciona sucursal"}</option>
-                {branchOptions.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name}
-                  </option>
-                ))}
-              </Select>
-            </label>
-          )}
-        </div>
-
-        {selectedProfessional && selectedBranch ? (
-          <div className="grid gap-[var(--space-3)] md:grid-cols-3">
-            <SummaryPill label="Profesional" value={selectedProfessionalName} />
-            <SummaryPill label="Sucursal" value={selectedBranch.name} />
-            <SummaryPill label="Boxes activos" value={`${branchChairs.length}`} />
-          </div>
-        ) : null}
-      </Card>
 
       {schedules.isLoading || branchActiveSchedules.isLoading || professionals.isLoading || branches.isLoading || chairs.isLoading ? (
         <LoadingState message="Cargando horarios y catalogos..." />
@@ -501,7 +380,12 @@ export function SchedulesSettingsPage() {
                   <span>Lunes a viernes 10:00 a 19:00. Sabado 10:00 a 15:00.</span>
                   <span className="hidden sm:inline">•</span>
                   <div className="flex items-center gap-1.5">
-                    <span>Intervalo: <strong className="text-[var(--text-primary)]">{selectedBranch?.agendaSlotMinutes ?? 30} minutos</strong></span>
+                    <span>
+                      Intervalo:{" "}
+                      <strong className="text-[var(--text-primary)]">
+                        {selectedProfessionalBranch?.agendaSlotMinutes ?? selectedBranch?.agendaSlotMinutes ?? 30} minutos
+                      </strong>
+                    </span>
                     <button
                       type="button"
                       onClick={() => setIntervalOpen(true)}
@@ -515,13 +399,13 @@ export function SchedulesSettingsPage() {
               <Badge value={actionPending ? "GUARDANDO" : "ACTIVO"} tone={actionPending ? "warning" : "success"} />
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] lg:min-w-[980px] border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]"> // ← RESPONSIVE
+            <div className="hidden lg:block overflow-x-auto w-full max-w-full">
+              <table className="w-full min-w-[680px] lg:min-w-[760px] border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]">
                 <thead className="bg-[var(--bg-subtle)] text-left text-[var(--text-xs)] font-semibold uppercase text-[var(--text-secondary)]">
                   <tr>
-                    <th className="w-[120px] sm:w-[150px] md:w-[180px] px-[var(--space-2)] sm:px-[var(--space-3)] py-[var(--space-3)]">Configuracion</th> // ← RESPONSIVE
+                    <th className="w-[80px] sm:w-[100px] md:w-[110px] px-1 py-[var(--space-2)]">Configuracion</th>
                     {days.map((day) => (
-                      <th key={day.value} className="px-1.5 py-[var(--space-3)] text-center sm:px-[var(--space-3)]"> // ← RESPONSIVE
+                      <th key={day.value} className="px-1.5 py-[var(--space-3)] text-center sm:px-[var(--space-3)]">
                         {day.label}
                       </th>
                     ))}
@@ -548,6 +432,23 @@ export function SchedulesSettingsPage() {
                           options={endTimeOptionsForDay(day.value)}
                           onChange={(value) => updateDay(day.value, { endTime: value })}
                         />
+                      </ScheduleCell>
+                    ))}
+                  </ScheduleRow>
+                  <ScheduleRow label="Sillones simultaneos">
+                    {days.map((day) => (
+                      <ScheduleCell key={day.value}>
+                        <Select
+                          className="w-full min-w-[56px] sm:min-w-[64px] md:min-w-[70px] h-8 px-1 text-xs"
+                          value={String(weeklyForm[day.value].simultaneousChairs)}
+                          disabled={weeklyForm[day.value].noAttend}
+                          onChange={(event) => updateDay(day.value, { simultaneousChairs: Number(event.target.value) })}
+                        >
+                          <option value="1">1</option>
+                          <option value="2">2</option>
+                          <option value="3">3</option>
+                          <option value="4">4</option>
+                        </Select>
                       </ScheduleCell>
                     ))}
                   </ScheduleRow>
@@ -595,7 +496,7 @@ export function SchedulesSettingsPage() {
                     {days.map((day) => (
                       <ScheduleCell key={day.value}>
                         <Select
-                          className="w-full min-w-[95px] sm:min-w-[120px] md:min-w-[128px]" // ← RESPONSIVE
+                          className="w-full min-w-[75px] sm:min-w-[85px] md:min-w-[95px] h-8 px-1.5 text-xs"
                           value={weeklyForm[day.value].chairId}
                           disabled={weeklyForm[day.value].noAttend || !branchChairs.length}
                           onChange={(event) => updateDay(day.value, { chairId: event.target.value })}
@@ -631,6 +532,122 @@ export function SchedulesSettingsPage() {
               </table>
             </div>
 
+            {/* Mobile/Tablet Card-based View */}
+            <div className="block lg:hidden divide-y divide-[var(--border-default)]">
+              {days.map((day) => {
+                const form = weeklyForm[day.value];
+                return (
+                  <div key={day.value} className="p-[var(--space-3)] space-y-[var(--space-2)] bg-[var(--bg-surface)]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[var(--text-sm)] font-bold text-[var(--text-brand-strong)] uppercase tracking-wider">
+                        {day.label}
+                      </span>
+                      <label className="inline-flex items-center gap-[var(--space-2)] text-[var(--text-xs)] font-medium text-[var(--text-primary)] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-[var(--border-strong)] accent-[var(--action-brand)] cursor-pointer"
+                          checked={form.noAttend}
+                          onChange={(event) =>
+                            updateDay(day.value, {
+                              noAttend: event.target.checked,
+                              hasBreak: event.target.checked ? false : form.hasBreak
+                            })
+                          }
+                        />
+                        No atiende
+                      </label>
+                    </div>
+
+                    {!form.noAttend ? (
+                      <div className="grid grid-cols-2 gap-[var(--space-2)]">
+                        <label className="grid gap-1 text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">
+                          Hora inicio
+                          <TimeSelect
+                            value={form.startTime}
+                            disabled={form.noAttend}
+                            onChange={(value) => updateDay(day.value, { startTime: value })}
+                          />
+                        </label>
+
+                        <label className="grid gap-1 text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">
+                          Hora termino
+                          <TimeSelect
+                            value={form.endTime}
+                            disabled={form.noAttend}
+                            options={endTimeOptionsForDay(day.value)}
+                            onChange={(value) => updateDay(day.value, { endTime: value })}
+                          />
+                        </label>
+
+                        {day.value !== 6 && day.value !== 0 && (
+                          <div className="col-span-2 space-y-1.5 border-t border-[var(--border-default)] pt-[var(--space-2)]">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">¿Dar descanso?</span>
+                              <label className="inline-flex items-center gap-[var(--space-2)] text-[var(--text-xs)] font-medium text-[var(--text-primary)] cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-[var(--border-strong)] accent-[var(--action-brand)] cursor-pointer"
+                                  checked={form.hasBreak}
+                                  disabled={form.noAttend}
+                                  onChange={(event) => updateDay(day.value, { hasBreak: event.target.checked })}
+                                />
+                                Si
+                              </label>
+                            </div>
+
+                            {form.hasBreak && (
+                              <div className="grid grid-cols-2 gap-[var(--space-2)] pt-1">
+                                <label className="grid gap-1 text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">
+                                  Inicio descanso
+                                  <TimeSelect
+                                    value={form.breakStartTime}
+                                    disabled={form.noAttend || !form.hasBreak}
+                                    placeholder="-"
+                                    onChange={(value) => updateDay(day.value, { breakStartTime: value })}
+                                  />
+                                </label>
+
+                                <label className="grid gap-1 text-[var(--text-xs)] font-semibold text-[var(--text-secondary)]">
+                                  Termino descanso
+                                  <TimeSelect
+                                    value={form.breakEndTime}
+                                    disabled={form.noAttend || !form.hasBreak}
+                                    placeholder="-"
+                                    onChange={(value) => updateDay(day.value, { breakEndTime: value })}
+                                  />
+                                </label>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        <label className="col-span-2 grid gap-1 text-[var(--text-xs)] font-semibold text-[var(--text-secondary)] border-t border-[var(--border-default)] pt-[var(--space-2)]">
+                          Box atencion
+                          <Select
+                            className="w-full"
+                            value={form.chairId}
+                            disabled={form.noAttend || !branchChairs.length}
+                            onChange={(event) => updateDay(day.value, { chairId: event.target.value })}
+                          >
+                            <option value="">{branchChairs.length ? "Sin box" : "Sin boxes"}</option>
+                            {branchChairs.map((chair) => (
+                              <option key={chair.id} value={chair.id}>
+                                {chair.name}
+                              </option>
+                            ))}
+                          </Select>
+                        </label>
+                      </div>
+                    ) : (
+                      <div className="rounded-[var(--radius-md)] border border-dashed border-[var(--border-default)] bg-[var(--bg-subtle)] py-[var(--space-3)] text-center text-[var(--text-xs)] text-[var(--text-secondary)] font-medium italic">
+                        No atiende este día
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
             <div className="flex flex-col gap-[var(--space-3)] border-t border-[var(--border-default)] px-[var(--space-4)] py-[var(--space-4)] md:flex-row md:items-center md:justify-between">
               <p className="text-[var(--text-sm)] text-[var(--text-secondary)]">
                 El descanso bloquea agenda como comida. Si marcas no atiende, ese dia queda cerrado.
@@ -643,12 +660,20 @@ export function SchedulesSettingsPage() {
           </Card>
 
           {weeklyError ? (
-            <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--status-warning-bg)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--status-warning-text)]">
+            <Alert variant="warning" size="sm">
               {weeklyError}
-            </div>
+            </Alert>
           ) : null}
           </form>
         </div>
+      )}
+
+      {isReadyForEditor && (
+        <SpecialSchedulesSection
+          professionalId={selectedProfessionalId!}
+          branchId={selectedBranchId!}
+          chairs={chairs.data ?? []}
+        />
       )}
 
       {isReadyForEditor ? (
@@ -672,15 +697,15 @@ export function SchedulesSettingsPage() {
           {!futureBlocks.isLoading && futureBlocks.data ? (
             futureBlocks.data.length ? (
               <div className="overflow-x-auto rounded-[var(--radius-md)] border border-[var(--border-default)]">
-                <table className="w-full min-w-[480px] md:min-w-full border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]"> // ← RESPONSIVE
+                <table className="w-full min-w-[480px] md:min-w-full border-collapse bg-[var(--bg-surface)] text-[var(--text-sm)]">
                   <thead className="bg-[var(--bg-subtle)] text-left text-[var(--text-xs)] font-semibold uppercase text-[var(--text-secondary)]">
                     <tr>
                       <th className="px-[var(--space-3)] py-[var(--space-3)]">Sucursal</th>
                       <th className="px-[var(--space-3)] py-[var(--space-3)]">Fecha</th>
                       <th className="px-[var(--space-3)] py-[var(--space-3)]">Hora inicio</th>
                       <th className="px-[var(--space-3)] py-[var(--space-3)]">Hora termino</th>
-                      <th className="hidden md:table-cell px-[var(--space-3)] py-[var(--space-3)]">Creado por</th> // ← RESPONSIVE
-                      <th className="hidden sm:table-cell px-[var(--space-3)] py-[var(--space-3)]">Recurso</th> // ← RESPONSIVE
+                      <th className="hidden md:table-cell px-[var(--space-3)] py-[var(--space-3)]">Creado por</th>
+                      <th className="hidden sm:table-cell px-[var(--space-3)] py-[var(--space-3)]">Recurso</th>
                       <th className="px-[var(--space-3)] py-[var(--space-3)] text-right">Acciones</th>
                     </tr>
                   </thead>
@@ -691,8 +716,8 @@ export function SchedulesSettingsPage() {
                         <td className="px-[var(--space-3)] py-[var(--space-3)]">{formatDate(block.startAt)}</td>
                         <td className="px-[var(--space-3)] py-[var(--space-3)]">{formatTime(block.startAt)}</td>
                         <td className="px-[var(--space-3)] py-[var(--space-3)]">{formatTime(block.endAt)}</td>
-                        <td className="hidden md:table-cell px-[var(--space-3)] py-[var(--space-3)]">{formatCreatedBy(block)}</td> // ← RESPONSIVE
-                        <td className="hidden sm:table-cell px-[var(--space-3)] py-[var(--space-3)]">{block.chair?.name ?? "Profesional"}</td> // ← RESPONSIVE
+                        <td className="hidden md:table-cell px-[var(--space-3)] py-[var(--space-3)]">{formatCreatedBy(block)}</td>
+                        <td className="hidden sm:table-cell px-[var(--space-3)] py-[var(--space-3)]">{block.chair?.name ?? "Profesional"}</td>
                         <td className="px-[var(--space-3)] py-[var(--space-3)] text-right">
                           <HelpTooltip content="Eliminar bloqueo" position="left">
                             <button
@@ -778,9 +803,9 @@ export function SchedulesSettingsPage() {
           </label>
 
           {!blockRange || blockDuration < 5 ? (
-            <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--status-danger-bg)] px-[var(--space-4)] py-[var(--space-3)] text-[var(--text-sm)] font-medium text-[var(--status-danger-text)]">
-              La hora de termino debe ser posterior a la hora de inicio.
-            </div>
+            <Alert variant="danger" size="sm">
+              La hora de término debe ser posterior a la hora de inicio.
+            </Alert>
           ) : null}
 
           {blockConflictQuery.isFetching ? <LoadingState message="Revisando citas afectadas..." /> : null}
@@ -833,11 +858,10 @@ export function SchedulesSettingsPage() {
     </div>
   );
 }
-
 function ScheduleRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <tr className="border-t border-[var(--border-default)] align-middle">
-      <th className="px-[var(--space-2)] sm:px-[var(--space-3)] py-[var(--space-3)] text-left text-xs sm:text-[var(--text-sm)] font-medium text-[var(--text-primary)]"> // ← RESPONSIVE
+      <th className="px-1.5 sm:px-[var(--space-2)] py-[var(--space-2)] text-left text-xs sm:text-[var(--text-sm)] font-medium text-[var(--text-primary)]">
         {label}
       </th>
       {children}
@@ -846,7 +870,7 @@ function ScheduleRow({ label, children }: { label: string; children: React.React
 }
 
 function ScheduleCell({ children }: { children: React.ReactNode }) {
-  return <td className="px-1 sm:px-[var(--space-2)] py-[var(--space-3)] text-center">{children}</td>; // ← RESPONSIVE
+  return <td className="px-0.5 sm:px-1 py-[var(--space-2)] text-center">{children}</td>;
 }
 
 function TimeSelect({
@@ -863,7 +887,7 @@ function TimeSelect({
   value: string;
 }) {
   return (
-    <Select className="w-full min-w-[76px] sm:min-w-[96px] md:min-w-[104px]" disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)}> // ← RESPONSIVE
+    <Select className="w-full min-w-[56px] sm:min-w-[64px] md:min-w-[70px] h-8 px-1 text-xs" disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)}>
       <option value="">{placeholder}</option>
       {options.map((time) => (
         <option key={time} value={time}>
@@ -896,177 +920,22 @@ function ReadonlyField({ label, value }: { label: string; value: string }) {
 
 function ConflictWarning({ conflicts }: { conflicts: ScheduleBlockAppointment[] }) {
   return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--border-default)] bg-[var(--status-warning-bg)] p-[var(--space-4)] text-[var(--status-warning-text)]">
-      <div className="flex items-start gap-[var(--space-2)]">
-        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-        <div>
-          <p className="text-[var(--text-sm)] font-semibold">Hay citas en este rango</p>
-          <p className="mt-1 text-[var(--text-sm)]">
-            Resuelve estas citas antes de bloquear el horario. El sistema no las reasigna automaticamente.
-          </p>
-        </div>
-      </div>
-      <div className="mt-[var(--space-3)] space-y-[var(--space-2)]">
+    <Alert variant="warning" size="sm" title="Hay citas en este rango">
+      <p className="mb-2">
+        Resuelve estas citas antes de bloquear el horario. El sistema no las reasigna automáticamente.
+      </p>
+      <div className="space-y-1.5 pt-1">
         {conflicts.slice(0, 5).map((appointment) => (
-          <div key={appointment.id} className="rounded-[var(--radius-sm)] bg-[var(--bg-surface)] px-[var(--space-3)] py-[var(--space-2)] text-[var(--text-sm)] text-[var(--text-primary)]">
+          <div key={appointment.id} className="rounded-md bg-white/90 border border-amber-200/60 px-2.5 py-1.5 text-xs text-slate-800">
             <span className="font-semibold">{formatTimeRange(appointment.startAt, appointment.endAt)}</span>
             {" - "}
             {appointment.patient ? `${appointment.patient.firstName} ${appointment.patient.lastName}` : appointment.title}
           </div>
         ))}
         {conflicts.length > 5 ? (
-          <p className="text-[var(--text-sm)] font-medium">Y {conflicts.length - 5} cita(s) mas.</p>
+          <p className="text-xs font-medium text-amber-900">Y {conflicts.length - 5} cita(s) más.</p>
         ) : null}
       </div>
-    </div>
+    </Alert>
   );
-}
-
-function validateWeeklyForm(form: Record<number, DayForm>) {
-  for (const day of days) {
-    const row = form[day.value];
-    if (row.noAttend) continue;
-
-    if (!row.startTime || !row.endTime) return `${day.label}: indica hora de inicio y termino.`;
-    const requiredEndTime = fixedEndTimesByDay[day.value];
-    if (requiredEndTime && row.endTime !== requiredEndTime) {
-      return `${day.label}: la hora de termino debe ser ${requiredEndTime}.`;
-    }
-    if (toMinutes(row.startTime) >= toMinutes(row.endTime)) {
-      return `${day.label}: la hora de inicio debe ser anterior a la hora de termino.`;
-    }
-
-    if (day.value === 6 && row.hasBreak) {
-      return "Sabado no debe tener descanso.";
-    }
-
-    if (row.hasBreak) {
-      if (!row.breakStartTime || !row.breakEndTime) return `${day.label}: completa el inicio y termino del descanso.`;
-      const start = toMinutes(row.startTime);
-      const end = toMinutes(row.endTime);
-      const breakStart = toMinutes(row.breakStartTime);
-      const breakEnd = toMinutes(row.breakEndTime);
-      if (breakStart >= breakEnd) return `${day.label}: el inicio del descanso debe ser anterior al termino.`;
-      if (breakStart < start || breakEnd > end) return `${day.label}: el descanso debe estar dentro del horario laboral.`;
-    }
-  }
-
-  return "";
-}
-
-function validateChairConflicts(
-  form: Record<number, DayForm>,
-  currentSchedulesByDay: Map<number, Schedule>,
-  branchSchedules: Schedule[],
-  chairNamesById: Map<string, string>
-) {
-  for (const day of days) {
-    const row = form[day.value];
-    if (row.noAttend || !row.chairId) continue;
-
-    const current = currentSchedulesByDay.get(day.value);
-    const start = toMinutes(row.startTime);
-    const end = toMinutes(row.endTime);
-    const conflict = branchSchedules.find((schedule) => {
-      if (!schedule.isActive || schedule.id === current?.id || schedule.chairId !== row.chairId || schedule.dayOfWeek !== day.value) {
-        return false;
-      }
-
-      return start < toMinutes(schedule.endTime) && end > toMinutes(schedule.startTime);
-    });
-
-    if (conflict) {
-      const chairName = conflict.chair?.name ?? chairNamesById.get(row.chairId) ?? "El box seleccionado";
-      const professionalName = `${conflict.professional.firstName} ${conflict.professional.lastName}`.trim();
-      return `${day.label}: ${chairName} ya esta asignado a ${professionalName} de ${conflict.startTime} a ${conflict.endTime}. Elige otro box, ajusta el horario o deja "Sin box".`;
-    }
-  }
-
-  return "";
-}
-
-function scheduleSaveErrorMessage(error: unknown) {
-  const message = error instanceof Error ? error.message : "No se pudo actualizar el horario.";
-  if (message.includes("Overlapping schedule for selected chair")) {
-    return "El box seleccionado ya tiene otro horario activo en ese dia y rango. Elige otro box, ajusta las horas o deja el dia sin box.";
-  }
-  if (message.includes("Overlapping schedule for professional and branch")) {
-    return "El profesional ya tiene otro horario activo en esa sucursal, dia y rango.";
-  }
-  return message;
-}
-
-function blockDateRange(form: BlockForm) {
-  if (!form.date || !form.startTime || !form.endTime) return null;
-  const startAt = new Date(`${form.date}T${form.startTime}:00`);
-  const endAt = new Date(`${form.date}T${form.endTime}:00`);
-  if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()) || startAt >= endAt) return null;
-  return { startAt: startAt.toISOString(), endAt: endAt.toISOString() };
-}
-
-function buildTimeOptions(startHour: number, endHour: number, stepMinutes: number) {
-  const options: string[] = [];
-  for (let minutes = startHour * 60; minutes <= endHour * 60; minutes += stepMinutes) {
-    const hour = Math.floor(minutes / 60);
-    const minute = minutes % 60;
-    options.push(`${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`);
-  }
-  return options;
-}
-
-function normalizeDayForm(dayOfWeek: number, row: DayForm): DayForm {
-  const fixedEndTime = fixedEndTimesByDay[dayOfWeek];
-  const hasBreak = dayOfWeek === 6 ? false : row.hasBreak;
-
-  return {
-    ...row,
-    endTime: fixedEndTime ?? row.endTime,
-    hasBreak,
-    breakStartTime: hasBreak ? row.breakStartTime : "",
-    breakEndTime: hasBreak ? row.breakEndTime : ""
-  };
-}
-
-function endTimeOptionsForDay(dayOfWeek: number) {
-  const fixedEndTime = fixedEndTimesByDay[dayOfWeek];
-  return fixedEndTime ? [fixedEndTime] : timeOptions;
-}
-
-function toMinutes(value: string) {
-  const [hours, minutes] = value.split(":").map(Number);
-  return hours * 60 + minutes;
-}
-
-function diffMinutes(startAt: Date, endAt: Date) {
-  return Math.round((endAt.getTime() - startAt.getTime()) / 60000);
-}
-
-function startOfTodayIso() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today.toISOString();
-}
-
-function toDateInputValue(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function formatDate(value: string) {
-  return new Date(value).toLocaleDateString("es-MX", { day: "2-digit", month: "2-digit", year: "numeric" });
-}
-
-function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
-function formatTimeRange(startAt: string, endAt: string) {
-  return `${formatTime(startAt)} - ${formatTime(endAt)}`;
-}
-
-function formatCreatedBy(block: ScheduleBlockAppointment) {
-  if (!block.createdBy) return "Sistema";
-  return `${block.createdBy.firstName} ${block.createdBy.lastName}`.trim();
 }

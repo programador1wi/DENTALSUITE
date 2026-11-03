@@ -76,10 +76,13 @@ export class ProceduresService {
           code: dto.code.trim().toUpperCase(),
           name: dto.name.trim(),
           description: dto.description?.trim(),
+          type: dto.type,
           defaultDuration: dto.defaultDuration,
           requiresTooth: dto.requiresTooth ?? false,
           requiresSurface: dto.requiresSurface ?? false,
-          requiresLab: dto.requiresLab ?? false
+          requiresLab: dto.requiresLab ?? false,
+          requiresOdontogramSymbol: dto.requiresOdontogramSymbol ?? false,
+          defaultOdontogramSymbol: dto.defaultOdontogramSymbol?.trim() || null
         }
       });
 
@@ -126,10 +129,14 @@ export class ProceduresService {
         code: dto.code?.trim().toUpperCase(),
         name: dto.name?.trim(),
         description: dto.description?.trim(),
+        type: dto.type,
         defaultDuration: dto.defaultDuration,
         requiresTooth: dto.requiresTooth,
         requiresSurface: dto.requiresSurface,
         requiresLab: dto.requiresLab,
+        requiresOdontogramSymbol: dto.requiresOdontogramSymbol,
+        defaultOdontogramSymbol:
+          dto.defaultOdontogramSymbol === undefined ? undefined : dto.defaultOdontogramSymbol?.trim() || null,
         isActive: dto.isActive
       }
     });

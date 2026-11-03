@@ -7,10 +7,16 @@ vi.mock("@/hooks/use-permissions", () => ({
   usePermissions: () => ({ hasPermission: () => true })
 }));
 
+vi.mock("../hooks/use-patients", () => ({
+  usePatient: () => ({ data: { id: "patient-1", patientNumber: 1 } })
+}));
+
+import { APP_ROUTES } from "@/lib/routes";
+
 describe("PatientSubnav", () => {
   it("renders only the confirmed primary patient tabs", () => {
     render(
-      <MemoryRouter initialEntries={["/patients/patient-1/billing/deleted"]}>
+      <MemoryRouter initialEntries={["/pacientes/000001/facturacion/anulados"]}>
         <PatientSubnav patientId="patient-1" />
       </MemoryRouter>
     );
@@ -31,14 +37,14 @@ describe("PatientSubnav", () => {
 
   it("keeps Facturacion y pagos active for billing subtabs", () => {
     render(
-      <MemoryRouter initialEntries={["/patients/patient-1/billing/refunds"]}>
+      <MemoryRouter initialEntries={["/pacientes/000001/facturacion/devoluciones"]}>
         <PatientSubnav patientId="patient-1" />
       </MemoryRouter>
     );
 
     const billingTab = screen.getByRole("link", { name: "Facturacion y pagos" });
 
-    expect(billingTab).toHaveAttribute("href", "/patients/patient-1/billing");
+    expect(billingTab).toHaveAttribute("href", APP_ROUTES.patients.billingPayments("000001"));
     expect(billingTab).toHaveClass("text-[#0879d5]");
   });
 });

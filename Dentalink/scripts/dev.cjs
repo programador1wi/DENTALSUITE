@@ -93,6 +93,29 @@ async function isAnyLocalPortBusy(port) {
   return false;
 }
 
+async function getBusyProcesses() {
+  const busyProcesses = [];
+  for (const proc of processes) {
+    if (await isAnyLocalPortBusy(proc.port)) {
+      busyProcesses.push(proc);
+    }
+  }
+  return busyProcesses;
+}
+
+function reportBusyProcesses(busyProcesses) {
+  console.error("[dev] Cannot start because required ports are already in use:");
+  for (const proc of busyProcesses) {
+    console.error(`[dev] - ${proc.name}: port ${proc.port}`);
+  }
+  console.error("[dev] Stop the existing process or use `npm run dev:detached` to reuse healthy listeners.");
+  if (process.platform === "win32") {
+    console.error(
+      "[dev] Inspect owner: Get-NetTCPConnection -State Listen -LocalPort <port> | Select-Object LocalPort,OwningProcess"
+    );
+  }
+}
+
 function stopAll(running, exitCode = 0) {
   for (const child of running) {
     child.kill();
@@ -101,6 +124,13 @@ function stopAll(running, exitCode = 0) {
 }
 
 async function startForeground() {
+  const busyProcesses = await getBusyProcesses();
+  if (busyProcesses.length > 0) {
+    reportBusyProcesses(busyProcesses);
+    process.exitCode = 1;
+    return;
+  }
+
   const running = new Set();
   let shuttingDown = false;
 

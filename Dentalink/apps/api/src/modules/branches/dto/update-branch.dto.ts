@@ -1,9 +1,13 @@
-import { IsEmail, IsIn, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { IsBoolean, IsEmail, IsIn, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 
 export class UpdateBranchDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
 
   @IsOptional()
   @IsString()
@@ -15,6 +19,14 @@ export class UpdateBranchDto {
 
   @IsOptional()
   @IsString()
+  countryCode?: string | null;
+
+  @IsOptional()
+  @IsString()
+  secondaryPhone?: string | null;
+
+  @IsOptional()
+  @IsString()
   phone?: string;
 
   @IsOptional()
@@ -22,8 +34,40 @@ export class UpdateBranchDto {
   email?: string;
 
   @IsOptional()
+  @IsEmail()
+  replyToEmail?: string | null;
+
+  @IsOptional()
+  @IsString()
+  website?: string | null;
+
+  @IsOptional()
   @IsString()
   address?: string;
+
+  @IsOptional()
+  @IsString()
+  exteriorNumber?: string | null;
+
+  @IsOptional()
+  @IsString()
+  interiorNumber?: string | null;
+
+  @IsOptional()
+  @IsString()
+  neighborhood?: string | null;
+
+  @IsOptional()
+  @IsString()
+  postalCode?: string | null;
+
+  @IsOptional()
+  @IsString()
+  municipality?: string | null;
+
+  @IsOptional()
+  @IsString()
+  references?: string | null;
 
   @IsOptional()
   @IsString()
@@ -40,6 +84,26 @@ export class UpdateBranchDto {
   @IsOptional()
   @IsString()
   timezone?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  showInEmails?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  showInDocuments?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  showInOnlineScheduling?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowOnlineAppointments?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowNotifications?: boolean;
 
   @IsOptional()
   @IsIn(["ACTIVE", "INACTIVE"])

@@ -7,6 +7,8 @@ import {
   IsEnum,
   IsOptional,
   IsString,
+  Matches,
+  MaxLength,
   MinLength,
   ValidateNested
 } from "class-validator";
@@ -22,10 +24,23 @@ export class PatientContactInputDto {
 
   @IsOptional()
   @IsString()
+  socialName?: string;
+
+  @IsOptional()
+  @IsString()
+  documentNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  gender?: string;
+
+  @IsOptional()
+  @IsString()
   relationship?: string;
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9\s()-]{7,40}$/)
   phone?: string;
 
   @IsOptional()
@@ -78,17 +93,36 @@ export class CreatePatientDto {
   @IsString()
   branchId!: string;
 
+  @IsOptional()
   @IsString()
-  @MinLength(2)
-  firstName!: string;
+  agreementId?: string;
 
   @IsString()
   @MinLength(2)
+  @MaxLength(100)
+  firstName!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  socialName?: string;
+
+  @IsString()
+  @MinLength(2)
+  @MaxLength(100)
   lastName!: string;
+
+  @IsOptional()
+  @IsString()
+  internalNumber?: string;
 
   @IsOptional()
   @IsDateString()
   birthDate?: string;
+
+  @IsOptional()
+  @IsString()
+  sex?: string;
 
   @IsOptional()
   @IsString()
@@ -108,15 +142,25 @@ export class CreatePatientDto {
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9\s()-]{7,40}$/)
   phone?: string;
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9\s()-]{7,40}$/)
   alternatePhone?: string;
 
   @IsOptional()
   @IsString()
   occupation?: string;
+
+  @IsOptional()
+  @IsString()
+  employer?: string;
+
+  @IsOptional()
+  @IsString()
+  observations?: string;
 
   @IsOptional()
   @IsString()

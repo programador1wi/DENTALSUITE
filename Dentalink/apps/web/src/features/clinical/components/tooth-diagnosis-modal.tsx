@@ -3,19 +3,18 @@ import { createPortal } from "react-dom";
 import { Stethoscope, X } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import { DIAGNOSIS_SECTIONS, ToothDiagnosisSymbol } from "./tooth-diagnosis-symbols";
-
-function fdiLabel(toothNumber: string) {
-  return toothNumber.length >= 2 ? `${toothNumber[0]}.${toothNumber[1]}` : toothNumber;
-}
+import { fdiLabel, surfaceLabel } from "../utils/tooth-surface";
 
 export function ToothDiagnosisModal({
   open,
   toothNumber,
+  surface,
   onClose,
   onAddDiagnosis
 }: {
   open: boolean;
   toothNumber: string;
+  surface?: string;
   onClose: () => void;
   onAddDiagnosis?: (diagnosis: string, notes?: string) => void;
 }) {
@@ -27,7 +26,7 @@ export function ToothDiagnosisModal({
       setSelectedDiagnosis("");
       setNotes("");
     }
-  }, [open, toothNumber]);
+  }, [open, surface, toothNumber]);
 
   if (!open) return null;
 
@@ -71,9 +70,16 @@ export function ToothDiagnosisModal({
 
         <footer className="shrink-0 border-t border-zinc-200 bg-white px-4 py-4 text-center shadow-[0_-2px_6px_rgba(15,23,42,0.08)]">
           <p className="mb-2 text-lg font-light text-zinc-400">Piezas seleccionadas</p>
-          <span className="inline-grid h-10 min-w-10 place-items-center rounded-full bg-[#0789d4] px-3 text-sm font-semibold text-white">
-            {fdiLabel(toothNumber)}
-          </span>
+          <div className="inline-flex flex-wrap items-center justify-center gap-2">
+            <span className="inline-grid h-10 min-w-10 place-items-center rounded-full bg-[#0789d4] px-3 text-sm font-semibold text-white">
+              {fdiLabel(toothNumber)}
+            </span>
+            {surface ? (
+              <span className="inline-flex h-8 items-center rounded border border-[#0789d4]/30 bg-[#e5f4fb] px-3 text-xs font-semibold text-[#0789d4]">
+                Cara {surfaceLabel(surface).toLowerCase()}
+              </span>
+            ) : null}
+          </div>
           <textarea
             className="mt-4 min-h-[115px] w-full resize-none rounded border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-[#2382d9]"
             placeholder="Ingrese un comentario para este diagnostico"
@@ -103,6 +109,7 @@ export function ToothDiagnosisPickerWindow({
   sectionTitles,
   tone,
   toothNumbers,
+  surface,
   onClose,
   onAddDiagnosis
 }: {
@@ -111,6 +118,7 @@ export function ToothDiagnosisPickerWindow({
   sectionTitles: DiagnosisSectionTitle[];
   tone: "preexistence" | "lesion";
   toothNumbers: string[];
+  surface?: string;
   onClose: () => void;
   onAddDiagnosis: (diagnosis: string, notes?: string) => void;
 }) {
@@ -124,6 +132,7 @@ export function ToothDiagnosisPickerWindow({
   const focusClass = tone === "preexistence" ? "focus:ring-[#58ba5b]" : "focus:ring-black";
   const buttonClass = tone === "preexistence" ? "bg-[#58ba5b] hover:bg-[#4aa84d]" : "bg-black hover:bg-zinc-800";
   const selectedToothLabel = toothNumbers.length ? toothNumbers.map(fdiLabel).join(", ") : "Sin piezas";
+  const selectedTargetLabel = surface && toothNumbers.length ? `${selectedToothLabel} - Cara ${surfaceLabel(surface).toLowerCase()}` : selectedToothLabel;
 
   useEffect(() => {
     if (open) {
@@ -178,7 +187,7 @@ export function ToothDiagnosisPickerWindow({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold uppercase text-zinc-400">Piezas seleccionadas</p>
-              <p className="mt-1 truncate text-sm font-semibold text-[#0789d4]">{selectedToothLabel}</p>
+              <p className="mt-1 truncate text-sm font-semibold text-[#0789d4]">{selectedTargetLabel}</p>
               <textarea
                 className="mt-2 min-h-[64px] w-full resize-none rounded border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-[#2382d9]"
                 placeholder="Comentario opcional"

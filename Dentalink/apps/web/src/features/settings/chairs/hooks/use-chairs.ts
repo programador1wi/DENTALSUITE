@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createChair, deactivateChair, listChairs, updateChair, type ChairPayload } from "../services/chairs.service";
 
-export function useChairs(search?: string, active?: string, branchId?: string) {
+export function useChairs(search?: string, active?: string, branchId?: string, enabled = true) {
   return useQuery({
     queryKey: ["settings", "chairs", search, active, branchId],
-    queryFn: () => listChairs({ search, active, branchId })
+    queryFn: () => listChairs({ search, active, branchId }),
+    enabled
   });
 }
 

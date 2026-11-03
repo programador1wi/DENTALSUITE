@@ -11,7 +11,7 @@ export function CancelAppointmentModal({
   onConfirm
 }: {
   appointment: Appointment | null;
-  cancelledBy?: "patient" | "clinic";
+  cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled";
   onClose: () => void;
   onConfirm: (id: string, reason: string) => Promise<void>;
 }) {
@@ -30,14 +30,33 @@ export function CancelAppointmentModal({
     }
   };
 
+  const getTitle = () => {
+    if (appointment?.status === "BLOCKED") return "Eliminar bloqueo de agenda";
+    switch (cancelledBy) {
+      case "patient": return "Cancelar por paciente";
+      case "conflict": return "Cancelar por conflicto";
+      case "rescheduled": return "Anular por reprogramación";
+      default: return "Cancelar por clínica";
+    }
+  };
+
   return (
-    <Modal open={Boolean(appointment)} title={cancelledBy === "patient" ? "Cancelar por paciente" : "Cancelar por clínica"} onClose={onClose}>
+    <Modal open={Boolean(appointment)} title={getTitle()} onClose={onClose}>
       <div className="space-y-3">
-        <Textarea rows={3} placeholder="Motivo de cancelación" value={reason} onChange={(event) => setReason(event.target.value)} />
+        <Textarea 
+          rows={3} 
+          placeholder={appointment?.status === "BLOCKED" ? "Motivo de eliminación (opcional)" : "Motivo de cancelación"} 
+          value={reason} 
+          onChange={(event) => setReason(event.target.value)} 
+        />
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cerrar</Button>
-          <Button variant="danger" disabled={!reason.trim() || submitting} onClick={() => void confirm()}>
-            {submitting ? "Cancelando..." : "Cancelar cita"}
+          <Button 
+            variant="danger" 
+            disabled={(appointment?.status !== "BLOCKED" && !reason.trim()) || submitting} 
+            onClick={() => void confirm()}
+          >
+            {submitting ? "Eliminando..." : appointment?.status === "BLOCKED" ? "Eliminar bloqueo" : "Cancelar cita"}
           </Button>
         </div>
       </div>

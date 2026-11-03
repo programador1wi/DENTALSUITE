@@ -20,6 +20,14 @@ function monthStartIso() {
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  DRAFT: "Borrador",
+  ACCEPTED: "Aceptado",
+  IN_PROGRESS: "En progreso",
+  COMPLETED: "Finalizado",
+  CANCELLED: "Cancelado"
+};
+
 export function ReportsTreatmentsPage() {
   const [dateFrom, setDateFrom] = useState(monthStartIso());
   const [dateTo, setDateTo] = useState(todayIso());
@@ -77,7 +85,7 @@ export function ReportsTreatmentsPage() {
           empty={<EmptyState title="Sin datos" description="No hay planes en el rango seleccionado." />}
           columns={[
             { key: "name", title: "Plan" },
-            { key: "status", title: "Estado" },
+            { key: "status", title: "Estado", render: (row) => STATUS_LABELS[String(row.status)] ?? String(row.status) },
             { key: "patient", title: "Paciente" },
             { key: "professional", title: "Profesional" },
             {

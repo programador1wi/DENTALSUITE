@@ -63,6 +63,61 @@ export type ProfessionalBranchTransferResult = {
   schedulesCopied: number;
 };
 
+export type ProfessionalDeactivationImpact = {
+  professionalId: string;
+  branchIds: string[];
+  futureAppointments: number;
+  futureBlocks: number;
+  activeSchedules: number;
+  canDeactivate: boolean;
+};
+
+export type BulkProfessionalContractPayload = {
+  targets: { professionalId: string; branchIds: string[] }[];
+  commissionRate: number;
+  commissionBase: "clinical" | "lab" | "all";
+  paymentDiscount: "no" | "yes" | "fixed";
+  paymentCondition: "no_due_date" | "on_due" | "thirty_days";
+  contractType: "performed_and_paid" | "performed";
+  priceListId?: string;
+  categoryRates?: { procedureCategoryId: string; rate: number }[];
+  fixedAmounts?: { procedureId: string; priceListId?: string; amount: number; currency?: "MXN" | "USD" | "EUR" }[];
+  removeOtherBranches?: boolean;
+  keepPrevious?: boolean;
+};
+
+export type BulkProfessionalContractPreview = {
+  professionals: number;
+  branches: number;
+  scopes: number;
+  contractsToCreate: number;
+  currentContractsToClose: number;
+  otherContractsToClose: number;
+  fixedAmounts: number;
+  categoryRates: number;
+  priceListId?: string | null;
+  priceListName?: string | null;
+  zoneCodes: string[];
+  warnings: string[];
+};
+
+export type BulkProfessionalContractResult = {
+  updatedProfessionals: number;
+  updatedScopes: number;
+  fixedAmounts: number;
+  categoryRates: number;
+  contracts: {
+    id: string;
+    professionalId: string;
+    branchIds: string[];
+    commissionRate: number;
+    priceListId?: string | null;
+    priceListName?: string | null;
+    categoryRates: number;
+    fixedAmounts: number;
+  }[];
+};
+
 export async function listProfessionals(params?: {
   search?: string;
   active?: string;
@@ -89,7 +144,24 @@ export async function deactivateProfessional(id: string) {
   return data;
 }
 
+export async function getProfessionalDeactivationImpact(id: string, branchId?: string) {
+  const { data } = await http.get<ProfessionalDeactivationImpact>(`/professionals/${id}/deactivation-impact`, {
+    params: { branchId }
+  });
+  return data;
+}
+
 export async function transferProfessionalBranch(payload: ProfessionalBranchTransferPayload) {
   const { data } = await http.post<ProfessionalBranchTransferResult>("/professionals/branch-transfer", payload);
+  return data;
+}
+
+export async function bulkUpdateProfessionalContracts(payload: BulkProfessionalContractPayload) {
+  const { data } = await http.post<BulkProfessionalContractResult>("/professionals/contracts/bulk", payload);
+  return data;
+}
+
+export async function previewBulkProfessionalContracts(payload: BulkProfessionalContractPayload) {
+  const { data } = await http.post<BulkProfessionalContractPreview>("/professionals/contracts/bulk/preview", payload);
   return data;
 }

@@ -5,8 +5,12 @@ import {
   IsDateString,
   IsEmail,
   IsEnum,
+  IsInt,
   IsOptional,
   IsString,
+  Matches,
+  MaxLength,
+  Min,
   MinLength,
   ValidateNested
 } from "class-validator";
@@ -22,10 +26,23 @@ export class UpdatePatientContactInputDto {
 
   @IsOptional()
   @IsString()
+  socialName?: string;
+
+  @IsOptional()
+  @IsString()
+  documentNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  gender?: string;
+
+  @IsOptional()
+  @IsString()
   relationship?: string;
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9\s()-]{7,40}$/)
   phone?: string;
 
   @IsOptional()
@@ -76,6 +93,11 @@ export class UpdatePatientMedicalAlertInputDto {
 
 export class UpdatePatientDto {
   @IsOptional()
+  @IsInt()
+  @Min(1)
+  expectedVersion?: number;
+
+  @IsOptional()
   @IsString()
   branchId?: string;
 
@@ -86,16 +108,31 @@ export class UpdatePatientDto {
   @IsOptional()
   @IsString()
   @MinLength(2)
+  @MaxLength(100)
   firstName?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(100)
+  socialName?: string;
+
+  @IsOptional()
+  @IsString()
   @MinLength(2)
+  @MaxLength(100)
   lastName?: string;
+
+  @IsOptional()
+  @IsString()
+  internalNumber?: string;
 
   @IsOptional()
   @IsDateString()
   birthDate?: string;
+
+  @IsOptional()
+  @IsString()
+  sex?: string;
 
   @IsOptional()
   @IsString()
@@ -115,15 +152,25 @@ export class UpdatePatientDto {
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9\s()-]{7,40}$/)
   phone?: string;
 
   @IsOptional()
   @IsString()
+  @Matches(/^\+?[0-9\s()-]{7,40}$/)
   alternatePhone?: string;
 
   @IsOptional()
   @IsString()
   occupation?: string;
+
+  @IsOptional()
+  @IsString()
+  employer?: string;
+
+  @IsOptional()
+  @IsString()
+  observations?: string;
 
   @IsOptional()
   @IsString()

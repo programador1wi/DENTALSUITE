@@ -1,19 +1,18 @@
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Min, MinLength } from "class-validator";
-
-const APPOINTMENT_STATUSES = [
-  "SCHEDULED",
-  "CONFIRMED",
-  "PENDING_CONFIRMATION",
-  "ARRIVED",
-  "WAITING_ROOM",
-  "IN_PROGRESS",
-  "COMPLETED",
-  "CANCELLED_BY_PATIENT",
-  "CANCELLED_BY_CLINIC",
-  "NO_SHOW",
-  "RESCHEDULED",
-  "BLOCKED"
-] as const;
+import { Type } from "class-transformer";
+import {
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  Min,
+  MinLength,
+  ValidateNested
+} from "class-validator";
+import { AppointmentStatus, AttendanceMode } from "@prisma/client";
 
 export class CreateAppointmentDto {
   @IsString()
@@ -29,6 +28,15 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsString()
   chairId?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  chairIndex?: number;
+
+  @IsOptional()
+  @IsEnum(AttendanceMode)
+  attendanceMode?: AttendanceMode;
 
   @IsOptional()
   @IsString()
@@ -47,8 +55,8 @@ export class CreateAppointmentDto {
   reason?: string;
 
   @IsOptional()
-  @IsEnum(APPOINTMENT_STATUSES)
-  status?: (typeof APPOINTMENT_STATUSES)[number];
+  @IsEnum(AppointmentStatus)
+  status?: AppointmentStatus;
 
   @IsDateString()
   startAt!: string;
@@ -64,4 +72,20 @@ export class CreateAppointmentDto {
   @IsOptional()
   @IsString()
   notes?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  allowOverbooking?: boolean;
+}
+
+export class CreateAppointmentsBatchDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ValidateNested({ each: true })
+  @Type(() => CreateAppointmentDto)
+  appointments!: CreateAppointmentDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  autoCreateInitialTreatmentPlan?: boolean;
 }

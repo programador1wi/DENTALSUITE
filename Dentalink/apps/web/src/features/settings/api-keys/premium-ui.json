@@ -1,0 +1,7 @@
+{
+  "sourceRoots": ["."],
+  "locale": "es-MX",
+  "ownership": {
+    "Select/Listbox": "native"
+  }
+}

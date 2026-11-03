@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { PatientFormValues } from "@/lib/validations/patient";
+import {
+  getPatientFieldConfig,
+  updatePatientFieldConfig,
+  type PatientFieldConfigRecord
+} from "../services/patient-field-config.service";
 
 export type PatientFieldContext = "newPatient" | "appointment" | "onlineAgenda" | "checkIn";
 export type PatientFieldPermission = {
@@ -16,37 +22,41 @@ export type PatientFieldDefinition = {
   formFields?: PatientFormField[];
   id: string;
   isSystemRequired?: boolean;
+  lockedContexts?: PatientFieldContext[];
   label: string;
 };
 
-export const PATIENT_FIELD_CONTEXTS: Array<{ id: PatientFieldContext; label: string; description: string }> = [
-  {
-    id: "newPatient",
-    label: "En seccion de nuevo paciente",
-    description: "Controla los campos visibles y obligatorios al registrar un paciente desde Pacientes > Nuevo paciente."
-  },
-  {
-    id: "appointment",
-    label: "Al crear paciente agendando",
-    description: "Define los datos que se solicitaran al crear un paciente rapido durante el agendamiento."
-  },
-  {
-    id: "onlineAgenda",
-    label: "En seccion de agenda online",
-    description: "Define los datos que el paciente debera completar desde la agenda online."
-  },
-  {
-    id: "checkIn",
-    label: "Al enviar check in",
-    description: "Controla los datos que se muestran y validan cuando se envia un formulario de check-in."
-  }
-];
+export const PATIENT_FIELD_CONTEXTS: Array<{ id: PatientFieldContext; label: string; description: string }> =
+  [
+    {
+      id: "newPatient",
+      label: "En seccion de nuevo paciente",
+      description:
+        "Controla los campos visibles y obligatorios al registrar un paciente desde Pacientes > Nuevo paciente."
+    },
+    {
+      id: "appointment",
+      label: "Al crear paciente agendando",
+      description: "Define los datos que se solicitaran al crear un paciente rapido durante el agendamiento."
+    },
+    {
+      id: "onlineAgenda",
+      label: "En seccion de agenda online",
+      description: "Define los datos que el paciente debera completar desde la agenda online."
+    },
+    {
+      id: "checkIn",
+      label: "Al enviar check in",
+      description: "Controla los datos que se muestran y validan cuando se envia un formulario de check-in."
+    }
+  ];
 
 export const PATIENT_FIELD_DEFINITIONS: PatientFieldDefinition[] = [
   {
     id: "legalName",
     label: "Nombre legal",
-    description: "Nombre oficial con el que la persona sera identificada en el expediente, comprobantes y documentos clinicos.",
+    description:
+      "Nombre oficial con el que la persona sera identificada en el expediente, comprobantes y documentos clinicos.",
     formFields: ["firstName"],
     isSystemRequired: true,
     defaultByContext: {
@@ -59,12 +69,14 @@ export const PATIENT_FIELD_DEFINITIONS: PatientFieldDefinition[] = [
   {
     id: "socialName",
     label: "Nombre social",
-    description: "Nombre por el cual la persona se siente identificada y quiere ser llamada durante la atencion."
+    description: "Nombre elegido por el paciente para su trato cotidiano y comunicaciones no legales.",
+    formFields: ["socialName"]
   },
   {
     id: "lastName",
     label: "Apellidos",
-    description: "Apellidos legales del paciente. Se usan para busqueda, ficha clinica y documentos administrativos.",
+    description:
+      "Apellidos legales del paciente. Se usan para busqueda, ficha clinica y documentos administrativos.",
     formFields: ["lastName"],
     isSystemRequired: true,
     defaultByContext: {
@@ -77,14 +89,16 @@ export const PATIENT_FIELD_DEFINITIONS: PatientFieldDefinition[] = [
   {
     id: "curp",
     label: "CURP/RFC",
-    description: "Identificador fiscal o civil del paciente. Permite evitar duplicados y completar documentos administrativos.",
-    formFields: ["documentType", "documentNumber"],
+    description:
+      "Identificador fiscal o civil del paciente. Permite evitar duplicados y completar documentos administrativos.",
+    formFields: ["documentNumber", "documentType"],
     defaultByContext: { checkIn: { present: true, required: true } }
   },
   {
     id: "email",
     label: "Email",
-    description: "Correo usado para comunicaciones, recordatorios, comprobantes y acceso a canales digitales.",
+    description:
+      "Correo usado para comunicaciones, recordatorios, comprobantes y acceso a canales digitales.",
     formFields: ["email"],
     defaultByContext: {
       appointment: { present: true, required: true },
@@ -95,17 +109,20 @@ export const PATIENT_FIELD_DEFINITIONS: PatientFieldDefinition[] = [
   {
     id: "agreement",
     label: "Convenio",
-    description: "Convenio comercial o aseguradora asociada al paciente para aplicar condiciones administrativas."
+    description: "Convenio vigente asociado al paciente para beneficios y reglas de precios.",
+    formFields: ["agreementId"]
   },
   {
     id: "internalNumber",
     label: "Numero interno",
-    description: "Codigo interno de la clinica para identificar expedientes o migraciones desde otros sistemas."
+    description: "Identificador interno del expediente dentro de la organizacion.",
+    formFields: ["internalNumber"]
   },
   {
     id: "sex",
     label: "Sexo",
-    description: "Dato biologico utilizado cuando aplica para anamnesis, estadistica o documentos clinicos."
+    description: "Sexo registrado para antecedentes clinicos y administrativos.",
+    formFields: ["sex"]
   },
   {
     id: "gender",
@@ -116,7 +133,8 @@ export const PATIENT_FIELD_DEFINITIONS: PatientFieldDefinition[] = [
   {
     id: "birthDate",
     label: "Fecha nacimiento",
-    description: "Fecha de nacimiento del paciente. Ayuda a calcular edad y validar atenciones segun etapa de vida.",
+    description:
+      "Fecha de nacimiento del paciente. Ayuda a calcular edad y validar atenciones segun etapa de vida.",
     formFields: ["birthDate"],
     defaultByContext: { checkIn: { present: true, required: true } }
   },
@@ -149,6 +167,7 @@ export const PATIENT_FIELD_DEFINITIONS: PatientFieldDefinition[] = [
     label: "Telefono movil",
     description: "Numero principal para llamadas, WhatsApp, recordatorios y seguimiento de agenda.",
     formFields: ["phone"],
+    lockedContexts: ["onlineAgenda"],
     defaultByContext: {
       newPatient: { present: true, required: true },
       appointment: { present: true, required: true },
@@ -165,17 +184,20 @@ export const PATIENT_FIELD_DEFINITIONS: PatientFieldDefinition[] = [
   {
     id: "employer",
     label: "Empleador",
-    description: "Entidad empleadora del paciente cuando es relevante para convenios o facturacion."
+    description: "Empresa o entidad empleadora del paciente.",
+    formFields: ["employer"]
   },
   {
     id: "observations",
     label: "Observaciones",
-    description: "Notas administrativas generales visibles para recepcion o equipos de gestion."
+    description: "Notas administrativas generales capturadas al registrar o actualizar al paciente.",
+    formFields: ["observations"]
   },
   {
     id: "guardian",
     label: "Apoderado",
-    description: "Persona responsable o contacto principal cuando el paciente requiere tutor o representante.",
+    description:
+      "Persona responsable o contacto principal cuando el paciente requiere tutor o representante.",
     formFields: ["emergencyName", "emergencyRelationship", "emergencyPhone", "emergencyEmail"]
   },
   {
@@ -195,23 +217,24 @@ export const PATIENT_FIELD_DEFINITIONS: PatientFieldDefinition[] = [
     }
   },
   {
-    id: "guardianCurp",
+    id: "guardianDocument",
     label: "CURP/RFC Tutor legal",
-    description: "Identificador del tutor legal o representante del paciente cuando corresponde."
+    description: "Documento de identidad del tutor o representante legal.",
+    formFields: ["emergencyName", "emergencyDocumentNumber"]
   },
   {
-    id: "socialNameSecondary",
+    id: "guardianSocialName",
     label: "Nombre social tutor",
-    description: "Nombre social del tutor o representante legal, si la clinica decide registrarlo."
+    description: "Nombre social del tutor o representante legal.",
+    formFields: ["emergencyName", "emergencySocialName"]
   },
   {
-    id: "genderSecondary",
+    id: "guardianGender",
     label: "Genero tutor",
-    description: "Genero declarado del tutor o representante legal, cuando sea necesario para el registro."
+    description: "Genero declarado por el tutor o representante legal.",
+    formFields: ["emergencyName", "emergencyGender"]
   }
 ];
-
-export const PATIENT_FIELD_SETTINGS_KEY = "dentalwarner-patient-field-settings";
 
 function emptyPermission(): PatientFieldPermission {
   return { present: false, required: false };
@@ -231,16 +254,24 @@ export function createDefaultPatientFieldSettings(): PatientFieldSettings {
   ) as PatientFieldSettings;
 }
 
-export function normalizePatientFieldSettings(value?: Partial<PatientFieldSettings> | null): PatientFieldSettings {
+export function normalizePatientFieldSettings(
+  value?: Partial<PatientFieldSettings> | null
+): PatientFieldSettings {
   const defaults = createDefaultPatientFieldSettings();
 
   for (const context of PATIENT_FIELD_CONTEXTS) {
     for (const field of PATIENT_FIELD_DEFINITIONS) {
       const stored = value?.[context.id]?.[field.id];
-      const next = stored ? { present: Boolean(stored.present), required: Boolean(stored.required) } : defaults[context.id][field.id];
+      const next = stored
+        ? { present: Boolean(stored.present), required: Boolean(stored.required) }
+        : defaults[context.id][field.id];
 
       if (next.required) next.present = true;
       if (field.isSystemRequired) {
+        next.present = true;
+        next.required = true;
+      }
+      if (field.lockedContexts?.includes(context.id)) {
         next.present = true;
         next.required = true;
       }
@@ -252,45 +283,94 @@ export function normalizePatientFieldSettings(value?: Partial<PatientFieldSettin
   return defaults;
 }
 
-export function readPatientFieldSettings() {
-  if (typeof window === "undefined") return createDefaultPatientFieldSettings();
+export function recordsToSettings(records: PatientFieldConfigRecord[]): PatientFieldSettings {
+  const settings = createDefaultPatientFieldSettings();
+  if (!records || !Array.isArray(records)) return settings;
 
-  const stored = window.localStorage.getItem(PATIENT_FIELD_SETTINGS_KEY);
-  if (!stored) return createDefaultPatientFieldSettings();
-
-  try {
-    return normalizePatientFieldSettings(JSON.parse(stored) as Partial<PatientFieldSettings>);
-  } catch {
-    return createDefaultPatientFieldSettings();
+  for (const rec of records) {
+    if (settings.newPatient[rec.fieldKey]) {
+      settings.newPatient[rec.fieldKey] = {
+        present: rec.newPatientPresent,
+        required: rec.newPatientRequired
+      };
+    }
+    if (settings.appointment[rec.fieldKey]) {
+      settings.appointment[rec.fieldKey] = {
+        present: rec.appointmentPresent,
+        required: rec.appointmentRequired
+      };
+    }
+    if (settings.onlineAgenda[rec.fieldKey]) {
+      settings.onlineAgenda[rec.fieldKey] = {
+        present: rec.onlineAgendaPresent,
+        required: rec.onlineAgendaRequired
+      };
+    }
+    if (settings.checkIn[rec.fieldKey]) {
+      settings.checkIn[rec.fieldKey] = { present: rec.checkInPresent, required: rec.checkInRequired };
+    }
   }
+
+  return normalizePatientFieldSettings(settings);
 }
 
-export function writePatientFieldSettings(settings: PatientFieldSettings) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(PATIENT_FIELD_SETTINGS_KEY, JSON.stringify(normalizePatientFieldSettings(settings)));
-  window.dispatchEvent(new Event("patient-field-settings-change"));
+export function settingsToRecords(settings: PatientFieldSettings): PatientFieldConfigRecord[] {
+  const normalized = normalizePatientFieldSettings(settings);
+  return PATIENT_FIELD_DEFINITIONS.map((field) => ({
+    fieldKey: field.id,
+    isSystemRequired: field.isSystemRequired || false,
+    newPatientPresent: normalized.newPatient[field.id]?.present || false,
+    newPatientRequired: normalized.newPatient[field.id]?.required || false,
+    appointmentPresent: normalized.appointment[field.id]?.present || false,
+    appointmentRequired: normalized.appointment[field.id]?.required || false,
+    onlineAgendaPresent: normalized.onlineAgenda[field.id]?.present || false,
+    onlineAgendaRequired: normalized.onlineAgenda[field.id]?.required || false,
+    checkInPresent: normalized.checkIn[field.id]?.present || false,
+    checkInRequired: normalized.checkIn[field.id]?.required || false
+  }));
 }
 
 export function usePatientFieldSettings() {
-  const [settings, setSettings] = useState<PatientFieldSettings>(() => readPatientFieldSettings());
+  const queryClient = useQueryClient();
+  const [localSettings, setLocalSettings] = useState<PatientFieldSettings | null>(null);
 
-  useEffect(() => {
-    const sync = () => setSettings(readPatientFieldSettings());
-    window.addEventListener("storage", sync);
-    window.addEventListener("patient-field-settings-change", sync);
-    return () => {
-      window.removeEventListener("storage", sync);
-      window.removeEventListener("patient-field-settings-change", sync);
-    };
-  }, []);
+  const query = useQuery({
+    queryKey: ["patient-field-config"],
+    queryFn: getPatientFieldConfig,
+    staleTime: 5 * 60 * 1000
+  });
+
+  const mutation = useMutation({
+    mutationFn: updatePatientFieldConfig,
+    onSuccess: (updatedRecords) => {
+      queryClient.setQueryData(["patient-field-config"], updatedRecords);
+      setLocalSettings(recordsToSettings(updatedRecords));
+    }
+  });
+
+  const serverSettings = useMemo(() => {
+    return query.data ? recordsToSettings(query.data) : createDefaultPatientFieldSettings();
+  }, [query.data]);
+
+  const settings = localSettings ?? serverSettings;
 
   const updateSettings = (next: PatientFieldSettings) => {
     const normalized = normalizePatientFieldSettings(next);
-    setSettings(normalized);
-    writePatientFieldSettings(normalized);
+    setLocalSettings(normalized);
   };
 
-  return [settings, updateSettings] as const;
+  const saveSettings = () => mutation.mutateAsync(settingsToRecords(settings));
+
+  return [
+    settings,
+    updateSettings,
+    {
+      saveSettings,
+      isLoading: query.isLoading,
+      isSaving: mutation.isPending,
+      error: query.error ?? mutation.error
+    }
+  ] as const;
 }
 
 export function usePatientFieldContext(context: PatientFieldContext) {

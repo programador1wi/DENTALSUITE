@@ -77,14 +77,14 @@ export function CollectionsPage() {
 
       <Card>
         <div className="grid gap-3 md:grid-cols-5">
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
               <Input type="number" min="1" value={detectDays} onChange={(event) => setDetectDays(event.target.value)} placeholder="Min dias vencido" />
             </div>
             <HelpTooltip content="Define la antigüedad mínima en días que debe tener un saldo vencido para ser detectado como caso de morosidad." />
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
               <Select value={branchId} onChange={(event) => setBranchId(event.target.value)}>
                 <option value="">Sucursal activa</option>
                 {branches.data?.map((branch) => (
@@ -96,8 +96,8 @@ export function CollectionsPage() {
             </div>
             <HelpTooltip content="Filtra los casos de morosidad pertenecientes a una sucursal clínica específica." />
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
               <Select value={assignedToId} onChange={(event) => setAssignedToId(event.target.value)}>
                 <option value="">Asignado a (filtro)</option>
                 {users.data?.map((user) => (
@@ -109,8 +109,8 @@ export function CollectionsPage() {
             </div>
             <HelpTooltip content="Filtra los casos según el gestor o administrativo encargado de realizar el cobro." />
           </div>
-          <div className="flex items-center gap-1.5 md:col-span-2">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5 md:col-span-2">
+            <div className="min-w-0 flex-1">
               <Button onClick={runDetect} className="w-full" disabled={mutations.detectOverdue.isPending}>
                 Detectar vencidos
               </Button>
@@ -121,43 +121,43 @@ export function CollectionsPage() {
       </Card>
 
       <Card>
-        <h3 className="mb-3 text-sm font-semibold text-slate-900 flex items-center gap-1.5">
-          Crear caso de cobranza manual
+        <h3 className="mb-3 flex min-w-0 items-start gap-1.5 text-sm font-semibold text-slate-900">
+          <span className="min-w-0">Crear caso de cobranza manual</span>
           <HelpTooltip content="Crea un caso de morosidad de forma manual ingresando los identificadores correspondientes del paciente y sus saldos." />
         </h3>
         <form className="grid gap-3 md:grid-cols-4" onSubmit={handleCreateCase}>
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
               <Input placeholder="patientId" value={newPatientId} onChange={(event) => setNewPatientId(event.target.value)} />
             </div>
             <HelpTooltip content="Identificador único del paciente deudor." />
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
               <Input placeholder="installmentId (opcional)" value={newInstallmentId} onChange={(event) => setNewInstallmentId(event.target.value)} />
             </div>
             <HelpTooltip content="Asocia una cuota específica del plan de cuotas si aplica." />
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
               <Input placeholder="treatmentPlanId (opcional)" value={newTreatmentPlanId} onChange={(event) => setNewTreatmentPlanId(event.target.value)} />
             </div>
             <HelpTooltip content="Asocia un plan de tratamiento específico para la cobranza." />
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
               <Input type="number" min="0.01" step="0.01" placeholder="Monto adeudado" value={newAmountDue} onChange={(event) => setNewAmountDue(event.target.value)} />
             </div>
             <HelpTooltip content="Total neto que el paciente adeuda actualmente." />
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
               <Input type="number" min="0" placeholder="Dias vencido" value={newDaysOverdue} onChange={(event) => setNewDaysOverdue(event.target.value)} />
             </div>
             <HelpTooltip content="Días transcurridos desde la fecha de vencimiento original." />
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
               <Select value={newAssignedToId} onChange={(event) => setNewAssignedToId(event.target.value)}>
                 <option value="">Asignar a</option>
                 {users.data?.map((user) => (
@@ -169,8 +169,8 @@ export function CollectionsPage() {
             </div>
             <HelpTooltip content="Usuario responsable del contacto y cobro." />
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="flex-1">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <div className="min-w-0 flex-1">
               <Input type="datetime-local" value={newNextContactAt} onChange={(event) => setNewNextContactAt(event.target.value)} />
             </div>
             <HelpTooltip content="Fecha y hora sugeridas para realizar la siguiente llamada o envío de mensaje de cobro." />

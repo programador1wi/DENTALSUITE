@@ -1,0 +1,15 @@
+PrismaClientKnownRequestError: 
+Invalid `this.prisma.orthodonticProgressSnapshot.count()` invocation in
+C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontics.service.js:118:75
+
+  115         status: { in: ["ACCEPTED", "IN_PROGRESS"] }
+  116     }
+  117 });
+→ 118 const delayed = await this.prisma.orthodonticProgressSnapshot.count(
+The table `public.OrthodonticProgressSnapshot` does not exist in the current database.
+    at zr.handleRequestError (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\RequestHandler.ts:237:13)
+    at zr.handleAndLogRequestError (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\RequestHandler.ts:183:12)
+    at zr.request (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\RequestHandler.ts:152:12)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async a (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\node_modules\@prisma\client\src\runtime\getPrismaClient.ts:963:24)
+    at async OrthodonticsService.getPatientsReportSummary (C:\Users\X\Documents\GitHub\DENTALSUITE\Dentalink\apps\api\dist\modules\orthodontics\orthodontics.service.js:118:29)

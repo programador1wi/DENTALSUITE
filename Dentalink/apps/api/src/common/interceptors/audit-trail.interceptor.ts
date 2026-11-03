@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from "@nestjs/common";
+import { CallHandler, ExecutionContext, Injectable, NestInterceptor, Logger } from "@nestjs/common";
 import type { Request } from "express";
 import { Observable } from "rxjs";
 import { tap } from "rxjs/operators";
@@ -11,6 +11,12 @@ type RequestUser = {
 
 type RequestWithUser = Request & {
   user?: RequestUser;
+  m2mClient?: {
+    apiKeyId: string;
+    organizationId: string;
+    name: string;
+    keyPrefix: string;
+  };
   requestId?: string;
 };
 
@@ -28,26 +34,47 @@ export class AuditTrailInterceptor implements NestInterceptor {
 
     return next.handle().pipe(
       tap({
-        next: async () => {
+        next: () => {
           if (!shouldAudit) return;
           const user = req.user;
-          if (!user?.organizationId || !user.id) return;
-
+          const m2m = req.m2mClient;
           const entity = this.extractEntity(req.path);
-          await this.prisma.auditLog.create({
-            data: {
-              organizationId: user.organizationId,
-              userId: user.id,
-              actorUserId: user.id,
-              entity,
-              action: `${method.toLowerCase()} ${req.path}`,
-              after: {
-                requestId: req.requestId,
-                method,
-                path: req.path
+
+          if (user?.organizationId && user.id) {
+            // E-03: Fire-and-forget para no bloquear el response del cliente
+            this.prisma.auditLog.create({
+              data: {
+                organizationId: user.organizationId,
+                userId: user.id,
+                actorUserId: user.id,
+                entity,
+                action: `${method.toLowerCase()} ${req.path}`,
+                after: {
+                  requestId: req.requestId,
+                  method,
+                  path: req.path
+                }
               }
-            }
-          });
+            }).catch(err => {
+              Logger.error(`Error guardando audit log: ${err.message}`, err.stack, 'AuditTrailInterceptor');
+            });
+          } else if (m2m?.organizationId) {
+            this.prisma.auditLog.create({
+              data: {
+                organizationId: m2m.organizationId,
+                actorApiKeyId: m2m.apiKeyId,
+                entity,
+                action: `[m2m] ${method.toLowerCase()} ${req.path}`,
+                after: {
+                  requestId: req.requestId,
+                  method,
+                  path: req.path
+                }
+              }
+            }).catch(err => {
+              Logger.error(`Error guardando audit log M2M: ${err.message}`, err.stack, 'AuditTrailInterceptor');
+            });
+          }
         }
       })
     );

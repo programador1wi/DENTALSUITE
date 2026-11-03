@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils/cn";
 import type { Appointment, AppointmentStatus } from "../services/appointments.service";
 import { getAppointmentStatusMenuItems, type AppointmentStatusMenuItem } from "../utils/appointment-status-flow";
@@ -9,7 +9,9 @@ import { appointmentColorPalette, appointmentStatusLabel } from "./appointment-s
 type AppointmentStatusMenuProps = {
   appointment: Appointment;
   variant?: "list" | "card";
+  pendingStatus?: AppointmentStatus;
   onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
+  onContactWhatsApp?: (appointment: Appointment) => void;
   onConfirm?: (id: string) => void;
   onArrive?: (id: string) => void;
   onWaitingRoom?: (id: string) => void;
@@ -17,14 +19,16 @@ type AppointmentStatusMenuProps = {
   onComplete?: (id: string) => void;
   onNoShow?: (id: string) => void;
   onReschedule?: (appointment: Appointment) => void;
-  onCancel?: (appointment: Appointment, cancelledBy?: "patient" | "clinic") => void;
+  onCancel?: (appointment: Appointment, cancelledBy?: "patient" | "clinic" | "conflict" | "rescheduled") => void;
   onHistory?: (appointment: Appointment) => void;
 };
 
 export function AppointmentStatusMenu({
   appointment,
   variant = "card",
+  pendingStatus,
   onChangeStatus,
+  onContactWhatsApp,
   onConfirm,
   onArrive,
   onWaitingRoom,
@@ -42,9 +46,12 @@ export function AppointmentStatusMenu({
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const palette = appointmentColorPalette[appointment.status] ?? appointmentColorPalette.SCHEDULED;
+  const isPending = Boolean(pendingStatus);
+  const pendingLabel = pendingStatus === "NOTIFIED_BY_EMAIL" ? "Enviando correo..." : "Actualizando...";
   const menuItems = useMemo(
     () => getAppointmentStatusMenuItems(appointment.status).filter((item) => canRunStatusAction(item, {
       onChangeStatus,
+      onContactWhatsApp,
       onConfirm,
       onArrive,
       onWaitingRoom,
@@ -55,9 +62,9 @@ export function AppointmentStatusMenu({
       onCancel,
       onHistory
     })),
-    [appointment.status, onArrive, onCancel, onChangeStatus, onComplete, onConfirm, onHistory, onNoShow, onReschedule, onStart, onWaitingRoom]
+    [appointment.status, onArrive, onCancel, onChangeStatus, onComplete, onConfirm, onContactWhatsApp, onHistory, onNoShow, onReschedule, onStart, onWaitingRoom]
   );
-  const canOpen = menuItems.length > 0;
+  const canOpen = !isPending && menuItems.length > 0;
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -99,8 +106,8 @@ export function AppointmentStatusMenu({
       const isUp = rect.bottom + menuHeight > window.innerHeight && rect.top > menuHeight;
       setOpenUp(isUp);
 
-      const top = isUp ? rect.top - menuHeight - 4 + window.scrollY : rect.bottom + 4 + window.scrollY;
-      const left = Math.max(12, rect.right - menuWidth + window.scrollX);
+      const top = isUp ? rect.top - menuHeight - 4 : rect.bottom + 4;
+      const left = Math.max(12, rect.right - menuWidth);
       setCoords({ top, left });
     }
     setOpen(nextOpen);
@@ -109,8 +116,16 @@ export function AppointmentStatusMenu({
   const executeAction = (item: AppointmentStatusMenuItem) => {
     setOpen(false);
     switch (item.action) {
+      case "contactWhatsApp":
+        onContactWhatsApp?.(appointment);
+        break;
       case "markPendingConfirmation":
       case "markScheduled":
+      case "confirmWhatsApp":
+      case "confirmPhone":
+      case "confirmEmail":
+      case "notifyWhatsApp":
+      case "notifyEmail":
         if (item.nextStatus) onChangeStatus?.(appointment, item.nextStatus);
         break;
       case "confirm":
@@ -140,6 +155,12 @@ export function AppointmentStatusMenu({
       case "cancelClinic":
         onCancel?.(appointment, "clinic");
         break;
+      case "cancelConflict":
+        onCancel?.(appointment, "conflict");
+        break;
+      case "cancelRescheduled":
+        onCancel?.(appointment, "rescheduled");
+        break;
       case "history":
         onHistory?.(appointment);
         break;
@@ -151,18 +172,22 @@ export function AppointmentStatusMenu({
       <button
         ref={buttonRef}
         type="button"
-        disabled={!canOpen}
+        disabled={!canOpen || isPending}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggleMenu}
         className={cn(
-          "inline-flex max-w-full items-center gap-1.5 rounded-full border font-semibold transition-[border-color,box-shadow,transform] duration-150 active:scale-[0.98] disabled:cursor-default",
+          "inline-flex max-w-full items-center gap-1.5 rounded-full border font-semibold transition-[border-color,box-shadow,transform] duration-150 active:scale-[0.98] disabled:cursor-default shadow-2xs",
           palette.cardClass,
-          variant === "list" ? "px-2.5 py-1 text-[10px]" : "px-2 py-0.5 text-[10px]"
+          variant === "list" ? "h-7 px-2.5 text-[11px] font-semibold leading-none md:max-w-[130px]" : "px-2 py-0.5 text-[10px]"
         )}
       >
-        <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", palette.dotClass)} />
-        <span className="truncate">{appointmentStatusLabel(appointment.status)}</span>
+        {isPending ? (
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+        ) : (
+          <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", palette.dotClass)} />
+        )}
+        <span className="truncate">{isPending ? pendingLabel : appointmentStatusLabel(appointment.status)}</span>
         {canOpen ? <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-180")} /> : null}
       </button>
 
@@ -170,7 +195,7 @@ export function AppointmentStatusMenu({
         <div
           ref={menuRef}
           role="menu"
-          className="absolute z-[1000] w-[232px] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] py-1 text-[11px] font-normal leading-none text-[var(--text-primary)] shadow-[var(--shadow-modal)] ring-1 ring-black/[0.02] animate-in fade-in-0 zoom-in-95"
+          className="fixed z-[1000] w-[232px] overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-default)] bg-[var(--bg-surface)] py-1 text-[11px] font-normal leading-none text-[var(--text-primary)] shadow-[var(--shadow-modal)] ring-1 ring-black/[0.02] animate-in fade-in-0 zoom-in-95"
           style={{
             top: coords.top,
             left: coords.left
@@ -205,6 +230,7 @@ function canRunStatusAction(
   handlers: Pick<
     AppointmentStatusMenuProps,
     | "onChangeStatus"
+    | "onContactWhatsApp"
     | "onConfirm"
     | "onArrive"
     | "onWaitingRoom"
@@ -217,8 +243,15 @@ function canRunStatusAction(
   >
 ) {
   switch (item.action) {
+    case "contactWhatsApp":
+      return Boolean(handlers.onContactWhatsApp);
     case "markPendingConfirmation":
     case "markScheduled":
+    case "confirmWhatsApp":
+    case "confirmPhone":
+    case "confirmEmail":
+    case "notifyWhatsApp":
+    case "notifyEmail":
       return Boolean(handlers.onChangeStatus);
     case "confirm":
       return Boolean(handlers.onConfirm);
@@ -236,6 +269,8 @@ function canRunStatusAction(
       return Boolean(handlers.onReschedule);
     case "cancelPatient":
     case "cancelClinic":
+    case "cancelConflict":
+    case "cancelRescheduled":
       return Boolean(handlers.onCancel);
     case "history":
       return Boolean(handlers.onHistory);

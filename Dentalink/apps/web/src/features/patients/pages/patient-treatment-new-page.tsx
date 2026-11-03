@@ -12,6 +12,7 @@ import { useProcedures } from "@/features/settings/procedures/hooks/use-procedur
 import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
 import { useTreatmentMutations } from "@/features/treatments/hooks/use-treatments";
 import { useBranchStore } from "@/stores/branch.store";
+import { APP_ROUTES } from "@/lib/routes";
 
 type ItemForm = {
   procedureId: string;
@@ -23,56 +24,52 @@ type ItemForm = {
   notes: string;
 };
 
-const newItem = (): ItemForm => ({
-  procedureId: "",
-  toothNumber: "",
-  surface: "",
-  quantity: "1",
-  unitPrice: "0",
-  discount: "0",
-  notes: ""
-});
-
 export function PatientTreatmentNewPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const branches = useBranches(undefined, "ACTIVE");
-  const activeBranchId = useBranchStore((state) => state.activeBranchId);
-  const procedures = useProcedures(undefined, "true");
-  const mutations = useTreatmentMutations();
-
-  const [branchId, setBranchId] = useState("");
+  const procedures = useProcedures();
+  const { activeBranchId } = useBranchStore();
+  const [branchId, setBranchId] = useState(activeBranchId ?? "");
+  const professionals = useProfessionals(undefined, "true", { branchId: branchId || undefined, pageSize: 100 });
   const [professionalId, setProfessionalId] = useState("");
-  const professionalBranchId = branchId || activeBranchId;
-  const professionals = useProfessionals(undefined, "true", {
-    branchId: professionalBranchId || undefined,
-    pageSize: 100
-  });
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [items, setItems] = useState<ItemForm[]>([newItem()]);
+  const [items, setItems] = useState<ItemForm[]>([]);
+  const mutations = useTreatmentMutations();
 
   useEffect(() => {
-    if (!branchId && activeBranchId) setBranchId(activeBranchId);
+    if (activeBranchId && !branchId) {
+      setBranchId(activeBranchId);
+    }
   }, [activeBranchId, branchId]);
 
-  useEffect(() => {
-    if (!professionalId || !professionals.data) return;
-    const isVisible = professionals.data.some((professional) => professional.id === professionalId);
-    if (!isVisible) setProfessionalId("");
-  }, [professionalId, professionals.data]);
-
-  const updateItem = (index: number, patch: Partial<ItemForm>) => {
-    setItems((previous) => previous.map((item, currentIndex) => (currentIndex === index ? { ...item, ...patch } : item)));
+  const addEmptyItem = () => {
+    setItems((previous) => [
+      ...previous,
+      {
+        procedureId: "",
+        toothNumber: "",
+        surface: "",
+        quantity: "1",
+        unitPrice: "0",
+        discount: "0",
+        notes: ""
+      }
+    ]);
   };
 
-  const addItem = () => setItems((previous) => [...previous, newItem()]);
+  const updateItem = (index: number, patch: Partial<ItemForm>) => {
+    setItems((previous) => previous.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+  };
 
-  const removeItem = (index: number) => setItems((previous) => previous.filter((_, currentIndex) => currentIndex !== index));
+  const removeItem = (index: number) => {
+    setItems((previous) => previous.filter((_, i) => i !== index));
+  };
 
-  const save = async () => {
+  const onSubmit = async () => {
     if (!branchId || !professionalId || !name.trim()) {
-      toast.error("Completa sucursal, profesional y nombre del plan");
+      toast.error("Sucursal, profesional y nombre son obligatorios.");
       return;
     }
 
@@ -80,12 +77,12 @@ export function PatientTreatmentNewPage() {
       .filter((item) => item.procedureId)
       .map((item) => ({
         procedureId: item.procedureId,
-        toothNumber: item.toothNumber || undefined,
-        surface: item.surface || undefined,
-        quantity: Number(item.quantity || 0),
-        unitPrice: Number(item.unitPrice || 0),
-        discount: Number(item.discount || 0),
-        notes: item.notes || undefined
+        toothNumber: item.toothNumber.trim() || undefined,
+        surface: item.surface.trim() || undefined,
+        quantity: Number(item.quantity) || 1,
+        unitPrice: Number(item.unitPrice) || 0,
+        discount: Number(item.discount) || 0,
+        notes: item.notes.trim() || undefined
       }));
 
     await mutations.createTreatmentPlan.mutateAsync({
@@ -98,7 +95,7 @@ export function PatientTreatmentNewPage() {
       items: parsedItems
     });
 
-    navigate(`/patients/${id}/treatments`);
+    navigate(APP_ROUTES.patients.treatments(id));
   };
 
   return (
@@ -159,10 +156,10 @@ export function PatientTreatmentNewPage() {
         ))}
 
         <div className="flex flex-wrap justify-end gap-2">
-          <Button variant="secondary" onClick={addItem}>
+          <Button variant="secondary" onClick={addEmptyItem}>
             Agregar item
           </Button>
-          <Button onClick={() => void save()} disabled={mutations.createTreatmentPlan.isPending}>
+          <Button onClick={() => void onSubmit()} disabled={mutations.createTreatmentPlan.isPending}>
             Guardar plan
           </Button>
         </div>

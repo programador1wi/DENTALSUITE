@@ -1,5 +1,5 @@
 import { Eye, Plus, Settings, Upload } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { EntitySearchBox } from "@/components/ui/entity-search-box";
@@ -7,155 +7,25 @@ import { HelpTooltip } from "@/components/ui/help-tooltip";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils/cn";
 import { useBranches } from "@/features/settings/branches/hooks/use-branches";
+import { useProfessionals } from "@/features/settings/professionals/hooks/use-professionals";
+import { useSpecialties } from "@/features/settings/specialties/hooks/use-specialties";
 import type { Branch } from "@/features/settings/branches/services/branches.service";
 import { OnlineSchedulingDrawer } from "./online-scheduling-drawer";
+import { APP_ROUTES } from "@/lib/routes";
+import {
+  brandColors,
+  patientFieldDefinitions,
+  type FieldState,
+  type SchedulingMode,
+  type SchedulingSettings
+} from "./scheduling-settings-model";
+import { useStoredSettings } from "./use-stored-scheduling-settings";
 
-type SchedulingMode = "online" | "express";
-type ConfigTab = "appointments" | "administrative" | "professionals";
+export { backendToFrontendSettings, frontendToBackendDto } from "./scheduling-settings-model";
+export { useStoredSettings } from "./use-stored-scheduling-settings";
+
+type ConfigTab = "appointments" | "administrative" | "professionals" | "services";
 type DrawerName = "special" | "branches" | "patient-fields" | "analytics" | "redirect" | "branding" | null;
-type FieldState = { present: boolean; required: boolean };
-type PatientFieldDefinition = {
-  defaultPresent?: boolean;
-  defaultRequired?: boolean;
-  id: string;
-  info?: boolean;
-  label: string;
-};
-
-type SchedulingSettings = {
-  allowedBranches: Record<string, boolean>;
-  analyticsCode: string;
-  appointmentBlocks: string;
-  askSpecialtyReason: boolean;
-  brandColor: string;
-  chairScope: "all" | "single";
-  facebookPixel: string;
-  footerEmail: string;
-  footerPhone: string;
-  identifyByCurp: boolean;
-  identifyByEmail: boolean;
-  identifyByMobile: boolean;
-  logoName: string;
-  maxAvailabilityDays: string;
-  maxUnvalidatedAppointments: string;
-  menuByBranch: boolean;
-  menuByProfessional: boolean;
-  menuBySpecialty: boolean;
-  onlineEnabled: boolean;
-  patientBlockEnabled: boolean;
-  patientDataMoment: "start" | "end";
-  patientFields: Record<string, FieldState>;
-  redirectUrl: string;
-  safetyHours: string;
-  showAppointmentDuration: boolean;
-};
-
-const patientFieldDefinitions: PatientFieldDefinition[] = [
-  { id: "legalName", label: "Nombre legal", info: true, defaultPresent: true, defaultRequired: true },
-  { id: "socialName", label: "Nombre social", info: true },
-  { id: "lastName", label: "Apellidos", defaultPresent: true, defaultRequired: true },
-  { id: "curp", label: "CURP/RFC" },
-  { id: "email", label: "Email", defaultPresent: true, defaultRequired: true },
-  { id: "agreement", label: "Convenio" },
-  { id: "internalNumber", label: "Numero interno" },
-  { id: "sex", label: "Sexo", info: true },
-  { id: "gender", label: "Genero", info: true },
-  { id: "birthDate", label: "Fecha nacimiento" },
-  { id: "city", label: "Ciudad" },
-  { id: "delegation", label: "Delegacion" },
-  { id: "address", label: "Direccion" },
-  { id: "fixedPhone", label: "Telefono fijo" },
-  { id: "mobilePhone", label: "Telefono movil", defaultPresent: true, defaultRequired: true },
-  { id: "profession", label: "Actividad o profesion" },
-  { id: "employer", label: "Empleador" },
-  { id: "observations", label: "Observaciones" },
-  { id: "guardian", label: "Apoderado" },
-  { id: "reference", label: "Referencia" },
-  { id: "type", label: "Tipo" },
-  { id: "guardianCurp", label: "CURP/RFC Tutor legal" }
-];
-
-const brandColors = [
-  "#ffffff",
-  "#4299e1",
-  "#087ed8",
-  "#0d5ea5",
-  "#5867c5",
-  "#0aa7a0",
-  "#0c7d77",
-  "#61a35e",
-  "#da7b45",
-  "#dd6d68",
-  "#d86194",
-  "#414141"
-];
-
-function createFieldState() {
-  return Object.fromEntries(
-    patientFieldDefinitions.map((field) => [
-      field.id,
-      { present: Boolean(field.defaultPresent), required: Boolean(field.defaultRequired) }
-    ])
-  ) as Record<string, FieldState>;
-}
-
-function defaultSettings(mode: SchedulingMode): SchedulingSettings {
-  return {
-    allowedBranches: {},
-    analyticsCode: "",
-    appointmentBlocks: "1",
-    askSpecialtyReason: false,
-    brandColor: "#087ed8",
-    chairScope: "single",
-    facebookPixel: "",
-    footerEmail: "",
-    footerPhone: "",
-    identifyByCurp: false,
-    identifyByEmail: true,
-    identifyByMobile: false,
-    logoName: "",
-    maxAvailabilityDays: "30",
-    maxUnvalidatedAppointments: "1",
-    menuByBranch: false,
-    menuByProfessional: true,
-    menuBySpecialty: true,
-    onlineEnabled: true,
-    patientBlockEnabled: false,
-    patientDataMoment: "end",
-    patientFields: createFieldState(),
-    redirectUrl: "",
-    safetyHours: "1",
-    showAppointmentDuration: true,
-    ...(mode === "express" ? { menuByBranch: true } : {})
-  };
-}
-
-function useStoredSettings(mode: SchedulingMode) {
-  const key = `dentalwarner-online-scheduling-${mode}`;
-  const [settings, setSettings] = useState<SchedulingSettings>(() => {
-    if (typeof window === "undefined") return defaultSettings(mode);
-
-    const stored = window.localStorage.getItem(key);
-    if (!stored) return defaultSettings(mode);
-
-    try {
-      const parsed = JSON.parse(stored) as Partial<SchedulingSettings>;
-      return {
-        ...defaultSettings(mode),
-        ...parsed,
-        patientFields: { ...createFieldState(), ...parsed.patientFields }
-      };
-    } catch {
-      return defaultSettings(mode);
-    }
-  });
-
-  useEffect(() => {
-    window.localStorage.setItem(key, JSON.stringify(settings));
-  }, [key, settings]);
-
-  return [settings, setSettings] as const;
-}
 
 export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
   const [activeTab, setActiveTab] = useState<ConfigTab>("appointments");
@@ -177,13 +47,19 @@ export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
   };
 
   const toggleBranch = (branch: Branch) => {
-    setSettings((current) => ({
-      ...current,
-      allowedBranches: {
-        ...current.allowedBranches,
-        [branch.id]: !(current.allowedBranches[branch.id] ?? true)
+    setSettings((current) => {
+      const currentAllowed = { ...current.allowedBranches };
+      if (Object.keys(currentAllowed).length === 0 && branches.data) {
+        branches.data.forEach((b) => {
+          currentAllowed[b.id] = true;
+        });
       }
-    }));
+      currentAllowed[branch.id] = !(currentAllowed[branch.id] ?? true);
+      return {
+        ...current,
+        allowedBranches: currentAllowed
+      };
+    });
   };
 
   const togglePatientField = (fieldId: string, key: keyof FieldState) => {
@@ -209,7 +85,8 @@ export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
   const tabs = [
     { id: "appointments" as const, label: "Configuracion de Citas" },
     { id: "administrative" as const, label: "Configuraciones Administrativas" },
-    { id: "professionals" as const, label: "Configuracion de Profesionales" }
+    { id: "professionals" as const, label: "Configuracion de Profesionales" },
+    { id: "services" as const, label: "Configuracion de Servicios" }
   ];
 
   return (
@@ -237,57 +114,15 @@ export function SchedulingConfigSection({ mode }: { mode: SchedulingMode }) {
       ) : null}
 
       {activeTab === "administrative" ? (
-        <div className="p-6 space-y-8 bg-white border border-slate-200 rounded-lg mt-6">
-          <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4">Configuraciones Administrativas</h2>
-          <div className="pb-6 border-b border-slate-100">
-            <h3 className="text-base font-semibold text-slate-800 mb-3">Mensaje confirmación de reserva</h3>
-            <p className="text-xs text-slate-500 mb-4">
-              Este mensaje aparecerá en el portal de pacientes luego de agendar exitosamente la cita.
-            </p>
-            <textarea
-              className="w-full max-w-3xl border border-slate-300 rounded-md p-3 text-sm focus:outline-none focus:border-sky-500"
-              rows={4}
-              defaultValue="¡Gracias por preferirnos! Tu cita ha sido agendada con éxito. Recuerda llegar 10 minutos antes de la hora acordada."
-            />
-          </div>
-          <div className="pb-6">
-            <h3 className="text-base font-semibold text-slate-800 mb-3">Restricción de agendamiento por edad</h3>
-            <div className="flex items-center gap-4 text-sm text-slate-700">
-              <label className="flex items-center gap-2">
-                <input type="radio" name="age_restrict" value="none" defaultChecked className="accent-sky-600" />
-                Sin restricción
-              </label>
-              <label className="flex items-center gap-2">
-                <input type="radio" name="age_restrict" value="adults" className="accent-sky-600" />
-                Solo mayores de edad
-              </label>
-            </div>
-          </div>
-        </div>
+        <AdministrativeSettings onDrawer={setDrawer} settings={settings} update={update} />
       ) : null}
 
       {activeTab === "professionals" ? (
-        <div className="p-6 space-y-6 bg-white border border-slate-200 rounded-lg mt-6">
-          <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4">Configuración de Profesionales</h2>
-          <p className="text-xs text-slate-500 mb-6">
-            Selecciona qué profesionales estarán disponibles para que los pacientes puedan agendar horas directamente con ellos en la plataforma online.
-          </p>
-          <div className="grid gap-3 max-w-3xl">
-            {[
-              { id: "1", name: "Dr. Juan Pérez", spec: "Odontología General", checked: true },
-              { id: "2", name: "Dra. María González", spec: "Ortodoncia", checked: true },
-              { id: "3", name: "Dr. Carlos Ruiz", spec: "Implantología", checked: false },
-            ].map((p) => (
-              <label key={p.id} className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
-                <div>
-                  <div className="font-medium text-slate-800">{p.name}</div>
-                  <div className="text-xs text-slate-500">{p.spec}</div>
-                </div>
-                <input type="checkbox" defaultChecked={p.checked} className="w-5 h-5 accent-sky-600 rounded cursor-pointer" />
-              </label>
-            ))}
-          </div>
-        </div>
+        <ProfessionalListSettings settings={settings} update={update} />
+      ) : null}
+
+      {activeTab === "services" ? (
+        <ServiceListSettings settings={settings} update={update} />
       ) : null}
 
       <OnlineSchedulingDrawer
@@ -495,7 +330,20 @@ function AdministrativeSettings({
   update: <K extends keyof SchedulingSettings>(key: K, value: SchedulingSettings[K]) => void;
 }) {
   return (
-    <div>
+    <div className="space-y-6">
+      <div className="p-6 bg-white border border-slate-200 rounded-lg mt-6">
+        <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4 mb-4">Mensaje confirmación de reserva</h2>
+        <p className="text-xs text-slate-500 mb-4">
+          Este mensaje aparecerá en el portal de pacientes luego de agendar exitosamente la cita.
+        </p>
+        <textarea
+          className="w-full max-w-3xl border border-slate-300 rounded-md p-3 text-sm focus:outline-none focus:border-sky-500 text-slate-800"
+          rows={4}
+          value={settings.confirmationMessage || ""}
+          onChange={(e) => update("confirmationMessage", e.target.value)}
+        />
+      </div>
+
       <SettingsSection
         title="Agendamiento online"
         description="Habilita o deshabilita el formulario de agendamiento. Si lo deshabilitas puedes mostrar un mensaje personalizado."
@@ -561,7 +409,7 @@ function ProfessionalSettings({ mode }: { mode: SchedulingMode }) {
         profesional y sucursal. Ajusta esos horarios antes de publicar el link de agendamiento.
       </p>
       <Link
-        to="/settings/online-scheduling/schedules"
+        to={APP_ROUTES.settings.schedules}
         className="mt-4 inline-flex h-[38px] items-center justify-center rounded-[var(--radius-md)] bg-[var(--action-brand)] px-[var(--space-4)] text-[var(--text-base)] font-medium text-[var(--text-inverse)] hover:bg-[var(--action-brand-hover)] transition-colors"
       >
         Gestionar horarios
@@ -950,4 +798,78 @@ function DrawerBlock({ children, title }: { children: React.ReactNode; title: st
 
 function InfoBox({ children }: { children: React.ReactNode }) {
   return <div className="mb-2 rounded bg-sky-100/80 p-3 text-sm leading-5 text-sky-950">{children}</div>;
+}
+
+function ProfessionalListSettings({ settings, update }: { settings: SchedulingSettings; update: (k: keyof SchedulingSettings, v: any) => void }) {
+  const { data: professionals = [] } = useProfessionals();
+
+  const toggle = (id: string) => {
+    const current = settings.allowedProfessionals || [];
+    const updated = current.includes(id) ? current.filter(x => x !== id) : [...current, id];
+    update("allowedProfessionals", updated);
+  };
+
+  return (
+    <div className="p-6 space-y-6 bg-white border border-slate-200 rounded-lg mt-6">
+      <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4">Configuración de Profesionales</h2>
+      <p className="text-xs text-slate-500 mb-6">
+        Selecciona qué profesionales estarán disponibles para que los pacientes puedan agendar horas directamente con ellos en la plataforma online.
+      </p>
+      <div className="grid gap-3 max-w-3xl">
+        {professionals.filter(p => p.isActive).map((p) => (
+          <label key={p.id} className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
+            <div>
+              <div className="font-medium text-slate-800">{p.firstName} {p.lastName}</div>
+            </div>
+            <input 
+              type="checkbox" 
+              checked={settings.allowedProfessionals?.includes(p.id) ?? false} 
+              onChange={() => toggle(p.id)}
+              className="w-5 h-5 accent-sky-600 rounded cursor-pointer" 
+            />
+          </label>
+        ))}
+        {professionals.length === 0 && (
+          <div className="text-sm text-slate-500 p-4 border border-slate-200 border-dashed rounded text-center">No hay profesionales registrados.</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ServiceListSettings({ settings, update }: { settings: SchedulingSettings; update: (k: keyof SchedulingSettings, v: any) => void }) {
+  const { data: specialties = [] } = useSpecialties();
+
+  const toggle = (id: string) => {
+    const current = settings.allowedSpecialties || [];
+    const updated = current.includes(id) ? current.filter(x => x !== id) : [...current, id];
+    update("allowedSpecialties", updated);
+  };
+
+  return (
+    <div className="p-6 space-y-6 bg-white border border-slate-200 rounded-lg mt-6">
+      <h2 className="text-lg font-bold text-slate-800 border-b border-slate-100 pb-4">Configuración de Especialidades y Servicios</h2>
+      <p className="text-xs text-slate-500 mb-6">
+        Selecciona qué especialidades se mostrarán a los pacientes en el flujo de agendamiento cuando eligen "Por Especialidad".
+      </p>
+      <div className="grid gap-3 max-w-3xl">
+        {specialties.map((s) => (
+          <label key={s.id} className="flex items-center justify-between p-3 border border-slate-200 rounded hover:bg-slate-50 cursor-pointer">
+            <div>
+              <div className="font-medium text-slate-800">{s.name}</div>
+            </div>
+            <input 
+              type="checkbox" 
+              checked={settings.allowedSpecialties?.includes(s.id) ?? false} 
+              onChange={() => toggle(s.id)}
+              className="w-5 h-5 accent-sky-600 rounded cursor-pointer" 
+            />
+          </label>
+        ))}
+        {specialties.length === 0 && (
+          <div className="text-sm text-slate-500 p-4 border border-slate-200 border-dashed rounded text-center">No hay especialidades registradas.</div>
+        )}
+      </div>
+    </div>
+  );
 }

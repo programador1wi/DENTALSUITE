@@ -4,6 +4,7 @@ import type { Appointment, AppointmentStatus } from "../services/appointments.se
 import type { Professional } from "@/features/settings/professionals/services/professionals.service";
 import type { Schedule } from "@/features/settings/schedules/services/schedules.service";
 import { CalendarDays, Clock, Plus, UserRound } from "lucide-react";
+import { useState } from "react";
 
 import { AppointmentCard } from "./appointment-card";
 import type { AppointmentMenuAction } from "./appointment-actions-menu";
@@ -18,14 +19,44 @@ import {
   resolveAgendaTimelineRange,
   timeToMinutes
 } from "../utils/agenda-grid-config";
+import {
+  addDays,
+  appointmentToDayMinutes,
+  buildTimeSlots,
+  clampInt,
+  formatDisplayTime,
+  formatWeekDay,
+  getAgendaSlotHeight,
+  getAppointmentPlacement,
+  getSlotButtonPlacement,
+  getTimeRangePlacement,
+  getWeekStart,
+  parseDateInput,
+  rangeOverlapsMinutes,
+  rangeOverlapsTimeRange,
+  slotRange,
+  toDateInputValue
+} from "./calendar-layout";
 
 type CalendarProfessional = Pick<Professional, "id" | "firstName" | "lastName"> &
   Partial<Pick<Professional, "color" | "specialties" | "branches">>;
 
+type CalendarCreateSlot = {
+  professionalId: string;
+  branchId?: string;
+  chairId?: string;
+  chairIndex?: number;
+  allowOverbooking?: boolean;
+  status?: AppointmentStatus;
+  startAt: string;
+  endAt: string;
+};
+
+type StatusActionState = { appointmentId: string; status: AppointmentStatus } | null;
+
 function dayKey(value: string) {
   return toDateInputValue(new Date(value));
 }
-
 const DEFAULT_DAY_START_HOUR = DEFAULT_AGENDA_START_HOUR;
 const DEFAULT_DAY_END_HOUR = DEFAULT_AGENDA_END_HOUR;
 const DEFAULT_DAY_SLOT_MINUTES = DEFAULT_AGENDA_SLOT_MINUTES;
@@ -47,6 +78,8 @@ export function CalendarView({
   dayStartHour = DEFAULT_DAY_START_HOUR,
   dayEndHour = DEFAULT_DAY_END_HOUR,
   schedules = [],
+  density = "comfortable",
+  showOverbookingOnly = false,
   onSelectProfessional,
   onCreateClick,
   onCreateSlotClick,
@@ -54,12 +87,14 @@ export function CalendarView({
   onCancel,
   onReschedule,
   onChangeStatus,
+  onContactWhatsApp,
   onConfirm,
   onArrive,
   onWaitingRoom,
   onStart,
   onComplete,
   onNoShow,
+  statusAction,
   onMenuAction
 }: {
   appointments: Appointment[];
@@ -72,28 +107,36 @@ export function CalendarView({
   dayStartHour?: number;
   dayEndHour?: number;
   schedules?: Schedule[];
+  density?: "comfortable" | "compact";
+  showOverbookingOnly?: boolean;
   onSelectProfessional?: (professionalId: string) => void;
   onCreateClick?: () => void;
-  onCreateSlotClick?: (slot: { professionalId: string; branchId?: string; startAt: string; endAt: string }) => void;
+  onCreateSlotClick?: (slot: CalendarCreateSlot) => void;
   onEdit: (appointment: Appointment) => void;
   onCancel: (appointment: Appointment) => void;
   onReschedule: (appointment: Appointment) => void;
   onChangeStatus?: (appointment: Appointment, status: AppointmentStatus) => void;
+  onContactWhatsApp?: (appointment: Appointment) => void;
   onConfirm: (id: string) => void;
   onArrive: (id: string) => void;
   onWaitingRoom: (id: string) => void;
   onStart: (id: string) => void;
   onComplete: (id: string) => void;
   onNoShow: (id: string) => void;
+  statusAction?: StatusActionState;
   onMenuAction?: (appointment: Appointment, action: AppointmentMenuAction) => void;
 }) {
   const normalizedDaySlotMinutes = normalizeAgendaSlotMinutes(daySlotMinutes, DEFAULT_DAY_SLOT_MINUTES);
   const normalizedDayStartHour = clampInt(dayStartHour, 0, 23, DEFAULT_DAY_START_HOUR);
   const normalizedDayEndHour = clampInt(dayEndHour, 0, 23, DEFAULT_DAY_END_HOUR);
   const dayTimeSlots = buildTimeSlots(normalizedDayStartHour, normalizedDayEndHour, normalizedDaySlotMinutes, { endExclusive: true });
-  const daySlotHeight = getAgendaSlotHeight(normalizedDaySlotMinutes);
+  const standardSlotHeight = getAgendaSlotHeight(normalizedDaySlotMinutes);
+  const daySlotHeight = density === "compact"
+    ? Math.max(20, Math.round(standardSlotHeight * 0.75))
+    : standardSlotHeight;
   const fallbackTimelineStartMinutes = normalizedDayStartHour * 60;
   const fallbackTimelineEndMinutes = normalizedDayEndHour * 60;
+  const [selectedWeeklyLane, setSelectedWeeklyLane] = useState<number | "OVERBOOKING">(1);
 
   if (view === "week") {
     const weekStart = getWeekStart(parseDateInput(date));
@@ -111,79 +154,15 @@ export function CalendarView({
     const appointmentsInWeek = appointments.filter((appointment) => dayKeys.has(dayKey(appointment.startAt)));
 
     if (!selectedProfessionalId) {
-      const appointmentCounts = appointmentsInWeek.reduce<Record<string, number>>((acc, appointment) => {
-        acc[appointment.professionalId] = (acc[appointment.professionalId] ?? 0) + 1;
-        return acc;
-      }, {});
-      const displayProfessionals = professionals.length > 0
-        ? professionals
-        : Array.from(new Set(appointmentsInWeek.map((appointment) => appointment.professionalId))).map((id) => {
-            const appointment = appointmentsInWeek.find((item) => item.professionalId === id);
-            return {
-              id,
-              firstName: appointment?.professional?.firstName || "Doctor",
-              lastName: appointment?.professional?.lastName || "",
-              color: appointment?.professional?.color,
-              specialties: [],
-              branches: []
-            };
-          });
-
-      if (displayProfessionals.length === 0) {
-        return <EmptyState title="Sin doctores para agendar" description="No hay doctores activos registrados para esta sucursal." />;
-      }
-
       return (
-        <div className="rounded-xl border border-zinc-200/70 bg-white shadow-sm">
-          <div className="flex flex-col gap-1 border-b border-zinc-100 px-4 py-3 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-400">Semana</p>
-              <h3 className="text-sm font-semibold text-zinc-900">{formatWeekRange(weekStart)}</h3>
-            </div>
-            <div className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-subtle)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)]">
-              <UserRound className="h-3.5 w-3.5" />
-              {displayProfessionals.length} doctores
-            </div>
+        <div className="rounded-[var(--radius-lg)] border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] p-12 text-center flex flex-col items-center justify-center">
+          <div className="mx-auto inline-flex h-12 w-12 items-center justify-center rounded-full bg-[var(--bg-subtle)] text-[var(--text-secondary)]">
+            <UserRound className="h-6 w-6" />
           </div>
-
-          <div className="grid gap-2.5 p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {displayProfessionals.map((professional) => {
-              const count = appointmentCounts[professional.id] ?? 0;
-              const accentColor = professional.color || "var(--text-primary)";
-
-              return (
-                <button
-                  key={professional.id}
-                  type="button"
-                  onClick={() => onSelectProfessional?.(professional.id)}
-                  className="group flex min-h-24 items-center gap-3 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] p-3 text-left transition-[border-color,box-shadow,transform] duration-150 hover:-translate-y-0.5 hover:border-[var(--border-strong)] hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-[var(--focus-ring)]"
-                >
-                  <span
-                    className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm"
-                    style={{ backgroundColor: accentColor }}
-                  >
-                    {professional.firstName.charAt(0)}{professional.lastName.charAt(0)}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-semibold text-zinc-900">
-                      {professional.firstName} {professional.lastName}
-                    </span>
-                    <span className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] font-medium text-zinc-500">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-zinc-50 px-2 py-0.5 ring-1 ring-zinc-200">
-                        <CalendarDays className="h-3 w-3" />
-                        {count} {count === 1 ? "cita" : "citas"}
-                      </span>
-                      {professional.specialties?.[0]?.name && (
-                        <span className="truncate rounded-full bg-zinc-50 px-2 py-0.5 ring-1 ring-zinc-200">
-                          {professional.specialties[0].name}
-                        </span>
-                      )}
-                    </span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+          <h4 className="mt-4 text-[15px] font-semibold text-[var(--text-primary)]">Selecciona un profesional</h4>
+          <p className="mt-2 text-[13px] text-[var(--text-secondary)] max-w-sm">
+            Por favor, selecciona un doctor en el filtro superior para visualizar su agenda semanal.
+          </p>
         </div>
       );
     }
@@ -197,6 +176,16 @@ export function CalendarView({
     }
 
     const selectedAppointments = appointmentsInWeek.filter((appointment) => appointment.professionalId === selectedProfessional.id);
+    const weeklySchedules = schedules.filter(
+      (schedule) =>
+        schedule.professionalId === selectedProfessional.id &&
+        schedule.isActive &&
+        (!selectedBranchId || schedule.branchId === selectedBranchId)
+    );
+    const maxWeeklyChairs = Math.max(1, ...weeklySchedules.map((schedule) => schedule.simultaneousChairs ?? 1));
+    const effectiveWeeklyLane =
+      selectedWeeklyLane === "OVERBOOKING" ? "OVERBOOKING" : Math.min(selectedWeeklyLane, maxWeeklyChairs);
+    const weeklyChairTabs = Array.from({ length: maxWeeklyChairs }, (_, index) => index + 1);
     const appointmentsByDay = selectedAppointments.reduce<Record<string, Appointment[]>>((acc, appointment) => {
       const key = dayKey(appointment.startAt);
       acc[key] = [...(acc[key] ?? []), appointment];
@@ -205,53 +194,78 @@ export function CalendarView({
     const totalTimelineHeight = dayTimeSlots.length * daySlotHeight;
 
     return (
-      <div className="w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-[var(--border-default)]/50 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--text-brand-strong)] text-[var(--text-inverse)] font-semibold text-xs">
-              {selectedProfessional.firstName.charAt(0)}{selectedProfessional.lastName.charAt(0)}
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">{formatWeekRange(weekStart)}</p>
-              <h3 className="truncate text-base font-semibold text-[var(--text-primary)]">
-                {selectedProfessional.firstName} {selectedProfessional.lastName}
-              </h3>
-            </div>
-          </div>
+      <div className="w-full rounded-xl border border-[var(--border-default)] bg-[var(--bg-surface)] shadow-sm overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-2">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-default)] bg-[var(--bg-subtle)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-secondary)]">
-              <Clock className="h-3.5 w-3.5" />
-              {selectedAppointments.length} {selectedAppointments.length === 1 ? "cita" : "citas"}
-            </span>
-            {onSelectProfessional && (
+            {weeklyChairTabs.map((chairIndex) => (
               <button
+                key={chairIndex}
                 type="button"
-                onClick={() => onSelectProfessional("")}
-                className="rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-subtle)]"
+                className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  effectiveWeeklyLane === chairIndex
+                    ? "bg-[var(--action-brand)] text-white"
+                    : "bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+                onClick={() => setSelectedWeeklyLane(chairIndex)}
               >
-                Cambiar doctor
+                Sillon {chairIndex}
               </button>
-            )}
+            ))}
+            <button
+              type="button"
+              className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                effectiveWeeklyLane === "OVERBOOKING"
+                  ? "bg-[var(--action-brand)] text-white"
+                  : "bg-[var(--bg-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              }`}
+              onClick={() => setSelectedWeeklyLane("OVERBOOKING")}
+            >
+              Sobreagendamiento
+            </button>
           </div>
-        </div>
 
-        <div className="overflow-x-auto">
+          {professionals.length > 0 && onSelectProfessional ? (
+            <div className="flex items-center gap-2">
+              <UserRound className="h-4 w-4 text-slate-500" />
+              <select
+                className="h-8 rounded-lg border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 shadow-sm focus:border-cyan-500 focus:outline-none"
+                value={selectedProfessionalId}
+                onChange={(e) => onSelectProfessional(e.target.value)}
+              >
+                <option value="" disabled>Seleccionar doctor</option>
+                {professionals.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    Dr(a). {p.lastName}, {p.firstName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+        </div>
+        <div className="overflow-x-auto" data-responsive-overflow="contained" aria-label="Calendario semanal desplazable">
           <div className="min-w-[980px]">
             <div
-              className="grid border-b border-[var(--border-default)] bg-[var(--bg-subtle)]/70"
+              className="grid border-b border-[var(--border-default)]/60 bg-[var(--bg-subtle)]/40"
               style={{ gridTemplateColumns: "72px repeat(7, minmax(128px, 1fr))" }}
             >
-              <div className="sticky left-0 z-30 flex h-14 items-center justify-center border-r border-[var(--border-default)] bg-[var(--bg-subtle)] text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
+              <div className="sticky left-0 z-30 flex h-20 items-center justify-center border-r border-[var(--border-default)] bg-[var(--bg-subtle)] text-[10px] font-bold uppercase tracking-[0.12em] text-[var(--text-secondary)]">
                 Hora
               </div>
               {days.map((day) => {
                 const dayCount = appointmentsByDay[day.key]?.length ?? 0;
+                const cleanShortLabel = day.shortLabel.replace(".", "").toUpperCase();
 
                 return (
-                  <div key={day.key} className="flex h-14 flex-col justify-center border-r border-[var(--border-default)] px-3 last:border-r-0">
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--text-secondary)]">{day.shortLabel}</span>
-                    <span className="text-xs font-semibold text-[var(--text-primary)]">{day.label}</span>
-                    <span className="text-[10px] font-medium text-[var(--text-secondary)]">{dayCount} {dayCount === 1 ? "cita" : "citas"}</span>
+                  <div key={day.key} className="flex h-20 flex-col items-center justify-center border-r border-[var(--border-default)]/60 py-2 text-center last:border-r-0">
+                    <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--text-secondary)]">
+                      {cleanShortLabel}
+                    </span>
+                    <span className="text-xl font-black text-[var(--text-primary)] mt-0.5 leading-none">
+                      {day.date.getDate()}
+                    </span>
+                    <span className="inline-flex items-center rounded-full bg-zinc-100/80 px-2 py-0.5 text-[9px] font-bold text-zinc-500 mt-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]">
+                      {dayCount} {dayCount === 1 ? "cita" : "citas"}
+                    </span>
                   </div>
                 );
               })}
@@ -274,10 +288,15 @@ export function CalendarView({
               </div>
 
               {days.map((day) => {
-                const dayAppointments = appointmentsByDay[day.key] ?? [];
-                const dayBreaks = schedules.filter(
+                const daySchedule = weeklySchedules.find((schedule) => schedule.dayOfWeek === day.date.getDay());
+                const selectedChairIndex = effectiveWeeklyLane === "OVERBOOKING" ? null : effectiveWeeklyLane;
+                const dayAppointments = (appointmentsByDay[day.key] ?? []).filter((appointment) =>
+                  effectiveWeeklyLane === "OVERBOOKING"
+                    ? appointment.isOverbooking
+                    : !appointment.isOverbooking && (appointment.chairIndex ?? 1) === selectedChairIndex
+                );
+                const dayBreaks = weeklySchedules.filter(
                   (schedule) =>
-                    schedule.professionalId === selectedProfessional.id &&
                     schedule.dayOfWeek === day.date.getDay() &&
                     schedule.breakStartTime &&
                     schedule.breakEndTime
@@ -289,29 +308,61 @@ export function CalendarView({
                     className="relative border-r border-[var(--border-default)] bg-[var(--bg-surface)] last:border-r-0"
                     style={{ height: totalTimelineHeight }}
                   >
-                    {dayTimeSlots.map((time, index) => (
-                      <button
-                        key={time}
-                        type="button"
-                        onClick={() => {
-                          if (onCreateSlotClick) {
-                            onCreateSlotClick({
-                              professionalId: selectedProfessional.id,
-                              branchId: selectedBranchId || undefined,
-                              ...slotRange(day.key, time, normalizedDaySlotMinutes)
-                            });
-                            return;
-                          }
-                          onCreateClick?.();
-                        }}
-                        className="group absolute left-0 right-0 border-b border-[var(--border-default)]/50 transition-colors hover:bg-[var(--bg-brand-light)]/40"
-                        style={{ top: index * daySlotHeight, height: daySlotHeight }}
-                      >
-                        <span className="pointer-events-none absolute inset-1 flex items-center justify-center rounded-md text-[var(--text-brand)] opacity-0 transition-opacity group-hover:opacity-100">
-                          <Plus className="h-3.5 w-3.5" />
-                        </span>
-                      </button>
-                    ))}
+                    {dayTimeSlots.flatMap((time, index) => {
+                      const slotStartMinutes = timeToMinutes(time);
+                      const slotEndMinutes = slotStartMinutes === null ? null : slotStartMinutes + normalizedDaySlotMinutes;
+                      const scheduleStartMinutes = daySchedule ? timeToMinutes(daySchedule.startTime) : null;
+                      const scheduleEndMinutes = daySchedule ? timeToMinutes(daySchedule.endTime) : null;
+                      const normalLaneAvailable =
+                        effectiveWeeklyLane !== "OVERBOOKING" &&
+                        daySchedule &&
+                        selectedChairIndex !== null &&
+                        selectedChairIndex <= (daySchedule.simultaneousChairs ?? 1);
+                      const insideSchedule =
+                        slotStartMinutes !== null &&
+                        slotEndMinutes !== null &&
+                        scheduleStartMinutes !== null &&
+                        scheduleEndMinutes !== null &&
+                        slotStartMinutes >= scheduleStartMinutes &&
+                        slotEndMinutes <= scheduleEndMinutes;
+                      const overlapsBreak =
+                        slotStartMinutes !== null &&
+                        slotEndMinutes !== null &&
+                        dayBreaks.some((schedule) =>
+                          rangeOverlapsTimeRange(slotStartMinutes, slotEndMinutes, schedule.breakStartTime, schedule.breakEndTime)
+                        );
+                      const shouldRenderSlot =
+                        effectiveWeeklyLane === "OVERBOOKING"
+                          ? Boolean(daySchedule && insideSchedule && !overlapsBreak)
+                          : Boolean(normalLaneAvailable && insideSchedule && !overlapsBreak);
+                      if (!shouldRenderSlot) return [];
+
+                      return [
+                        <button
+                          key={time}
+                          type="button"
+                          onClick={() => {
+                            if (onCreateSlotClick) {
+                              onCreateSlotClick({
+                                professionalId: selectedProfessional.id,
+                                branchId: selectedBranchId || undefined,
+                                chairIndex: selectedChairIndex ?? undefined,
+                                allowOverbooking: effectiveWeeklyLane === "OVERBOOKING",
+                                ...slotRange(day.key, time, normalizedDaySlotMinutes)
+                              });
+                              return;
+                            }
+                            onCreateClick?.();
+                          }}
+                          className="group absolute left-0 right-0 border-b border-[var(--border-default)]/50 transition-colors hover:bg-[var(--bg-brand-light)]/40"
+                          style={{ top: index * daySlotHeight, height: daySlotHeight }}
+                        >
+                          <span className="pointer-events-none absolute inset-1 flex items-center justify-center rounded-md text-[var(--text-brand)] opacity-0 transition-opacity group-hover:opacity-100">
+                            <Plus className="h-3.5 w-3.5" />
+                          </span>
+                        </button>
+                      ];
+                    })}
 
                     {dayAppointments.map((appointment) => {
                       const placement = getAppointmentPlacement(appointment, {
@@ -334,15 +385,17 @@ export function CalendarView({
                           }}
                         >
                           {appointment.status === "BLOCKED" ? (
-                            <BlockedAppointmentBlock appointment={appointment} compact={true} onEdit={onEdit} />
+                            <BlockedAppointmentBlock appointment={appointment} compact={true} onCancel={onCancel} />
                           ) : (
-                            <AppointmentCard
-                              appointment={appointment}
-                              compact={true}
-                              onEdit={onEdit}
+                              <AppointmentCard
+                                appointment={appointment}
+                                compact={true}
+                                pendingStatus={statusAction?.appointmentId === appointment.id ? statusAction.status : undefined}
+                                onEdit={onEdit}
                               onCancel={onCancel}
                               onReschedule={onReschedule}
                               onChangeStatus={onChangeStatus}
+                              onContactWhatsApp={onContactWhatsApp}
                               onConfirm={onConfirm}
                               onArrive={onArrive}
                               onWaitingRoom={onWaitingRoom}
@@ -422,6 +475,15 @@ export function CalendarView({
 
     const displayProfessionalIds = new Set(displayProfessionals.map((professional) => professional.id));
     const daySchedules = schedulesForDate.filter((schedule) => displayProfessionalIds.has(schedule.professionalId));
+    
+    const displayColumns = showOverbookingOnly
+      ? displayProfessionals.map((professional) => ({ professional, chairIndex: null, isOverbookingColumn: true }))
+      : displayProfessionals.flatMap((professional) => {
+          const professionalSchedules = daySchedules.filter((schedule) => schedule.professionalId === professional.id);
+          const maxChairs = Math.max(1, ...professionalSchedules.map((schedule) => schedule.simultaneousChairs ?? 1));
+          return Array.from({ length: maxChairs }, (_, index) => ({ professional, chairIndex: index + 1, isOverbookingColumn: false }));
+        });
+        
     const dayTimelineRange = resolveAgendaTimelineRange({
       schedules: daySchedules,
       fallbackStartHour: normalizedDayStartHour,
@@ -445,236 +507,253 @@ export function CalendarView({
 
     return (
       <div className="w-full space-y-4">
-        {/* Responsive horizontal scroll shell for daily clinical columns */}
-        <div className="w-full rounded-xl border border-[var(--border-default)]/60 bg-[var(--bg-surface)] shadow-sm transition-all duration-200">
-          <div className="overflow-x-auto">
-            <div className="flex min-w-[700px]">
-              {/* Sticky Hours Timeline Left Panel */}
-              <div className="w-16 shrink-0 border-r border-[var(--border-default)] bg-[var(--bg-subtle)]/20 flex flex-col z-20">
-                {/* Visual corner connector indicator */}
-                <div className="h-16 border-b border-[var(--border-default)] flex items-center justify-center bg-[var(--bg-subtle)]/40 shrink-0 select-none">
-                  <span className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-secondary)]">
-                    Hora
-                  </span>
-                </div>
-                
-                {/* Time indicators for each visible slot division */}
-                <div className="relative shrink-0" style={{ height: dayTimelineHeight }}>
-                  {hourAxisMarkers.map((marker) => (
+        {/* Responsive horizontal scroll shell for daily clinical columns (Option 2: Executive Card Columns) */}
+        <div className="w-full">
+          <div className="overflow-x-auto max-h-[calc(100vh-240px)] overflow-y-auto overscroll-contain custom-scrollbar p-1" data-responsive-overflow="contained" aria-label="Agenda por profesionales desplazable">
+            <div className="flex gap-3.5 min-w-[700px] pb-2">
+              {/* Columns list for each active professional as independent card columns */}
+              {displayColumns.map(({ professional: prof, chairIndex, isOverbookingColumn }) => {
+                const profApps = appointmentsForDate
+                  .filter((a) => a.professionalId === prof.id && (isOverbookingColumn ? a.isOverbooking : (!a.isOverbooking && (a.chairIndex ?? 1) === chairIndex)))
+                  .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+                const profAppsCount = profApps.length;
+                const professionalAgenda = getProfessionalBranchAgendaConfig(prof, selectedBranchId, normalizedDaySlotMinutes);
+                const professionalSchedules = daySchedules.filter((schedule) => schedule.professionalId === prof.id);
+                const professionalSchedule = professionalSchedules[0];
+                const scheduleStartMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.startTime) : null;
+                const scheduleEndMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.endTime) : null;
+                const professionalVisualMarkers = buildTimelineMarkersFromRange(
+                  dayTimelineRange.startMinutes,
+                  dayTimelineRange.endMinutes,
+                  professionalAgenda.slotMinutes,
+                  timelineScale,
+                  { endExclusive: false }
+                );
+
+                const professionalTimeSlots =
+                  professionalSchedule && scheduleStartMinutes !== null && scheduleEndMinutes !== null
+                    ? buildTimeSlotsFromRange(scheduleStartMinutes, scheduleEndMinutes, professionalAgenda.slotMinutes, {
+                        endExclusive: true
+                      })
+                    : [];
+                const profBreaks = professionalSchedules.filter((schedule) => schedule.breakStartTime && schedule.breakEndTime);
+                const busyAppointments = profApps.filter((appointment) => !FREE_APPOINTMENT_STATUSES.has(appointment.status));
+
+                return (
+                  <div 
+                    key={`${prof.id}-${chairIndex}`} 
+                    className="flex-1 min-w-[280px] sm:min-w-[320px] shrink-0 flex flex-col bg-white rounded-2xl border border-zinc-200/80 shadow-sm hover:shadow-md transition-all duration-200 overflow-hidden"
+                  >
+                    {/* Professional Info Column Header (Card Style) */}
                     <div
-                      key={marker.time}
-                      className="absolute left-0 right-0 flex items-start justify-center border-t border-[var(--border-default)]/50 pt-1 text-center"
-                      style={{ top: marker.top }}
+                      className="sticky top-0 h-11 bg-zinc-50/90 backdrop-blur-md border-b border-zinc-200/80 flex items-center z-20 shrink-0 overflow-hidden"
+                      style={prof.color ? { borderTop: `3px solid ${prof.color}` } : undefined}
                     >
-                      <span className="text-[10px] font-medium text-[var(--text-secondary)] tracking-tight">
-                        {marker.time}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Columns list for each active professional */}
-              <div className="flex flex-1 divide-x divide-[var(--border-default)]/40">
-                {displayProfessionals.map((prof) => {
-                  const profApps = appointmentsForDate
-                    .filter((a) => a.professionalId === prof.id)
-                    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
-                  const profAppsCount = profApps.length;
-                  const professionalAgenda = getProfessionalBranchAgendaConfig(prof, selectedBranchId, normalizedDaySlotMinutes);
-                  const professionalSchedules = daySchedules.filter((schedule) => schedule.professionalId === prof.id);
-                  const professionalSchedule = professionalSchedules[0];
-                  const scheduleStartMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.startTime) : null;
-                  const scheduleEndMinutes = professionalSchedule ? timeToMinutes(professionalSchedule.endTime) : null;
-                  const professionalVisualMarkers = buildTimelineMarkersFromRange(
-                    dayTimelineRange.startMinutes,
-                    dayTimelineRange.endMinutes,
-                    professionalAgenda.slotMinutes,
-                    timelineScale,
-                    { endExclusive: true }
-                  );
-                  const professionalTimeSlots =
-                    professionalSchedule && scheduleStartMinutes !== null && scheduleEndMinutes !== null
-                      ? buildTimeSlotsFromRange(scheduleStartMinutes, scheduleEndMinutes, professionalAgenda.slotMinutes, {
-                          endExclusive: true
-                        })
-                      : [];
-                  const profBreaks = professionalSchedules.filter((schedule) => schedule.breakStartTime && schedule.breakEndTime);
-                  const busyAppointments = profApps.filter((appointment) => !FREE_APPOINTMENT_STATUSES.has(appointment.status));
-
-                  return (
-                    <div key={prof.id} className="flex-1 min-w-[220px] flex flex-col">
-                      {/* Professional Info Column Header */}
-                      <div className="sticky top-0 h-16 bg-[var(--bg-surface)]/95 backdrop-blur-md px-4 py-3 border-b border-[var(--border-default)]/60 flex items-center gap-2.5 z-20 shrink-0">
-                        <div className="h-8 w-8 rounded-full bg-[var(--text-brand-strong)] text-[var(--text-inverse)] flex items-center justify-center font-semibold text-xs shrink-0 select-none">
-                          {prof.firstName.charAt(0)}{prof.lastName.charAt(0)}
-                        </div>
+                      <div className="w-[44px] shrink-0 border-r border-zinc-200/70 bg-zinc-100/60 h-full flex items-center justify-center select-none">
+                        <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                      </div>
+                      <div className="flex-1 flex items-center gap-1.5 px-3 py-1 min-w-0">
                         <div className="min-w-0 flex-1">
-                          <p className="text-xs font-semibold text-[var(--text-primary)] truncate">
-                            {prof.firstName} {prof.lastName}
-                          </p>
-                          <span className="inline-flex items-center rounded-full bg-[var(--bg-subtle)] border border-[var(--border-default)]/60 px-2 py-0.5 text-[9px] font-medium text-[var(--text-secondary)] mt-0.5 select-none">
-                            {profAppsCount} {profAppsCount === 1 ? "cita" : "citas"}
-                          </span>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span
+                              className="h-2.5 w-2.5 rounded-full shrink-0 shadow-sm"
+                              style={{ backgroundColor: prof.color || "#0f766e" }}
+                            />
+                            <p className="text-xs font-bold text-zinc-800 truncate">
+                              {prof.firstName} {prof.lastName}
+                            </p>
+                            {isOverbookingColumn ? (
+                              <span className="inline-flex items-center rounded-full bg-orange-50 border border-orange-200/80 px-2 py-0.5 text-[9px] font-bold text-orange-700 shrink-0 select-none">
+                                Sobreagendamiento
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-full bg-cyan-50 border border-cyan-200/70 px-2 py-0.5 text-[9px] font-bold text-cyan-800 shrink-0 select-none">
+                                Sillón {chairIndex}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
+                    </div>
 
-                      {/* Timeline Slots under this doctor */}
-                      <div className="relative shrink-0 overflow-hidden bg-[var(--bg-subtle)]/5" style={{ height: dayTimelineHeight }}>
-                        {professionalSchedules.map((schedule) => {
-                          const placement = getTimeRangePlacement(schedule.startTime, schedule.endTime, {
-                            startMinutes: dayTimelineRange.startMinutes,
-                            endMinutes: dayTimelineRange.endMinutes,
-                            slotMinutes: normalizedDaySlotMinutes,
-                            slotHeight: daySlotHeight
-                          });
-                          if (!placement) return null;
+                    {/* Timeline Slots under this doctor */}
+                    <div className="relative shrink-0 overflow-hidden bg-slate-50/30" style={{ height: dayTimelineHeight + 10 }}>
+                      {professionalVisualMarkers.map((marker) => {
+                        return (
+                          <div
+                            key={marker.time}
+                            className="absolute left-[44px] right-0 z-[1] border-b border-zinc-200/40"
+                            style={{ top: marker.top }}
+                          />
+                        );
+                      })}
 
-                          return (
-                            <HelpTooltip
-                              key={`working-${schedule.id}`}
-                              content={`Horario laboral ${schedule.startTime} - ${schedule.endTime}`}
-                              position="right"
-                              triggerClassName="absolute left-1 right-1 z-0 block"
-                              triggerStyle={{ top: placement.top, height: placement.height }}
-                            >
-                              <div className="h-full w-full rounded-lg border border-[var(--border-default)] bg-[var(--status-success-bg)]/80 shadow-[inset_3px_0_0_var(--status-success-text)]" />
-                            </HelpTooltip>
-                          );
-                        })}
+                      {professionalVisualMarkers.map((marker) => {
+                        const isFirst = marker.top === 0;
+                        return (
+                          <span
+                            key={`time-${marker.time}`}
+                            className="absolute left-0 w-[44px] text-center text-[9px] font-bold text-zinc-400 select-none tabular-nums"
+                            style={{ top: isFirst ? 2 : marker.top - 6 }}
+                          >
+                            {marker.time}
+                          </span>
+                        );
+                      })}
 
-                        {professionalVisualMarkers.map((marker) => {
-                          return (
-                            <div
-                              key={marker.time}
-                              className="absolute left-0 right-0 z-[1] border-b border-[var(--border-default)]/25"
-                              style={{ top: marker.top }}
-                            />
-                          );
-                        })}
+                      <div className="absolute top-0 bottom-0 left-[44px] border-l border-zinc-200/70 z-[2]" />
 
-                        {professionalTimeSlots.map((time) => {
-                          const slotStartMinutes = timeToMinutes(time);
-                          const slotEndMinutes =
-                            slotStartMinutes === null ? null : slotStartMinutes + professionalAgenda.defaultAppointmentDurationMinutes;
-                          const isInsideSchedule =
-                            slotStartMinutes !== null &&
-                            slotEndMinutes !== null &&
-                            scheduleStartMinutes !== null &&
-                            scheduleEndMinutes !== null &&
-                            slotStartMinutes >= scheduleStartMinutes &&
-                            slotEndMinutes <= scheduleEndMinutes;
-                          const overlapsBreak =
-                            slotStartMinutes !== null &&
-                            slotEndMinutes !== null &&
-                            profBreaks.some((schedule) =>
-                              rangeOverlapsTimeRange(slotStartMinutes, slotEndMinutes, schedule.breakStartTime, schedule.breakEndTime)
+                      <div className="absolute top-0 bottom-0 left-[44px] right-0">
+                          {professionalSchedules.map((schedule) => {
+                            const placement = getTimeRangePlacement(schedule.startTime, schedule.endTime, {
+                              startMinutes: dayTimelineRange.startMinutes,
+                              endMinutes: dayTimelineRange.endMinutes,
+                              slotMinutes: normalizedDaySlotMinutes,
+                              slotHeight: daySlotHeight
+                            });
+                            if (!placement) return null;
+
+                            return (
+                              <HelpTooltip
+                                key={`working-${schedule.id}`}
+                                content={`Horario laboral ${schedule.startTime} - ${schedule.endTime}`}
+                                position="right"
+                                triggerClassName="absolute left-1 right-1 z-0 block"
+                                triggerStyle={{ top: placement.top, height: placement.height }}
+                              >
+                                <div className="h-full w-full rounded-lg border border-[var(--border-default)] bg-[var(--status-success-bg)]/80 shadow-[inset_3px_0_0_var(--status-success-text)]" />
+                              </HelpTooltip>
                             );
-                          const overlapsBusyAppointment =
-                            slotStartMinutes !== null &&
-                            slotEndMinutes !== null &&
-                            busyAppointments.some((appointment) =>
-                              rangeOverlapsMinutes(slotStartMinutes, slotEndMinutes, appointmentToDayMinutes(appointment))
-                            );
-                          const placement =
-                            slotStartMinutes === null
-                              ? null
-                              : getSlotButtonPlacement(slotStartMinutes, professionalAgenda.slotMinutes, {
-                                  startMinutes: dayTimelineRange.startMinutes,
-                                  endMinutes: dayTimelineRange.endMinutes,
-                                  slotMinutes: normalizedDaySlotMinutes,
-                                  slotHeight: daySlotHeight
-                                });
+                          })}
 
-                          if (!isInsideSchedule || overlapsBreak || overlapsBusyAppointment || !placement) return null;
-
-                          return (
-                            <button
-                              key={time}
-                              type="button"
-                              onClick={() => {
-                                if (onCreateSlotClick) {
-                                  onCreateSlotClick({
-                                    professionalId: prof.id,
-                                    branchId: selectedBranchId || undefined,
-                                    ...slotRange(date, time, professionalAgenda.defaultAppointmentDurationMinutes)
+                          {professionalTimeSlots.map((time) => {
+                            const slotStartMinutes = timeToMinutes(time);
+                            const slotEndMinutes =
+                              slotStartMinutes === null ? null : slotStartMinutes + professionalAgenda.defaultAppointmentDurationMinutes;
+                            const isInsideSchedule =
+                              slotStartMinutes !== null &&
+                              slotEndMinutes !== null &&
+                              scheduleStartMinutes !== null &&
+                              scheduleEndMinutes !== null &&
+                              slotStartMinutes >= scheduleStartMinutes &&
+                              slotEndMinutes <= scheduleEndMinutes;
+                            const overlapsBreak =
+                              slotStartMinutes !== null &&
+                              slotEndMinutes !== null &&
+                              profBreaks.some((schedule) =>
+                                rangeOverlapsTimeRange(slotStartMinutes, slotEndMinutes, schedule.breakStartTime, schedule.breakEndTime)
+                              );
+                            const overlapsBusyAppointment =
+                              slotStartMinutes !== null &&
+                              slotEndMinutes !== null &&
+                              busyAppointments.some((appointment) =>
+                                rangeOverlapsMinutes(slotStartMinutes, slotEndMinutes, appointmentToDayMinutes(appointment))
+                              );
+                            const placement =
+                              slotStartMinutes === null
+                                ? null
+                                : getSlotButtonPlacement(slotStartMinutes, professionalAgenda.slotMinutes, {
+                                    startMinutes: dayTimelineRange.startMinutes,
+                                    endMinutes: dayTimelineRange.endMinutes,
+                                    slotMinutes: normalizedDaySlotMinutes,
+                                    slotHeight: daySlotHeight
                                   });
-                                  return;
-                                }
-                                onCreateClick?.();
-                              }}
-                              className="group/slot absolute left-0 right-0 z-[3] border-b border-[var(--status-success-bg)]/60 p-1 transition-colors duration-150 hover:bg-[var(--status-success-bg)]/70"
-                              style={{ top: placement.top, height: placement.height }}
-                            >
-                              <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)]/55 text-[10px] font-medium text-[var(--status-success-text)] opacity-0 shadow-sm transition-opacity duration-150 group-hover/slot:opacity-100">
-                                <Plus className="h-3.5 w-3.5" />
-                                <span>Disponible</span>
-                              </span>
-                            </button>
-                          );
-                        })}
 
-                        {profApps.map((app) => {
-                          const placement = getAppointmentPlacement(app, {
-                            startMinutes: dayTimelineRange.startMinutes,
-                            endMinutes: dayTimelineRange.endMinutes,
-                            slotMinutes: normalizedDaySlotMinutes,
-                            slotHeight: daySlotHeight
-                          });
-                          if (!placement) return null;
+                            if (!isInsideSchedule || overlapsBreak || overlapsBusyAppointment || !placement) return null;
+                            if (professionalSchedule && !isOverbookingColumn && (chairIndex ?? 1) > (professionalSchedule.simultaneousChairs ?? 1)) return null;
 
-                          return (
-                            <div
-                              key={app.id}
-                              className="absolute z-10 px-1 py-0.5 transition-all has-[.menu-open]:z-[50] has-[.tooltip-open]:z-[40]"
-                              style={{
-                                top: placement.top,
-                                height: placement.height,
-                                left: 0,
-                                right: 0
-                              }}
-                            >
-                              {app.status === "BLOCKED" ? (
-                                <BlockedAppointmentBlock appointment={app} compact={true} onEdit={onEdit} />
-                              ) : (
-                                <AppointmentCard
-                                  appointment={app}
-                                  compact={true}
-                                  onEdit={onEdit}
-                                  onCancel={onCancel}
-                                  onReschedule={onReschedule}
-                                  onChangeStatus={onChangeStatus}
-                                  onConfirm={onConfirm}
-                                  onArrive={onArrive}
-                                  onWaitingRoom={onWaitingRoom}
-                                  onStart={onStart}
-                                  onComplete={onComplete}
-                                  onNoShow={onNoShow}
-                                  onMenuAction={onMenuAction}
-                                />
-                              )}
-                            </div>
-                          );
-                        })}
+                            return (
+                              <button
+                                key={time}
+                                type="button"
+                                onClick={() => {
+                                  if (onCreateSlotClick) {
+                                    onCreateSlotClick({
+                                      professionalId: prof.id,
+                                      branchId: selectedBranchId || undefined,
+                                      chairIndex: isOverbookingColumn ? undefined : (chairIndex ?? undefined),
+                                      allowOverbooking: isOverbookingColumn,
+                                      ...slotRange(date, time, professionalAgenda.defaultAppointmentDurationMinutes)
+                                    });
+                                    return;
+                                  }
+                                  onCreateClick?.();
+                                }}
+                                className="group/slot absolute left-0 right-0 z-[3] border-b border-[var(--status-success-bg)]/60 p-1 transition-colors duration-150 hover:bg-[var(--status-success-bg)]/70"
+                                style={{ top: placement.top, height: placement.height }}
+                              >
+                                <span className="flex h-full items-center justify-center gap-1 rounded-lg border border-[var(--border-default)] bg-[var(--bg-surface)]/55 text-[10px] font-medium text-[var(--status-success-text)] opacity-0 shadow-sm transition-opacity duration-150 group-hover/slot:opacity-100">
+                                  <Plus className="h-3.5 w-3.5" />
+                                  <span>Disponible</span>
+                                </span>
+                              </button>
+                            );
+                          })}
 
-                        {profBreaks.map((schedule) => {
-                          const placement = getTimeRangePlacement(schedule.breakStartTime!, schedule.breakEndTime!, {
-                            startMinutes: dayTimelineRange.startMinutes,
-                            endMinutes: dayTimelineRange.endMinutes,
-                            slotMinutes: normalizedDaySlotMinutes,
-                            slotHeight: daySlotHeight
-                          });
-                          if (!placement) return null;
+                          {profApps.map((app) => {
+                            const placement = getAppointmentPlacement(app, {
+                              startMinutes: dayTimelineRange.startMinutes,
+                              endMinutes: dayTimelineRange.endMinutes,
+                              slotMinutes: normalizedDaySlotMinutes,
+                              slotHeight: daySlotHeight
+                            });
+                            if (!placement) return null;
 
-                          return (
-                            <BreakBlock
-                              key={schedule.id}
-                              top={placement.top}
-                              height={placement.height}
-                              range={`${schedule.breakStartTime} - ${schedule.breakEndTime}`}
-                            />
-                          );
-                        })}
+                            return (
+                              <div
+                                key={app.id}
+                                className="absolute z-10 px-1 py-0.5 transition-all has-[.menu-open]:z-[50] has-[.tooltip-open]:z-[40]"
+                                style={{
+                                  top: placement.top,
+                                  height: placement.height,
+                                  left: 0,
+                                  right: 0
+                                }}
+                              >
+                                {app.status === "BLOCKED" ? (
+                                  <BlockedAppointmentBlock appointment={app} compact={true} onCancel={onCancel} />
+                                ) : (
+                                    <AppointmentCard
+                                      appointment={app}
+                                      compact={true}
+                                      pendingStatus={statusAction?.appointmentId === app.id ? statusAction.status : undefined}
+                                      onEdit={onEdit}
+                                    onCancel={onCancel}
+                                    onReschedule={onReschedule}
+                                    onChangeStatus={onChangeStatus}
+                                    onConfirm={onConfirm}
+                                    onArrive={onArrive}
+                                    onWaitingRoom={onWaitingRoom}
+                                    onStart={onStart}
+                                    onComplete={onComplete}
+                                    onNoShow={onNoShow}
+                                    onMenuAction={onMenuAction}
+                                  />
+                                )}
+                              </div>
+                            );
+                          })}
+
+
+                          {profBreaks.map((schedule) => {
+                            const placement = getTimeRangePlacement(schedule.breakStartTime!, schedule.breakEndTime!, {
+                              startMinutes: dayTimelineRange.startMinutes,
+                              endMinutes: dayTimelineRange.endMinutes,
+                              slotMinutes: normalizedDaySlotMinutes,
+                              slotHeight: daySlotHeight
+                            });
+                            if (!placement) return null;
+
+                            return (
+                              <BreakBlock
+                                key={schedule.id}
+                                top={placement.top}
+                                height={placement.height}
+                                range={`${schedule.breakStartTime} - ${schedule.breakEndTime}`}
+                              />
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   );
@@ -683,13 +762,12 @@ export function CalendarView({
             </div>
           </div>
         </div>
-      </div>
-    );
-  }
+      );
+    }
 
   // --- WEEK / MONTH VIEW FALLBACK (Standard Day Groups) ---
   const groups = appointments.reduce<Record<string, Appointment[]>>((acc, appointment) => {
-    const key = dayKey(appointment.startAt);
+    const key = toDateInputValue(new Date(appointment.startAt));
     acc[key] = [...(acc[key] ?? []), appointment];
     return acc;
   }, {});
@@ -708,10 +786,12 @@ export function CalendarView({
               <AppointmentCard
                 key={appointment.id}
                 appointment={appointment}
+                pendingStatus={statusAction?.appointmentId === appointment.id ? statusAction.status : undefined}
                 onEdit={onEdit}
                 onCancel={onCancel}
                 onReschedule={onReschedule}
                 onChangeStatus={onChangeStatus}
+                onContactWhatsApp={onContactWhatsApp}
                 onConfirm={onConfirm}
                 onArrive={onArrive}
                 onWaitingRoom={onWaitingRoom}
@@ -731,202 +811,61 @@ export function CalendarView({
 function BlockedAppointmentBlock({
   appointment,
   compact,
-  onEdit
+  onCancel
 }: {
   appointment: Appointment;
   compact?: boolean;
-  onEdit: (appointment: Appointment) => void;
+  onCancel: (appointment: Appointment) => void;
 }) {
   const range = `${formatDisplayTime(appointment.startAt)} - ${formatDisplayTime(appointment.endAt)}`;
+  
+  const start = new Date(appointment.startAt);
+  const end = new Date(appointment.endAt);
+  const durationMin = Math.round((end.getTime() - start.getTime()) / 60000);
+
+  if (durationMin <= 20) {
+    return (
+      <HelpTooltip content={`${appointment.title || "Bloqueo"} ${range}`} position="top" triggerClassName="h-full w-full">
+        <button
+          type="button"
+          onClick={() => onCancel(appointment)}
+          className="flex h-full w-full items-center overflow-hidden rounded-[var(--radius-sm)] border border-slate-350 bg-slate-50 bg-[repeating-linear-gradient(-45deg,transparent,transparent_6px,rgba(100,116,139,0.12)_6px,rgba(100,116,139,0.12)_12px)] px-2 text-left text-slate-700 shadow-sm transition-[border-color,box-shadow] hover:border-slate-400 hover:shadow-[var(--shadow-card-hover)]"
+        >
+          <div className="flex items-center gap-1.5 text-[9.5px] font-medium w-full overflow-hidden select-none">
+            <span className="shrink-0 text-[8px] font-extrabold uppercase tracking-wider text-slate-500">Bloqueo</span>
+            <span className="shrink-0 text-slate-300">|</span>
+            <span className="truncate font-bold text-slate-700">{appointment.title || "Bloqueo programado"}</span>
+            <span className="shrink-0 text-slate-300">|</span>
+            <span className="shrink-0 text-[8px] font-semibold text-slate-500">{range}</span>
+          </div>
+        </button>
+      </HelpTooltip>
+    );
+  }
 
   return (
     <HelpTooltip content={`${appointment.title} ${range}`} position="top" triggerClassName="h-full w-full">
       <button
         type="button"
-        onClick={() => onEdit(appointment)}
-        className="flex h-full w-full flex-col justify-center overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border-brand-light)] bg-[var(--bg-brand-light)] px-2 py-1 text-left text-[var(--text-brand-strong)] shadow-sm transition-[border-color,box-shadow] hover:border-[var(--border-brand)] hover:shadow-[var(--shadow-card-hover)]"
+        onClick={() => onCancel(appointment)}
+        className="flex h-full w-full flex-col justify-center gap-0.5 overflow-hidden rounded-[var(--radius-sm)] border border-slate-350 bg-slate-50 bg-[repeating-linear-gradient(-45deg,transparent,transparent_6px,rgba(100,116,139,0.12)_6px,rgba(100,116,139,0.12)_12px)] px-2 py-1 text-left text-slate-700 shadow-sm transition-[border-color,box-shadow] hover:border-slate-400 hover:shadow-[var(--shadow-card-hover)]"
       >
-        <span className="truncate text-[10px] font-semibold uppercase tracking-[0.08em]">{compact ? "Bloqueo" : "Horario bloqueado"}</span>
-        <span className="truncate text-[11px] font-semibold">{appointment.title || "Bloqueo programado"}</span>
-        <span className="truncate text-[10px] font-medium text-[var(--text-brand)]">{range}</span>
+        <span className="truncate text-[8px] font-bold uppercase tracking-wider text-slate-500 leading-none">{compact ? "Bloqueo" : "Horario bloqueado"}</span>
+        <span className="truncate text-[10px] font-bold text-slate-700 leading-tight">{appointment.title || "Bloqueo programado"}</span>
+        <span className="truncate text-[8.5px] font-semibold text-slate-500 leading-none">{range}</span>
       </button>
     </HelpTooltip>
   );
 }
 
-function BreakBlock({ top, height, range }: { top: number; height: number; range: string }) {
+function BreakBlock({ top, height }: { top: number; height: number; range: string }) {
   return (
-    <HelpTooltip
-      content={`Horario de comida ${range}`}
-      position="right"
-      triggerClassName="absolute left-1 right-1 z-[2] block"
-      triggerStyle={{
+    <div
+      className="absolute left-1 right-1 z-[2] select-none bg-slate-100 bg-[repeating-linear-gradient(-45deg,transparent,transparent_6px,rgba(100,116,139,0.22)_6px,rgba(100,116,139,0.22)_12px)] border-y border-slate-300/80"
+      style={{
         top,
         height
       }}
-    >
-      <div className="flex h-full w-full select-none items-center justify-center overflow-hidden rounded-[var(--radius-sm)] border border-blue-900/30 bg-blue-900 bg-[repeating-linear-gradient(-45deg,transparent,transparent_8px,rgba(255,255,255,0.1)_8px,rgba(255,255,255,0.1)_16px)] px-2 text-center text-[10px] font-semibold uppercase tracking-[0.08em] text-white shadow-sm">
-        <span className="truncate">Comida {range}</span>
-      </div>
-    </HelpTooltip>
+    />
   );
-}
-
-function slotRange(date: string, time: string, durationMinutes = DEFAULT_DAY_SLOT_MINUTES) {
-  const [year, month, day] = date.split("-").map(Number);
-  const [hours, minutes] = time.split(":").map(Number);
-  const start = new Date(year, month - 1, day, hours, minutes, 0, 0);
-  const end = new Date(start.getTime() + durationMinutes * 60 * 1000);
-  return { startAt: start.toISOString(), endAt: end.toISOString() };
-}
-
-function parseDateInput(value: string) {
-  const [year, month, day] = value.split("-").map(Number);
-  return new Date(year, month - 1, day, 0, 0, 0, 0);
-}
-
-function toDateInputValue(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function getWeekStart(date: Date) {
-  const result = new Date(date);
-  const day = result.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
-  result.setDate(result.getDate() + diff);
-  result.setHours(0, 0, 0, 0);
-  return result;
-}
-
-function addDays(date: Date, amount: number) {
-  const result = new Date(date);
-  result.setDate(result.getDate() + amount);
-  return result;
-}
-
-function formatWeekDay(date: Date) {
-  const weekday = date.toLocaleDateString("es-MX", { weekday: "long" });
-  return `${capitalize(weekday)} ${date.getDate()}`;
-}
-
-function formatWeekRange(weekStart: Date) {
-  const weekEnd = addDays(weekStart, 6);
-  const start = weekStart.toLocaleDateString("es-MX", { day: "numeric", month: "short" });
-  const end = weekEnd.toLocaleDateString("es-MX", { day: "numeric", month: "short" });
-  return `${start} al ${end}`;
-}
-
-function capitalize(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function buildTimeSlots(
-  startHour: number,
-  endHour: number,
-  stepMinutes: number,
-  options?: { endExclusive?: boolean }
-) {
-  return buildTimeSlotsFromRange(startHour * 60, endHour * 60, stepMinutes, options);
-}
-
-function getAppointmentPlacement(
-  appointment: Appointment,
-  config: { startMinutes: number; endMinutes: number; slotMinutes: number; slotHeight: number }
-) {
-  const start = new Date(appointment.startAt);
-  const end = new Date(appointment.endAt);
-  const startMinutes = Math.max(config.startMinutes, start.getHours() * 60 + start.getMinutes());
-  const endMinutes = Math.min(config.endMinutes, end.getHours() * 60 + end.getMinutes());
-  if (endMinutes <= startMinutes) return null;
-
-  const top = ((startMinutes - config.startMinutes) / config.slotMinutes) * config.slotHeight + 2;
-  const height = Math.max(20, ((endMinutes - startMinutes) / config.slotMinutes) * config.slotHeight - 4);
-
-  return { top, height };
-}
-
-function getSlotButtonPlacement(
-  startMinutes: number,
-  durationMinutes: number,
-  config: { startMinutes: number; endMinutes: number; slotMinutes: number; slotHeight: number }
-) {
-  const endMinutes = Math.min(config.endMinutes, startMinutes + durationMinutes);
-  if (startMinutes < config.startMinutes || endMinutes <= startMinutes) return null;
-
-  const top = ((startMinutes - config.startMinutes) / config.slotMinutes) * config.slotHeight;
-  const height = Math.max(20, ((endMinutes - startMinutes) / config.slotMinutes) * config.slotHeight);
-
-  return { top, height };
-}
-
-function getTimeRangePlacement(
-  startTime: string,
-  endTime: string,
-  config: { startMinutes: number; endMinutes: number; slotMinutes: number; slotHeight: number }
-) {
-  const rawStartMinutes = timeToMinutes(startTime);
-  const rawEndMinutes = timeToMinutes(endTime);
-  if (rawStartMinutes === null || rawEndMinutes === null) return null;
-
-  const startMinutes = Math.max(config.startMinutes, rawStartMinutes);
-  const endMinutes = Math.min(config.endMinutes, rawEndMinutes);
-  if (endMinutes <= startMinutes) return null;
-
-  const top = ((startMinutes - config.startMinutes) / config.slotMinutes) * config.slotHeight + 2;
-  const height = Math.max(20, ((endMinutes - startMinutes) / config.slotMinutes) * config.slotHeight - 4);
-
-  return { top, height };
-}
-
-function rangeOverlapsTimeRange(
-  startMinutes: number,
-  endMinutes: number,
-  rangeStartTime?: string | null,
-  rangeEndTime?: string | null
-) {
-  if (!rangeStartTime || !rangeEndTime) return false;
-  const rangeStartMinutes = timeToMinutes(rangeStartTime);
-  const rangeEndMinutes = timeToMinutes(rangeEndTime);
-  if (rangeStartMinutes === null || rangeEndMinutes === null) return false;
-
-  return startMinutes < rangeEndMinutes && endMinutes > rangeStartMinutes;
-}
-
-function rangeOverlapsMinutes(
-  startMinutes: number,
-  endMinutes: number,
-  range: { startMinutes: number; endMinutes: number } | null
-) {
-  if (!range) return false;
-  return startMinutes < range.endMinutes && endMinutes > range.startMinutes;
-}
-
-function appointmentToDayMinutes(appointment: Appointment) {
-  const start = new Date(appointment.startAt);
-  const end = new Date(appointment.endAt);
-
-  return {
-    startMinutes: start.getHours() * 60 + start.getMinutes(),
-    endMinutes: end.getHours() * 60 + end.getMinutes()
-  };
-}
-
-function formatDisplayTime(value: string) {
-  return new Date(value).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit", hour12: false });
-}
-
-function clampInt(value: number, min: number, max: number, fallback: number) {
-  if (!Number.isFinite(value)) return fallback;
-  const normalized = Math.trunc(value);
-  if (normalized < min || normalized > max) return fallback;
-  return normalized;
-}
-
-function getAgendaSlotHeight(slotMinutes: number) {
-  if (slotMinutes <= 10) return 24;
-  if (slotMinutes <= 20) return 38;
-  return 56;
 }
